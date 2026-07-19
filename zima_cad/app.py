@@ -2009,9 +2009,10 @@ class MainWindow(QMainWindow):
 
         context = self.viewer._display.Context
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
+            selected_edge_ids = set() if self.selected_face is not None else selected_ids
             color = (
                 YELLOW
-                if object_id in selected_ids or object_id in whole_object_ids
+                if object_id in selected_edge_ids or object_id in whole_object_ids
                 else BLACK
             )
             for edge_shape in edge_shapes:
@@ -2248,10 +2249,9 @@ class MainWindow(QMainWindow):
             self.selected_face is not None
             and self.view_selection_filter != ViewSelectionFilter.OBJECT
         ):
-            normal_view_action = menu.addAction(tr("menu.context.view_normal"))
-            action = menu.exec(global_position)
-            if action == normal_view_action:
-                self._view_normal_to_selected_face()
+            empty_action = menu.addAction(" ")
+            empty_action.setEnabled(False)
+            menu.exec(global_position)
             return
 
         attach_action = None
@@ -2788,6 +2788,10 @@ class MainWindow(QMainWindow):
             ObjectKind.ORIGIN,
         ):
             selected_ids.update(self._descendant_object_ids(selected))
+        if self.selected_face is not None:
+            self._display_selected_face_highlight()
+            context.UpdateSelected(True)
+            return
         for object_id in selected_ids:
             for edge_shape in self._model_edge_ais_by_object_id.get(object_id, []):
                 edge_shape.SetColor(YELLOW)
@@ -2810,6 +2814,22 @@ class MainWindow(QMainWindow):
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
         context.UpdateSelected(True)
+
+    def _display_selected_face_highlight(self) -> None:
+        if self.selected_face is None:
+            return
+        context = self.viewer._display.Context
+        ais_shapes = self.viewer._display.DisplayShape(
+            self.selected_face,
+            color=YELLOW,
+            transparency=0.0,
+            update=False,
+        )
+        for ais_shape in ais_shapes:
+            self._set_ais_display_mode(ais_shape, AIS_Shaded)
+            ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+            context.Deactivate(ais_shape)
+        self._selected_face_overlay_ais.extend(ais_shapes)
 
     def _clear_selected_shape_overlays(self) -> None:
         context = self.viewer._display.Context
