@@ -1884,8 +1884,11 @@ class MainWindow(QMainWindow):
         selected = self.tree.selectedItems()
         if not selected:
             self.selected_object_id = None
+            self._view_selection_confirmed = False
         else:
             self.selected_object_id = selected[0].data(0, Qt.ItemDataRole.UserRole)
+            self._view_selection_confirmed = self.selected_object_id is not None
+        self.viewer._select_cycled_detection = False
 
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
@@ -3068,8 +3071,8 @@ class MainWindow(QMainWindow):
         owner: ZimaObject | None,
         key: str,
     ) -> bool:
-        category_visible = self.show_origins_action.isChecked()
-        if category_visible:
+        child_id = self._coordinate_child_id(owner, key)
+        if child_id is not None and child_id == self.selected_object_id:
             return True
         if owner is not None and self.selected_object_id == owner.object_id:
             return True
@@ -3083,8 +3086,20 @@ class MainWindow(QMainWindow):
                 and self.selected_object_id == internal_origin.object_id
             ):
                 return True
-        child_id = self._coordinate_child_id(owner, key)
-        return child_id is not None and child_id == self.selected_object_id
+        coordinate = (
+            self.document.find_object(child_id)
+            if self.document is not None and child_id is not None
+            else None
+        )
+        if coordinate is not None and coordinate.locked:
+            return self.show_origins_action.isChecked()
+        if key == "point":
+            return self.show_points_action.isChecked()
+        if key.endswith("_axis"):
+            return self.show_axes_action.isChecked()
+        if key.endswith("_plane"):
+            return self.show_planes_action.isChecked()
+        return self.show_origins_action.isChecked()
 
     def _transform_origin_shape(self, shape, coordinate_transform):
         if isinstance(shape, list):
