@@ -1241,6 +1241,7 @@ class MainWindow(QMainWindow):
         self.view_selection_filter = ViewSelectionFilter.ALL
         self._model_ais_by_object_id: dict[str, list[Any]] = {}
         self._model_edge_ais_by_object_id: dict[str, list[Any]] = {}
+        self._sketch_ais_by_object_id: dict[str, list[Any]] = {}
         self._selectable_model_shapes: list[tuple[Any, str]] = []
         self._coordinate_shapes: list[tuple[Any, str]] = []
         self._coordinate_ais_shapes: list[Any] = []
@@ -1918,14 +1919,15 @@ class MainWindow(QMainWindow):
                     ),
                 )
         if self.view_selection_mode == ViewSelectionMode.FACE:
-            is_coordinate_reference = obj is not None and obj.kind in (
+            is_reference_entity = obj is not None and obj.kind in (
                 ObjectKind.POINT,
                 ObjectKind.AXIS,
                 ObjectKind.PLANE,
+                ObjectKind.SKETCH,
             )
-            if selected_shape.ShapeType() != TopAbs_FACE and not is_coordinate_reference:
+            if selected_shape.ShapeType() != TopAbs_FACE and not is_reference_entity:
                 return
-            self.selected_face = None if is_coordinate_reference else selected_shape
+            self.selected_face = None if is_reference_entity else selected_shape
             self.selected_face_object_id = object_id
             name = obj.name if obj is not None else object_id
             self.statusBar().showMessage(
@@ -1944,6 +1946,7 @@ class MainWindow(QMainWindow):
             ObjectKind.POINT,
             ObjectKind.AXIS,
             ObjectKind.PLANE,
+            ObjectKind.SKETCH,
         ):
             self.rebuild_view(fit=False, rebuild_geometry=False)
             return
@@ -2003,7 +2006,11 @@ class MainWindow(QMainWindow):
 
         context = self.viewer._display.Context
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
-            color = YELLOW if object_id in whole_object_ids else BLACK
+            color = (
+                YELLOW
+                if object_id in selected_ids or object_id in whole_object_ids
+                else BLACK
+            )
             for edge_shape in edge_shapes:
                 edge_shape.SetColor(color)
                 context.Redisplay(edge_shape, False)
@@ -2646,6 +2653,7 @@ class MainWindow(QMainWindow):
         display.EraseAll()
         self._model_ais_by_object_id.clear()
         self._model_edge_ais_by_object_id.clear()
+        self._sketch_ais_by_object_id.clear()
         self._selectable_model_shapes.clear()
         self._coordinate_shapes.clear()
         self._coordinate_ais_shapes.clear()
@@ -2700,6 +2708,17 @@ class MainWindow(QMainWindow):
                     display.Context.Deactivate(ais_shape)
         for ais_shape in self._nonselectable_ais_shapes:
             display.Context.Deactivate(ais_shape)
+        sketch_selection_enabled = self.view_selection_filter not in (
+            ViewSelectionFilter.POINT,
+            ViewSelectionFilter.AXIS,
+            ViewSelectionFilter.PLANE,
+        )
+        for ais_shapes in self._sketch_ais_by_object_id.values():
+            for ais_shape in ais_shapes:
+                if sketch_selection_enabled:
+                    display.Context.Activate(ais_shape, 0, True)
+                else:
+                    display.Context.Deactivate(ais_shape)
         self._highlight_selected_in_view()
         self._update_coordinate_label_highlights()
         display.Repaint()
@@ -2721,6 +2740,10 @@ class MainWindow(QMainWindow):
             for ais_shape in display.DisplayShape(shape, color=BLACK, update=False):
                 self._set_ais_display_mode(ais_shape, AIS_WireFrame)
                 self._model_ais_by_object_id.setdefault(object_id, []).append(ais_shape)
+                self._model_edge_ais_by_object_id.setdefault(
+                    object_id,
+                    [],
+                ).append(ais_shape)
             return
 
         for ais_shape in display.DisplayShape(shape, update=False):
@@ -2742,10 +2765,15 @@ class MainWindow(QMainWindow):
             return
         context = self.viewer._display.Context
         context.ClearSelected(False)
+        self._clear_selected_shape_overlays()
         for edge_shapes in self._model_edge_ais_by_object_id.values():
             for edge_shape in edge_shapes:
                 edge_shape.SetColor(BLACK)
                 context.Redisplay(edge_shape, False)
+        for sketch_shapes in self._sketch_ais_by_object_id.values():
+            for sketch_shape in sketch_shapes:
+                sketch_shape.SetColor(BLUE)
+                context.Redisplay(sketch_shape, False)
         if self.selected_object_id is None:
             context.UpdateSelected(True)
             return
@@ -2761,48 +2789,33 @@ class MainWindow(QMainWindow):
             for edge_shape in self._model_edge_ais_by_object_id.get(object_id, []):
                 edge_shape.SetColor(YELLOW)
                 context.Redisplay(edge_shape, False)
-        self._display_selected_model_overlay(selected_ids)
-        self._display_selected_face_overlay()
+            for sketch_shape in self._sketch_ais_by_object_id.get(object_id, []):
+                sketch_shape.SetColor(YELLOW)
+                context.Redisplay(sketch_shape, False)
+        if self.view_display_mode == ViewDisplayMode.SHADED:
+            for shape, owner_id in self._cached_model_shapes:
+                if owner_id not in selected_ids:
+                    continue
+                ais_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=YELLOW,
+                    update=False,
+                )
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._selected_model_overlay_ais.extend(ais_shapes)
         context.UpdateSelected(True)
 
-    def _display_selected_model_overlay(self, selected_ids: set[str]) -> None:
+    def _clear_selected_shape_overlays(self) -> None:
         context = self.viewer._display.Context
         for ais_shape in self._selected_model_overlay_ais:
             context.Erase(ais_shape, False)
         self._selected_model_overlay_ais.clear()
-        if self.selected_face is not None:
-            return
-        for shape, owner_id in self._cached_model_shapes:
-            if owner_id not in selected_ids:
-                continue
-            for ais_shape in self.viewer._display.DisplayShape(
-                shape,
-                color=YELLOW,
-                transparency=0.15,
-                update=False,
-            ):
-                self._set_ais_display_mode(ais_shape, AIS_Shaded)
-                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
-                context.Deactivate(ais_shape)
-                self._selected_model_overlay_ais.append(ais_shape)
-
-    def _display_selected_face_overlay(self) -> None:
-        context = self.viewer._display.Context
         for ais_shape in self._selected_face_overlay_ais:
             context.Erase(ais_shape, False)
         self._selected_face_overlay_ais.clear()
-        if self.selected_face is None:
-            return
-        for ais_shape in self.viewer._display.DisplayShape(
-            self.selected_face,
-            color=YELLOW,
-            transparency=0.15,
-            update=False,
-        ):
-            self._set_ais_display_mode(ais_shape, AIS_Shaded)
-            ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
-            context.Deactivate(ais_shape)
-            self._selected_face_overlay_ais.append(ais_shape)
 
     def _descendant_object_ids(self, parent: ZimaObject) -> set[str]:
         result: set[str] = set()
@@ -2985,7 +2998,16 @@ class MainWindow(QMainWindow):
             if child.kind == ObjectKind.SKETCH:
                 shape = make_sketch_shape(obj, child, world_transform)
                 if shape is not None:
-                    self.viewer._display.DisplayShape(shape, color=BLUE, update=False)
+                    self._selectable_model_shapes.append((shape, child.object_id))
+                    ais_shapes = self.viewer._display.DisplayShape(
+                        shape,
+                        color=BLUE,
+                        update=False,
+                    )
+                    self._sketch_ais_by_object_id.setdefault(
+                        child.object_id,
+                        [],
+                    ).extend(ais_shapes)
             elif not child.locked:
                 self._display_object_sketches(child, world_transform)
 
@@ -3128,6 +3150,17 @@ class MainWindow(QMainWindow):
             return None
         coordinate_parent = owner
         if owner.kind == ObjectKind.OBJECT:
+            if key == "point":
+                point_entity = next(
+                    (
+                        child
+                        for child in owner.children
+                        if child.kind == ObjectKind.POINT and not child.locked
+                    ),
+                    None,
+                )
+                if point_entity is not None:
+                    return point_entity.object_id
             coordinate_parent = next(
                 (
                     child
