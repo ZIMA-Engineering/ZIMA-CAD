@@ -2113,20 +2113,28 @@ class MainWindow(QMainWindow):
 
         if obj is None or obj.kind == ObjectKind.PART:
             create_action = menu.addAction(tr("menu.context.create_object"))
-        elif self._can_create_sketch_from(obj):
+        elif self._is_object_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             menu.addSeparator()
             attach_action = menu.addAction(tr("menu.context.attach_to_face"))
             create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
+            create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
         else:
-            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
+            if obj.kind == ObjectKind.OBJECT:
+                can_create = obj.can_accept_entity()
                 create_point_action = menu.addAction(tr("menu.context.create_point"))
+                create_point_action.setEnabled(can_create)
                 create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-            if self._can_create_cube_from(obj):
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
                 create_axis_action = menu.addAction(tr("menu.context.create_axis"))
+                for create_entity_action in (
+                    create_sketch_action,
+                    create_cube_action,
+                    create_wedge_action,
+                    create_axis_action,
+                ):
+                    create_entity_action.setEnabled(can_create)
             if not obj.locked and obj.kind == ObjectKind.OBJECT:
                 properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_object"))
@@ -2246,20 +2254,28 @@ class MainWindow(QMainWindow):
         delete_action = None
         normal_view_action = None
 
-        if self._can_create_sketch_from(obj):
+        if self._is_object_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             menu.addSeparator()
             attach_action = menu.addAction(tr("menu.context.attach_to_face"))
             create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
+            create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
         else:
-            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
+            if obj.kind == ObjectKind.OBJECT:
+                can_create = obj.can_accept_entity()
                 create_point_action = menu.addAction(tr("menu.context.create_point"))
+                create_point_action.setEnabled(can_create)
                 create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-            if self._can_create_cube_from(obj):
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
                 create_axis_action = menu.addAction(tr("menu.context.create_axis"))
+                for create_entity_action in (
+                    create_sketch_action,
+                    create_cube_action,
+                    create_wedge_action,
+                    create_axis_action,
+                ):
+                    create_entity_action.setEnabled(can_create)
             if not obj.locked and obj.kind == ObjectKind.OBJECT:
                 properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_object"))
@@ -2541,10 +2557,16 @@ class MainWindow(QMainWindow):
         self.rebuild_view(fit=False)
 
     def _can_create_sketch_from(self, obj: ZimaObject) -> bool:
-        if self.document is None or obj.kind != ObjectKind.PLANE:
+        if not self._is_object_reference_plane(obj):
             return False
         parent = self.document.find_owning_object(obj.object_id)
         return parent is not None and parent.can_accept_entity()
+
+    def _is_object_reference_plane(self, obj: ZimaObject) -> bool:
+        if self.document is None or obj.kind != ObjectKind.PLANE:
+            return False
+        parent = self.document.find_owning_object(obj.object_id)
+        return parent is not None and parent.kind == ObjectKind.OBJECT
 
     def _can_create_cube_from(self, obj: ZimaObject) -> bool:
         if self.document is None:
