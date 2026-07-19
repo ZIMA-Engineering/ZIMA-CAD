@@ -37,7 +37,7 @@ from OCC.Core.Prs3d import (
     Prs3d_TypeOfHighlight_Selected,
 )
 from OCC.Core.gp import gp_Pnt
-from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Plane
@@ -2767,7 +2767,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_viewer_initialized"):
             return
         context = self.viewer._display.Context
-        context.ClearSelected(False)
+        if self.selected_face is None:
+            context.ClearSelected(False)
         self._clear_selected_shape_overlays()
         for edge_shapes in self._model_edge_ais_by_object_id.values():
             for edge_shape in edge_shapes:
@@ -2789,7 +2790,6 @@ class MainWindow(QMainWindow):
         ):
             selected_ids.update(self._descendant_object_ids(selected))
         if self.selected_face is not None:
-            self._display_selected_face_highlight()
             context.UpdateSelected(True)
             return
         for object_id in selected_ids:
@@ -2814,25 +2814,6 @@ class MainWindow(QMainWindow):
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
         context.UpdateSelected(True)
-
-    def _display_selected_face_highlight(self) -> None:
-        if self.selected_face is None:
-            return
-        context = self.viewer._display.Context
-        explorer = TopExp_Explorer(self.selected_face, TopAbs_EDGE)
-        while explorer.More():
-            edge = explorer.Current()
-            ais_shapes = self.viewer._display.DisplayShape(
-                edge,
-                color=YELLOW,
-                update=False,
-            )
-            for ais_shape in ais_shapes:
-                self._set_ais_display_mode(ais_shape, AIS_WireFrame)
-                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
-                context.Deactivate(ais_shape)
-            self._selected_face_overlay_ais.extend(ais_shapes)
-            explorer.Next()
 
     def _clear_selected_shape_overlays(self) -> None:
         context = self.viewer._display.Context
