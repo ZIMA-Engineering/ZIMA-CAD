@@ -2221,6 +2221,8 @@ class MainWindow(QMainWindow):
             self.viewer._display.MoveTo(x, y)
         context = self.viewer._display.Context
         if context.HasDetected():
+            self._hovered_coordinate_object_id = None
+            self._update_coordinate_label_highlights()
             if context.HasNextDetected():
                 rank = context.HilightNextDetected(
                     self.viewer._display.View,
