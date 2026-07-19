@@ -3,6 +3,9 @@
 ## Custom Objects
 
 - Continue with custom objects in the part tree.
+- Each Object may contain exactly one user entity (Point, Axis, Sketch or Solid)
+  in addition to its mandatory system Origin. Creation commands and `.prtz`
+  validation enforce this invariant.
 - Add editable object position:
   - X
   - Y

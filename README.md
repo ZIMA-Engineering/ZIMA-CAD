@@ -24,6 +24,12 @@ The first prototype opens one main window:
 - part files with the `.prtz` extension
 - object tree with Origin, objects, sketches and first test solids
 
+## Object Model
+
+Each `Object` owns a mandatory system `Origin` and at most one user entity:
+Point, Axis, Sketch or Solid. Additional geometry is created in another Object.
+The creation commands and `.prtz` format validation enforce this rule.
+
 ## Portable Layout
 
 ZIMA-CAD should always resolve paths from its own application directory, not

@@ -27,7 +27,7 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "1",
+        "format_version": "2",
         "units": "mm",
         "angle_units": "deg",
         "linear_tolerance": "0.001",
@@ -114,6 +114,18 @@ class ObjectKind(str, Enum):
     WEDGE = "wedge"
 
 
+ENTITY_KINDS = frozenset(
+    {
+        ObjectKind.POINT,
+        ObjectKind.AXIS,
+        ObjectKind.SKETCH,
+        ObjectKind.BOX,
+        ObjectKind.CYLINDER,
+        ObjectKind.WEDGE,
+    }
+)
+
+
 @dataclass
 class CoordinateSystem:
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -150,6 +162,16 @@ class ZimaObject:
 
     def add_child(self, child: "ZimaObject") -> None:
         self.children.append(child)
+
+    def entity_children(self) -> list["ZimaObject"]:
+        return [
+            child
+            for child in self.children
+            if not child.locked and child.kind in ENTITY_KINDS
+        ]
+
+    def can_accept_entity(self) -> bool:
+        return self.kind == ObjectKind.OBJECT and not self.entity_children()
 
 
 @dataclass
@@ -218,7 +240,20 @@ class PartDocument:
         plane = self.find_object(plane_id)
         if parent is None or plane is None:
             return None
-        if parent.kind != ObjectKind.OBJECT or plane.kind != ObjectKind.PLANE:
+        if (
+            parent.kind != ObjectKind.OBJECT
+            or plane.kind != ObjectKind.PLANE
+            or not parent.can_accept_entity()
+        ):
+            return None
+
+        return self.create_sketch(parent.object_id, str(plane.parameters.get("plane", "")))
+
+    def create_sketch(self, parent_id: str, plane: str = "xy") -> ZimaObject | None:
+        parent = self.find_object(parent_id)
+        if parent is None or not parent.can_accept_entity():
+            return None
+        if plane not in {"xy", "yz", "xz"}:
             return None
 
         sketch = ZimaObject(
@@ -226,7 +261,7 @@ class PartDocument:
             kind=ObjectKind.SKETCH,
             combine_mode=CombineMode.NONE,
             parameters={
-                "plane": str(plane.parameters.get("plane", "")),
+                "plane": plane,
                 "profile": "circle",
                 "diameter": "10",
                 "unit": "mm",
@@ -235,9 +270,20 @@ class PartDocument:
         parent.add_child(sketch)
         return sketch
 
+    def create_datum_point(self, parent_id: str) -> ZimaObject | None:
+        parent = self.find_object(parent_id)
+        if parent is None or not parent.can_accept_entity():
+            return None
+        point = ZimaObject(
+            name=next_child_name(parent, "Point"),
+            kind=ObjectKind.POINT,
+        )
+        parent.add_child(point)
+        return point
+
     def create_datum_axis(self, parent_id: str) -> ZimaObject | None:
         parent = self.find_object(parent_id)
-        if parent is None or parent.kind != ObjectKind.OBJECT:
+        if parent is None or not parent.can_accept_entity():
             return None
         axis = ZimaObject(
             name=next_child_name(parent, "Axis"),
@@ -264,7 +310,7 @@ class PartDocument:
                 return None
             parent = source_parent
 
-        if parent.kind != ObjectKind.OBJECT:
+        if not parent.can_accept_entity():
             return None
 
         cube = ZimaObject(
@@ -293,7 +339,7 @@ class PartDocument:
                 return None
             parent = source_parent
 
-        if parent.kind != ObjectKind.OBJECT:
+        if not parent.can_accept_entity():
             return None
 
         wedge = ZimaObject(

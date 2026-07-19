@@ -95,7 +95,11 @@ from zima_cad.model import (
 from zima_cad.paths import app_path, application_root, ensure_application_directories
 from zima_cad.settings import load_application_settings
 from zima_cad.localization import configure_localization, tr
-from zima_cad.storage import load_part_document, save_part_document
+from zima_cad.storage import (
+    ObjectEntityLimitError,
+    load_part_document,
+    save_part_document,
+)
 
 
 PLANE_COLOR_RGB = (0.43, 0.24, 0.08)
@@ -1583,6 +1587,17 @@ class MainWindow(QMainWindow):
         file_path = Path(file_name)
         try:
             document = load_part_document(file_path)
+        except ObjectEntityLimitError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.open_failed"),
+                tr(
+                    "message.object.entity_limit_details",
+                    object=exc.object_name,
+                    entities=", ".join(exc.entity_names),
+                ),
+            )
+            return
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
@@ -1630,6 +1645,17 @@ class MainWindow(QMainWindow):
             if self.document is None:
                 return
             save_part_document(self.document, file_path)
+        except ObjectEntityLimitError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.save_failed"),
+                tr(
+                    "message.object.entity_limit_details",
+                    object=exc.object_name,
+                    entities=", ".join(exc.entity_names),
+                ),
+            )
+            return
         except Exception as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
             return
@@ -2076,6 +2102,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         attach_action = None
         create_action = None
+        create_point_action = None
         create_sketch_action = None
         create_cube_action = None
         create_wedge_action = None
@@ -2092,10 +2119,13 @@ class MainWindow(QMainWindow):
             attach_action = menu.addAction(tr("menu.context.attach_to_face"))
             create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
         else:
+            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
+                create_point_action = menu.addAction(tr("menu.context.create_point"))
+                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
             if self._can_create_cube_from(obj):
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-            if obj.kind == ObjectKind.OBJECT:
+            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
                 create_axis_action = menu.addAction(tr("menu.context.create_axis"))
             if not obj.locked and obj.kind == ObjectKind.OBJECT:
                 properties_action = menu.addAction(tr("menu.context.properties"))
@@ -2121,7 +2151,16 @@ class MainWindow(QMainWindow):
             and action == create_sketch_action
             and obj is not None
         ):
-            self.create_sketch_on_plane(obj.object_id)
+            if obj.kind == ObjectKind.OBJECT:
+                self.create_sketch(obj.object_id)
+            else:
+                self.create_sketch_on_plane(obj.object_id)
+        elif (
+            create_point_action is not None
+            and action == create_point_action
+            and obj is not None
+        ):
+            self.create_datum_point(obj.object_id)
         elif (
             create_cube_action is not None
             and action == create_cube_action
@@ -2198,6 +2237,7 @@ class MainWindow(QMainWindow):
             return
 
         attach_action = None
+        create_point_action = None
         create_sketch_action = None
         create_cube_action = None
         create_wedge_action = None
@@ -2212,10 +2252,13 @@ class MainWindow(QMainWindow):
             attach_action = menu.addAction(tr("menu.context.attach_to_face"))
             create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
         else:
+            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
+                create_point_action = menu.addAction(tr("menu.context.create_point"))
+                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
             if self._can_create_cube_from(obj):
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-            if obj.kind == ObjectKind.OBJECT:
+            if obj.kind == ObjectKind.OBJECT and obj.can_accept_entity():
                 create_axis_action = menu.addAction(tr("menu.context.create_axis"))
             if not obj.locked and obj.kind == ObjectKind.OBJECT:
                 properties_action = menu.addAction(tr("menu.context.properties"))
@@ -2239,7 +2282,12 @@ class MainWindow(QMainWindow):
             else:
                 self._view_normal_to_selected_face()
         elif create_sketch_action is not None and action == create_sketch_action:
-            self.create_sketch_on_plane(obj.object_id)
+            if obj.kind == ObjectKind.OBJECT:
+                self.create_sketch(obj.object_id)
+            else:
+                self.create_sketch_on_plane(obj.object_id)
+        elif create_point_action is not None and action == create_point_action:
+            self.create_datum_point(obj.object_id)
         elif create_cube_action is not None and action == create_cube_action:
             self.create_cube(obj.object_id)
         elif create_wedge_action is not None and action == create_wedge_action:
@@ -2388,10 +2436,33 @@ class MainWindow(QMainWindow):
 
         sketch = self.document.create_sketch_on_plane(plane_id)
         if sketch is None:
+            self._show_entity_limit_message(plane_id)
             return
 
         self._populate_tree()
         self._select_tree_object(sketch.object_id)
+        self.rebuild_view(fit=False)
+
+    def create_sketch(self, parent_id: str) -> None:
+        if self.document is None:
+            return
+        sketch = self.document.create_sketch(parent_id)
+        if sketch is None:
+            self._show_entity_limit_message(parent_id)
+            return
+        self._populate_tree()
+        self._select_tree_object(sketch.object_id)
+        self.rebuild_view(fit=False)
+
+    def create_datum_point(self, parent_id: str) -> None:
+        if self.document is None:
+            return
+        point = self.document.create_datum_point(parent_id)
+        if point is None:
+            self._show_entity_limit_message(parent_id)
+            return
+        self._populate_tree()
+        self._select_tree_object(point.object_id)
         self.rebuild_view(fit=False)
 
     def create_cube(self, source_id: str) -> None:
@@ -2400,6 +2471,7 @@ class MainWindow(QMainWindow):
 
         cube = self.document.create_cube(source_id)
         if cube is None:
+            self._show_entity_limit_message(source_id)
             return
 
         self._populate_tree()
@@ -2412,6 +2484,7 @@ class MainWindow(QMainWindow):
 
         wedge = self.document.create_wedge(source_id)
         if wedge is None:
+            self._show_entity_limit_message(source_id)
             return
 
         self._populate_tree()
@@ -2423,6 +2496,7 @@ class MainWindow(QMainWindow):
             return
         axis = self.document.create_datum_axis(parent_id)
         if axis is None:
+            self._show_entity_limit_message(parent_id)
             return
         self._populate_tree()
         self._select_tree_object(axis.object_id)
@@ -2470,17 +2544,35 @@ class MainWindow(QMainWindow):
         if self.document is None or obj.kind != ObjectKind.PLANE:
             return False
         parent = self.document.find_owning_object(obj.object_id)
-        return parent is not None and parent.kind == ObjectKind.OBJECT
+        return parent is not None and parent.can_accept_entity()
 
     def _can_create_cube_from(self, obj: ZimaObject) -> bool:
         if self.document is None:
             return False
         if obj.kind == ObjectKind.OBJECT:
-            return True
+            return obj.can_accept_entity()
         if obj.kind != ObjectKind.POINT:
             return False
         parent = self.document.find_owning_object(obj.object_id)
-        return parent is not None and parent.kind == ObjectKind.OBJECT
+        return parent is not None and parent.can_accept_entity()
+
+    def _show_entity_limit_message(self, source_id: str) -> None:
+        if self.document is None:
+            return
+        source = self.document.find_object(source_id)
+        if source is None:
+            return
+        owner = (
+            source
+            if source.kind == ObjectKind.OBJECT
+            else self.document.find_owning_object(source_id)
+        )
+        if owner is not None and not owner.can_accept_entity():
+            QMessageBox.information(
+                self,
+                tr("message.object.entity_limit_title"),
+                tr("message.object.entity_limit"),
+            )
 
     def _object_from_tree_item(self, item: QTreeWidgetItem | None) -> ZimaObject | None:
         if item is None:

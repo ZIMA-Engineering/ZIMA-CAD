@@ -15,7 +15,18 @@ from zima_cad.model import (
 )
 
 
+class ObjectEntityLimitError(ValueError):
+    def __init__(self, object_name: str, entity_names: list[str]) -> None:
+        self.object_name = object_name
+        self.entity_names = entity_names
+        super().__init__(
+            f"Object {object_name!r} contains more than one entity: "
+            + ", ".join(entity_names)
+        )
+
+
 def save_part_document(document: PartDocument, file_path: Path) -> None:
+    validate_object_entities(document)
     config = configparser.ConfigParser()
     config.optionxform = str
 
@@ -63,7 +74,23 @@ def load_part_document(file_path: Path) -> PartDocument:
         obj = read_object(config, section, object_id)
         document.root.add_child(obj)
 
+    validate_object_entities(document)
     return document
+
+
+def validate_object_entities(document: PartDocument) -> None:
+    for obj in walk_objects(document.root):
+        if obj.kind != ObjectKind.OBJECT:
+            continue
+        entities = obj.entity_children()
+        if len(entities) > 1:
+            raise ObjectEntityLimitError(obj.name, [entity.name for entity in entities])
+
+
+def walk_objects(obj: ZimaObject):
+    yield obj
+    for child in obj.children:
+        yield from walk_objects(child)
 
 
 def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
