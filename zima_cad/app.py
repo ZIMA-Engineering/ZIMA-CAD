@@ -37,7 +37,7 @@ from OCC.Core.Prs3d import (
     Prs3d_TypeOfHighlight_Selected,
 )
 from OCC.Core.gp import gp_Pnt
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Plane
@@ -2819,17 +2819,20 @@ class MainWindow(QMainWindow):
         if self.selected_face is None:
             return
         context = self.viewer._display.Context
-        ais_shapes = self.viewer._display.DisplayShape(
-            self.selected_face,
-            color=YELLOW,
-            transparency=0.0,
-            update=False,
-        )
-        for ais_shape in ais_shapes:
-            self._set_ais_display_mode(ais_shape, AIS_Shaded)
-            ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
-            context.Deactivate(ais_shape)
-        self._selected_face_overlay_ais.extend(ais_shapes)
+        explorer = TopExp_Explorer(self.selected_face, TopAbs_EDGE)
+        while explorer.More():
+            edge = explorer.Current()
+            ais_shapes = self.viewer._display.DisplayShape(
+                edge,
+                color=YELLOW,
+                update=False,
+            )
+            for ais_shape in ais_shapes:
+                self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                context.Deactivate(ais_shape)
+            self._selected_face_overlay_ais.extend(ais_shapes)
+            explorer.Next()
 
     def _clear_selected_shape_overlays(self) -> None:
         context = self.viewer._display.Context
