@@ -1,0 +1,32 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and IDE-local state
+.venv/
+venv/
+.idea/
+.vscode/
+*.user
+
+# Packaged runtimes and build outputs
+runtime/windows/python/
+runtime/windows/*.zip
+runtime/linux/python/
+runtime/linux/*.tar*
+build/
+dist/
+*.egg-info/
+
+# User CAD documents stay local and are never modified by Git
+Projects/**
+
+# OS-generated files
+Thumbs.db
+Desktop.ini
+.DS_Store
+

@@ -1,0 +1,62 @@
+[Material]
+Name = PE-HD
+
+[Properties]
+YOUNG_MODULUS = 4.000338e+06 kPa
+POISSON_RATIO = 4.000000e-01
+SHEAR_MODULUS = 
+MASS_DENSITY = 9.400000e-07 kg/mm^3
+THERMAL_EXPANSION_COEFFICIENT = 7.999200e-05 /C
+THERM_EXPANSION_REF_TEMPERATURE = 
+STRUCTURAL_DAMPING_COEFFICIENT = 
+STRESS_LIMIT_FOR_TENSION = 
+STRESS_LIMIT_FOR_COMPRESSION = 
+STRESS_LIMIT_FOR_SHEAR = 
+THERMAL_CONDUCTIVITY = 2.452483e+02 mm kg /(sec^3 C)
+EMISSIVITY = 
+SPECIFIC_HEAT = 1.676900e+09 mm^2/(sec^2 C)
+HARDNESS = 
+CONDITION = 
+INITIAL_BEND_Y_FACTOR = 5.000000e-01
+BEND_TABLE = 0.000000e+00
+
+[ParameterDescriptions]
+material_name\cs = Materiál
+YOUNG_MODULUS\cs = Youngův modul
+POISSON_RATIO\cs = Poissonovo číslo
+SHEAR_MODULUS\cs = Modul pružnosti ve smyku
+MASS_DENSITY\cs = Hustota
+THERMAL_EXPANSION_COEFFICIENT\cs = Součinitel teplotní roztažnosti
+THERM_EXPANSION_REF_TEMPERATURE\cs = Referenční teplota roztažnosti
+STRUCTURAL_DAMPING_COEFFICIENT\cs = Součinitel konstrukčního tlumení
+STRESS_LIMIT_FOR_TENSION\cs = Mez napětí v tahu
+STRESS_LIMIT_FOR_COMPRESSION\cs = Mez napětí v tlaku
+STRESS_LIMIT_FOR_SHEAR\cs = Mez smykového napětí
+THERMAL_CONDUCTIVITY\cs = Tepelná vodivost
+EMISSIVITY\cs = Emisivita
+SPECIFIC_HEAT\cs = Měrná tepelná kapacita
+HARDNESS\cs = Tvrdost
+CONDITION\cs = Stav materiálu
+INITIAL_BEND_Y_FACTOR\cs = Počáteční Y-faktor ohybu
+BEND_TABLE\cs = Tabulka ohybů
+material_source\cs = Zdroj materiálu
+material_name\en = Material
+YOUNG_MODULUS\en = Young's modulus
+POISSON_RATIO\en = Poisson's ratio
+SHEAR_MODULUS\en = Shear modulus
+MASS_DENSITY\en = Mass density
+THERMAL_EXPANSION_COEFFICIENT\en = Thermal expansion coefficient
+THERM_EXPANSION_REF_TEMPERATURE\en = Thermal expansion reference temperature
+STRUCTURAL_DAMPING_COEFFICIENT\en = Structural damping coefficient
+STRESS_LIMIT_FOR_TENSION\en = Tensile stress limit
+STRESS_LIMIT_FOR_COMPRESSION\en = Compressive stress limit
+STRESS_LIMIT_FOR_SHEAR\en = Shear stress limit
+THERMAL_CONDUCTIVITY\en = Thermal conductivity
+EMISSIVITY\en = Emissivity
+SPECIFIC_HEAT\en = Specific heat
+HARDNESS\en = Hardness
+CONDITION\en = Material condition
+INITIAL_BEND_Y_FACTOR\en = Initial bend Y-factor
+BEND_TABLE\en = Bend table
+material_source\en = Material source
+

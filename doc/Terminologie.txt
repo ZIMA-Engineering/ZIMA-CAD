@@ -1,0 +1,20 @@
+Main Window       = hlavní okno aplikace
+Menu Bar          = horní menu File/Edit/...
+Document Tab      = záložka jednoho otevřeného souboru
+Tree              = strom objektů vlevo
+Viewport / View   = 3D zobrazovací prostor vpravo
+Properties Dialog = okno vlastností objektu
+Document          = otevřený .prtz/.asmz/.drwz soubor v paměti
+Part              = konkrétní typ dokumentu/díl
+Object            = objekt uvnitř dokumentu
+
+
+hlavní okno
+menu
+tab dokumentu
+strom
+viewport / zobrazovač
+okno vlastností
+dokument
+díl
+objekt
