@@ -24,7 +24,7 @@ class ObjectEntityLimitError(ValueError):
         self.object_name = object_name
         self.entity_names = entity_names
         super().__init__(
-            f"Object {object_name!r} contains more than one entity: "
+            f"Object {object_name!r} contains an invalid entity combination: "
             + ", ".join(entity_names)
         )
 
@@ -211,7 +211,7 @@ def validate_object_entities(document: PartDocument) -> None:
         if obj.kind != ObjectKind.OBJECT:
             continue
         entities = obj.entity_children()
-        if len(entities) > 1:
+        if not obj.has_valid_entity_combination():
             raise ObjectEntityLimitError(obj.name, [entity.name for entity in entities])
 
 

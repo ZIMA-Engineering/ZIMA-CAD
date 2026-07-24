@@ -156,6 +156,14 @@ ENTITY_KINDS = frozenset(
     }
 )
 
+SOLID_KINDS = frozenset(
+    {
+        ObjectKind.BOX,
+        ObjectKind.CYLINDER,
+        ObjectKind.WEDGE,
+    }
+)
+
 
 @dataclass
 class CoordinateSystem:
@@ -201,8 +209,28 @@ class ZimaObject:
             if not child.locked and child.kind in ENTITY_KINDS
         ]
 
-    def can_accept_entity(self) -> bool:
-        return self.kind == ObjectKind.OBJECT and not self.entity_children()
+    def has_valid_entity_combination(self) -> bool:
+        entities = self.entity_children()
+        if len(entities) <= 1:
+            return True
+        if len(entities) != 2:
+            return False
+        kinds = {entity.kind for entity in entities}
+        return ObjectKind.SKETCH in kinds and bool(kinds & SOLID_KINDS)
+
+    def can_accept_entity(self, kind: ObjectKind | None = None) -> bool:
+        if self.kind != ObjectKind.OBJECT:
+            return False
+        if kind is None:
+            return any(self.can_accept_entity(candidate) for candidate in ENTITY_KINDS)
+        if kind not in ENTITY_KINDS:
+            return False
+        candidate = ZimaObject(name="", kind=kind)
+        self.children.append(candidate)
+        try:
+            return self.has_valid_entity_combination()
+        finally:
+            self.children.pop()
 
 
 @dataclass
@@ -280,7 +308,7 @@ class PartDocument:
         if (
             parent.kind != ObjectKind.OBJECT
             or plane.kind != ObjectKind.PLANE
-            or not parent.can_accept_entity()
+            or not parent.can_accept_entity(ObjectKind.SKETCH)
         ):
             return None
 
@@ -288,7 +316,7 @@ class PartDocument:
 
     def create_sketch(self, parent_id: str, plane: str = "xy") -> ZimaObject | None:
         parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity():
+        if parent is None or not parent.can_accept_entity(ObjectKind.SKETCH):
             return None
         if plane not in {"xy", "yz", "xz"}:
             return None
@@ -309,7 +337,7 @@ class PartDocument:
 
     def create_datum_point(self, parent_id: str) -> ZimaObject | None:
         parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity():
+        if parent is None or not parent.can_accept_entity(ObjectKind.POINT):
             return None
         point = ZimaObject(
             name=next_child_name(parent, "Point"),
@@ -320,7 +348,7 @@ class PartDocument:
 
     def create_datum_axis(self, parent_id: str) -> ZimaObject | None:
         parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity():
+        if parent is None or not parent.can_accept_entity(ObjectKind.AXIS):
             return None
         axis = ZimaObject(
             name=next_child_name(parent, "Axis"),
@@ -347,7 +375,7 @@ class PartDocument:
                 return None
             parent = source_parent
 
-        if not parent.can_accept_entity():
+        if not parent.can_accept_entity(ObjectKind.BOX):
             return None
 
         cube = ZimaObject(
@@ -376,7 +404,7 @@ class PartDocument:
                 return None
             parent = source_parent
 
-        if not parent.can_accept_entity():
+        if not parent.can_accept_entity(ObjectKind.WEDGE):
             return None
 
         wedge = ZimaObject(
