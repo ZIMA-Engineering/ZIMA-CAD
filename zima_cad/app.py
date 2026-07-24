@@ -78,6 +78,7 @@ from PySide6.QtWidgets import (
 
 from zima_cad.model import (
     ObjectKind,
+    SketchRole,
     PartDocument,
     PlaneOnFaceAttachment,
     ZimaObject,
@@ -261,6 +262,10 @@ class ObjectPropertiesDialog(QDialog):
         self.rz_spin.setValue(float(rz))
 
         layout.addRow(tr("dialog.properties.name"), self.name_edit)
+        layout.addRow(
+            tr("dialog.properties.object_type"),
+            QLabel(obj.object_type.value),
+        )
         layout.addRow("X", self.x_spin)
         layout.addRow("Y", self.y_spin)
         layout.addRow("Z", self.z_spin)
@@ -2418,7 +2423,12 @@ class MainWindow(QMainWindow):
             display.View.MustBeResized()
 
     def _create_tree_item(self, obj: ZimaObject) -> QTreeWidgetItem:
-        name = self._point_display_name(obj) if obj.kind == ObjectKind.POINT else obj.name
+        if obj.kind == ObjectKind.POINT:
+            name = self._point_display_name(obj)
+        elif obj.kind == ObjectKind.SKETCH and obj.sketch_role() is not None:
+            name = f"{obj.name} [{obj.sketch_role().value}]"
+        else:
+            name = obj.name
         item = QTreeWidgetItem([name])
         item.setData(0, Qt.ItemDataRole.UserRole, obj.object_id)
         for child in obj.children:
@@ -2730,8 +2740,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         attach_action = None
         create_action = None
-        create_point_action = None
-        create_sketch_action = None
+        create_sketch_actions: dict[Any, SketchRole] = {}
         create_cube_action = None
         create_wedge_action = None
         create_axis_action = None
@@ -2746,18 +2755,10 @@ class MainWindow(QMainWindow):
             if self._is_object_reference_plane(obj):
                 menu.addSeparator()
                 attach_action = menu.addAction(tr("menu.context.attach_to_face"))
-                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-                create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
+                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
-                create_point_action = menu.addAction(tr("menu.context.create_point"))
-                create_point_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.POINT)
-                )
-                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-                create_sketch_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.SKETCH)
-                )
+                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_cube_action.setEnabled(
                     obj.can_accept_entity(ObjectKind.BOX)
@@ -2790,20 +2791,14 @@ class MainWindow(QMainWindow):
         elif create_action is not None and action == create_action:
             self.create_new_object()
         elif (
-            create_sketch_action is not None
-            and action == create_sketch_action
+            action in create_sketch_actions
             and obj is not None
         ):
+            role = create_sketch_actions[action]
             if obj.kind == ObjectKind.OBJECT:
-                self.create_sketch(obj.object_id)
+                self.create_sketch(obj.object_id, role)
             else:
-                self.create_sketch_on_plane(obj.object_id)
-        elif (
-            create_point_action is not None
-            and action == create_point_action
-            and obj is not None
-        ):
-            self.create_datum_point(obj.object_id)
+                self.create_sketch_on_plane(obj.object_id, role)
         elif (
             create_cube_action is not None
             and action == create_cube_action
@@ -2896,8 +2891,7 @@ class MainWindow(QMainWindow):
             return
 
         attach_action = None
-        create_point_action = None
-        create_sketch_action = None
+        create_sketch_actions: dict[Any, SketchRole] = {}
         create_cube_action = None
         create_wedge_action = None
         create_axis_action = None
@@ -2910,18 +2904,10 @@ class MainWindow(QMainWindow):
             if self._is_object_reference_plane(obj):
                 menu.addSeparator()
                 attach_action = menu.addAction(tr("menu.context.attach_to_face"))
-                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-                create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
+                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
-                create_point_action = menu.addAction(tr("menu.context.create_point"))
-                create_point_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.POINT)
-                )
-                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-                create_sketch_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.SKETCH)
-                )
+                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
                 create_cube_action = menu.addAction(tr("menu.context.create_cube"))
                 create_cube_action.setEnabled(
                     obj.can_accept_entity(ObjectKind.BOX)
@@ -2955,13 +2941,12 @@ class MainWindow(QMainWindow):
                 self._view_normal_to_reference_plane(obj)
             else:
                 self._view_normal_to_selected_face()
-        elif create_sketch_action is not None and action == create_sketch_action:
+        elif action in create_sketch_actions:
+            role = create_sketch_actions[action]
             if obj.kind == ObjectKind.OBJECT:
-                self.create_sketch(obj.object_id)
+                self.create_sketch(obj.object_id, role)
             else:
-                self.create_sketch_on_plane(obj.object_id)
-        elif create_point_action is not None and action == create_point_action:
-            self.create_datum_point(obj.object_id)
+                self.create_sketch_on_plane(obj.object_id, role)
         elif create_cube_action is not None and action == create_cube_action:
             self.create_cube(obj.object_id)
         elif create_wedge_action is not None and action == create_wedge_action:
@@ -3104,11 +3089,15 @@ class MainWindow(QMainWindow):
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
 
-    def create_sketch_on_plane(self, plane_id: str) -> None:
+    def create_sketch_on_plane(
+        self,
+        plane_id: str,
+        role: SketchRole = SketchRole.PROFILE,
+    ) -> None:
         if self.document is None:
             return
 
-        sketch = self.document.create_sketch_on_plane(plane_id)
+        sketch = self.document.create_sketch_on_plane(plane_id, role)
         if sketch is None:
             self._show_entity_limit_message(plane_id, ObjectKind.SKETCH)
             return
@@ -3117,26 +3106,19 @@ class MainWindow(QMainWindow):
         self._select_tree_object(sketch.object_id)
         self.rebuild_view(fit=False)
 
-    def create_sketch(self, parent_id: str) -> None:
+    def create_sketch(
+        self,
+        parent_id: str,
+        role: SketchRole = SketchRole.PROFILE,
+    ) -> None:
         if self.document is None:
             return
-        sketch = self.document.create_sketch(parent_id)
+        sketch = self.document.create_sketch(parent_id, role=role)
         if sketch is None:
             self._show_entity_limit_message(parent_id, ObjectKind.SKETCH)
             return
         self._populate_tree()
         self._select_tree_object(sketch.object_id)
-        self.rebuild_view(fit=False)
-
-    def create_datum_point(self, parent_id: str) -> None:
-        if self.document is None:
-            return
-        point = self.document.create_datum_point(parent_id)
-        if point is None:
-            self._show_entity_limit_message(parent_id, ObjectKind.POINT)
-            return
-        self._populate_tree()
-        self._select_tree_object(point.object_id)
         self.rebuild_view(fit=False)
 
     def create_cube(self, source_id: str) -> None:
@@ -3214,11 +3196,31 @@ class MainWindow(QMainWindow):
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
 
-    def _can_create_sketch_from(self, obj: ZimaObject) -> bool:
-        if not self._is_object_reference_plane(obj):
-            return False
-        parent = self.document.find_owning_object(obj.object_id)
-        return parent is not None and parent.can_accept_entity(ObjectKind.SKETCH)
+    def _add_sketch_role_menu(
+        self,
+        menu: QMenu,
+        source: ZimaObject,
+    ) -> dict[Any, SketchRole]:
+        if self.document is None:
+            return {}
+        owner = (
+            source
+            if source.kind == ObjectKind.OBJECT
+            else self.document.find_owning_object(source.object_id)
+        )
+        if owner is None or owner.kind != ObjectKind.OBJECT:
+            return {}
+        sketch_menu = menu.addMenu(tr("menu.context.create_sketch"))
+        actions: dict[Any, SketchRole] = {}
+        any_enabled = False
+        for role in SketchRole:
+            action = sketch_menu.addAction(tr(f"sketch.role.{role.value.lower()}"))
+            enabled = owner.can_accept_entity(ObjectKind.SKETCH, role)
+            action.setEnabled(enabled)
+            any_enabled = any_enabled or enabled
+            actions[action] = role
+        sketch_menu.setEnabled(any_enabled)
+        return actions
 
     def _is_object_reference_plane(self, obj: ZimaObject) -> bool:
         if self.document is None or obj.kind != ObjectKind.PLANE:

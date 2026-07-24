@@ -27,7 +27,7 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "3",
+        "format_version": "4",
     }
 
 
@@ -145,6 +145,20 @@ class ObjectKind(str, Enum):
     WEDGE = "wedge"
 
 
+class ObjectType(str, Enum):
+    POINT = "POINT"
+    AXIS = "AXIS"
+    SKETCH = "SKETCH"
+    SOLID = "SOLID"
+
+
+class SketchRole(str, Enum):
+    PROFILE = "PROFILE"
+    PATH = "PATH"
+    GUIDE = "GUIDE"
+    SECTION = "SECTION"
+
+
 ENTITY_KINDS = frozenset(
     {
         ObjectKind.POINT,
@@ -209,23 +223,76 @@ class ZimaObject:
             if not child.locked and child.kind in ENTITY_KINDS
         ]
 
+    def sketch_role(self) -> SketchRole | None:
+        if self.kind != ObjectKind.SKETCH:
+            return None
+        try:
+            return SketchRole(
+                str(self.parameters.get("role", SketchRole.PROFILE.value)).upper()
+            )
+        except ValueError:
+            return None
+
+    @property
+    def object_type(self) -> ObjectType:
+        entities = self.entity_children()
+        if any(entity.kind in SOLID_KINDS for entity in entities):
+            return ObjectType.SOLID
+        if any(entity.kind == ObjectKind.SKETCH for entity in entities):
+            return ObjectType.SKETCH
+        if any(entity.kind == ObjectKind.AXIS for entity in entities):
+            return ObjectType.AXIS
+        return ObjectType.POINT
+
     def has_valid_entity_combination(self) -> bool:
         entities = self.entity_children()
-        if len(entities) <= 1:
-            return True
-        if len(entities) != 2:
+        points = [entity for entity in entities if entity.kind == ObjectKind.POINT]
+        axes = [entity for entity in entities if entity.kind == ObjectKind.AXIS]
+        sketches = [entity for entity in entities if entity.kind == ObjectKind.SKETCH]
+        solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
+        if len(points) > 1 or len(axes) > 1 or len(solids) > 1:
             return False
-        kinds = {entity.kind for entity in entities}
-        return ObjectKind.SKETCH in kinds and bool(kinds & SOLID_KINDS)
+        if len(points) + len(axes) + len(sketches) + len(solids) != len(entities):
+            return False
+        if points and len(entities) != 1:
+            return False
+        if axes and len(entities) != 1:
+            return False
+        roles = [sketch.sketch_role() for sketch in sketches]
+        if any(role is None for role in roles):
+            return False
+        if roles.count(SketchRole.PROFILE) > 1:
+            return False
+        if roles.count(SketchRole.PATH) > 1:
+            return False
+        return True
 
-    def can_accept_entity(self, kind: ObjectKind | None = None) -> bool:
+    def can_accept_entity(
+        self,
+        kind: ObjectKind | None = None,
+        sketch_role: SketchRole = SketchRole.PROFILE,
+    ) -> bool:
         if self.kind != ObjectKind.OBJECT:
             return False
         if kind is None:
-            return any(self.can_accept_entity(candidate) for candidate in ENTITY_KINDS)
+            candidates = (
+                ObjectKind.AXIS,
+                ObjectKind.SKETCH,
+                ObjectKind.BOX,
+                ObjectKind.CYLINDER,
+                ObjectKind.WEDGE,
+            )
+            return any(self.can_accept_entity(candidate) for candidate in candidates)
         if kind not in ENTITY_KINDS:
             return False
-        candidate = ZimaObject(name="", kind=kind)
+        if kind == ObjectKind.POINT:
+            return False
+        parameters = (
+            {"role": sketch_role.value}
+            if kind == ObjectKind.SKETCH
+            else {}
+        )
+        candidate = ZimaObject(name="", kind=kind, parameters=parameters)
         self.children.append(candidate)
         try:
             return self.has_valid_entity_combination()
@@ -300,7 +367,11 @@ class PartDocument:
             parent = self.find_parent(parent.object_id)
         return parent
 
-    def create_sketch_on_plane(self, plane_id: str) -> ZimaObject | None:
+    def create_sketch_on_plane(
+        self,
+        plane_id: str,
+        role: SketchRole = SketchRole.PROFILE,
+    ) -> ZimaObject | None:
         parent = self.find_owning_object(plane_id)
         plane = self.find_object(plane_id)
         if parent is None or plane is None:
@@ -308,15 +379,24 @@ class PartDocument:
         if (
             parent.kind != ObjectKind.OBJECT
             or plane.kind != ObjectKind.PLANE
-            or not parent.can_accept_entity(ObjectKind.SKETCH)
+            or not parent.can_accept_entity(ObjectKind.SKETCH, role)
         ):
             return None
 
-        return self.create_sketch(parent.object_id, str(plane.parameters.get("plane", "")))
+        return self.create_sketch(
+            parent.object_id,
+            str(plane.parameters.get("plane", "")),
+            role,
+        )
 
-    def create_sketch(self, parent_id: str, plane: str = "xy") -> ZimaObject | None:
+    def create_sketch(
+        self,
+        parent_id: str,
+        plane: str = "xy",
+        role: SketchRole = SketchRole.PROFILE,
+    ) -> ZimaObject | None:
         parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.SKETCH):
+        if parent is None or not parent.can_accept_entity(ObjectKind.SKETCH, role):
             return None
         if plane not in {"xy", "yz", "xz"}:
             return None
@@ -330,21 +410,11 @@ class PartDocument:
                 "profile": "circle",
                 "diameter": "10",
                 "unit": "mm",
+                "role": role.value,
             },
         )
         parent.add_child(sketch)
         return sketch
-
-    def create_datum_point(self, parent_id: str) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.POINT):
-            return None
-        point = ZimaObject(
-            name=next_child_name(parent, "Point"),
-            kind=ObjectKind.POINT,
-        )
-        parent.add_child(point)
-        return point
 
     def create_datum_axis(self, parent_id: str) -> ZimaObject | None:
         parent = self.find_object(parent_id)

@@ -100,7 +100,7 @@ def load_part_document(file_path: Path) -> PartDocument:
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
         document.document_precision.update(dict(config["DocumentPrecision"]))
-    document.document_settings["format_version"] = "3"
+    document.document_settings["format_version"] = "4"
     if config.has_section("Material") or config.has_section("MaterialProperties"):
         material_parameters = {
             "MATERIAL_NAME": config.get("Material", "Name", fallback="")
@@ -237,6 +237,8 @@ def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
         "ry": format_float(ry),
         "rz": format_float(rz),
     }
+    if obj.kind == ObjectKind.OBJECT:
+        config[section]["TYPE"] = obj.object_type.value
 
     for key, value in obj.parameters.items():
         config[section][f"param.{key}"] = str(value)
@@ -297,6 +299,8 @@ def read_object(
     for key, value in config[section].items():
         if key.startswith("param."):
             obj.parameters[key.removeprefix("param.")] = value
+    if kind == ObjectKind.SKETCH and "role" not in obj.parameters:
+        obj.parameters["role"] = "PROFILE"
 
     if config.get(section, "attachment.type", fallback="") == "plane_on_face":
         obj.attachment = PlaneOnFaceAttachment(
