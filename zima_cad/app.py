@@ -16,6 +16,7 @@ from OCC.Display.qtDisplay import qtViewer3d
 from OCC.Core.Graphic3d import (
     Graphic3d_TMF_ZoomPers,
     Graphic3d_TransformPers,
+    Graphic3d_ZLayerId_TopOSD,
     Graphic3d_ZLayerId_Topmost,
 )
 from OCC.Core.Aspect import Aspect_TOL_DOTDASH
@@ -60,6 +61,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QSplitter,
     QTabBar,
     QTableWidget,
@@ -577,7 +579,7 @@ class UserParametersDialog(QDialog):
         self._populate_table()
 
     def _available_languages(self, current_language: str) -> list[str]:
-        languages = {"cs", "en", "de", "ru", current_language}
+        languages = {"cs", "de", "en", "fr", current_language}
         for language_values in [*self.labels.values(), *self.values.values()]:
             languages.update(language for language in language_values if language)
         return sorted(language for language in languages if language)
@@ -725,58 +727,57 @@ class UserParametersDialog(QDialog):
         super().accept()
 
 
-class OptionsDialog(QDialog):
-    PARAMETER_COLUMN = 0
-    DESCRIPTION_COLUMN = 1
-    VALUE_COLUMN = 2
+class FileSettingsDialog(QDialog):
+    UNIT_CHOICES = {
+        "Length": ("mm", "cm", "m", "in"),
+        "Angle": ("deg", "rad"),
+        "Mass": ("kg", "g", "t", "lb"),
+        "Time": ("s", "min"),
+        "Temperature": ("C", "K", "F"),
+        "Stress": ("Pa", "kPa", "MPa", "GPa", "psi"),
+    }
 
-    def __init__(self, config_path: Path, language: str, parent=None) -> None:
+    def __init__(self, document: PartDocument, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr("dialog.options.title"))
-        self.resize(760, 480)
-        self.setMinimumSize(620, 360)
-        self.setSizeGripEnabled(True)
-        self.language = language
-        self.descriptions: dict[str, dict[str, str]] = {}
+        self.setWindowTitle(tr("dialog.file_settings.title"))
+        self.document = document
 
         layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.unit_edits: dict[str, QComboBox] = {}
+        for unit_name, choices in self.UNIT_CHOICES.items():
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.addItems(choices)
+            combo.setCurrentText(document.document_units.get(unit_name, choices[0]))
+            self.unit_edits[unit_name] = combo
+            form.addRow(tr(f"document.unit.{unit_name.lower()}"), combo)
 
-        path_layout = QHBoxLayout()
-        self.config_path_edit = QLineEdit(str(config_path))
-        browse_button = QPushButton(tr("button.browse"))
-        browse_button.clicked.connect(self._browse_config_path)
-        path_layout.addWidget(QLabel(tr("label.options")))
-        path_layout.addWidget(self.config_path_edit, 1)
-        path_layout.addWidget(browse_button)
-        layout.addLayout(path_layout)
+        self.linear_tolerance = self._precision_spinbox(
+            document.document_precision.get("linear_tolerance", "0.001"),
+            decimals=9,
+        )
+        form.addRow(tr("document.precision.linear_tolerance"), self.linear_tolerance)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setAlternatingRowColors(True)
-        self.table.setHorizontalHeaderLabels(
-            [tr("column.parameter"), tr("column.description"), tr("column.value")]
+        self.angular_tolerance = self._precision_spinbox(
+            document.document_precision.get("angular_tolerance", "0.001"),
+            decimals=9,
         )
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(
-            self.PARAMETER_COLUMN, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            self.DESCRIPTION_COLUMN, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            self.VALUE_COLUMN, QHeaderView.ResizeMode.Stretch
-        )
-        layout.addWidget(self.table)
+        form.addRow(tr("document.precision.angular_tolerance"), self.angular_tolerance)
 
-        actions_layout = QHBoxLayout()
-        add_button = QPushButton(tr("button.add"))
-        delete_button = QPushButton(tr("button.delete"))
-        add_button.clicked.connect(self._add_row)
-        delete_button.clicked.connect(self._delete_selected_rows)
-        actions_layout.addWidget(add_button)
-        actions_layout.addWidget(delete_button)
-        actions_layout.addStretch(1)
-        actions_layout.addWidget(QSizeGrip(self))
-        layout.addLayout(actions_layout)
+        self.mesh_deflection = self._precision_spinbox(
+            document.document_precision.get("mesh_deflection", "0.1"),
+            decimals=9,
+        )
+        form.addRow(tr("document.precision.mesh_deflection"), self.mesh_deflection)
+
+        self.decimal_places = QSpinBox()
+        self.decimal_places.setRange(0, 12)
+        self.decimal_places.setValue(
+            int(document.document_precision.get("decimal_places", "3"))
+        )
+        form.addRow(tr("document.precision.decimal_places"), self.decimal_places)
+        layout.addLayout(form)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -787,148 +788,123 @@ class OptionsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self._load_config(Path(self.config_path_edit.text()))
+    def _precision_spinbox(self, value: str, decimals: int) -> QDoubleSpinBox:
+        spinbox = QDoubleSpinBox()
+        spinbox.setDecimals(decimals)
+        spinbox.setRange(0.0, 1_000_000.0)
+        spinbox.setValue(float(value))
+        return spinbox
 
-    @property
-    def config_path(self) -> Path:
-        return Path(self.config_path_edit.text().strip())
+    def accept(self) -> None:
+        self.document.document_units = {
+            unit_name: combo.currentText().strip()
+            for unit_name, combo in self.unit_edits.items()
+        }
+        self.document.document_precision = {
+            "linear_tolerance": f"{self.linear_tolerance.value():.12g}",
+            "angular_tolerance": f"{self.angular_tolerance.value():.12g}",
+            "mesh_deflection": f"{self.mesh_deflection.value():.12g}",
+            "decimal_places": str(self.decimal_places.value()),
+        }
+        super().accept()
 
-    def _browse_config_path(self) -> None:
-        file_name, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("file.select_options"),
-            str(self.config_path.parent),
-            tr("file.filter.ini"),
-        )
-        if not file_name:
-            return
-        self.config_path_edit.setText(file_name)
-        self._load_config(Path(file_name))
 
-    def _load_config(self, config_path: Path) -> None:
+class OptionsDialog(QDialog):
+    LANGUAGE_CHOICES = ("cs", "de", "en", "fr")
+    UNIT_CHOICES = FileSettingsDialog.UNIT_CHOICES
+    PATH_KEYS = ("Materials", "Templates", "Localization")
+
+    def __init__(self, config_path: Path, language: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("dialog.options.title"))
+        self.setMinimumWidth(620)
+        self.config_path = config_path
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(f"{tr('label.options')}: {config_path}"))
+
         config = configparser.ConfigParser()
         config.optionxform = str
         config.read(config_path, encoding="utf-8-sig")
 
-        self.table.setRowCount(0)
-        self.descriptions = self._read_descriptions(config)
-        if not config.sections():
-            self._insert_row("Application.Language", "", "cs")
-            return
-
-        for section in config.sections():
-            if section == "ParameterDescriptions":
-                continue
-            for key, value in config[section].items():
-                parameter = f"{section}.{key}"
-                description = self.descriptions.get(parameter, {}).get(self.language, "")
-                self._insert_row(parameter, description, value)
-
-    def _read_descriptions(
-        self, config: configparser.ConfigParser
-    ) -> dict[str, dict[str, str]]:
-        descriptions: dict[str, dict[str, str]] = {}
-        if not config.has_section("ParameterDescriptions"):
-            return descriptions
-        for raw_key, value in config["ParameterDescriptions"].items():
-            if "\\" in raw_key:
-                parameter, language = raw_key.rsplit("\\", 1)
-            else:
-                parameter, language = raw_key, ""
-            descriptions.setdefault(parameter, {})[language] = value
-        return descriptions
-
-    def _insert_row(self, parameter: str, description: str, value: str) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setItem(row, self.PARAMETER_COLUMN, QTableWidgetItem(parameter))
-        self.table.setItem(row, self.DESCRIPTION_COLUMN, QTableWidgetItem(description))
-        self.table.setItem(row, self.VALUE_COLUMN, QTableWidgetItem(value))
-
-    def _add_row(self) -> None:
-        self._insert_row("Application.NewParameter", "", "")
-
-    def _delete_selected_rows(self) -> None:
-        selected_rows = sorted(
-            {index.row() for index in self.table.selectedIndexes()},
-            reverse=True,
+        form = QFormLayout()
+        self.language_combo = QComboBox()
+        self.language_combo.addItems(self.LANGUAGE_CHOICES)
+        self.language_combo.setCurrentText(
+            config.get("Application", "Language", fallback=language)
         )
-        for row in selected_rows:
-            self.table.removeRow(row)
+        form.addRow(tr("global.language"), self.language_combo)
+
+        self.unit_combos: dict[str, QComboBox] = {}
+        for unit_name, choices in self.UNIT_CHOICES.items():
+            combo = QComboBox()
+            combo.addItems(choices)
+            configured = config.get("Units", unit_name, fallback=choices[0])
+            combo.setCurrentText(configured if configured in choices else choices[0])
+            self.unit_combos[unit_name] = combo
+            form.addRow(tr(f"document.unit.{unit_name.lower()}"), combo)
+
+        self.path_edits: dict[str, QLineEdit] = {}
+        for path_name in self.PATH_KEYS:
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            path_edit = QLineEdit(
+                config.get("Paths", path_name, fallback=path_name.lower())
+            )
+            browse_button = QPushButton(tr("button.browse"))
+            browse_button.clicked.connect(
+                lambda _checked=False, key=path_name: self._browse_directory(key)
+            )
+            row_layout.addWidget(path_edit, 1)
+            row_layout.addWidget(browse_button)
+            self.path_edits[path_name] = path_edit
+            form.addRow(tr(f"global.path.{path_name.lower()}"), row_widget)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse_directory(self, path_name: str) -> None:
+        path_edit = self.path_edits[path_name]
+        configured_path = Path(path_edit.text().strip())
+        if not configured_path.is_absolute():
+            configured_path = self.config_path.parent / configured_path
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            tr("file.select_directory"),
+            str(configured_path),
+        )
+        if not directory:
+            return
+        selected_path = Path(directory)
+        try:
+            display_path = selected_path.relative_to(self.config_path.parent)
+        except ValueError:
+            display_path = selected_path
+        path_edit.setText(str(display_path))
 
     def accept(self) -> None:
-        self.table.clearFocus()
-        QApplication.processEvents()
-
-        config_path = self.config_path
-        if not str(config_path):
-            QMessageBox.information(
-                self, tr("dialog.options.title"), tr("message.required.options_path")
-            )
-            return
-
         config = configparser.ConfigParser()
         config.optionxform = str
-        seen = set()
-
-        for row in range(self.table.rowCount()):
-            parameter_item = self.table.item(row, self.PARAMETER_COLUMN)
-            description_item = self.table.item(row, self.DESCRIPTION_COLUMN)
-            value_item = self.table.item(row, self.VALUE_COLUMN)
-            parameter = parameter_item.text().strip() if parameter_item is not None else ""
-            description = description_item.text() if description_item is not None else ""
-            value = value_item.text() if value_item is not None else ""
-
-            if not parameter:
-                QMessageBox.information(
-                    self, tr("dialog.options.title"), tr("message.required.parameter_name")
-                )
-                return
-            if "." not in parameter:
-                QMessageBox.information(
-                    self,
-                    tr("dialog.options.title"),
-                    tr("message.parameter_format", parameter=parameter),
-                )
-                return
-            if parameter in seen:
-                QMessageBox.information(
-                    self,
-                    tr("dialog.options.title"),
-                    tr("message.duplicate_parameter", parameter=parameter),
-                )
-                return
-
-            seen.add(parameter)
-            section, key = parameter.split(".", 1)
-            if not section or not key:
-                QMessageBox.information(
-                    self,
-                    tr("dialog.options.title"),
-                    tr("message.parameter_format", parameter=parameter),
-                )
-                return
-            if not config.has_section(section):
-                config.add_section(section)
-            config[section][key] = value
-            language_descriptions = self.descriptions.setdefault(parameter, {})
-            if description:
-                language_descriptions[self.language] = description
-            else:
-                language_descriptions.pop(self.language, None)
-
-        flattened_descriptions = {
-            f"{parameter}\\{language}" if language else parameter: description
-            for parameter, language_values in self.descriptions.items()
-            if parameter in seen
-            for language, description in language_values.items()
-            if description
+        config["Application"] = {"Language": self.language_combo.currentText()}
+        config["Paths"] = {
+            path_name: path_edit.text().strip()
+            for path_name, path_edit in self.path_edits.items()
         }
-        if flattened_descriptions:
-            config["ParameterDescriptions"] = flattened_descriptions
+        config["Units"] = {
+            unit_name: combo.currentText()
+            for unit_name, combo in self.unit_combos.items()
+        }
 
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with config_path.open("w", encoding="utf-8") as stream:
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.config_path.open("w", encoding="utf-8") as stream:
             config.write(stream)
 
         super().accept()
@@ -936,14 +912,51 @@ class OptionsDialog(QDialog):
 
 class MaterialDialog(QDialog):
     PROPERTY_COLUMN = 0
-    DESCRIPTION_COLUMN = 1
-    VALUE_COLUMN = 2
+    VALUE_COLUMN = 1
+    UNIT_COLUMN = 2
+    DESCRIPTION_COLUMN = 3
+    UNIT_CHOICES = (
+        "",
+        "1",
+        "mm",
+        "cm",
+        "m",
+        "in",
+        "deg",
+        "rad",
+        "kg",
+        "g",
+        "t",
+        "lb",
+        "s",
+        "min",
+        "C",
+        "K",
+        "F",
+        "Pa",
+        "kPa",
+        "MPa",
+        "GPa",
+        "psi",
+        "kg/mm^3",
+        "g/cm^3",
+        "kg/m^3",
+        "lb/in^3",
+        "1/C",
+        "1/K",
+        "1/F",
+        "mm*kg/(s^3*C)",
+        "W/(m*K)",
+        "mm^2/(s^2*C)",
+        "J/(kg*K)",
+    )
 
     def __init__(
         self,
         document: PartDocument,
         materials_path: Path,
         language: str,
+        default_units: dict[str, str],
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -954,7 +967,13 @@ class MaterialDialog(QDialog):
         self.document = document
         self.materials_path = materials_path
         self.language = language
-        self.parameter_descriptions: dict[str, dict[str, str]] = {}
+        self.default_units = default_units
+        self.parameter_descriptions: dict[str, dict[str, str]] = copy.deepcopy(
+            document.material_parameter_descriptions
+        )
+        self.parameter_units: dict[str, str] = dict(document.physical_parameter_units)
+        if not self.parameter_descriptions:
+            self._load_legacy_descriptions_from_library()
 
         layout = QVBoxLayout(self)
 
@@ -966,20 +985,28 @@ class MaterialDialog(QDialog):
         top_layout.addWidget(load_button)
         layout.addLayout(top_layout)
 
-        self.table = QTableWidget(0, 3)
+        self.table = QTableWidget(0, 4)
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(
-            [tr("column.parameter"), tr("column.description"), tr("column.value")]
+            [
+                tr("column.parameter"),
+                tr("column.value"),
+                tr("column.unit"),
+                tr("column.description"),
+            ]
         )
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             self.PROPERTY_COLUMN, QHeaderView.ResizeMode.Stretch
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            self.DESCRIPTION_COLUMN, QHeaderView.ResizeMode.Stretch
+            self.VALUE_COLUMN, QHeaderView.ResizeMode.Stretch
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            self.VALUE_COLUMN, QHeaderView.ResizeMode.Stretch
+            self.UNIT_COLUMN, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            self.DESCRIPTION_COLUMN, QHeaderView.ResizeMode.Stretch
         )
         layout.addWidget(self.table)
 
@@ -1003,13 +1030,25 @@ class MaterialDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        material_source = document.physical_parameters.get("material_source", "")
-        source_path = self.materials_path / material_source
-        if material_source and source_path.is_file():
-            _, self.parameter_descriptions = parse_material_file(source_path)
-
         for key, value in document.physical_parameters.items():
-            self._insert_row(key, self._description(key), value)
+            self._insert_row(
+                key,
+                value,
+                self.parameter_units.get(key, self._default_unit(key)),
+                self._description(key),
+            )
+
+    def _load_legacy_descriptions_from_library(self) -> None:
+        material_name = self.document.physical_parameters.get("MATERIAL_NAME", "")
+        if not material_name:
+            return
+        template = find_material_template(self.materials_path, material_name)
+        if template is None:
+            return
+        _, descriptions, units = template
+        self.parameter_descriptions = descriptions
+        for key, unit in units.items():
+            self.parameter_units.setdefault(key, unit)
 
     def _load_from_library(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(
@@ -1022,31 +1061,72 @@ class MaterialDialog(QDialog):
             return
 
         material_file = Path(file_name)
-        properties, self.parameter_descriptions = parse_material_file(material_file)
-        properties["material_source"] = material_file.name
+        (
+            properties,
+            self.parameter_descriptions,
+            self.parameter_units,
+        ) = parse_material_file(material_file)
         self.table.setRowCount(0)
         for key, value in properties.items():
-            self._insert_row(key, self._description(key), value)
+            self._insert_row(
+                key,
+                value,
+                self.parameter_units.get(key, self._default_unit(key)),
+                self._description(key),
+            )
 
     def _description(self, property_name: str) -> str:
         descriptions = self.parameter_descriptions.get(property_name, {})
         return descriptions.get(self.language, descriptions.get("", ""))
 
-    def _insert_row(self, property_name: str, description: str, value: str) -> None:
+    def _default_unit(self, property_name: str) -> str:
+        unit_key = {
+            "YOUNG_MODULUS": "Stress",
+            "SHEAR_MODULUS": "Stress",
+            "STRESS_LIMIT_FOR_TENSION": "Stress",
+            "STRESS_LIMIT_FOR_COMPRESSION": "Stress",
+            "STRESS_LIMIT_FOR_SHEAR": "Stress",
+            "MASS_DENSITY": "Density",
+            "THERMAL_EXPANSION_COEFFICIENT": "ThermalExpansion",
+            "THERM_EXPANSION_REF_TEMPERATURE": "Temperature",
+            "THERMAL_CONDUCTIVITY": "ThermalConductivity",
+            "SPECIFIC_HEAT": "SpecificHeat",
+        }.get(property_name)
+        if property_name in {
+            "POISSON_RATIO",
+            "STRUCTURAL_DAMPING_COEFFICIENT",
+            "EMISSIVITY",
+            "SHEETMETAL_K_FACTOR",
+        }:
+            return "1"
+        return self.default_units.get(unit_key, "") if unit_key else ""
+
+    def _insert_row(
+        self,
+        property_name: str,
+        value: str,
+        unit: str,
+        description: str,
+    ) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
         property_item = QTableWidgetItem(property_name)
         property_item.setData(Qt.ItemDataRole.UserRole, property_name)
         self.table.setItem(row, self.PROPERTY_COLUMN, property_item)
+        self.table.setItem(row, self.VALUE_COLUMN, QTableWidgetItem(value))
+        unit_combo = QComboBox(self.table)
+        unit_combo.setEditable(False)
+        unit_combo.addItems(self.UNIT_CHOICES)
+        unit_combo.setCurrentText(unit if unit in self.UNIT_CHOICES else "")
+        self.table.setCellWidget(row, self.UNIT_COLUMN, unit_combo)
         description_item = QTableWidgetItem(description)
         description_item.setFlags(
             description_item.flags() & ~Qt.ItemFlag.ItemIsEditable
         )
         self.table.setItem(row, self.DESCRIPTION_COLUMN, description_item)
-        self.table.setItem(row, self.VALUE_COLUMN, QTableWidgetItem(value))
 
     def _add_row(self) -> None:
-        self._insert_row("new_property", "", "")
+        self._insert_row("NEW_PROPERTY", "", "", "")
 
     def _delete_selected_rows(self) -> None:
         selected_rows = sorted(
@@ -1061,37 +1141,51 @@ class MaterialDialog(QDialog):
         QApplication.processEvents()
 
         physical_parameters: dict[str, str] = {}
+        physical_parameter_units: dict[str, str] = {}
         for row in range(self.table.rowCount()):
             property_item = self.table.item(row, self.PROPERTY_COLUMN)
             value_item = self.table.item(row, self.VALUE_COLUMN)
+            unit_combo = self.table.cellWidget(row, self.UNIT_COLUMN)
             property_name = ""
             if property_item is not None:
                 stored_name = property_item.data(Qt.ItemDataRole.UserRole)
                 property_name = str(stored_name or property_item.text()).strip()
             value = value_item.text() if value_item is not None else ""
+            unit = (
+                unit_combo.currentText().strip()
+                if isinstance(unit_combo, QComboBox)
+                else ""
+            )
             if not property_name:
                 QMessageBox.information(
                     self, tr("dialog.material.title"), tr("message.required.property_name")
                 )
                 return
             physical_parameters[property_name] = value
+            if unit:
+                physical_parameter_units[property_name] = unit
 
         self.document.physical_parameters = physical_parameters
+        self.document.physical_parameter_units = physical_parameter_units
+        self.document.material_parameter_descriptions = copy.deepcopy(
+            self.parameter_descriptions
+        )
         super().accept()
 
 
 def parse_material_file(
     material_file: Path,
-) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+) -> tuple[dict[str, str], dict[str, dict[str, str]], dict[str, str]]:
     config = configparser.ConfigParser()
     config.optionxform = str
     config.read(material_file, encoding="utf-8-sig")
 
     properties: dict[str, str] = {}
     if config.has_section("Material"):
-        properties["material_name"] = config.get("Material", "Name", fallback="")
+        properties["MATERIAL_NAME"] = config.get("Material", "Name", fallback="")
     if config.has_section("Properties"):
         properties.update(dict(config["Properties"]))
+    units = dict(config["PropertyUnits"]) if config.has_section("PropertyUnits") else {}
 
     descriptions: dict[str, dict[str, str]] = {}
     if config.has_section("ParameterDescriptions"):
@@ -1101,7 +1195,18 @@ def parse_material_file(
             else:
                 key, language = raw_key, ""
             descriptions.setdefault(key, {})[language] = value
-    return properties, descriptions
+    return properties, descriptions, units
+
+
+def find_material_template(
+    materials_path: Path,
+    material_name: str,
+) -> tuple[dict[str, str], dict[str, dict[str, str]], dict[str, str]] | None:
+    for material_file in materials_path.glob("*.matz"):
+        material = parse_material_file(material_file)
+        if material[0].get("MATERIAL_NAME") == material_name:
+            return material
+    return None
 
 
 class ZimaViewer(qtViewer3d):
@@ -1226,6 +1331,16 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels([tr("tree.header")])
         self.tree.setMinimumWidth(280)
+        self.tree.setStyleSheet(
+            """
+            QTreeWidget::item:selected,
+            QTreeWidget::item:selected:active,
+            QTreeWidget::item:selected:!active {
+                background-color: #245D8F;
+                color: #FFFFFF;
+            }
+            """
+        )
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         self.selected_object_id: str | None = None
@@ -1246,6 +1361,11 @@ class MainWindow(QMainWindow):
         self._coordinate_shapes: list[tuple[Any, str]] = []
         self._coordinate_ais_shapes: list[Any] = []
         self._coordinate_ais_by_object_id: dict[str, list[Any]] = {}
+        self._coordinate_overlay_sources_by_object_id: dict[
+            str,
+            list[tuple[Any, Any]],
+        ] = {}
+        self._coordinate_highlight_overlay_ais: list[Any] = []
         self._nonselectable_ais_shapes: list[Any] = []
         self._cached_document = None
         self._cached_model_shapes: list[tuple[Any, str]] = []
@@ -1437,14 +1557,23 @@ class MainWindow(QMainWindow):
         set_working_directory_action.triggered.connect(self.set_working_directory)
 
         tools_menu = self.menuBar().addMenu(tr("menu.tools"))
-        parameters_action = tools_menu.addAction(tr("menu.tools.parameters"))
-        parameters_action.triggered.connect(self.show_user_parameters_dialog)
+        self.material_action = tools_menu.addAction(tr("menu.tools.material"))
+        self.material_action.triggered.connect(self.show_material_dialog)
 
-        material_action = tools_menu.addAction(tr("menu.tools.material"))
-        material_action.triggered.connect(self.show_material_dialog)
+        self.parameters_action = tools_menu.addAction(tr("menu.tools.parameters"))
+        self.parameters_action.triggered.connect(self.show_user_parameters_dialog)
 
-        options_action = tools_menu.addAction(tr("menu.tools.options"))
-        options_action.triggered.connect(self.show_options_dialog)
+        tools_menu.addSeparator()
+
+        self.file_settings_action = tools_menu.addAction(
+            tr("menu.tools.file_settings")
+        )
+        self.file_settings_action.triggered.connect(self.show_file_settings_dialog)
+
+        global_settings_action = tools_menu.addAction(
+            tr("menu.tools.global_settings")
+        )
+        global_settings_action.triggered.connect(self.show_options_dialog)
 
         self.window_menu = self.menuBar().addMenu(tr("menu.window"))
         self._refresh_window_menu()
@@ -1475,6 +1604,14 @@ class MainWindow(QMainWindow):
         has_document = self.document is not None
         self.document_tabs.setVisible(has_document)
         self.document_splitter.setVisible(has_document)
+        for action_name in (
+            "material_action",
+            "parameters_action",
+            "file_settings_action",
+        ):
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(has_document)
 
     def _store_active_session(self) -> None:
         if 0 <= self.active_document_index < len(self.document_sessions):
@@ -1569,6 +1706,9 @@ class MainWindow(QMainWindow):
             return
 
         document = create_empty_part()
+        for unit_name in document.document_units:
+            if unit_name in self.settings.units:
+                document.document_units[unit_name] = self.settings.units[unit_name]
         file_path = self.working_directory / f"{file_stem}.prtz"
         self._add_document_session(document, file_path)
 
@@ -1602,6 +1742,18 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
+
+        if not document.material_parameter_descriptions:
+            material_name = document.physical_parameters.get("MATERIAL_NAME", "")
+            template = find_material_template(
+                self.settings.materials_path,
+                material_name,
+            )
+            if template is not None:
+                _, descriptions, units = template
+                document.material_parameter_descriptions = descriptions
+                for key, unit in units.items():
+                    document.physical_parameter_units.setdefault(key, unit)
 
         self._add_document_session(document, file_path)
 
@@ -1752,8 +1904,22 @@ class MainWindow(QMainWindow):
             self.document,
             self.settings.materials_path,
             self.settings.language,
+            self.settings.units,
             self,
         )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._store_active_session()
+
+    def show_file_settings_dialog(self) -> None:
+        if self.document is None:
+            QMessageBox.information(
+                self,
+                tr("dialog.file_settings.title"),
+                tr("message.no_document"),
+            )
+            return
+
+        dialog = FileSettingsDialog(self.document, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._store_active_session()
 
@@ -2008,6 +2174,10 @@ class MainWindow(QMainWindow):
             whole_object_ids.update(hovered_ids)
 
         context = self.viewer._display.Context
+        for overlay_shape in self._coordinate_highlight_overlay_ais:
+            context.Erase(overlay_shape, False)
+        self._coordinate_highlight_overlay_ais.clear()
+        active_coordinate_ids: set[str] = set()
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
             selected_edge_ids = set() if self.selected_face is not None else selected_ids
             color = (
@@ -2022,7 +2192,21 @@ class MainWindow(QMainWindow):
             coordinate = self.document.find_object(object_id) if self.document else None
             if coordinate is None:
                 continue
-            active = object_id in selected_ids or object_id in hovered_ids
+            coordinate_owner = (
+                self.document.find_owning_object(object_id)
+                if self.document is not None
+                else None
+            )
+            owner_id = (
+                coordinate_owner.object_id
+                if coordinate_owner is not None
+                else None
+            )
+            active = (
+                object_id in selected_ids
+                or object_id in hovered_ids
+                or owner_id in whole_object_ids
+            )
             if active:
                 color = YELLOW
             elif coordinate.kind == ObjectKind.PLANE:
@@ -2043,18 +2227,51 @@ class MainWindow(QMainWindow):
             for coordinate_shape in coordinate_shapes:
                 coordinate_shape.SetColor(color)
                 context.Redisplay(coordinate_shape, False)
+            if active:
+                active_coordinate_ids.add(object_id)
+        for object_id in active_coordinate_ids:
+            for shape, transform_persistence in (
+                self._coordinate_overlay_sources_by_object_id.get(object_id, [])
+            ):
+                overlay_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=YELLOW,
+                    update=False,
+                )
+                for overlay_shape in overlay_shapes:
+                    overlay_shape.SetZLayer(Graphic3d_ZLayerId_TopOSD)
+                    overlay_shape.SetTransformPersistence(transform_persistence)
+                    context.Deactivate(overlay_shape)
+                self._coordinate_highlight_overlay_ais.extend(overlay_shapes)
+        active_coordinate_label_structures = []
         for object_id, structures in self._coordinate_labels_by_object_id.items():
             normal_structure, highlighted_structure = structures
+            coordinate_owner = (
+                self.document.find_owning_object(object_id)
+                if self.document is not None
+                else None
+            )
+            owner_id = (
+                coordinate_owner.object_id
+                if coordinate_owner is not None
+                else None
+            )
             active = (
                 object_id in selected_ids
                 or object_id in hovered_ids
+                or owner_id in whole_object_ids
             )
+            normal_structure.Erase()
+            highlighted_structure.Erase()
             if active:
-                normal_structure.Erase()
-                highlighted_structure.Display()
+                active_coordinate_label_structures.append(highlighted_structure)
             else:
-                highlighted_structure.Erase()
                 normal_structure.Display()
+        # Coincident coordinate systems also have coincident labels. Display the
+        # active label after every normal label so the selected plane keeps its
+        # yellow text regardless of object creation order.
+        for highlighted_structure in active_coordinate_label_structures:
+            highlighted_structure.Display()
         self.viewer._display.Repaint()
 
     def _solid_face_role(self, solid: ZimaObject, face) -> str | None:
@@ -2124,12 +2341,13 @@ class MainWindow(QMainWindow):
 
         if obj is None or obj.kind == ObjectKind.PART:
             create_action = menu.addAction(tr("menu.context.create_object"))
-        elif self._is_object_reference_plane(obj):
+        elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
-            menu.addSeparator()
-            attach_action = menu.addAction(tr("menu.context.attach_to_face"))
-            create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-            create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
+            if self._is_object_reference_plane(obj):
+                menu.addSeparator()
+                attach_action = menu.addAction(tr("menu.context.attach_to_face"))
+                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
+                create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
         else:
             if obj.kind == ObjectKind.OBJECT:
                 can_create = obj.can_accept_entity()
@@ -2221,17 +2439,32 @@ class MainWindow(QMainWindow):
             self.viewer._display.MoveTo(x, y)
         context = self.viewer._display.Context
         if context.HasDetected():
-            self._hovered_coordinate_object_id = None
-            self._update_coordinate_label_highlights()
-            if context.HasNextDetected():
-                rank = context.HilightNextDetected(
-                    self.viewer._display.View,
-                    True,
+            previous_object_id = self._hovered_coordinate_object_id
+            rank = 1
+            detected_shape = None
+            for _attempt in range(64):
+                if context.HasNextDetected():
+                    rank = context.HilightNextDetected(
+                        self.viewer._display.View,
+                        True,
+                    )
+                else:
+                    context.ClearDetected(False)
+                    self.viewer._display.MoveTo(x, y)
+                    rank = 1
+                detected_shape = (
+                    context.DetectedShape()
+                    if context.HasDetectedShape()
+                    else None
                 )
-            else:
-                context.ClearDetected(False)
-                self.viewer._display.MoveTo(x, y)
-                rank = 1
+                candidate_id = (
+                    self._object_id_for_selected_shape(detected_shape)
+                    if detected_shape is not None and not detected_shape.IsNull()
+                    else None
+                )
+                if candidate_id is not None and candidate_id != previous_object_id:
+                    break
+            self._on_view_hover_changed(detected_shape)
             self.viewer._select_cycled_detection = True
             self.statusBar().showMessage(
                 tr("selection.status.cycled_face", rank=rank)
@@ -2266,12 +2499,13 @@ class MainWindow(QMainWindow):
         delete_action = None
         normal_view_action = None
 
-        if self._is_object_reference_plane(obj):
+        if self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
-            menu.addSeparator()
-            attach_action = menu.addAction(tr("menu.context.attach_to_face"))
-            create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
-            create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
+            if self._is_object_reference_plane(obj):
+                menu.addSeparator()
+                attach_action = menu.addAction(tr("menu.context.attach_to_face"))
+                create_sketch_action = menu.addAction(tr("menu.context.create_sketch"))
+                create_sketch_action.setEnabled(self._can_create_sketch_from(obj))
         else:
             if obj.kind == ObjectKind.OBJECT:
                 can_create = obj.can_accept_entity()
@@ -2580,6 +2814,12 @@ class MainWindow(QMainWindow):
         parent = self.document.find_owning_object(obj.object_id)
         return parent is not None and parent.kind == ObjectKind.OBJECT
 
+    def _is_system_reference_plane(self, obj: ZimaObject) -> bool:
+        if self.document is None or obj.kind != ObjectKind.PLANE:
+            return False
+        parent = self.document.find_parent(obj.object_id)
+        return parent is not None and parent.kind == ObjectKind.ORIGIN
+
     def _can_create_cube_from(self, obj: ZimaObject) -> bool:
         if self.document is None:
             return False
@@ -2663,6 +2903,8 @@ class MainWindow(QMainWindow):
         self._coordinate_shapes.clear()
         self._coordinate_ais_shapes.clear()
         self._coordinate_ais_by_object_id.clear()
+        self._coordinate_overlay_sources_by_object_id.clear()
+        self._coordinate_highlight_overlay_ais.clear()
         self._nonselectable_ais_shapes.clear()
         self._selected_face_overlay_ais.clear()
         self._selected_model_overlay_ais.clear()
@@ -2874,12 +3116,19 @@ class MainWindow(QMainWindow):
         if (
             self.document is not None
             and selected_obj is not None
-            and selected_obj.kind in (ObjectKind.POINT, ObjectKind.AXIS, ObjectKind.PLANE)
         ):
-            selected_owner = (
-                self.document.find_owning_object(selected_obj.object_id)
-                or self.document.find_parent(selected_obj.object_id)
-            )
+            if selected_obj.kind == ObjectKind.OBJECT:
+                selected_owner = selected_obj
+            elif selected_obj.kind in (
+                ObjectKind.ORIGIN,
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+            ):
+                selected_owner = (
+                    self.document.find_owning_object(selected_obj.object_id)
+                    or self.document.find_parent(selected_obj.object_id)
+                )
         global_origin = next(
             (
                 child
@@ -2896,7 +3145,13 @@ class MainWindow(QMainWindow):
         )
 
         if self.document is not None:
-            for obj in self.document.visible_objects():
+            visible_objects = self.document.visible_objects()
+            if selected_owner is not None:
+                visible_objects = sorted(
+                    visible_objects,
+                    key=lambda obj: obj is selected_owner,
+                )
+            for obj in visible_objects:
                 self._display_object_coordinate_systems(
                     obj,
                     identity_transform(),
@@ -3146,6 +3401,10 @@ class MainWindow(QMainWindow):
         if coordinate_object_id is not None:
             for item in shape if isinstance(shape, list) else [shape]:
                 self._coordinate_shapes.append((item, coordinate_object_id))
+                self._coordinate_overlay_sources_by_object_id.setdefault(
+                    coordinate_object_id,
+                    [],
+                ).append((item, transform_persistence))
         if key == selected_key:
             ais_shapes = self._display_overlay_shape(
                 shape,

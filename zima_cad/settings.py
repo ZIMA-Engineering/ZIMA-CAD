@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import configparser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from zima_cad.paths import app_path, ensure_application_directories
@@ -14,6 +14,7 @@ class ApplicationSettings:
     materials_path: Path = Path("config/materials")
     templates_path: Path = Path("config/templates")
     localization_path: Path = Path("config/localization")
+    units: dict[str, str] = field(default_factory=dict)
 
 
 def default_config_path() -> Path:
@@ -43,12 +44,14 @@ def load_application_settings(config_path: Path | None = None) -> ApplicationSet
         resolved_config_path,
         config.get("Paths", "Localization", fallback="config/localization"),
     )
+    units = dict(config["Units"]) if config.has_section("Units") else {}
     return ApplicationSettings(
         language=language,
         config_path=resolved_config_path,
         materials_path=materials_path,
         templates_path=templates_path,
         localization_path=localization_path,
+        units=units,
     )
 
 

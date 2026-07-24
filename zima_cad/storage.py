@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import math
 from pathlib import Path
 
 from zima_cad.model import (
@@ -12,6 +13,7 @@ from zima_cad.model import (
     ZimaObject,
     add_coordinate_system_children,
     create_empty_part,
+    default_user_parameter_labels,
 )
 
 
@@ -31,7 +33,22 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     config.optionxform = str
 
     config["Document"] = document.document_settings
-    config["Physical"] = document.physical_parameters
+    config["DocumentUnits"] = document.document_units
+    config["DocumentPrecision"] = document.document_precision
+    material_name = document.physical_parameters.get("MATERIAL_NAME", "")
+    config["Material"] = {"Name": material_name}
+    config["MaterialProperties"] = {
+        key: value
+        for key, value in document.physical_parameters.items()
+        if key != "MATERIAL_NAME"
+    }
+    if document.physical_parameter_units:
+        config["MaterialUnits"] = document.physical_parameter_units
+    material_descriptions = flatten_language_map(
+        document.material_parameter_descriptions
+    )
+    if material_descriptions:
+        config["MaterialDescriptions"] = material_descriptions
     config["UserParameters"] = {"Order": ", ".join(document.user_parameter_order)}
     config["UserParameterLabels"] = flatten_language_map(document.user_parameter_labels)
     config["UserParameterValues"] = flatten_language_map(document.user_parameter_values)
@@ -55,8 +72,54 @@ def load_part_document(file_path: Path) -> PartDocument:
     document = create_empty_part()
     if config.has_section("Document"):
         document.document_settings.update(dict(config["Document"]))
-    if config.has_section("Physical"):
-        document.physical_parameters.update(dict(config["Physical"]))
+        legacy_unit_names = {
+            "units": "Length",
+            "angle_units": "Angle",
+        }
+        for legacy_name, unit_name in legacy_unit_names.items():
+            if legacy_name in document.document_settings:
+                document.document_units[unit_name] = document.document_settings.pop(
+                    legacy_name
+                )
+        for precision_name in (
+            "linear_tolerance",
+            "angular_tolerance",
+            "mesh_deflection",
+        ):
+            if precision_name in document.document_settings:
+                document.document_precision[precision_name] = (
+                    document.document_settings.pop(precision_name)
+                )
+    if config.has_section("DocumentUnits"):
+        document.document_units.update(dict(config["DocumentUnits"]))
+    if config.has_section("DocumentPrecision"):
+        document.document_precision.update(dict(config["DocumentPrecision"]))
+    document.document_settings["format_version"] = "3"
+    if config.has_section("Material") or config.has_section("MaterialProperties"):
+        material_parameters = {
+            "MATERIAL_NAME": config.get("Material", "Name", fallback="")
+        }
+        if config.has_section("MaterialProperties"):
+            material_parameters.update(dict(config["MaterialProperties"]))
+        document.physical_parameters = normalize_physical_parameters(
+            material_parameters
+        )
+    elif config.has_section("Physical"):
+        document.physical_parameters = normalize_physical_parameters(
+            dict(config["Physical"])
+        )
+    if config.has_section("MaterialUnits"):
+        document.physical_parameter_units = normalize_material_units(
+            dict(config["MaterialUnits"])
+        )
+    elif config.has_section("PhysicalUnits"):
+        document.physical_parameter_units = normalize_material_units(
+            dict(config["PhysicalUnits"])
+        )
+    if config.has_section("MaterialDescriptions"):
+        document.material_parameter_descriptions = normalize_material_descriptions(
+            read_language_map(config["MaterialDescriptions"])
+        )
     if config.has_section("UserParameters"):
         load_user_parameters(config, document)
 
@@ -76,6 +139,65 @@ def load_part_document(file_path: Path) -> PartDocument:
 
     validate_object_entities(document)
     return document
+
+
+def normalize_physical_parameters(parameters: dict[str, str]) -> dict[str, str]:
+    legacy_names = {
+        "material_name": "MATERIAL_NAME",
+        "density": "MASS_DENSITY",
+        "poisson_ratio": "POISSON_RATIO",
+        "youngs_modulus": "YOUNG_MODULUS",
+        "thermal_expansion": "THERMAL_EXPANSION_COEFFICIENT",
+        "specific_heat_capacity": "SPECIFIC_HEAT",
+        "thermal_conductivity": "THERMAL_CONDUCTIVITY",
+        "sheet_k_factor": "SHEETMETAL_K_FACTOR",
+    }
+    normalized = dict(parameters)
+    for legacy_name, canonical_name in legacy_names.items():
+        legacy_value = normalized.pop(legacy_name, "")
+        if legacy_value and not normalized.get(canonical_name):
+            normalized[canonical_name] = legacy_value
+    y_factor = normalized.pop("INITIAL_BEND_Y_FACTOR", "")
+    if y_factor and not normalized.get("SHEETMETAL_K_FACTOR"):
+        try:
+            normalized["SHEETMETAL_K_FACTOR"] = (
+                f"{float(y_factor) * 2.0 / math.pi:.12g}"
+            )
+        except ValueError:
+            pass
+    normalized.pop("BEND_TABLE", None)
+    normalized.pop("material_source", None)
+    return normalized
+
+
+def normalize_material_units(units: dict[str, str]) -> dict[str, str]:
+    normalized = dict(units)
+    if "INITIAL_BEND_Y_FACTOR" in normalized:
+        normalized.setdefault(
+            "SHEETMETAL_K_FACTOR",
+            normalized.pop("INITIAL_BEND_Y_FACTOR"),
+        )
+    normalized.pop("BEND_TABLE", None)
+    normalized.pop("material_source", None)
+    normalized.pop("MATERIAL_NAME", None)
+    normalized.pop("material_name", None)
+    return normalized
+
+
+def normalize_material_descriptions(
+    descriptions: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    normalized = dict(descriptions)
+    if "material_name" in normalized:
+        normalized.setdefault("MATERIAL_NAME", normalized.pop("material_name"))
+    if "INITIAL_BEND_Y_FACTOR" in normalized:
+        normalized.setdefault(
+            "SHEETMETAL_K_FACTOR",
+            normalized.pop("INITIAL_BEND_Y_FACTOR"),
+        )
+    normalized.pop("BEND_TABLE", None)
+    normalized.pop("material_source", None)
+    return normalized
 
 
 def validate_object_entities(document: PartDocument) -> None:
@@ -278,3 +400,5 @@ def ensure_user_parameter_keys(document: PartDocument) -> None:
             document.user_parameter_order.append(key)
         document.user_parameter_labels.setdefault(key, {})
         document.user_parameter_values.setdefault(key, {"": ""})
+        for language, label in default_user_parameter_labels().get(key, {}).items():
+            document.user_parameter_labels[key].setdefault(language, label)

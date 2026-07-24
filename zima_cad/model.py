@@ -27,26 +27,32 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "2",
-        "units": "mm",
-        "angle_units": "deg",
+        "format_version": "3",
+    }
+
+
+def default_document_units() -> dict[str, str]:
+    return {
+        "Length": "mm",
+        "Angle": "deg",
+        "Mass": "kg",
+        "Time": "s",
+        "Temperature": "C",
+        "Stress": "MPa",
+    }
+
+
+def default_document_precision() -> dict[str, str]:
+    return {
         "linear_tolerance": "0.001",
         "angular_tolerance": "0.001",
         "mesh_deflection": "0.1",
+        "decimal_places": "3",
     }
 
 
 def default_physical_parameters() -> dict[str, str]:
-    return {
-        "material_name": "",
-        "density": "",
-        "poisson_ratio": "",
-        "youngs_modulus": "",
-        "thermal_expansion": "",
-        "specific_heat_capacity": "",
-        "thermal_conductivity": "",
-        "sheet_k_factor": "",
-    }
+    return {"MATERIAL_NAME": ""}
 
 
 def default_user_parameters() -> dict[str, str]:
@@ -79,15 +85,40 @@ def default_user_parameter_order() -> list[str]:
 
 def default_user_parameter_labels() -> dict[str, dict[str, str]]:
     return {
-        "datum": {"cs": "Datum", "en": "Date"},
-        "kreslil": {"cs": "Kreslil", "en": "Drew"},
-        "material": {"cs": "Materi\u00e1l", "en": "Material"},
-        "mnozstvi": {"cs": "Mno\u017estv\u00ed", "en": "Quantity"},
-        "nazev": {"cs": "N\u00e1zev", "en": "Name"},
-        "norma": {"cs": "Norma", "en": "Standard"},
-        "polotovar": {"cs": "Polotovar", "en": "Stock"},
-        "schvalil": {"cs": "Schvalil", "en": "Approved"},
-        "verze": {"cs": "Verze", "en": "Version"},
+        "datum": {"cs": "Datum", "de": "Datum", "en": "Date", "fr": "Date"},
+        "kreslil": {
+            "cs": "Kreslil",
+            "de": "Gezeichnet von",
+            "en": "Drew",
+            "fr": "Dessiné par",
+        },
+        "material": {
+            "cs": "Materi\u00e1l",
+            "de": "Material",
+            "en": "Material",
+            "fr": "Matériau",
+        },
+        "mnozstvi": {
+            "cs": "Mno\u017estv\u00ed",
+            "de": "Menge",
+            "en": "Quantity",
+            "fr": "Quantité",
+        },
+        "nazev": {"cs": "N\u00e1zev", "de": "Name", "en": "Name", "fr": "Nom"},
+        "norma": {"cs": "Norma", "de": "Norm", "en": "Standard", "fr": "Norme"},
+        "polotovar": {
+            "cs": "Polotovar",
+            "de": "Rohteil",
+            "en": "Stock",
+            "fr": "Ébauche",
+        },
+        "schvalil": {
+            "cs": "Schvalil",
+            "de": "Genehmigt von",
+            "en": "Approved",
+            "fr": "Approuvé par",
+        },
+        "verze": {"cs": "Verze", "de": "Version", "en": "Version", "fr": "Version"},
     }
 
 
@@ -177,7 +208,13 @@ class ZimaObject:
 @dataclass
 class PartDocument:
     document_settings: dict[str, str] = field(default_factory=default_document_settings)
+    document_units: dict[str, str] = field(default_factory=default_document_units)
+    document_precision: dict[str, str] = field(default_factory=default_document_precision)
     physical_parameters: dict[str, str] = field(default_factory=default_physical_parameters)
+    physical_parameter_units: dict[str, str] = field(default_factory=dict)
+    material_parameter_descriptions: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )
     user_parameters: dict[str, str] = field(default_factory=default_user_parameters)
     user_parameter_order: list[str] = field(default_factory=default_user_parameter_order)
     user_parameter_labels: dict[str, dict[str, str]] = field(
