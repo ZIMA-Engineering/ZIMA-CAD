@@ -6,7 +6,7 @@ import configparser
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from OCC.Display.backend import load_backend
 
@@ -125,6 +125,13 @@ def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
         cancel_button.setText(tr("button.cancel"))
     if apply_button is not None:
         apply_button.setText(tr("button.apply"))
+
+
+def create_saved_status_label() -> QLabel:
+    label = QLabel("")
+    label.setStyleSheet("color: #2e9b4f;")
+    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    return label
 
 
 class ViewDisplayMode(str, Enum):
@@ -506,7 +513,13 @@ class UserParametersDialog(QDialog):
     LABEL_COLUMN = 2
     VALUE_COLUMN = 3
 
-    def __init__(self, document: PartDocument, language: str, parent=None) -> None:
+    def __init__(
+        self,
+        document: PartDocument,
+        language: str,
+        parent=None,
+        save_callback: Callable[[], bool] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.parameters.title"))
         self.resize(920, 560)
@@ -514,6 +527,7 @@ class UserParametersDialog(QDialog):
         self.setSizeGripEnabled(True)
         self.document = document
         self.language = language
+        self.save_callback = save_callback
         self.order = list(document.user_parameter_order)
         self.labels = copy.deepcopy(document.user_parameter_labels)
         self.values = copy.deepcopy(document.user_parameter_values)
@@ -560,11 +574,18 @@ class UserParametersDialog(QDialog):
         actions_layout.addWidget(QSizeGrip(self))
         layout.addLayout(actions_layout)
 
+        self.saved_status = create_saved_status_label()
+        layout.addWidget(self.saved_status)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -712,9 +733,9 @@ class UserParametersDialog(QDialog):
         self.table.clearFocus()
         QApplication.processEvents()
 
-    def accept(self) -> None:
+    def _apply_to_document(self) -> bool:
         if not self._read_table():
-            return
+            return False
 
         self.document.user_parameter_order = self.order
         self.document.user_parameter_labels = self.labels
@@ -724,6 +745,20 @@ class UserParametersDialog(QDialog):
             for key, values in self.values.items()
             if "" in values
         }
+        return True
+
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        if not self._apply_to_document():
+            return False
+        if self.save_callback is not None and not self.save_callback():
+            return False
+        self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def accept(self) -> None:
+        if not self.apply_changes():
+            return
         super().accept()
 
 
@@ -737,10 +772,16 @@ class FileSettingsDialog(QDialog):
         "Stress": ("Pa", "kPa", "MPa", "GPa", "psi"),
     }
 
-    def __init__(self, document: PartDocument, parent=None) -> None:
+    def __init__(
+        self,
+        document: PartDocument,
+        parent=None,
+        save_callback: Callable[[], bool] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.file_settings.title"))
         self.document = document
+        self.save_callback = save_callback
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -779,11 +820,18 @@ class FileSettingsDialog(QDialog):
         form.addRow(tr("document.precision.decimal_places"), self.decimal_places)
         layout.addLayout(form)
 
+        self.saved_status = create_saved_status_label()
+        layout.addWidget(self.saved_status)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -795,7 +843,7 @@ class FileSettingsDialog(QDialog):
         spinbox.setValue(float(value))
         return spinbox
 
-    def accept(self) -> None:
+    def _apply_to_document(self) -> None:
         self.document.document_units = {
             unit_name: combo.currentText().strip()
             for unit_name, combo in self.unit_edits.items()
@@ -806,6 +854,18 @@ class FileSettingsDialog(QDialog):
             "mesh_deflection": f"{self.mesh_deflection.value():.12g}",
             "decimal_places": str(self.decimal_places.value()),
         }
+
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        self._apply_to_document()
+        if self.save_callback is not None and not self.save_callback():
+            return False
+        self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def accept(self) -> None:
+        if not self.apply_changes():
+            return
         super().accept()
 
 
@@ -814,11 +874,18 @@ class OptionsDialog(QDialog):
     UNIT_CHOICES = FileSettingsDialog.UNIT_CHOICES
     PATH_KEYS = ("Materials", "Templates", "Localization")
 
-    def __init__(self, config_path: Path, language: str, parent=None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        language: str,
+        parent=None,
+        applied_callback: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.options.title"))
         self.setMinimumWidth(620)
         self.config_path = config_path
+        self.applied_callback = applied_callback
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"{tr('label.options')}: {config_path}"))
@@ -862,11 +929,18 @@ class OptionsDialog(QDialog):
             form.addRow(tr(f"global.path.{path_name.lower()}"), row_widget)
         layout.addLayout(form)
 
+        self.saved_status = create_saved_status_label()
+        layout.addWidget(self.saved_status)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -890,8 +964,9 @@ class OptionsDialog(QDialog):
             display_path = selected_path
         path_edit.setText(str(display_path))
 
-    def accept(self) -> None:
-        config = configparser.ConfigParser()
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        config = configparser.ConfigParser(interpolation=None)
         config.optionxform = str
         config["Application"] = {"Language": self.language_combo.currentText()}
         config["Paths"] = {
@@ -903,10 +978,22 @@ class OptionsDialog(QDialog):
             for unit_name, combo in self.unit_combos.items()
         }
 
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.config_path.open("w", encoding="utf-8") as stream:
-            config.write(stream)
+        try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.config_path.open("w", encoding="utf-8") as stream:
+                config.write(stream)
+        except OSError as exc:
+            QMessageBox.critical(self, tr("message.save_failed"), str(exc))
+            return False
 
+        if self.applied_callback is not None:
+            self.applied_callback()
+        self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def accept(self) -> None:
+        if not self.apply_changes():
+            return
         super().accept()
 
 
@@ -981,6 +1068,7 @@ class MaterialDialog(QDialog):
         language: str,
         default_units: dict[str, str],
         parent=None,
+        save_callback: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.material.title"))
@@ -991,6 +1079,7 @@ class MaterialDialog(QDialog):
         self.materials_path = materials_path
         self.language = language
         self.default_units = default_units
+        self.save_callback = save_callback
         self.parameter_descriptions: dict[str, dict[str, str]] = copy.deepcopy(
             document.material_parameter_descriptions
         )
@@ -1042,11 +1131,18 @@ class MaterialDialog(QDialog):
         actions_layout.addWidget(QSizeGrip(self))
         layout.addLayout(actions_layout)
 
+        self.saved_status = create_saved_status_label()
+        layout.addWidget(self.saved_status)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1157,7 +1253,7 @@ class MaterialDialog(QDialog):
         for row in selected_rows:
             self.table.removeRow(row)
 
-    def accept(self) -> None:
+    def _apply_to_document(self) -> bool:
         self.table.clearFocus()
         QApplication.processEvents()
 
@@ -1181,7 +1277,7 @@ class MaterialDialog(QDialog):
                 QMessageBox.information(
                     self, tr("dialog.material.title"), tr("message.required.property_name")
                 )
-                return
+                return False
             physical_parameters[property_name] = value
             if unit:
                 physical_parameter_units[property_name] = unit
@@ -1191,6 +1287,20 @@ class MaterialDialog(QDialog):
         self.document.material_parameter_descriptions = copy.deepcopy(
             self.parameter_descriptions
         )
+        return True
+
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        if not self._apply_to_document():
+            return False
+        if self.save_callback is not None and not self.save_callback():
+            return False
+        self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def accept(self) -> None:
+        if not self.apply_changes():
+            return
         super().accept()
 
 
@@ -1755,25 +1865,24 @@ class MainWindow(QMainWindow):
 
         self._add_document_session(document, file_path)
 
-    def save_document(self) -> None:
+    def save_document(self) -> bool:
         if self.document is None:
             QMessageBox.information(
                 self, tr("menu.file.save"), tr("message.no_document")
             )
-            return
+            return False
 
         if self.current_file_path is None:
-            self.save_document_as()
-            return
+            return self.save_document_as()
 
-        self._save_to_path(self.current_file_path)
+        return self._save_to_path(self.current_file_path)
 
-    def save_document_as(self) -> None:
+    def save_document_as(self) -> bool:
         if self.document is None:
             QMessageBox.information(
                 self, tr("menu.file.save_as"), tr("message.no_document")
             )
-            return
+            return False
 
         default_path = self.working_directory / "part.prtz"
         file_name, _ = QFileDialog.getSaveFileName(
@@ -1783,18 +1892,18 @@ class MainWindow(QMainWindow):
             tr("file.filter.part"),
         )
         if not file_name:
-            return
+            return False
 
         file_path = Path(file_name)
         if file_path.suffix.lower() != ".prtz":
             file_path = file_path.with_suffix(".prtz")
 
-        self._save_to_path(file_path)
+        return self._save_to_path(file_path)
 
-    def _save_to_path(self, file_path: Path) -> None:
+    def _save_to_path(self, file_path: Path) -> bool:
         try:
             if self.document is None:
-                return
+                return False
             save_part_document(self.document, file_path)
         except ObjectEntityLimitError as exc:
             QMessageBox.critical(
@@ -1806,15 +1915,27 @@ class MainWindow(QMainWindow):
                     entities=", ".join(exc.entity_names),
                 ),
             )
-            return
+            return False
         except Exception as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
-            return
+            return False
 
         self.current_file_path = file_path
         if 0 <= self.active_document_index < len(self.document_sessions):
             self.document_sessions[self.active_document_index].file_path = file_path
         self._update_window_title()
+        return True
+
+    def _apply_and_save_document(self) -> bool:
+        self._store_active_session()
+        return self.save_document()
+
+    def _reload_application_settings(self) -> None:
+        self.settings = load_application_settings(self.settings.config_path)
+        configure_localization(
+            self.settings.localization_path,
+            self.settings.language,
+        )
 
     def set_working_directory(self) -> None:
         directory = QFileDialog.getExistingDirectory(
@@ -1887,6 +2008,7 @@ class MainWindow(QMainWindow):
             self.document,
             self.settings.language,
             self,
+            save_callback=self._apply_and_save_document,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._store_active_session()
@@ -1904,6 +2026,7 @@ class MainWindow(QMainWindow):
             self.settings.language,
             self.settings.units,
             self,
+            save_callback=self._apply_and_save_document,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._store_active_session()
@@ -1917,7 +2040,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        dialog = FileSettingsDialog(self.document, self)
+        dialog = FileSettingsDialog(
+            self.document,
+            self,
+            save_callback=self._apply_and_save_document,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._store_active_session()
 
@@ -1926,13 +2053,9 @@ class MainWindow(QMainWindow):
             self.settings.config_path,
             self.settings.language,
             self,
+            applied_callback=self._reload_application_settings,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.settings = load_application_settings(dialog.config_path)
-            configure_localization(
-                self.settings.localization_path,
-                self.settings.language,
-            )
+        dialog.exec()
 
     def reset_view(self) -> None:
         if not hasattr(self, "_viewer_initialized") or self.document is None:
