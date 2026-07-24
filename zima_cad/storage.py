@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import io
 import math
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from zima_cad.model import (
     create_empty_part,
     default_user_parameter_labels,
 )
+from zima_cad.versioned_io import write_text_versioned
 
 
 class ObjectEntityLimitError(ValueError):
@@ -59,9 +61,13 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     for obj in objects:
         write_object(config, obj)
 
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as stream:
-        config.write(stream)
+    buffer = io.StringIO()
+    config.write(buffer)
+    write_text_versioned(
+        file_path,
+        buffer.getvalue().rstrip() + "\n",
+        validator=load_part_document,
+    )
 
 
 def load_part_document(file_path: Path) -> PartDocument:

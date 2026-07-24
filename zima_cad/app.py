@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import copy
 import configparser
+import io
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -108,6 +109,7 @@ from zima_cad.storage import (
     load_part_document,
     save_part_document,
 )
+from zima_cad.versioned_io import validate_ini_file, write_text_versioned
 
 
 PLANE_COLOR_RGB = (0.43, 0.24, 0.08)
@@ -1023,10 +1025,14 @@ class OptionsDialog(QDialog):
 
     def _write_configuration(self, target_path: Path) -> bool:
         try:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with target_path.open("w", encoding="utf-8") as stream:
-                self._configuration().write(stream)
-        except OSError as exc:
+            buffer = io.StringIO()
+            self._configuration().write(buffer)
+            write_text_versioned(
+                target_path,
+                buffer.getvalue().rstrip() + "\n",
+                validator=validate_ini_file,
+            )
+        except (OSError, configparser.Error) as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
             return False
         return True

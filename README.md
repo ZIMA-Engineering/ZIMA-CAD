@@ -133,6 +133,29 @@ for projects shared between Windows and Linux. Global Settings can export the
 displayed configuration with **Save As**. Exporting does not activate the new
 file and does not change the working directory.
 
+## File Versions
+
+Whenever ZIMA-CAD replaces an existing file, it keeps the previous contents
+beside that file using an incrementing numeric suffix:
+
+```text
+Drzak.prtz
+Drzak.prtz.1
+Drzak.prtz.2
+
+config.ini
+config.ini.1
+```
+
+The rule applies to every format written by ZIMA-CAD, including documents,
+configuration, materials and future exports. A newly created file has no
+archive. ZIMA-CAD neither displays nor manages the numeric archive files;
+cleanup is the responsibility of ZIMA-PTC-Cleaner.
+
+New contents are first written and validated in the destination directory.
+Only then is the previous file archived and the temporary file atomically
+installed under the current name.
+
 ## User Parameters
 
 User parameters are document metadata for drawings, title blocks and bills of

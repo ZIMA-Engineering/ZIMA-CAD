@@ -5,6 +5,8 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 
+from zima_cad.versioned_io import validate_ini_file, write_text_versioned
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MATERIALS = ROOT / "config" / "materials"
@@ -121,8 +123,11 @@ def main() -> None:
         config["ParameterDescriptions"] = descriptions
         buffer = io.StringIO()
         config.write(buffer)
-        with target.open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write(buffer.getvalue().rstrip() + "\n")
+        write_text_versioned(
+            target,
+            buffer.getvalue().rstrip() + "\n",
+            validator=validate_ini_file,
+        )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import configparser
+import io
 import re
 from pathlib import Path
+
+from zima_cad.versioned_io import validate_ini_file, write_text_versioned
 
 
 PROPERTY_ORDER = [
@@ -134,8 +137,13 @@ def convert_file(path: Path) -> None:
     config["ParameterDescriptions"].update(
         {f"{key}\\en": labels[1] for key, labels in DESCRIPTIONS.items()}
     )
-    with path.open("w", encoding="utf-8") as stream:
-        config.write(stream)
+    buffer = io.StringIO()
+    config.write(buffer)
+    write_text_versioned(
+        path,
+        buffer.getvalue().rstrip() + "\n",
+        validator=validate_ini_file,
+    )
 
 
 def main() -> None:
