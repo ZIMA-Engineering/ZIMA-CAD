@@ -43,7 +43,7 @@ from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Plane
-from PySide6.QtGui import QActionGroup
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -162,11 +162,19 @@ class ViewSelectionFilter(str, Enum):
     PLANE = "plane"
 
 
+class ApplicationMode(str, Enum):
+    MODELING = "modeling"
+    SHEET_METAL = "sheet_metal"
+    SURFACE = "surface"
+    PIPING = "piping"
+
+
 @dataclass
 class DocumentSession:
     document: PartDocument
     file_path: Path | None
     selected_object_id: str | None = None
+    active_application: ApplicationMode = ApplicationMode.MODELING
 
 
 class NewDocumentDialog(QDialog):
@@ -1410,6 +1418,7 @@ class ZimaViewer(qtViewer3d):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._select_cycled_detection = False
+        self.selection_enabled = True
 
     def _occ_mouse_position(self, event) -> tuple[int, int]:
         return self.occ_position(event.position())
@@ -1422,6 +1431,12 @@ class ZimaViewer(qtViewer3d):
         )
 
     def mouseReleaseEvent(self, event) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and not self.selection_enabled
+        ):
+            event.accept()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseReleaseEvent(event)
             return
@@ -1482,6 +1497,12 @@ class ZimaViewer(qtViewer3d):
             return
 
         self._drawbox = False
+        if not self.selection_enabled:
+            window = self.window()
+            if hasattr(window, "_on_view_hover_changed"):
+                window._on_view_hover_changed(None)
+            self.cursor = "arrow"
+            return
         x, y = self._occ_mouse_position(event)
         self._select_cycled_detection = False
         self._display.MoveTo(x, y)
@@ -1554,6 +1575,8 @@ class MainWindow(QMainWindow):
         self.view_display_mode = ViewDisplayMode.SHADED_WITH_EDGES
         self.view_selection_mode = ViewSelectionMode.FACE
         self.view_selection_filter = ViewSelectionFilter.ALL
+        self.active_application = ApplicationMode.MODELING
+        self.view_selection_enabled = True
         self._model_ais_by_object_id: dict[str, list[Any]] = {}
         self._model_edge_ais_by_object_id: dict[str, list[Any]] = {}
         self._sketch_ais_by_object_id: dict[str, list[Any]] = {}
@@ -1659,6 +1682,22 @@ class MainWindow(QMainWindow):
         self.tools_toolbar = QToolBar(tr("menu.tools"))
         self.tools_toolbar.setMovable(False)
         self.tools_toolbar.setOrientation(Qt.Orientation.Vertical)
+        self.tools_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.tools_toolbar.setMinimumWidth(170)
+
+        self.view_selection_action = QAction(
+            tr("application.command.selection"),
+            self,
+        )
+        self.tools_toolbar.addAction(self.view_selection_action)
+        self.view_selection_action.setCheckable(True)
+        self.view_selection_action.setChecked(True)
+        self.view_selection_action.setToolTip(
+            tr("application.command.selection.tooltip")
+        )
+        self.view_selection_action.toggled.connect(
+            self.set_view_selection_enabled
+        )
 
         workspace_layout = QHBoxLayout()
         workspace_layout.setContentsMargins(0, 0, 0, 0)
@@ -1694,6 +1733,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.main_panel)
 
         self._create_menu_bar()
+        self._rebuild_application_toolbar()
         self._populate_tree()
         self.document_tabs.currentChanged.connect(self._on_document_tab_changed)
         self.document_tabs.tabCloseRequested.connect(self.close_document_tab)
@@ -1731,6 +1771,103 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
 
+    def set_view_selection_enabled(self, enabled: bool) -> None:
+        self.view_selection_enabled = enabled
+        self.viewer.selection_enabled = enabled
+        self.selection_filter_combo.setEnabled(enabled)
+        self.viewer._select_cycled_detection = False
+        if hasattr(self, "_viewer_initialized"):
+            context = self.viewer._display.Context
+            if not enabled:
+                context.ClearDetected(True)
+                self._on_view_hover_changed(None)
+            self.viewer._display.Repaint()
+        self.statusBar().showMessage(
+            tr(
+                "selection.status.enabled"
+                if enabled
+                else "selection.status.navigation_only"
+            )
+        )
+
+    def set_active_application(self, mode: ApplicationMode) -> None:
+        if self.document is None:
+            return
+        self.active_application = mode
+        if 0 <= self.active_document_index < len(self.document_sessions):
+            self.document_sessions[
+                self.active_document_index
+            ].active_application = mode
+        self._sync_application_actions()
+        self._rebuild_application_toolbar()
+
+    def _sync_application_actions(self) -> None:
+        for mode, action in getattr(self, "application_actions", {}).items():
+            action.blockSignals(True)
+            action.setChecked(mode == self.active_application)
+            action.blockSignals(False)
+
+    def _rebuild_application_toolbar(self) -> None:
+        if not hasattr(self, "tools_toolbar"):
+            return
+        self.tools_toolbar.clear()
+        self.tools_toolbar.addAction(self.view_selection_action)
+        self.tools_toolbar.addSeparator()
+
+        heading = QLabel(tr(f"application.{self.active_application.value}"))
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        heading.setStyleSheet("font-weight: 600; padding: 6px;")
+        self.tools_toolbar.addWidget(heading)
+
+        if self.active_application == ApplicationMode.MODELING:
+            new_object_action = self.tools_toolbar.addAction(
+                tr("menu.context.create_object")
+            )
+            new_object_action.triggered.connect(self.create_new_object)
+            sketch_action = self.tools_toolbar.addAction(
+                tr("menu.context.create_sketch")
+            )
+            sketch_action.triggered.connect(self._create_sketch_from_selection)
+            profile_action = self.tools_toolbar.addAction(
+                tr("application.command.profile_on_geometry")
+            )
+            profile_action.setToolTip(
+                tr("application.command.profile_on_geometry.tooltip")
+            )
+            profile_action.setEnabled(False)
+        else:
+            placeholder = self.tools_toolbar.addAction(
+                tr(f"application.placeholder.{self.active_application.value}")
+            )
+            placeholder.setEnabled(False)
+
+        has_document = self.document is not None
+        self.view_selection_action.setEnabled(has_document)
+        for action in self.tools_toolbar.actions():
+            if action is not self.view_selection_action and action.isEnabled():
+                action.setEnabled(has_document)
+
+    def _create_sketch_from_selection(self) -> None:
+        selected = self._selected_object()
+        if selected is None:
+            QMessageBox.information(
+                self,
+                tr("menu.context.create_sketch"),
+                tr("message.select_sketch_parent"),
+            )
+            return
+        if selected.kind == ObjectKind.PLANE:
+            self.create_sketch_on_plane(selected.object_id)
+            return
+        if selected.kind == ObjectKind.OBJECT:
+            self.create_sketch(selected.object_id)
+            return
+        QMessageBox.information(
+            self,
+            tr("menu.context.create_sketch"),
+            tr("message.select_sketch_parent"),
+        )
+
     def _create_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu(tr("menu.file"))
 
@@ -1755,6 +1892,25 @@ class MainWindow(QMainWindow):
             tr("menu.file.working_directory")
         )
         set_working_directory_action.triggered.connect(self.set_working_directory)
+
+        self.applications_menu = self.menuBar().addMenu(tr("menu.applications"))
+        self.application_action_group = QActionGroup(self)
+        self.application_action_group.setExclusive(True)
+        self.application_actions: dict[ApplicationMode, Any] = {}
+        for mode in ApplicationMode:
+            action = self.applications_menu.addAction(
+                tr(f"application.{mode.value}")
+            )
+            action.setCheckable(True)
+            action.setData(mode.value)
+            action.triggered.connect(
+                lambda _checked=False, selected_mode=mode: self.set_active_application(
+                    selected_mode
+                )
+            )
+            self.application_action_group.addAction(action)
+            self.application_actions[mode] = action
+        self.application_actions[self.active_application].setChecked(True)
 
         tools_menu = self.menuBar().addMenu(tr("menu.tools"))
         self.material_action = tools_menu.addAction(tr("menu.tools.material"))
@@ -1812,6 +1968,10 @@ class MainWindow(QMainWindow):
             action = getattr(self, action_name, None)
             if action is not None:
                 action.setEnabled(has_document)
+        if hasattr(self, "view_selection_action"):
+            self.view_selection_action.setEnabled(has_document)
+        for action in getattr(self, "application_actions", {}).values():
+            action.setEnabled(has_document)
 
     def _store_active_session(self) -> None:
         if 0 <= self.active_document_index < len(self.document_sessions):
@@ -1821,6 +1981,7 @@ class MainWindow(QMainWindow):
             session.document = self.document
             session.file_path = self.current_file_path
             session.selected_object_id = self.selected_object_id
+            session.active_application = self.active_application
 
     def _add_document_session(
         self,
@@ -1848,12 +2009,16 @@ class MainWindow(QMainWindow):
             self.document = None
             self.current_file_path = None
             self.selected_object_id = None
+            self.active_application = ApplicationMode.MODELING
         else:
             session = self.document_sessions[index]
             self.document = session.document
             self.current_file_path = session.file_path
             self.selected_object_id = session.selected_object_id
+            self.active_application = session.active_application
 
+        self._sync_application_actions()
+        self._rebuild_application_toolbar()
         self._populate_tree()
         if self.selected_object_id is not None:
             self._select_tree_object(self.selected_object_id)
@@ -2265,6 +2430,8 @@ class MainWindow(QMainWindow):
             self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _on_view_selection(self, shapes, _x: int, _y: int) -> None:
+        if not self.view_selection_enabled:
+            return
         if not shapes:
             self._clear_view_selection()
             return
@@ -2328,6 +2495,8 @@ class MainWindow(QMainWindow):
         self._update_coordinate_label_highlights()
 
     def _on_view_hover_changed(self, shape) -> None:
+        if not self.view_selection_enabled:
+            shape = None
         object_id = None
         if shape is not None and not shape.IsNull():
             candidate_id = self._object_id_for_selected_shape(shape)
@@ -2627,7 +2796,7 @@ class MainWindow(QMainWindow):
             self.delete_object(obj.object_id)
 
     def _show_viewer_context_menu(self, position: QPoint) -> None:
-        if self.document is None:
+        if self.document is None or not self.view_selection_enabled:
             return
 
         if self._view_selection_confirmed:
