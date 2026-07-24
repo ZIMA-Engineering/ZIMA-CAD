@@ -1686,16 +1686,7 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.setMinimumWidth(170)
         self.tools_toolbar.setStyleSheet(
             """
-            QToolButton {
-                padding: 6px 10px;
-                text-align: left;
-            }
-            QToolButton:checked {
-                background-color: #CFE8FF;
-                color: #1F1F1F;
-                border: 1px solid #7AB8E8;
-            }
-            QToolButton:hover:enabled {
+            QToolButton#applicationCommandButton:hover:enabled {
                 background-color: #245D8F;
                 color: #FFFFFF;
             }
@@ -1849,14 +1840,17 @@ class MainWindow(QMainWindow):
             new_object_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_object")
             )
+            self._mark_application_command(new_object_action)
             new_object_action.triggered.connect(self.create_new_object)
             sketch_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_sketch")
             )
+            self._mark_application_command(sketch_action)
             sketch_action.triggered.connect(self._create_sketch_from_selection)
             profile_action = self.tools_toolbar.addAction(
                 tr("application.command.profile_on_geometry")
             )
+            self._mark_application_command(profile_action)
             profile_action.setToolTip(
                 tr("application.command.profile_on_geometry.tooltip")
             )
@@ -1865,6 +1859,7 @@ class MainWindow(QMainWindow):
             placeholder = self.tools_toolbar.addAction(
                 tr(f"application.placeholder.{self.active_application.value}")
             )
+            self._mark_application_command(placeholder)
             placeholder.setEnabled(False)
 
         has_document = self.document is not None
@@ -1872,6 +1867,11 @@ class MainWindow(QMainWindow):
         for action in self.tools_toolbar.actions():
             if action is not self.view_selection_action and action.isEnabled():
                 action.setEnabled(has_document)
+
+    def _mark_application_command(self, action: QAction) -> None:
+        button = self.tools_toolbar.widgetForAction(action)
+        if button is not None:
+            button.setObjectName("applicationCommandButton")
 
     def _create_sketch_from_selection(self) -> None:
         selected = self._selected_object()
