@@ -1690,8 +1690,12 @@ class MainWindow(QMainWindow):
                 padding: 6px 10px;
                 text-align: left;
             }
-            QToolButton:hover:enabled,
             QToolButton:checked {
+                background-color: #CFE8FF;
+                color: #1F1F1F;
+                border: 1px solid #7AB8E8;
+            }
+            QToolButton:hover:enabled {
                 background-color: #245D8F;
                 color: #FFFFFF;
             }
