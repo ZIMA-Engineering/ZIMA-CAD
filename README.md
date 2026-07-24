@@ -48,7 +48,7 @@ ZIMA-CAD/
   app/                      packaged application files or future C++ binaries
   Projects/                 user part, assembly and drawing files
   config/                   application configuration and editable libraries
-    materials/              material cards such as S235.ini or S235JR.ini
+    materials/              categorized material cards such as S235.matz
     templates/              starter part, assembly and drawing templates
   resources/
     icons/
@@ -83,9 +83,13 @@ config/materials/
 config/templates/
 ```
 
-`config/materials` is intended for material `.ini` files with physical
-parameters. `config/templates` is intended for starter documents with prepared
-user parameters and document defaults.
+`config/materials` is intended for categorized material `.matz` files with
+physical parameters. A selected material card is copied into the document; an
+opened `.prtz` file therefore does not depend on or search the material library.
+The concrete cards contain representative values at 20 °C for CAD defaults and
+preliminary calculations; the supplier certificate remains authoritative.
+`config/templates` is intended for starter documents with prepared user
+parameters and document defaults.
 
 Current language setting:
 

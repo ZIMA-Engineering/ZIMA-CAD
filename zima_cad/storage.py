@@ -29,7 +29,7 @@ class ObjectEntityLimitError(ValueError):
 
 def save_part_document(document: PartDocument, file_path: Path) -> None:
     validate_object_entities(document)
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
 
     config["Document"] = document.document_settings
@@ -65,7 +65,7 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
 
 
 def load_part_document(file_path: Path) -> PartDocument:
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
     config.read(file_path, encoding="utf-8")
 

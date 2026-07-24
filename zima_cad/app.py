@@ -950,6 +950,29 @@ class MaterialDialog(QDialog):
         "mm^2/(s^2*C)",
         "J/(kg*K)",
     )
+    TEXT_PROPERTIES = {
+        "MATERIAL_NAME",
+        "HARDNESS",
+        "CONDITION",
+    }
+    DIMENSIONLESS_PROPERTIES = {
+        "POISSON_RATIO",
+        "STRUCTURAL_DAMPING_COEFFICIENT",
+        "EMISSIVITY",
+        "SHEETMETAL_K_FACTOR",
+    }
+    PROPERTY_UNIT_CHOICES = {
+        "YOUNG_MODULUS": ("MPa", "GPa", "kPa", "Pa", "psi"),
+        "SHEAR_MODULUS": ("MPa", "GPa", "kPa", "Pa", "psi"),
+        "STRESS_LIMIT_FOR_TENSION": ("MPa", "GPa", "kPa", "Pa", "psi"),
+        "STRESS_LIMIT_FOR_COMPRESSION": ("MPa", "GPa", "kPa", "Pa", "psi"),
+        "STRESS_LIMIT_FOR_SHEAR": ("MPa", "GPa", "kPa", "Pa", "psi"),
+        "MASS_DENSITY": ("kg/mm^3", "kg/m^3", "g/cm^3", "lb/in^3"),
+        "THERMAL_EXPANSION_COEFFICIENT": ("1/C", "1/K", "1/F"),
+        "THERM_EXPANSION_REF_TEMPERATURE": ("C", "K", "F"),
+        "THERMAL_CONDUCTIVITY": ("mm*kg/(s^3*C)", "W/(m*K)"),
+        "SPECIFIC_HEAT": ("mm^2/(s^2*C)", "J/(kg*K)"),
+    }
 
     def __init__(
         self,
@@ -972,8 +995,6 @@ class MaterialDialog(QDialog):
             document.material_parameter_descriptions
         )
         self.parameter_units: dict[str, str] = dict(document.physical_parameter_units)
-        if not self.parameter_descriptions:
-            self._load_legacy_descriptions_from_library()
 
         layout = QVBoxLayout(self)
 
@@ -1037,18 +1058,6 @@ class MaterialDialog(QDialog):
                 self.parameter_units.get(key, self._default_unit(key)),
                 self._description(key),
             )
-
-    def _load_legacy_descriptions_from_library(self) -> None:
-        material_name = self.document.physical_parameters.get("MATERIAL_NAME", "")
-        if not material_name:
-            return
-        template = find_material_template(self.materials_path, material_name)
-        if template is None:
-            return
-        _, descriptions, units = template
-        self.parameter_descriptions = descriptions
-        for key, unit in units.items():
-            self.parameter_units.setdefault(key, unit)
 
     def _load_from_library(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(
@@ -1116,14 +1125,26 @@ class MaterialDialog(QDialog):
         self.table.setItem(row, self.VALUE_COLUMN, QTableWidgetItem(value))
         unit_combo = QComboBox(self.table)
         unit_combo.setEditable(False)
-        unit_combo.addItems(self.UNIT_CHOICES)
-        unit_combo.setCurrentText(unit if unit in self.UNIT_CHOICES else "")
+        allowed_units = self._allowed_units(property_name)
+        unit_combo.addItems(allowed_units)
+        selected_unit = unit if unit in allowed_units else self._default_unit(property_name)
+        if selected_unit not in allowed_units:
+            selected_unit = allowed_units[0]
+        unit_combo.setCurrentText(selected_unit)
+        unit_combo.setEnabled(property_name not in self.TEXT_PROPERTIES)
         self.table.setCellWidget(row, self.UNIT_COLUMN, unit_combo)
         description_item = QTableWidgetItem(description)
         description_item.setFlags(
             description_item.flags() & ~Qt.ItemFlag.ItemIsEditable
         )
         self.table.setItem(row, self.DESCRIPTION_COLUMN, description_item)
+
+    def _allowed_units(self, property_name: str) -> tuple[str, ...]:
+        if property_name in self.TEXT_PROPERTIES:
+            return ("",)
+        if property_name in self.DIMENSIONLESS_PROPERTIES:
+            return ("1",)
+        return self.PROPERTY_UNIT_CHOICES.get(property_name, self.UNIT_CHOICES)
 
     def _add_row(self) -> None:
         self._insert_row("NEW_PROPERTY", "", "", "")
@@ -1176,7 +1197,7 @@ class MaterialDialog(QDialog):
 def parse_material_file(
     material_file: Path,
 ) -> tuple[dict[str, str], dict[str, dict[str, str]], dict[str, str]]:
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
     config.read(material_file, encoding="utf-8-sig")
 
@@ -1196,17 +1217,6 @@ def parse_material_file(
                 key, language = raw_key, ""
             descriptions.setdefault(key, {})[language] = value
     return properties, descriptions, units
-
-
-def find_material_template(
-    materials_path: Path,
-    material_name: str,
-) -> tuple[dict[str, str], dict[str, dict[str, str]], dict[str, str]] | None:
-    for material_file in materials_path.glob("*.matz"):
-        material = parse_material_file(material_file)
-        if material[0].get("MATERIAL_NAME") == material_name:
-            return material
-    return None
 
 
 class ZimaViewer(qtViewer3d):
@@ -1742,18 +1752,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
-
-        if not document.material_parameter_descriptions:
-            material_name = document.physical_parameters.get("MATERIAL_NAME", "")
-            template = find_material_template(
-                self.settings.materials_path,
-                material_name,
-            )
-            if template is not None:
-                _, descriptions, units = template
-                document.material_parameter_descriptions = descriptions
-                for key, unit in units.items():
-                    document.physical_parameter_units.setdefault(key, unit)
 
         self._add_document_session(document, file_path)
 
