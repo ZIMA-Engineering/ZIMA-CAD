@@ -1684,6 +1684,19 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.setOrientation(Qt.Orientation.Vertical)
         self.tools_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.tools_toolbar.setMinimumWidth(170)
+        self.tools_toolbar.setStyleSheet(
+            """
+            QToolButton {
+                padding: 6px 10px;
+                text-align: left;
+            }
+            QToolButton:hover:enabled,
+            QToolButton:checked {
+                background-color: #245D8F;
+                color: #FFFFFF;
+            }
+            """
+        )
 
         self.view_selection_action = QAction(
             tr("application.command.selection"),
@@ -1699,11 +1712,20 @@ class MainWindow(QMainWindow):
             self.set_view_selection_enabled
         )
 
+        tools_layout = QVBoxLayout()
+        tools_layout.setContentsMargins(0, 0, 0, 0)
+        tools_layout.setSpacing(0)
+        tools_layout.addSpacing(self.view_toolbar.sizeHint().height())
+        tools_layout.addWidget(self.tools_toolbar, 1)
+
+        self.tools_panel = QWidget()
+        self.tools_panel.setLayout(tools_layout)
+
         workspace_layout = QHBoxLayout()
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
         workspace_layout.addWidget(self.view_panel, 1)
-        workspace_layout.addWidget(self.tools_toolbar)
+        workspace_layout.addWidget(self.tools_panel)
 
         self.workspace_panel = QWidget()
         self.workspace_panel.setLayout(workspace_layout)
@@ -2744,7 +2766,7 @@ class MainWindow(QMainWindow):
             elif not obj.locked:
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
-                delete_action = menu.addAction(tr("menu.context.delete_object"))
+                delete_action = menu.addAction(tr("menu.context.delete_entity"))
 
         if menu.isEmpty():
             return
@@ -2902,7 +2924,7 @@ class MainWindow(QMainWindow):
             elif not obj.locked:
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
-                delete_action = menu.addAction(tr("menu.context.delete_object"))
+                delete_action = menu.addAction(tr("menu.context.delete_entity"))
 
         if self.selected_face is not None and normal_view_action is None:
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
