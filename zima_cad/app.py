@@ -95,7 +95,13 @@ from zima_cad.model import (
     transform_shape,
 )
 from zima_cad.paths import app_path, application_root, ensure_application_directories
-from zima_cad.settings import load_application_settings
+from zima_cad.settings import (
+    ApplicationSettings,
+    StartupContext,
+    load_application_settings,
+    portable_config_path,
+    resolve_startup_context,
+)
 from zima_cad.localization import configure_localization, tr
 from zima_cad.storage import (
     ObjectEntityLimitError,
@@ -880,12 +886,22 @@ class OptionsDialog(QDialog):
         language: str,
         parent=None,
         applied_callback: Callable[[], None] | None = None,
+        settings: ApplicationSettings | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.options.title"))
         self.setMinimumWidth(620)
         self.config_path = config_path
         self.applied_callback = applied_callback
+        self.settings = settings
+        self.effective_paths = {
+            path_name: (
+                getattr(settings, f"{path_name.lower()}_path")
+                if settings is not None
+                else None
+            )
+            for path_name in self.PATH_KEYS
+        }
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"{tr('label.options')}: {config_path}"))
@@ -898,7 +914,9 @@ class OptionsDialog(QDialog):
         self.language_combo = QComboBox()
         self.language_combo.addItems(self.LANGUAGE_CHOICES)
         self.language_combo.setCurrentText(
-            config.get("Application", "Language", fallback=language)
+            settings.language
+            if settings is not None
+            else config.get("Application", "Language", fallback=language)
         )
         form.addRow(tr("global.language"), self.language_combo)
 
@@ -906,7 +924,11 @@ class OptionsDialog(QDialog):
         for unit_name, choices in self.UNIT_CHOICES.items():
             combo = QComboBox()
             combo.addItems(choices)
-            configured = config.get("Units", unit_name, fallback=choices[0])
+            configured = (
+                settings.units.get(unit_name, choices[0])
+                if settings is not None
+                else config.get("Units", unit_name, fallback=choices[0])
+            )
             combo.setCurrentText(configured if configured in choices else choices[0])
             self.unit_combos[unit_name] = combo
             form.addRow(tr(f"document.unit.{unit_name.lower()}"), combo)
@@ -916,9 +938,22 @@ class OptionsDialog(QDialog):
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
-            path_edit = QLineEdit(
-                config.get("Paths", path_name, fallback=path_name.lower())
+            is_local_layer = (
+                settings is not None
+                and settings.local_config_path is not None
+                and config_path.resolve() == settings.local_config_path.resolve()
             )
+            configured_path = config.get(
+                "Paths",
+                path_name,
+                fallback="" if is_local_layer else path_name.lower(),
+            )
+            path_edit = QLineEdit(configured_path)
+            if is_local_layer and not configured_path.strip():
+                effective_path = getattr(settings, f"{path_name.lower()}_path")
+                path_edit.setPlaceholderText(
+                    tr("global.path.inherited", path=str(effective_path))
+                )
             browse_button = QPushButton(tr("button.browse"))
             browse_button.clicked.connect(
                 lambda _checked=False, key=path_name: self._browse_directory(key)
@@ -941,15 +976,23 @@ class OptionsDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
             self.apply_changes
         )
+        save_as_button = QPushButton(tr("button.save_as"))
+        save_as_button.clicked.connect(self.save_as)
+        buttons.addButton(save_as_button, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
     def _browse_directory(self, path_name: str) -> None:
         path_edit = self.path_edits[path_name]
-        configured_path = Path(path_edit.text().strip())
-        if not configured_path.is_absolute():
-            configured_path = self.config_path.parent / configured_path
+        path_text = path_edit.text().strip()
+        effective_path = self.effective_paths.get(path_name)
+        if not path_text and effective_path is not None:
+            configured_path = effective_path
+        else:
+            configured_path = Path(path_text)
+            if not configured_path.is_absolute():
+                configured_path = self.config_path.parent / configured_path
         directory = QFileDialog.getExistingDirectory(
             self,
             tr("file.select_directory"),
@@ -964,31 +1007,57 @@ class OptionsDialog(QDialog):
             display_path = selected_path
         path_edit.setText(str(display_path))
 
-    def apply_changes(self) -> bool:
-        self.saved_status.clear()
+    def _configuration(self) -> configparser.ConfigParser:
         config = configparser.ConfigParser(interpolation=None)
         config.optionxform = str
         config["Application"] = {"Language": self.language_combo.currentText()}
         config["Paths"] = {
-            path_name: path_edit.text().strip()
+            path_name: portable_config_path(path_edit.text())
             for path_name, path_edit in self.path_edits.items()
         }
         config["Units"] = {
             unit_name: combo.currentText()
             for unit_name, combo in self.unit_combos.items()
         }
+        return config
 
+    def _write_configuration(self, target_path: Path) -> bool:
         try:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.config_path.open("w", encoding="utf-8") as stream:
-                config.write(stream)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open("w", encoding="utf-8") as stream:
+                self._configuration().write(stream)
         except OSError as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
             return False
+        return True
 
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        if not self._write_configuration(self.config_path):
+            return False
         if self.applied_callback is not None:
             self.applied_callback()
         self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def save_as(self) -> bool:
+        self.saved_status.clear()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("file.save_config"),
+            str(self.config_path.parent / "config.ini"),
+            tr("file.filter.ini"),
+        )
+        if not file_name:
+            return False
+        target_path = Path(file_name)
+        if target_path.suffix.lower() != ".ini":
+            target_path = target_path.with_suffix(".ini")
+        if not self._write_configuration(target_path):
+            return False
+        self.saved_status.setText(
+            tr("status.config_saved_as", path=str(target_path))
+        )
         return True
 
     def accept(self) -> None:
@@ -1430,12 +1499,17 @@ class ZimaViewer(qtViewer3d):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, startup_context: StartupContext | None = None) -> None:
         super().__init__()
 
         self.application_root = application_root()
         ensure_application_directories()
-        self.settings = load_application_settings()
+        self.startup_context = startup_context or StartupContext(
+            working_directory=Path.cwd().resolve()
+        )
+        self.settings = load_application_settings(
+            self.startup_context.local_config_path
+        )
         configure_localization(
             self.settings.localization_path,
             self.settings.language,
@@ -1446,7 +1520,7 @@ class MainWindow(QMainWindow):
         self.active_document_index = -1
         self.document: PartDocument | None = None
         self.current_file_path: Path | None = None
-        self.working_directory = Path.cwd().resolve()
+        self.working_directory = self.startup_context.working_directory
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels([tr("tree.header")])
@@ -1845,7 +1919,9 @@ class MainWindow(QMainWindow):
         if not file_name:
             return
 
-        file_path = Path(file_name)
+        self.open_document_path(Path(file_name))
+
+    def open_document_path(self, file_path: Path) -> bool:
         try:
             document = load_part_document(file_path)
         except ObjectEntityLimitError as exc:
@@ -1858,12 +1934,13 @@ class MainWindow(QMainWindow):
                     entities=", ".join(exc.entity_names),
                 ),
             )
-            return
+            return False
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
-            return
+            return False
 
         self._add_document_session(document, file_path)
+        return True
 
     def save_document(self) -> bool:
         if self.document is None:
@@ -1931,7 +2008,7 @@ class MainWindow(QMainWindow):
         return self.save_document()
 
     def _reload_application_settings(self) -> None:
-        self.settings = load_application_settings(self.settings.config_path)
+        self.settings = load_application_settings(self.settings.local_config_path)
         configure_localization(
             self.settings.localization_path,
             self.settings.language,
@@ -2054,6 +2131,7 @@ class MainWindow(QMainWindow):
             self.settings.language,
             self,
             applied_callback=self._reload_application_settings,
+            settings=self.settings,
         )
         dialog.exec()
 
@@ -3756,7 +3834,19 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
-    app = QApplication(sys.argv)
-    window = MainWindow()
+    try:
+        startup_context, qt_arguments = resolve_startup_context(sys.argv[1:])
+    except ValueError as exc:
+        app = QApplication(sys.argv)
+        QMessageBox.critical(None, "ZIMA-CAD", str(exc))
+        return 2
+
+    app = QApplication([sys.argv[0], *qt_arguments])
+    window = MainWindow(startup_context)
     window.showMaximized()
+    if startup_context.document_path is not None:
+        QTimer.singleShot(
+            0,
+            lambda: window.open_document_path(startup_context.document_path),
+        )
     return app.exec()

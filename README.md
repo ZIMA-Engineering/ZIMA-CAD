@@ -14,6 +14,17 @@ With unpacked Windows runtime:
 
 ```powershell
 .\zima-cad.bat
+.\zima-cad.bat D:\PRACE
+.\zima-cad.bat D:\PRACE\dil.prtz
+.\zima-cad.bat --working-directory D:\PRACE
+```
+
+Linux launch syntax uses the same arguments:
+
+```bash
+./zima-cad /home/user/PRACE
+./zima-cad /home/user/PRACE/dil.prtz
+./zima-cad --working-directory /home/user/PRACE
 ```
 
 The first prototype opens one main window:
@@ -32,12 +43,11 @@ The creation commands and `.prtz` format validation enforce this rule.
 
 ## Portable Layout
 
-ZIMA-CAD should always resolve paths from its own application directory, not
-from the directory where the terminal happens to be opened.
-
-The directory where ZIMA-CAD is started becomes the working directory for new
-and opened project files. If that directory contains `config.ini`, it is used as
-the application options file for that run.
+ZIMA-CAD always loads its base configuration from the application directory.
+The startup directory, a directory supplied as an argument, or the parent of a
+supplied `.prtz` file becomes the working directory. If that directory contains
+`config.ini`, it is loaded as a local override. A supplied `.prtz` file is also
+opened automatically.
 
 Planned application folder:
 
@@ -70,11 +80,27 @@ possible future C++ implementation.
 
 ## Configuration
 
-Application settings are stored in:
+Base application settings are stored in:
 
 ```text
 config/config.ini
 ```
+
+A project may contain a partial local configuration:
+
+```text
+PRACE/
+  config.ini
+  materials/
+  templates/
+  dil.prtz
+```
+
+The local file overrides only its non-empty values. Missing or empty values
+inherit from the base application configuration. A relative path is resolved
+from the configuration file in which that path was defined. This allows a
+project to use local materials while continuing to use application templates
+and localization.
 
 Editable CAD libraries live under `config/`:
 
@@ -102,8 +128,10 @@ Materials=materials
 Templates=templates
 ```
 
-Paths may be absolute or relative. Relative paths are resolved from the
-directory containing the active `config.ini`.
+Paths may be absolute or relative, but relative paths with `/` are recommended
+for projects shared between Windows and Linux. Global Settings can export the
+displayed configuration with **Save As**. Exporting does not activate the new
+file and does not change the working directory.
 
 ## User Parameters
 
