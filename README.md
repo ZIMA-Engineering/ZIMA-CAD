@@ -209,3 +209,18 @@ because it handles the large runtime ZIP much better.
 
 Linux runtime must be built on Linux or WSL because it contains Linux native
 `.so` libraries. It cannot be created correctly from Windows.
+
+Build it from the `zima-cad` Conda environment and unpack it with:
+
+```bash
+tools/pack-linux-runtime.sh
+tools/unpack-linux-runtime.sh --force
+```
+
+This creates the ignored archive
+`runtime/linux/zima-cad-runtime-linux.tar.gz` and installs the portable runtime
+under `runtime/linux/python/`. Start the packaged application with:
+
+```bash
+./zima-cad
+```

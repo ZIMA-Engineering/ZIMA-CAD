@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ZIMA_CAD_PYTHON="$PROJECT_ROOT/runtime/linux/python/bin/python"
+
+if [[ ! -x "$ZIMA_CAD_PYTHON" ]]; then
+    echo "ZIMA-CAD Linux runtime was not found:"
+    echo "$ZIMA_CAD_PYTHON"
+    echo
+    echo "Build and unpack it with:"
+    echo "tools/pack-linux-runtime.sh"
+    echo "tools/unpack-linux-runtime.sh --force"
+    exit 1
+fi
+
+exec "$ZIMA_CAD_PYTHON" "$PROJECT_ROOT/main.py" "$@"
