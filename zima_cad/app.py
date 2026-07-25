@@ -1565,6 +1565,10 @@ class MainWindow(QMainWindow):
                 background-color: #245D8F;
                 color: #FFFFFF;
             }
+            QTreeWidget::item:hover {
+                background-color: #245D8F;
+                color: #FFFFFF;
+            }
             """
         )
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1608,6 +1612,28 @@ class MainWindow(QMainWindow):
 
         self.view_toolbar = QToolBar(tr("toolbar.view"))
         self.view_toolbar.setMovable(False)
+        self.view_toolbar.setStyleSheet(
+            """
+            QToolButton:hover:enabled {
+                background-color: #245D8F;
+                color: #FFFFFF;
+                border: 1px solid #245D8F;
+                border-radius: 4px;
+            }
+            QToolButton:checked {
+                background-color: #245D8F;
+                color: #FFFFFF;
+                border: 1px solid #245D8F;
+                border-radius: 4px;
+            }
+            QToolButton:pressed {
+                background-color: #17436A;
+                color: #FFFFFF;
+                border: 1px solid #17436A;
+                border-radius: 4px;
+            }
+            """
+        )
         reset_view_action = self.view_toolbar.addAction(tr("toolbar.reset_view"))
         reset_view_action.triggered.connect(self.reset_view)
         self.standard_view_combo = QComboBox()
@@ -1691,8 +1717,22 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.setMinimumWidth(170)
         self.tools_toolbar.setStyleSheet(
             """
+            QToolButton {
+                padding: 6px 10px;
+                text-align: left;
+            }
+            QToolButton:checked {
+                background-color: #245D8F;
+                color: #FFFFFF;
+                border: 1px solid #245D8F;
+                border-radius: 4px;
+            }
             QToolButton#applicationCommandButton:hover:enabled {
                 background-color: #245D8F;
+                color: #FFFFFF;
+            }
+            QToolButton#applicationCommandButton:pressed:enabled {
+                background-color: #17436A;
                 color: #FFFFFF;
             }
             """
@@ -2740,10 +2780,8 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         attach_action = None
         create_action = None
+        create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
-        create_cube_action = None
-        create_wedge_action = None
-        create_axis_action = None
         properties_action = None
         delete_action = None
         normal_view_action = None
@@ -2758,22 +2796,19 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
-                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
-                create_cube_action = menu.addAction(tr("menu.context.create_cube"))
-                create_cube_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.BOX)
+                create_sketch_action = menu.addAction(
+                    tr("menu.context.create_sketch")
                 )
-                create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-                create_wedge_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.WEDGE)
+                create_sketch_action.setEnabled(
+                    obj.can_accept_entity(ObjectKind.SKETCH, SketchRole.PROFILE)
                 )
-                create_axis_action = menu.addAction(tr("menu.context.create_axis"))
-                create_axis_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.AXIS)
-                )
-            if not obj.locked and obj.kind == ObjectKind.OBJECT:
-                properties_action = menu.addAction(tr("menu.context.properties"))
-                delete_action = menu.addAction(tr("menu.context.delete_object"))
+                if not obj.locked:
+                    properties_action = menu.addAction(
+                        tr("menu.context.properties")
+                    )
+                    delete_action = menu.addAction(
+                        tr("menu.context.delete_object")
+                    )
             elif not obj.locked:
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
@@ -2791,6 +2826,12 @@ class MainWindow(QMainWindow):
         elif create_action is not None and action == create_action:
             self.create_new_object()
         elif (
+            create_sketch_action is not None
+            and action == create_sketch_action
+            and obj is not None
+        ):
+            self.create_sketch(obj.object_id)
+        elif (
             action in create_sketch_actions
             and obj is not None
         ):
@@ -2799,20 +2840,6 @@ class MainWindow(QMainWindow):
                 self.create_sketch(obj.object_id, role)
             else:
                 self.create_sketch_on_plane(obj.object_id, role)
-        elif (
-            create_cube_action is not None
-            and action == create_cube_action
-            and obj is not None
-        ):
-            self.create_cube(obj.object_id)
-        elif (
-            create_wedge_action is not None
-            and action == create_wedge_action
-            and obj is not None
-        ):
-            self.create_wedge(obj.object_id)
-        elif create_axis_action is not None and action == create_axis_action and obj is not None:
-            self.create_datum_axis(obj.object_id)
         elif (
             properties_action is not None
             and action == properties_action
@@ -2891,10 +2918,8 @@ class MainWindow(QMainWindow):
             return
 
         attach_action = None
+        create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
-        create_cube_action = None
-        create_wedge_action = None
-        create_axis_action = None
         properties_action = None
         delete_action = None
         normal_view_action = None
@@ -2907,22 +2932,19 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
-                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
-                create_cube_action = menu.addAction(tr("menu.context.create_cube"))
-                create_cube_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.BOX)
+                create_sketch_action = menu.addAction(
+                    tr("menu.context.create_sketch")
                 )
-                create_wedge_action = menu.addAction(tr("menu.context.create_wedge"))
-                create_wedge_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.WEDGE)
+                create_sketch_action.setEnabled(
+                    obj.can_accept_entity(ObjectKind.SKETCH, SketchRole.PROFILE)
                 )
-                create_axis_action = menu.addAction(tr("menu.context.create_axis"))
-                create_axis_action.setEnabled(
-                    obj.can_accept_entity(ObjectKind.AXIS)
-                )
-            if not obj.locked and obj.kind == ObjectKind.OBJECT:
-                properties_action = menu.addAction(tr("menu.context.properties"))
-                delete_action = menu.addAction(tr("menu.context.delete_object"))
+                if not obj.locked:
+                    properties_action = menu.addAction(
+                        tr("menu.context.properties")
+                    )
+                    delete_action = menu.addAction(
+                        tr("menu.context.delete_object")
+                    )
             elif not obj.locked:
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
@@ -2941,18 +2963,14 @@ class MainWindow(QMainWindow):
                 self._view_normal_to_reference_plane(obj)
             else:
                 self._view_normal_to_selected_face()
+        elif create_sketch_action is not None and action == create_sketch_action:
+            self.create_sketch(obj.object_id)
         elif action in create_sketch_actions:
             role = create_sketch_actions[action]
             if obj.kind == ObjectKind.OBJECT:
                 self.create_sketch(obj.object_id, role)
             else:
                 self.create_sketch_on_plane(obj.object_id, role)
-        elif create_cube_action is not None and action == create_cube_action:
-            self.create_cube(obj.object_id)
-        elif create_wedge_action is not None and action == create_wedge_action:
-            self.create_wedge(obj.object_id)
-        elif create_axis_action is not None and action == create_axis_action:
-            self.create_datum_axis(obj.object_id)
         elif properties_action is not None and action == properties_action:
             self.show_properties(obj)
         elif delete_action is not None and action == delete_action:
