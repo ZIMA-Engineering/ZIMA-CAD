@@ -719,11 +719,31 @@ class PartDocument:
     def build_active_shape(self):
         """Build the automatic solid result up to the history cursor."""
         result_shape = None
-
+        subtract_shapes = []
         for obj in self.active_history_objects():
-            result_shape = apply_object_to_shape(
-                result_shape, obj, identity_transform()
+            shape = self.build_standalone_shape(obj)
+            if shape is None or obj.suppressed:
+                continue
+            solids = [
+                child
+                for child in obj.children
+                if not child.locked and child.kind in SOLID_KINDS
+            ]
+            mode = (
+                solids[0].combine_mode
+                if len(solids) == 1
+                else CombineMode.ADD
             )
+            if mode == CombineMode.SUBTRACT:
+                subtract_shapes.append(shape)
+            elif result_shape is None:
+                result_shape = shape
+            else:
+                result_shape = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
+
+        for shape in subtract_shapes:
+            if result_shape is not None:
+                result_shape = BRepAlgoAPI_Cut(result_shape, shape).Shape()
 
         return result_shape
 

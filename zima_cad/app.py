@@ -1839,6 +1839,8 @@ class MainWindow(QMainWindow):
         self._history_source_cycle_active = False
         self._cycled_history_source_id: str | None = None
         self._reference_cycle_preview_id: str | None = None
+        self._view_candidate_cycle_ids: tuple[str, ...] = ()
+        self._view_candidate_cycle_index = -1
         self._pending_attachment_plane_id: str | None = None
 
         self.viewer = ZimaViewer(self)
@@ -2948,6 +2950,8 @@ class MainWindow(QMainWindow):
         self._history_source_cycle_active = False
         self._cycled_history_source_id = None
         self._reference_cycle_preview_id = None
+        self._view_candidate_cycle_ids = ()
+        self._view_candidate_cycle_index = -1
         self.selected_face = None
         self.selected_face_object_id = None
         selected = self.tree.selectedItems()
@@ -3119,6 +3123,8 @@ class MainWindow(QMainWindow):
             self._history_source_cycle_active = False
             self._cycled_history_source_id = None
             self._reference_cycle_preview_id = None
+            self._view_candidate_cycle_ids = ()
+            self._view_candidate_cycle_index = -1
         object_id = None
         if (
             (shape is not None and not shape.IsNull())
@@ -3547,6 +3553,27 @@ class MainWindow(QMainWindow):
         x, y = self.viewer.occ_position(position)
         self.viewer._display.MoveTo(x, y)
         context = self.viewer._display.Context
+        if self.view_selection_mode == ViewSelectionMode.OBJECT:
+            selected = self._selected_object()
+            has_preview = (
+                self._cycled_history_source_id is not None
+                or self._reference_cycle_preview_id is not None
+            )
+            if (
+                self._view_selection_confirmed
+                and not has_preview
+                and selected is not None
+                and selected.kind != ObjectKind.PART
+            ):
+                self._show_selected_view_context_menu(
+                    selected,
+                    self.viewer.mapToGlobal(position),
+                )
+                return
+            candidates = self._view_candidates_under_cursor(x, y)
+            if candidates:
+                self._cycle_view_candidate(candidates)
+                return
         if (
             self.view_selection_mode == ViewSelectionMode.OBJECT
             and context.HasDetected()
@@ -3563,7 +3590,11 @@ class MainWindow(QMainWindow):
             candidate = self.document.find_object(candidate_id) if (
                 candidate_id is not None
             ) else None
-            if candidate is not None and candidate.kind == ObjectKind.PART:
+            if (
+                candidate is not None
+                and candidate.kind == ObjectKind.PART
+                and self._reference_cycle_preview_id is None
+            ):
                 selected = self._selected_object()
                 if (
                     self._view_selection_confirmed
@@ -3597,15 +3628,10 @@ class MainWindow(QMainWindow):
             rank = 1
             detected_shape = None
             for _attempt in range(64):
-                if context.HasNextDetected():
-                    rank = context.HilightNextDetected(
-                        self.viewer._display.View,
-                        True,
-                    )
-                else:
-                    context.ClearDetected(False)
-                    self.viewer._display.MoveTo(x, y)
-                    rank = 1
+                rank = context.HilightNextDetected(
+                    self.viewer._display.View,
+                    True,
+                )
                 detected_shape = (
                     context.DetectedShape()
                     if context.HasDetectedShape()
@@ -3619,7 +3645,22 @@ class MainWindow(QMainWindow):
                         else None,
                     )
                 )
-                if candidate_id is not None and candidate_id != previous_object_id:
+                detected_candidate = (
+                    self.document.find_object(candidate_id)
+                    if candidate_id is not None
+                    else None
+                )
+                if (
+                    detected_candidate is not None
+                    and detected_candidate.kind in (
+                        ObjectKind.ORIGIN,
+                        ObjectKind.POINT,
+                        ObjectKind.AXIS,
+                        ObjectKind.PLANE,
+                        ObjectKind.SKETCH,
+                    )
+                    and candidate_id != previous_object_id
+                ):
                     break
             candidate = (
                 self.document.find_object(candidate_id)
@@ -3765,6 +3806,103 @@ class MainWindow(QMainWindow):
             self._set_object_visibility(obj, not obj.user_visible)
         elif suppress_action is not None and action == suppress_action:
             self._set_object_suppressed(obj, not obj.suppressed)
+
+    def _view_candidates_under_cursor(
+        self,
+        x: int,
+        y: int,
+    ) -> list[ZimaObject]:
+        if self.document is None:
+            return []
+        context = self.viewer._display.Context
+        detected_ids: list[str] = []
+        seen_ranks: set[int] = set()
+        if context.HasDetected():
+            for _attempt in range(64):
+                detected_id = self._object_id_for_detected(
+                    context.DetectedShape()
+                    if context.HasDetectedShape()
+                    else None,
+                    context.DetectedInteractive(),
+                )
+                if detected_id is not None and detected_id not in detected_ids:
+                    detected_ids.append(detected_id)
+                rank = context.HilightNextDetected(
+                    self.viewer._display.View,
+                    False,
+                )
+                if rank in seen_ranks:
+                    break
+                seen_ranks.add(rank)
+
+        source_ids = [
+            source.object_id
+            for source in self._history_sources_under_cursor(x, y)
+        ]
+        candidate_ids: list[str] = list(source_ids)
+        for detected_id in detected_ids:
+            detected = self.document.find_object(detected_id)
+            expanded_ids = (
+                [*source_ids, detected_id]
+                if detected is not None and detected.kind == ObjectKind.PART
+                else [detected_id]
+            )
+            for candidate_id in expanded_ids:
+                if candidate_id not in candidate_ids:
+                    candidate_ids.append(candidate_id)
+        document_order: dict[str, int] = {}
+
+        def record_order(obj: ZimaObject) -> None:
+            document_order[obj.object_id] = len(document_order)
+            for child in obj.children:
+                record_order(child)
+
+        record_order(self.document.root)
+        candidate_ids.sort(
+            key=lambda candidate_id: document_order.get(
+                candidate_id,
+                len(document_order),
+            )
+        )
+        return [
+            candidate
+            for candidate_id in candidate_ids
+            if (candidate := self.document.find_object(candidate_id)) is not None
+        ]
+
+    def _cycle_view_candidate(self, candidates: list[ZimaObject]) -> None:
+        candidate_ids = tuple(candidate.object_id for candidate in candidates)
+        if candidate_ids != self._view_candidate_cycle_ids:
+            self._view_candidate_cycle_ids = candidate_ids
+            self._view_candidate_cycle_index = 0
+        else:
+            self._view_candidate_cycle_index = (
+                self._view_candidate_cycle_index + 1
+            ) % len(candidates)
+        candidate = candidates[self._view_candidate_cycle_index]
+        self.selected_object_id = candidate.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = False
+        if candidate.kind == ObjectKind.OBJECT:
+            self._history_source_cycle_active = True
+            self._cycled_history_source_id = candidate.object_id
+            self._reference_cycle_preview_id = None
+        else:
+            self._history_source_cycle_active = False
+            self._cycled_history_source_id = None
+            self._reference_cycle_preview_id = candidate.object_id
+        self._hovered_coordinate_object_id = candidate.object_id
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
+        self.statusBar().showMessage(
+            tr(
+                "selection.status.cycled_candidate",
+                rank=self._view_candidate_cycle_index + 1,
+                count=len(candidates),
+                name=candidate.name,
+            )
+        )
 
     def _history_sources_under_cursor(
         self,
@@ -4441,12 +4579,14 @@ class MainWindow(QMainWindow):
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
         source_object = selected
-        if (
-            source_object is not None
-            and source_object.kind != ObjectKind.OBJECT
-            and self.document is not None
-        ):
-            source_object = self.document.find_owning_object(source_object.object_id)
+        if source_object is not None and source_object.kind in SOLID_KINDS:
+            source_object = (
+                self.document.find_owning_object(source_object.object_id)
+                if self.document is not None
+                else None
+            )
+        elif source_object is not None and source_object.kind != ObjectKind.OBJECT:
+            source_object = None
         if (
             source_object is not None
             and self.document is not None
