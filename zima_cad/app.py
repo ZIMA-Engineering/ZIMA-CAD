@@ -143,6 +143,11 @@ def create_saved_status_label() -> QLabel:
     return label
 
 
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
 class ViewDisplayMode(str, Enum):
     WIRE = "wire"
     SHADED_WITH_EDGES = "shaded_with_edges"
@@ -808,7 +813,7 @@ class FileSettingsDialog(QDialog):
         form = QFormLayout()
         self.unit_edits: dict[str, QComboBox] = {}
         for unit_name, choices in self.UNIT_CHOICES.items():
-            combo = QComboBox()
+            combo = NoWheelComboBox()
             combo.setEditable(True)
             combo.addItems(choices)
             combo.setCurrentText(document.document_units.get(unit_name, choices[0]))
@@ -926,7 +931,7 @@ class OptionsDialog(QDialog):
         config.read(config_path, encoding="utf-8-sig")
 
         form = QFormLayout()
-        self.language_combo = QComboBox()
+        self.language_combo = NoWheelComboBox()
         self.language_combo.addItems(self.LANGUAGE_CHOICES)
         self.language_combo.setCurrentText(
             settings.language
@@ -937,7 +942,7 @@ class OptionsDialog(QDialog):
 
         self.unit_combos: dict[str, QComboBox] = {}
         for unit_name, choices in self.UNIT_CHOICES.items():
-            combo = QComboBox()
+            combo = NoWheelComboBox()
             combo.addItems(choices)
             configured = (
                 settings.units.get(unit_name, choices[0])
@@ -1160,7 +1165,7 @@ class MaterialDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.material.title"))
-        self.resize(760, 520)
+        self.resize(1100, 700)
         self.setMinimumSize(620, 380)
         self.setSizeGripEnabled(True)
         self.document = document
@@ -1307,7 +1312,7 @@ class MaterialDialog(QDialog):
         property_item.setData(Qt.ItemDataRole.UserRole, property_name)
         self.table.setItem(row, self.PROPERTY_COLUMN, property_item)
         self.table.setItem(row, self.VALUE_COLUMN, QTableWidgetItem(value))
-        unit_combo = QComboBox(self.table)
+        unit_combo = NoWheelComboBox(self.table)
         unit_combo.setEditable(False)
         allowed_units = self._allowed_units(property_name)
         unit_combo.addItems(allowed_units)
@@ -2016,16 +2021,20 @@ class MainWindow(QMainWindow):
             self.rebuild_view()
 
     def _populate_tree(self) -> None:
-        self.tree.clear()
-        self._update_document_area_visibility()
-        if self.document is None:
-            return
+        signals_were_blocked = self.tree.blockSignals(True)
+        try:
+            self.tree.clear()
+            self._update_document_area_visibility()
+            if self.document is None:
+                return
 
-        for obj in self.document.root.children:
-            self.tree.addTopLevelItem(self._create_tree_item(obj))
+            for obj in self.document.root.children:
+                self.tree.addTopLevelItem(self._create_tree_item(obj))
 
-        self.tree.expandAll()
-        self.tree.resizeColumnToContents(0)
+            self.tree.expandAll()
+            self.tree.resizeColumnToContents(0)
+        finally:
+            self.tree.blockSignals(signals_were_blocked)
 
     def _update_document_area_visibility(self) -> None:
         has_document = self.document is not None
@@ -3480,6 +3489,23 @@ class MainWindow(QMainWindow):
             for sketch_shape in self._sketch_ais_by_object_id.get(object_id, []):
                 sketch_shape.SetColor(YELLOW)
                 context.Redisplay(sketch_shape, False)
+        for shape, owner_id in self._selectable_model_shapes:
+            if owner_id not in selected_ids:
+                continue
+            owner = self.document.find_object(owner_id) if self.document else None
+            if owner is None or owner.kind != ObjectKind.SKETCH:
+                continue
+            ais_shapes = self.viewer._display.DisplayShape(
+                shape,
+                color=YELLOW,
+                update=False,
+            )
+            for ais_shape in ais_shapes:
+                self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                ais_shape.SetWidth(3.0)
+                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                context.Deactivate(ais_shape)
+            self._selected_model_overlay_ais.extend(ais_shapes)
         if self.view_display_mode == ViewDisplayMode.SHADED:
             for shape, owner_id in self._cached_model_shapes:
                 if owner_id not in selected_ids:
