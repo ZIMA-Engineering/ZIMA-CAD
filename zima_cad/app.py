@@ -2789,6 +2789,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         attach_action = None
         create_action = None
+        create_axis_action = None
         create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
         properties_action = None
@@ -2805,6 +2806,12 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
+                create_axis_action = menu.addAction(
+                    tr("menu.context.create_axis")
+                )
+                create_axis_action.setEnabled(
+                    obj.can_accept_entity(ObjectKind.AXIS)
+                )
                 create_sketch_action = menu.addAction(
                     tr("menu.context.create_sketch")
                 )
@@ -2834,6 +2841,12 @@ class MainWindow(QMainWindow):
             self._view_normal_to_reference_plane(obj)
         elif create_action is not None and action == create_action:
             self.create_new_object()
+        elif (
+            create_axis_action is not None
+            and action == create_axis_action
+            and obj is not None
+        ):
+            self.create_datum_axis(obj.object_id)
         elif (
             create_sketch_action is not None
             and action == create_sketch_action
@@ -2927,6 +2940,7 @@ class MainWindow(QMainWindow):
             return
 
         attach_action = None
+        create_axis_action = None
         create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
         properties_action = None
@@ -2941,6 +2955,12 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
+                create_axis_action = menu.addAction(
+                    tr("menu.context.create_axis")
+                )
+                create_axis_action.setEnabled(
+                    obj.can_accept_entity(ObjectKind.AXIS)
+                )
                 create_sketch_action = menu.addAction(
                     tr("menu.context.create_sketch")
                 )
@@ -2972,6 +2992,8 @@ class MainWindow(QMainWindow):
                 self._view_normal_to_reference_plane(obj)
             else:
                 self._view_normal_to_selected_face()
+        elif create_axis_action is not None and action == create_axis_action:
+            self.create_datum_axis(obj.object_id)
         elif create_sketch_action is not None and action == create_sketch_action:
             self.create_sketch(obj.object_id)
         elif action in create_sketch_actions:
