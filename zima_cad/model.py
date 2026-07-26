@@ -21,7 +21,7 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeWedge,
 )
-from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf
+from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -719,31 +719,12 @@ class PartDocument:
     def build_active_shape(self):
         """Build the automatic solid result up to the history cursor."""
         result_shape = None
-        subtract_shapes = []
         for obj in self.active_history_objects():
-            shape = self.build_standalone_shape(obj)
-            if shape is None or obj.suppressed:
-                continue
-            solids = [
-                child
-                for child in obj.children
-                if not child.locked and child.kind in SOLID_KINDS
-            ]
-            mode = (
-                solids[0].combine_mode
-                if len(solids) == 1
-                else CombineMode.ADD
+            result_shape = apply_object_to_shape(
+                result_shape,
+                obj,
+                identity_transform(),
             )
-            if mode == CombineMode.SUBTRACT:
-                subtract_shapes.append(shape)
-            elif result_shape is None:
-                result_shape = shape
-            else:
-                result_shape = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
-
-        for shape in subtract_shapes:
-            if result_shape is not None:
-                result_shape = BRepAlgoAPI_Cut(result_shape, shape).Shape()
 
         return result_shape
 
@@ -860,7 +841,16 @@ def make_shape(obj: ZimaObject):
         length = float(obj.parameters.get("length", 100.0))
         width = float(obj.parameters.get("width", 60.0))
         height = float(obj.parameters.get("height", 20.0))
-        return BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), length, width, height).Shape()
+        return BRepPrimAPI_MakeBox(
+            gp_Pnt(
+                x - length / 2.0,
+                y - width / 2.0,
+                z - height / 2.0,
+            ),
+            length,
+            width,
+            height,
+        ).Shape()
 
     if obj.kind == ObjectKind.SPHERE:
         diameter = float(obj.parameters.get("diameter", 30.0))
@@ -872,7 +862,10 @@ def make_shape(obj: ZimaObject):
     if obj.kind == ObjectKind.CYLINDER:
         diameter = float(obj.parameters.get("diameter", 20.0))
         height = float(obj.parameters.get("height", 40.0))
-        axis = gp_Ax2(gp_Pnt(x, y, z), gp_Dir(0.0, 0.0, 1.0))
+        axis = gp_Ax2(
+            gp_Pnt(x, y, z - height / 2.0),
+            gp_Dir(0.0, 0.0, 1.0),
+        )
         return BRepPrimAPI_MakeCylinder(axis, diameter / 2.0, height).Shape()
 
     if obj.kind == ObjectKind.CONE:
@@ -898,10 +891,10 @@ def make_shape(obj: ZimaObject):
         height = max(0.001, float(obj.parameters.get("height", 50.0)))
         base = BRepBuilderAPI_MakePolygon()
         for point in (
-            gp_Pnt(x, y, z),
-            gp_Pnt(x + length, y, z),
-            gp_Pnt(x + length, y + width, z),
-            gp_Pnt(x, y + width, z),
+            gp_Pnt(x - length / 2.0, y - width / 2.0, z),
+            gp_Pnt(x + length / 2.0, y - width / 2.0, z),
+            gp_Pnt(x + length / 2.0, y + width / 2.0, z),
+            gp_Pnt(x - length / 2.0, y + width / 2.0, z),
         ):
             base.Add(point)
         base.Close()
@@ -909,7 +902,7 @@ def make_shape(obj: ZimaObject):
         builder.AddWire(base.Wire())
         builder.AddVertex(
             BRepBuilderAPI_MakeVertex(
-                gp_Pnt(x + length / 2.0, y + width / 2.0, z + height)
+                gp_Pnt(x, y, z + height)
             ).Vertex()
         )
         builder.Build()
@@ -921,7 +914,17 @@ def make_shape(obj: ZimaObject):
         height = float(obj.parameters.get("height", 50.0))
         top_offset = float(obj.parameters.get("top_offset", 50.0))
         top_offset = max(0.0, min(length, top_offset))
-        return BRepPrimAPI_MakeWedge(length, width, height, top_offset).Shape()
+        shape = BRepPrimAPI_MakeWedge(
+            length,
+            width,
+            height,
+            top_offset,
+        ).Shape()
+        translation = gp_Trsf()
+        translation.SetTranslation(
+            gp_Vec(-length / 2.0, -width / 2.0, 0.0)
+        )
+        return BRepBuilderAPI_Transform(shape, translation, True).Shape()
 
     return None
 
