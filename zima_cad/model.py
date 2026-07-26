@@ -30,7 +30,7 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "5",
+        "format_version": "6",
     }
 
 
@@ -360,22 +360,55 @@ class PartDocument:
     def visible_objects(self) -> list[ZimaObject]:
         return [obj for obj in self.root.children if obj.kind != ObjectKind.ORIGIN]
 
-    def displayed_model_objects(self) -> list[ZimaObject]:
-        """Return active history results without also drawing their inputs."""
-        captured_ids: set[str] = set()
-        for obj in self.visible_objects():
-            if obj.kind != ObjectKind.BODY or obj.suppressed:
-                continue
-            captured_ids.update(
-                value
-                for value in str(obj.parameters.get("source_ids", "")).split(",")
-                if value
-            )
+    def history_objects(self) -> list[ZimaObject]:
         return [
-            obj
-            for obj in self.visible_objects()
-            if obj.object_id not in captured_ids
+            obj for obj in self.root.children
+            if obj.kind == ObjectKind.OBJECT
         ]
+
+    def history_cursor(self) -> int:
+        try:
+            cursor = int(
+                self.document_settings.get(
+                    "history_cursor",
+                    len(self.history_objects()),
+                )
+            )
+        except (TypeError, ValueError):
+            cursor = len(self.history_objects())
+        return max(0, min(cursor, len(self.history_objects())))
+
+    def set_history_cursor(self, cursor: int) -> None:
+        self.document_settings["history_cursor"] = str(
+            max(0, min(cursor, len(self.history_objects())))
+        )
+
+    def move_history_object(self, object_id: str, target_index: int) -> bool:
+        history = self.history_objects()
+        moving = next(
+            (obj for obj in history if obj.object_id == object_id),
+            None,
+        )
+        if moving is None:
+            return False
+        remaining = [obj for obj in history if obj is not moving]
+        target_index = max(0, min(target_index, len(remaining)))
+        if history.index(moving) == target_index:
+            return False
+
+        self.root.children.remove(moving)
+        if target_index < len(remaining):
+            insertion_index = self.root.children.index(remaining[target_index])
+            self.root.children.insert(insertion_index, moving)
+        elif remaining:
+            insertion_index = self.root.children.index(remaining[-1]) + 1
+            self.root.children.insert(insertion_index, moving)
+        else:
+            self.root.add_child(moving)
+        return True
+
+    def active_history_objects(self) -> list[ZimaObject]:
+        return self.history_objects()[:self.history_cursor()]
 
     def find_object(self, object_id: str) -> ZimaObject | None:
         return find_child_object(self.root, object_id)
@@ -396,11 +429,27 @@ class PartDocument:
             combine_mode=CombineMode.NONE,
         )
         add_coordinate_system_children(obj)
-        self.root.add_child(obj)
+        history = self.history_objects()
+        cursor = self.history_cursor()
+        if cursor < len(history):
+            insertion_index = self.root.children.index(history[cursor])
+            self.root.children.insert(insertion_index, obj)
+        else:
+            self.root.add_child(obj)
+        self.set_history_cursor(cursor + 1)
         return obj
 
     def delete_object(self, object_id: str) -> bool:
-        return delete_child_object(self.root, object_id)
+        history = self.history_objects()
+        cursor = self.history_cursor()
+        deleted_index = next(
+            (index for index, obj in enumerate(history) if obj.object_id == object_id),
+            None,
+        )
+        deleted = delete_child_object(self.root, object_id)
+        if deleted and deleted_index is not None and deleted_index < cursor:
+            self.set_history_cursor(cursor - 1)
+        return deleted
 
     def find_parent(self, object_id: str) -> ZimaObject | None:
         return find_parent_object(self.root, object_id)
@@ -412,6 +461,8 @@ class PartDocument:
         return parent
 
     def is_effectively_visible(self, object_id: str) -> bool:
+        if self.is_effectively_suppressed(object_id):
+            return False
         obj = self.find_object(object_id)
         while obj is not None:
             if not obj.user_visible or obj.suppressed:
@@ -421,6 +472,19 @@ class PartDocument:
 
     def is_effectively_suppressed(self, object_id: str) -> bool:
         obj = self.find_object(object_id)
+        owning_history_object = obj
+        while (
+            owning_history_object is not None
+            and owning_history_object.kind != ObjectKind.OBJECT
+        ):
+            owning_history_object = self.find_parent(owning_history_object.object_id)
+        if owning_history_object is not None:
+            history = self.history_objects()
+            try:
+                if history.index(owning_history_object) >= self.history_cursor():
+                    return True
+            except ValueError:
+                pass
         while obj is not None:
             if obj.suppressed:
                 return True
@@ -650,17 +714,51 @@ class PartDocument:
 
     def rebuild_shape(self):
         self.resolve_attachments()
+        return self.build_active_shape()
+
+    def build_active_shape(self):
+        """Build the automatic solid result up to the history cursor."""
         result_shape = None
 
-        for obj in self.visible_objects():
-            if obj.kind == ObjectKind.BODY:
-                result_shape = self.build_body_shape(obj)
-            else:
-                result_shape = apply_object_to_shape(
-                    result_shape, obj, identity_transform()
-                )
+        for obj in self.active_history_objects():
+            result_shape = apply_object_to_shape(
+                result_shape, obj, identity_transform()
+            )
 
         return result_shape
+
+    def build_standalone_shape(self, obj: ZimaObject):
+        """Build one history object for source inspection, ignoring its first sign."""
+        return apply_object_to_shape(
+            None,
+            obj,
+            identity_transform(),
+            accept_first_shape=True,
+        )
+
+    def source_highlight_shapes(self, obj: ZimaObject) -> list[Any]:
+        shape = self.build_standalone_shape(obj)
+        shapes = [shape] if shape is not None else []
+        sphere = next(
+            (
+                child for child in obj.children
+                if not child.locked and child.kind == ObjectKind.SPHERE
+            ),
+            None,
+        )
+        if sphere is None:
+            return shapes
+        shapes = []
+        radius = max(0.001, float(sphere.parameters.get("diameter", 30.0)) / 2.0)
+        world_transform = multiply_transforms(
+            coordinate_system_transform(obj.coordinate_system),
+            coordinate_system_transform(sphere.coordinate_system),
+        )
+        for normal in (gp_Dir(0.0, 0.0, 1.0), gp_Dir(0.0, 1.0, 0.0)):
+            circle = gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), normal), radius)
+            edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+            shapes.append(transform_shape(edge, world_transform))
+        return shapes
 
     def build_body_shape(self, body: ZimaObject):
         """Build the recorded history snapshot represented by a root Body."""
@@ -700,6 +798,7 @@ def apply_object_to_shape(
     result_shape,
     obj: ZimaObject,
     parent_transform: tuple[tuple[float, float, float, float], ...],
+    accept_first_shape: bool = False,
 ):
     if obj.suppressed:
         return result_shape
@@ -711,7 +810,9 @@ def apply_object_to_shape(
 
     if shape is not None:
         shape = transform_shape(shape, world_transform)
-        if obj.combine_mode == CombineMode.ADD:
+        if obj.combine_mode == CombineMode.ADD or (
+            accept_first_shape and result_shape is None
+        ):
             if result_shape is None:
                 result_shape = shape
             else:
@@ -722,7 +823,12 @@ def apply_object_to_shape(
     for child in obj.children:
         if child.locked or child.kind == ObjectKind.SKETCH:
             continue
-        result_shape = apply_object_to_shape(result_shape, child, world_transform)
+        result_shape = apply_object_to_shape(
+            result_shape,
+            child,
+            world_transform,
+            accept_first_shape=accept_first_shape,
+        )
 
     return result_shape
 

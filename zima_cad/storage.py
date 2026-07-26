@@ -101,7 +101,7 @@ def load_part_document(file_path: Path) -> PartDocument:
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
         document.document_precision.update(dict(config["DocumentPrecision"]))
-    document.document_settings["format_version"] = "5"
+    document.document_settings["format_version"] = "6"
     if config.has_section("Material") or config.has_section("MaterialProperties"):
         material_parameters = {
             "MATERIAL_NAME": config.get("Material", "Name", fallback="")
@@ -144,6 +144,12 @@ def load_part_document(file_path: Path) -> PartDocument:
         obj = read_object(config, section, object_id)
         document.root.add_child(obj)
 
+    # Format 6 uses one automatic internal solid result. Explicit format-5 Body
+    # snapshots are redundant because their source objects remain in the history.
+    document.root.children = [
+        obj for obj in document.root.children
+        if obj.kind != ObjectKind.BODY
+    ]
     validate_object_entities(document)
     return document
 

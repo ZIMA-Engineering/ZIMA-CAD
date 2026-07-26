@@ -38,7 +38,8 @@ from OCC.Core.Prs3d import (
     Prs3d_TypeOfHighlight_LocalSelected,
     Prs3d_TypeOfHighlight_Selected,
 )
-from OCC.Core.gp import gp_Pnt
+from OCC.Core.gp import gp_Dir, gp_Lin, gp_Pnt
+from OCC.Core.IntCurvesFace import IntCurvesFace_ShapeIntersector
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
@@ -149,6 +150,100 @@ def create_saved_status_label() -> QLabel:
 class NoWheelComboBox(QComboBox):
     def wheelEvent(self, event) -> None:
         event.ignore()
+
+
+class HistoryTreeWidget(QTreeWidget):
+    historyCursorMoved = Signal(int)
+    historyObjectMoved = Signal(str, int)
+    ROLLBACK_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+    HISTORY_OBJECT_ROLE = int(Qt.ItemDataRole.UserRole) + 2
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._dragging_rollback = False
+        self._pending_history_object_id: str | None = None
+        self._dragging_history_object = False
+        self._drag_start = QPoint()
+
+    def mousePressEvent(self, event) -> None:
+        item = self.itemAt(event.position().toPoint())
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and item is not None
+            and item.data(0, self.ROLLBACK_ROLE)
+        ):
+            self._dragging_rollback = True
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and item is not None
+            and item.data(0, self.HISTORY_OBJECT_ROLE)
+        ):
+            self._pending_history_object_id = item.data(
+                0, Qt.ItemDataRole.UserRole
+            )
+            self._drag_start = event.position().toPoint()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging_rollback:
+            event.accept()
+            return
+        if (
+            self._pending_history_object_id is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and (
+                event.position().toPoint() - self._drag_start
+            ).manhattanLength() >= QApplication.startDragDistance()
+        ):
+            self._dragging_history_object = True
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        if self._dragging_history_object:
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._dragging_history_object:
+            object_id = self._pending_history_object_id
+            self._pending_history_object_id = None
+            self._dragging_history_object = False
+            self.viewport().unsetCursor()
+            y = event.position().toPoint().y()
+            target_index = 0
+            for index in range(self.topLevelItemCount()):
+                item = self.topLevelItem(index)
+                if (
+                    not item.data(0, self.HISTORY_OBJECT_ROLE)
+                    or item.data(0, Qt.ItemDataRole.UserRole) == object_id
+                ):
+                    continue
+                if self.visualItemRect(item).center().y() < y:
+                    target_index += 1
+            if object_id is not None:
+                self.historyObjectMoved.emit(object_id, target_index)
+            event.accept()
+            return
+        self._pending_history_object_id = None
+        if not self._dragging_rollback:
+            super().mouseReleaseEvent(event)
+            return
+        self._dragging_rollback = False
+        self.viewport().unsetCursor()
+        y = event.position().toPoint().y()
+        cursor = 0
+        for index in range(self.topLevelItemCount()):
+            item = self.topLevelItem(index)
+            if not item.data(0, self.HISTORY_OBJECT_ROLE):
+                continue
+            if self.visualItemRect(item).center().y() < y:
+                cursor += 1
+        self.historyCursorMoved.emit(cursor)
+        event.accept()
 
 
 class ViewDisplayMode(str, Enum):
@@ -1522,6 +1617,7 @@ class ZimaViewer(qtViewer3d):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._select_cycled_detection = False
+        self._ignore_next_left_release = False
         self.selection_enabled = True
 
     def _occ_mouse_position(self, event) -> tuple[int, int]:
@@ -1537,6 +1633,13 @@ class ZimaViewer(qtViewer3d):
     def mouseReleaseEvent(self, event) -> None:
         if (
             event.button() == Qt.MouseButton.LeftButton
+            and self._ignore_next_left_release
+        ):
+            self._ignore_next_left_release = False
+            event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
             and not self.selection_enabled
         ):
             event.accept()
@@ -1546,6 +1649,14 @@ class ZimaViewer(qtViewer3d):
             return
 
         x, y = self._occ_mouse_position(event)
+        window = self.window()
+        if (
+            event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and hasattr(window, "_confirm_preview_selection")
+            and window._confirm_preview_selection()
+        ):
+            event.accept()
+            return
         if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
             self._display.ShiftSelect(x, y)
         elif self._select_cycled_detection and self._display.Context.HasDetected():
@@ -1569,15 +1680,8 @@ class ZimaViewer(qtViewer3d):
         self.cursor = "arrow"
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if (
-            event.button() == Qt.MouseButton.LeftButton
-            and self.selection_enabled
-        ):
-            x, y = self._occ_mouse_position(event)
-            self._display.Select(x, y)
-            window = self.window()
-            if hasattr(window, "_open_selected_solid_properties"):
-                QTimer.singleShot(0, window._open_selected_solid_properties)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._ignore_next_left_release = True
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -1670,7 +1774,7 @@ class MainWindow(QMainWindow):
         self.current_file_path: Path | None = None
         self.working_directory = self.startup_context.working_directory
 
-        self.tree = QTreeWidget()
+        self.tree = HistoryTreeWidget()
         self.tree.setHeaderLabels(
             [
                 tr("tree.header"),
@@ -1730,6 +1834,11 @@ class MainWindow(QMainWindow):
         self._selected_model_overlay_ais: list[Any] = []
         self._hovered_model_overlay_ais: list[Any] = []
         self._view_selection_confirmed = False
+        self._history_source_cycle_index = -1
+        self._history_source_cycle_ids: tuple[str, ...] = ()
+        self._history_source_cycle_active = False
+        self._cycled_history_source_id: str | None = None
+        self._reference_cycle_preview_id: str | None = None
         self._pending_attachment_plane_id: str | None = None
 
         self.viewer = ZimaViewer(self)
@@ -1925,6 +2034,8 @@ class MainWindow(QMainWindow):
         self.tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.tree.itemClicked.connect(self._on_tree_item_clicked)
         self.tree.itemDoubleClicked.connect(self._on_tree_item_double_clicked)
+        self.tree.historyCursorMoved.connect(self._on_history_cursor_moved)
+        self.tree.historyObjectMoved.connect(self._on_history_object_moved)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         self.viewer.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.viewer.customContextMenuRequested.connect(self._show_viewer_context_menu)
@@ -2010,12 +2121,6 @@ class MainWindow(QMainWindow):
             )
             self._mark_application_command(new_object_action)
             new_object_action.triggered.connect(self.create_new_object)
-            self.tools_toolbar.addSeparator()
-            body_action = self.tools_toolbar.addAction(
-                tr("menu.context.create_body")
-            )
-            self._mark_application_command(body_action)
-            body_action.triggered.connect(self.create_body)
             self.tools_toolbar.addSeparator()
             point_action = self.tools_toolbar.addAction(tr("primitive.point"))
             self._mark_application_command(point_action)
@@ -2230,10 +2335,30 @@ class MainWindow(QMainWindow):
             if self.document is None:
                 return
 
-            for obj in self.document.root.children:
+            origins = [
+                obj for obj in self.document.root.children
+                if obj.kind == ObjectKind.ORIGIN
+            ]
+            for obj in origins:
                 item = self._create_tree_item(obj)
                 if item is not None:
                     self.tree.addTopLevelItem(item)
+
+            history = self.document.history_objects()
+            cursor = self.document.history_cursor()
+            for index, obj in enumerate(history):
+                if index == cursor:
+                    self.tree.addTopLevelItem(self._create_rollback_item())
+                item = self._create_tree_item(obj)
+                if item is not None:
+                    item.setData(
+                        0,
+                        HistoryTreeWidget.HISTORY_OBJECT_ROLE,
+                        True,
+                    )
+                    self.tree.addTopLevelItem(item)
+            if cursor == len(history):
+                self.tree.addTopLevelItem(self._create_rollback_item())
 
             self.tree.expandAll()
             self.tree.resizeColumnToContents(0)
@@ -2241,6 +2366,48 @@ class MainWindow(QMainWindow):
             self.tree.resizeColumnToContents(2)
         finally:
             self.tree.blockSignals(signals_were_blocked)
+
+    def _create_rollback_item(self) -> QTreeWidgetItem:
+        item = QTreeWidgetItem([tr("tree.insert_here"), "", ""])
+        item.setData(0, HistoryTreeWidget.ROLLBACK_ROLE, True)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        item.setFirstColumnSpanned(True)
+        item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(0, tr("tree.insert_here.tooltip"))
+        font = item.font(0)
+        font.setBold(True)
+        item.setFont(0, font)
+        item.setForeground(0, QBrush(QColor("#d18b00")))
+        return item
+
+    def _on_history_cursor_moved(self, cursor: int) -> None:
+        if self.document is None or cursor == self.document.history_cursor():
+            return
+        self.document.set_history_cursor(cursor)
+        self.selected_face = None
+        self.selected_face_object_id = None
+        selected_id = self.selected_object_id
+        self._populate_tree()
+        if selected_id is not None:
+            self._select_tree_object(selected_id)
+        self.rebuild_view(fit=False)
+
+    def _on_history_object_moved(
+        self,
+        object_id: str,
+        target_index: int,
+    ) -> None:
+        if self.document is None:
+            return
+        if not self.document.move_history_object(object_id, target_index):
+            return
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self.selected_object_id = object_id
+        self._history_source_cycle_index = -1
+        self._populate_tree()
+        self._select_tree_object(object_id)
+        self.rebuild_view(fit=False)
 
     def _update_document_area_visibility(self) -> None:
         has_document = self.document is not None
@@ -2778,6 +2945,9 @@ class MainWindow(QMainWindow):
             self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _on_tree_selection_changed(self) -> None:
+        self._history_source_cycle_active = False
+        self._cycled_history_source_id = None
+        self._reference_cycle_preview_id = None
         self.selected_face = None
         self.selected_face_object_id = None
         selected = self.tree.selectedItems()
@@ -2814,13 +2984,39 @@ class MainWindow(QMainWindow):
         _column: int,
     ) -> None:
         obj = self._object_from_tree_item(item)
-        if obj is not None:
+        if (
+            obj is not None
+            and obj.kind != ObjectKind.OBJECT
+            and obj.kind not in SOLID_KINDS
+        ):
             self.show_properties(obj)
 
-    def _open_selected_solid_properties(self) -> None:
-        selected = self._selected_object()
-        if selected is not None and selected.kind in SOLID_KINDS:
-            self.show_primitive_properties(selected)
+    def _confirm_preview_selection(self) -> bool:
+        if self.document is None:
+            return False
+        preview_id = (
+            self._reference_cycle_preview_id
+            or self._cycled_history_source_id
+        )
+        preview = (
+            self.document.find_object(preview_id)
+            if preview_id is not None
+            else None
+        )
+        if preview is None:
+            return False
+        self.selected_object_id = preview.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = True
+        self._select_tree_object(preview.object_id)
+        self._history_source_cycle_active = False
+        self._cycled_history_source_id = None
+        self._reference_cycle_preview_id = None
+        self._hovered_coordinate_object_id = preview.object_id
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
+        return True
 
     def _on_view_selection(self, shapes, _x: int, _y: int) -> None:
         if not self.view_selection_enabled:
@@ -2834,6 +3030,31 @@ class MainWindow(QMainWindow):
             return
 
         obj = self.document.find_object(object_id) if self.document is not None else None
+        if (
+            self._reference_cycle_preview_id is not None
+            and self.document is not None
+        ):
+            reference = self.document.find_object(
+                self._reference_cycle_preview_id
+            )
+            if reference is not None:
+                object_id = reference.object_id
+                obj = reference
+        if (
+            obj is not None
+            and obj.kind == ObjectKind.PART
+            and self._cycled_history_source_id is not None
+            and self.document is not None
+        ):
+            cycled_source = self.document.find_object(
+                self._cycled_history_source_id
+            )
+            if cycled_source is not None:
+                object_id = cycled_source.object_id
+                obj = cycled_source
+        if obj is not None and obj.kind == ObjectKind.PART:
+            self._history_source_cycle_index = -1
+            self._history_source_cycle_active = False
         if (
             self._pending_attachment_plane_id is not None
             and obj is not None
@@ -2870,10 +3091,13 @@ class MainWindow(QMainWindow):
 
         root = self.tree.invisibleRootItem()
         item = self._find_tree_item(root, object_id)
+        self.tree.blockSignals(True)
         if item is not None:
-            self.tree.blockSignals(True)
             self.tree.setCurrentItem(item)
-            self.tree.blockSignals(False)
+        else:
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
         self.selected_object_id = object_id
         self._view_selection_confirmed = True
         if obj is not None and obj.kind in (
@@ -2891,6 +3115,10 @@ class MainWindow(QMainWindow):
         if not self.view_selection_enabled:
             shape = None
             interactive = None
+        if shape is None and interactive is None:
+            self._history_source_cycle_active = False
+            self._cycled_history_source_id = None
+            self._reference_cycle_preview_id = None
         object_id = None
         if (
             (shape is not None and not shape.IsNull())
@@ -2903,6 +3131,7 @@ class MainWindow(QMainWindow):
                 else None
             )
             if candidate is not None and candidate.kind in (
+                ObjectKind.PART,
                 ObjectKind.OBJECT,
                 ObjectKind.BODY,
                 ObjectKind.POINT,
@@ -2912,6 +3141,13 @@ class MainWindow(QMainWindow):
                 *SOLID_KINDS,
             ):
                 object_id = candidate_id
+                if (
+                    candidate.kind == ObjectKind.PART
+                    and self._history_source_cycle_active
+                ):
+                    object_id = None
+        if self._reference_cycle_preview_id is not None:
+            object_id = self._reference_cycle_preview_id
 
         if object_id == self._hovered_coordinate_object_id:
             return
@@ -2984,17 +3220,15 @@ class MainWindow(QMainWindow):
         active_coordinate_ids: set[str] = set()
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
             selected_edge_ids = set() if self.selected_face is not None else selected_ids
-            color = (
-                YELLOW
-                if (
-                    object_id in selected_edge_ids
-                    or object_id in hovered_ids
-                    or object_id in whole_object_ids
-                )
-                else BLACK
+            highlighted = (
+                object_id in selected_edge_ids
+                or object_id in hovered_ids
+                or object_id in whole_object_ids
             )
+            color = YELLOW if highlighted else BLACK
             for edge_shape in edge_shapes:
                 edge_shape.SetColor(color)
+                edge_shape.SetWidth(3.0 if highlighted else 1.0)
                 context.Redisplay(edge_shape, False)
         for object_id, coordinate_shapes in self._coordinate_ais_by_object_id.items():
             coordinate = self.document.find_object(object_id) if self.document else None
@@ -3034,6 +3268,19 @@ class MainWindow(QMainWindow):
                 continue
             for coordinate_shape in coordinate_shapes:
                 coordinate_shape.SetColor(color)
+                if coordinate.kind == ObjectKind.PLANE:
+                    coordinate_shape.SetWidth(3.0 if active else 1.0)
+                elif coordinate.kind == ObjectKind.AXIS:
+                    coordinate_shape.SetWidth(
+                        3.0
+                        if active
+                        else (
+                            2.0
+                            if coordinate.parameters.get("display_style")
+                            == "centerline"
+                            else 1.0
+                        )
+                    )
                 context.Redisplay(coordinate_shape, False)
             if active:
                 active_coordinate_ids.add(object_id)
@@ -3162,14 +3409,11 @@ class MainWindow(QMainWindow):
         normal_view_action = None
         visibility_action = None
         suppress_action = None
-        create_body_action = None
         add_action = None
         subtract_action = None
 
         if obj is None or obj.kind == ObjectKind.PART:
             create_action = menu.addAction(tr("menu.context.create_object"))
-            create_body_action = menu.addAction(tr("menu.context.create_body"))
-            create_body_action.setEnabled(bool(self.document.visible_objects()))
         elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             if self._is_object_reference_plane(obj):
@@ -3177,11 +3421,6 @@ class MainWindow(QMainWindow):
                 attach_action = menu.addAction(tr("menu.context.attach_to_face"))
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
-            if obj.kind in (ObjectKind.OBJECT, ObjectKind.BODY):
-                create_body_action = menu.addAction(
-                    tr("menu.context.create_body")
-                )
-                menu.addSeparator()
             if obj.kind == ObjectKind.OBJECT:
                 create_axis_action = menu.addAction(
                     tr("menu.context.create_axis")
@@ -3197,13 +3436,15 @@ class MainWindow(QMainWindow):
                 )
                 if not obj.locked:
                     properties_action = menu.addAction(
-                        tr("menu.context.properties")
+                        tr("menu.context.edit")
                     )
                     delete_action = menu.addAction(
                         tr("menu.context.delete_object")
                     )
             elif not obj.locked:
-                if obj.kind == ObjectKind.AXIS:
+                if obj.kind in SOLID_KINDS:
+                    properties_action = menu.addAction(tr("menu.context.edit"))
+                elif obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             operation_target = self._operation_target(obj)
@@ -3248,8 +3489,6 @@ class MainWindow(QMainWindow):
             self._view_normal_to_reference_plane(obj)
         elif create_action is not None and action == create_action:
             self.create_new_object()
-        elif create_body_action is not None and action == create_body_action:
-            self.create_body()
         elif (
             create_axis_action is not None
             and action == create_axis_action
@@ -3305,6 +3544,43 @@ class MainWindow(QMainWindow):
         if self.document is None or not self.view_selection_enabled:
             return
 
+        x, y = self.viewer.occ_position(position)
+        self.viewer._display.MoveTo(x, y)
+        context = self.viewer._display.Context
+        if (
+            self.view_selection_mode == ViewSelectionMode.OBJECT
+            and context.HasDetected()
+        ):
+            detected_shape = (
+                context.DetectedShape()
+                if context.HasDetectedShape()
+                else None
+            )
+            candidate_id = self._object_id_for_detected(
+                detected_shape,
+                context.DetectedInteractive(),
+            )
+            candidate = self.document.find_object(candidate_id) if (
+                candidate_id is not None
+            ) else None
+            if candidate is not None and candidate.kind == ObjectKind.PART:
+                selected = self._selected_object()
+                if (
+                    self._view_selection_confirmed
+                    and not self._history_source_cycle_active
+                    and selected is not None
+                    and selected.kind in (ObjectKind.OBJECT, *SOLID_KINDS)
+                ):
+                    self._show_selected_view_context_menu(
+                        selected,
+                        self.viewer.mapToGlobal(position),
+                    )
+                    return
+                self._cycle_history_source(
+                    self._history_sources_under_cursor(x, y)
+                )
+                return
+
         if self._view_selection_confirmed:
             obj = self._selected_object()
             if obj is not None:
@@ -3314,10 +3590,8 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-        x, y = self.viewer.occ_position(position)
         if not self.viewer._display.Context.HasDetected():
             self.viewer._display.MoveTo(x, y)
-        context = self.viewer._display.Context
         if context.HasDetected():
             previous_object_id = self._hovered_coordinate_object_id
             rank = 1
@@ -3347,6 +3621,21 @@ class MainWindow(QMainWindow):
                 )
                 if candidate_id is not None and candidate_id != previous_object_id:
                     break
+            candidate = (
+                self.document.find_object(candidate_id)
+                if candidate_id is not None
+                else None
+            )
+            if candidate is not None and candidate.kind in (
+                ObjectKind.ORIGIN,
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+                ObjectKind.SKETCH,
+            ):
+                self._reference_cycle_preview_id = candidate.object_id
+                self._history_source_cycle_active = False
+                self._cycled_history_source_id = None
             self._on_view_hover_changed(
                 detected_shape,
                 context.DetectedInteractive()
@@ -3392,7 +3681,9 @@ class MainWindow(QMainWindow):
         visibility_action = None
         suppress_action = None
 
-        if self._is_system_reference_plane(obj):
+        if obj.kind == ObjectKind.PART:
+            pass
+        elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             if self._is_object_reference_plane(obj):
                 menu.addSeparator()
@@ -3414,13 +3705,15 @@ class MainWindow(QMainWindow):
                 )
                 if not obj.locked:
                     properties_action = menu.addAction(
-                        tr("menu.context.properties")
+                        tr("menu.context.edit")
                     )
                     delete_action = menu.addAction(
                         tr("menu.context.delete_object")
                     )
             elif not obj.locked:
-                if obj.kind == ObjectKind.AXIS:
+                if obj.kind in SOLID_KINDS:
+                    properties_action = menu.addAction(tr("menu.context.edit"))
+                elif obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             if not obj.locked:
@@ -3472,6 +3765,67 @@ class MainWindow(QMainWindow):
             self._set_object_visibility(obj, not obj.user_visible)
         elif suppress_action is not None and action == suppress_action:
             self._set_object_suppressed(obj, not obj.suppressed)
+
+    def _history_sources_under_cursor(
+        self,
+        x: int,
+        y: int,
+    ) -> list[ZimaObject]:
+        if self.document is None:
+            return []
+        px, py, pz, dx, dy, dz = (
+            self.viewer._display.View.ConvertWithProj(x, y)
+        )
+        try:
+            line = gp_Lin(gp_Pnt(px, py, pz), gp_Dir(dx, dy, dz))
+        except RuntimeError:
+            return []
+        hits: list[tuple[float, ZimaObject]] = []
+        for source in self.document.active_history_objects():
+            shape = self.document.build_standalone_shape(source)
+            if shape is None:
+                continue
+            intersector = IntCurvesFace_ShapeIntersector()
+            intersector.Load(shape, 1e-7)
+            intersector.Perform(line, 0.0, 1e100)
+            if intersector.NbPnt() > 0:
+                hits.append((intersector.WParameter(1), source))
+        hits.sort(key=lambda item: item[0])
+        return [source for _distance, source in hits]
+
+    def _cycle_history_source(self, sources: list[ZimaObject]) -> None:
+        if self.document is None:
+            return
+        if not sources:
+            return
+        source_ids = tuple(source.object_id for source in sources)
+        if source_ids != self._history_source_cycle_ids:
+            self._history_source_cycle_ids = source_ids
+            self._history_source_cycle_index = 0
+        else:
+            self._history_source_cycle_index = (
+                self._history_source_cycle_index + 1
+            ) % len(sources)
+        source = sources[self._history_source_cycle_index]
+        self.selected_object_id = source.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = False
+        self._history_source_cycle_active = True
+        self._cycled_history_source_id = source.object_id
+        self._reference_cycle_preview_id = None
+        self._hovered_coordinate_object_id = None
+        self.viewer._display.Context.ClearDetected(False)
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
+        self.statusBar().showMessage(
+            tr(
+                "selection.status.cycled_source",
+                rank=self._history_source_cycle_index + 1,
+                count=len(sources),
+                name=source.name,
+            )
+        )
 
     def _view_normal_to_reference_plane(self, plane: ZimaObject) -> None:
         if self.document is None or plane.kind != ObjectKind.PLANE:
@@ -3602,16 +3956,6 @@ class MainWindow(QMainWindow):
         obj = self.document.create_object()
         self._populate_tree()
         self._select_tree_object(obj.object_id)
-        self.rebuild_view(fit=False)
-
-    def create_body(self) -> None:
-        if self.document is None:
-            return
-        body = self.document.create_body(self.document.root.object_id)
-        if body is None:
-            return
-        self._populate_tree()
-        self._select_tree_object(body.object_id)
         self.rebuild_view(fit=False)
 
     def _operation_target(self, obj: ZimaObject) -> ZimaObject | None:
@@ -3908,17 +4252,12 @@ class MainWindow(QMainWindow):
                 self.document.resolve_attachments()
                 self._cached_document = self.document
                 self._cached_model_shapes = []
-                for obj in self.document.displayed_model_objects():
-                    shape = (
-                        self.document.build_body_shape(obj)
-                        if obj.kind == ObjectKind.BODY
-                        else apply_object_to_shape(None, obj, identity_transform())
+                shape = self.document.build_active_shape()
+                active_objects = self.document.active_history_objects()
+                if shape is not None and active_objects:
+                    self._cached_model_shapes.append(
+                        (shape, self.document.root.object_id)
                     )
-                    if shape is not None:
-                        owner_id = self._selection_owner_id(obj)
-                        visibility_id = self._result_visibility_id(obj)
-                        if self.document.is_effectively_visible(visibility_id):
-                            self._cached_model_shapes.append((shape, owner_id))
             for shape, owner_id in self._cached_model_shapes:
                 self._display_model_shape(shape, owner_id)
 
@@ -4041,6 +4380,7 @@ class MainWindow(QMainWindow):
         for edge_shapes in self._model_edge_ais_by_object_id.values():
             for edge_shape in edge_shapes:
                 edge_shape.SetColor(BLACK)
+                edge_shape.SetWidth(1.0)
                 context.Redisplay(edge_shape, False)
         for sketch_shapes in self._sketch_ais_by_object_id.values():
             for sketch_shape in sketch_shapes:
@@ -4064,6 +4404,7 @@ class MainWindow(QMainWindow):
         for object_id in selected_ids:
             for edge_shape in self._model_edge_ais_by_object_id.get(object_id, []):
                 edge_shape.SetColor(YELLOW)
+                edge_shape.SetWidth(3.0)
                 context.Redisplay(edge_shape, False)
             for sketch_shape in self._sketch_ais_by_object_id.get(object_id, []):
                 sketch_shape.SetColor(YELLOW)
@@ -4096,6 +4437,30 @@ class MainWindow(QMainWindow):
                 )
                 for ais_shape in ais_shapes:
                     self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._selected_model_overlay_ais.extend(ais_shapes)
+        source_object = selected
+        if (
+            source_object is not None
+            and source_object.kind != ObjectKind.OBJECT
+            and self.document is not None
+        ):
+            source_object = self.document.find_owning_object(source_object.object_id)
+        if (
+            source_object is not None
+            and self.document is not None
+            and source_object in self.document.active_history_objects()
+        ):
+            for source_shape in self.document.source_highlight_shapes(source_object):
+                ais_shapes = self.viewer._display.DisplayShape(
+                    source_shape,
+                    color=YELLOW,
+                    update=False,
+                )
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetWidth(3.0)
                     ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
