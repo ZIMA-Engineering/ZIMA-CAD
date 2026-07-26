@@ -43,7 +43,7 @@ from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Plane
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -77,10 +77,13 @@ from PySide6.QtWidgets import (
 )
 
 from zima_cad.model import (
+    CombineMode,
     ObjectKind,
+    SOLID_KINDS,
     SketchRole,
     PartDocument,
     PlaneOnFaceAttachment,
+    TreeExposure,
     ZimaObject,
     apply_object_to_shape,
     solid_face_frames,
@@ -181,6 +184,11 @@ class DocumentSession:
     file_path: Path | None
     selected_object_id: str | None = None
     active_application: ApplicationMode = ApplicationMode.MODELING
+
+
+def canonical_document_path(file_path: Path) -> Path:
+    """Normalize relative paths and symlinks for open-document comparisons."""
+    return file_path.expanduser().resolve(strict=False)
 
 
 class NewDocumentDialog(QDialog):
@@ -432,6 +440,92 @@ class ObjectPropertiesDialog(QDialog):
                 self.secondary_combo.currentData()
             )
             self.object.attachment.flip_normal = self.flip_checkbox.isChecked()
+        return True
+
+
+class PrimitivePropertiesDialog(QDialog):
+    applied = Signal()
+    PARAMETER_DEFINITIONS = {
+        ObjectKind.BOX: (
+            ("length", "primitive.parameter.length", 0.001),
+            ("width", "primitive.parameter.width", 0.001),
+            ("height", "primitive.parameter.height", 0.001),
+        ),
+        ObjectKind.SPHERE: (
+            ("diameter", "primitive.parameter.diameter", 0.001),
+        ),
+        ObjectKind.CYLINDER: (
+            ("diameter", "primitive.parameter.diameter", 0.001),
+            ("height", "primitive.parameter.height", 0.001),
+        ),
+        ObjectKind.CONE: (
+            ("bottom_diameter", "primitive.parameter.bottom_diameter", 0.001),
+            ("top_diameter", "primitive.parameter.top_diameter", 0.0),
+            ("height", "primitive.parameter.height", 0.001),
+        ),
+        ObjectKind.PYRAMID: (
+            ("length", "primitive.parameter.length", 0.001),
+            ("width", "primitive.parameter.width", 0.001),
+            ("height", "primitive.parameter.height", 0.001),
+        ),
+        ObjectKind.WEDGE: (
+            ("length", "primitive.parameter.length", 0.001),
+            ("width", "primitive.parameter.width", 0.001),
+            ("height", "primitive.parameter.height", 0.001),
+            ("top_offset", "primitive.parameter.top_offset", 0.0),
+        ),
+    }
+
+    def __init__(self, primitive: ZimaObject, parent=None) -> None:
+        super().__init__(parent)
+        self.primitive = primitive
+        self.setWindowTitle(
+            tr("dialog.primitive.title", name=primitive.name)
+        )
+
+        layout = QFormLayout(self)
+        self.name_edit = QLineEdit(primitive.name)
+        layout.addRow(tr("dialog.properties.name"), self.name_edit)
+        layout.addRow(
+            tr("dialog.properties.object_type"),
+            QLabel(tr(f"primitive.{primitive.kind.value}")),
+        )
+
+        self.parameter_edits: dict[str, QDoubleSpinBox] = {}
+        for key, label_key, minimum in self.PARAMETER_DEFINITIONS[primitive.kind]:
+            spinbox = QDoubleSpinBox()
+            spinbox.setRange(minimum, 1_000_000.0)
+            spinbox.setDecimals(3)
+            spinbox.setSingleStep(1.0)
+            spinbox.setSuffix(" mm")
+            spinbox.setValue(float(primitive.parameters.get(key, minimum)))
+            self.parameter_edits[key] = spinbox
+            layout.addRow(tr(label_key), spinbox)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self._apply_without_closing
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def _apply_without_closing(self) -> None:
+        if self.apply_to_primitive():
+            self.applied.emit()
+
+    def apply_to_primitive(self) -> bool:
+        name = self.name_edit.text().strip()
+        if not name:
+            return False
+        self.primitive.name = name
+        for key, spinbox in self.parameter_edits.items():
+            self.primitive.parameters[key] = f"{spinbox.value():.12g}"
         return True
 
 
@@ -1474,6 +1568,20 @@ class ZimaViewer(qtViewer3d):
             self.sig_topods_selected.emit(self._display.selected_shapes)
         self.cursor = "arrow"
 
+    def mouseDoubleClickEvent(self, event) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.selection_enabled
+        ):
+            x, y = self._occ_mouse_position(event)
+            self._display.Select(x, y)
+            window = self.window()
+            if hasattr(window, "_open_selected_solid_properties"):
+                QTimer.singleShot(0, window._open_selected_solid_properties)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def mouseMoveEvent(self, event) -> None:
         point = event.pos()
         buttons = event.buttons()
@@ -1519,9 +1627,12 @@ class ZimaViewer(qtViewer3d):
         window = self.window()
         if hasattr(window, "_on_view_hover_changed"):
             detected_shape = None
+            detected_interactive = None
             if self._display.Context.HasDetectedShape():
                 detected_shape = self._display.Context.DetectedShape()
-            window._on_view_hover_changed(detected_shape)
+            if self._display.Context.HasDetected():
+                detected_interactive = self._display.Context.DetectedInteractive()
+            window._on_view_hover_changed(detected_shape, detected_interactive)
         self.cursor = "arrow"
 
     def wheelEvent(self, event) -> None:
@@ -1560,7 +1671,13 @@ class MainWindow(QMainWindow):
         self.working_directory = self.startup_context.working_directory
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels([tr("tree.header")])
+        self.tree.setHeaderLabels(
+            [
+                tr("tree.header"),
+                tr("tree.visibility"),
+                tr("tree.state"),
+            ]
+        )
         self.tree.setMinimumWidth(280)
         self.tree.setStyleSheet(
             """
@@ -1587,11 +1704,12 @@ class MainWindow(QMainWindow):
             gp_Pnt(0.0, 0.0, 0.0),
         )
         self.view_display_mode = ViewDisplayMode.SHADED_WITH_EDGES
-        self.view_selection_mode = ViewSelectionMode.FACE
+        self.view_selection_mode = ViewSelectionMode.OBJECT
         self.view_selection_filter = ViewSelectionFilter.ALL
         self.active_application = ApplicationMode.MODELING
         self.view_selection_enabled = True
         self._model_ais_by_object_id: dict[str, list[Any]] = {}
+        self._model_object_id_by_ais: list[tuple[Any, str]] = []
         self._model_edge_ais_by_object_id: dict[str, list[Any]] = {}
         self._sketch_ais_by_object_id: dict[str, list[Any]] = {}
         self._selectable_model_shapes: list[tuple[Any, str]] = []
@@ -1610,6 +1728,7 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id: str | None = None
         self._selected_face_overlay_ais: list[Any] = []
         self._selected_model_overlay_ais: list[Any] = []
+        self._hovered_model_overlay_ais: list[Any] = []
         self._view_selection_confirmed = False
         self._pending_attachment_plane_id: str | None = None
 
@@ -1657,6 +1776,19 @@ class MainWindow(QMainWindow):
             self._on_standard_view_changed
         )
         self.view_toolbar.addWidget(self.standard_view_combo)
+        self.view_selection_action = QAction(
+            tr("application.command.selection"),
+            self,
+        )
+        self.view_selection_action.setCheckable(True)
+        self.view_selection_action.setChecked(True)
+        self.view_selection_action.setToolTip(
+            tr("application.command.selection.tooltip")
+        )
+        self.view_selection_action.toggled.connect(
+            self.set_view_selection_enabled
+        )
+        self.view_toolbar.addAction(self.view_selection_action)
         self.selection_filter_combo = QComboBox()
         self.selection_filter_combo.setToolTip(tr("selection.filter.tooltip"))
         for text_key, filter_value in (
@@ -1743,20 +1875,6 @@ class MainWindow(QMainWindow):
             """
         )
 
-        self.view_selection_action = QAction(
-            tr("application.command.selection"),
-            self,
-        )
-        self.tools_toolbar.addAction(self.view_selection_action)
-        self.view_selection_action.setCheckable(True)
-        self.view_selection_action.setChecked(True)
-        self.view_selection_action.setToolTip(
-            tr("application.command.selection.tooltip")
-        )
-        self.view_selection_action.toggled.connect(
-            self.set_view_selection_enabled
-        )
-
         tools_layout = QVBoxLayout()
         tools_layout.setContentsMargins(0, 0, 0, 0)
         tools_layout.setSpacing(0)
@@ -1805,6 +1923,8 @@ class MainWindow(QMainWindow):
         self.document_tabs.currentChanged.connect(self._on_document_tab_changed)
         self.document_tabs.tabCloseRequested.connect(self.close_document_tab)
         self.tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
+        self.tree.itemClicked.connect(self._on_tree_item_clicked)
+        self.tree.itemDoubleClicked.connect(self._on_tree_item_double_clicked)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         self.viewer.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.viewer.customContextMenuRequested.connect(self._show_viewer_context_menu)
@@ -1878,8 +1998,6 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "tools_toolbar"):
             return
         self.tools_toolbar.clear()
-        self.tools_toolbar.addAction(self.view_selection_action)
-        self.tools_toolbar.addSeparator()
 
         heading = QLabel(tr(f"application.{self.active_application.value}"))
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1892,6 +2010,35 @@ class MainWindow(QMainWindow):
             )
             self._mark_application_command(new_object_action)
             new_object_action.triggered.connect(self.create_new_object)
+            self.tools_toolbar.addSeparator()
+            body_action = self.tools_toolbar.addAction(
+                tr("menu.context.create_body")
+            )
+            self._mark_application_command(body_action)
+            body_action.triggered.connect(self.create_body)
+            self.tools_toolbar.addSeparator()
+            point_action = self.tools_toolbar.addAction(tr("primitive.point"))
+            self._mark_application_command(point_action)
+            point_action.triggered.connect(self._create_point_object)
+            axis_action = self.tools_toolbar.addAction(tr("primitive.axis"))
+            self._mark_application_command(axis_action)
+            axis_action.triggered.connect(self._create_axis_object)
+            self.tools_toolbar.addSeparator()
+            for kind, text_key in (
+                (ObjectKind.BOX, "primitive.box"),
+                (ObjectKind.SPHERE, "primitive.sphere"),
+                (ObjectKind.CYLINDER, "primitive.cylinder"),
+                (ObjectKind.CONE, "primitive.cone"),
+                (ObjectKind.PYRAMID, "primitive.pyramid"),
+                (ObjectKind.WEDGE, "primitive.wedge"),
+            ):
+                primitive_action = self.tools_toolbar.addAction(tr(text_key))
+                self._mark_application_command(primitive_action)
+                primitive_action.triggered.connect(
+                    lambda _checked=False, primitive_kind=kind:
+                    self._create_primitive_object(primitive_kind)
+                )
+            self.tools_toolbar.addSeparator()
             sketch_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_sketch")
             )
@@ -1943,6 +2090,61 @@ class MainWindow(QMainWindow):
             tr("menu.context.create_sketch"),
             tr("message.select_sketch_parent"),
         )
+
+    def _create_primitive_object(self, kind: ObjectKind) -> None:
+        if self.document is None:
+            return
+        text_key = {
+            ObjectKind.BOX: "primitive.box",
+            ObjectKind.SPHERE: "primitive.sphere",
+            ObjectKind.CYLINDER: "primitive.cylinder",
+            ObjectKind.CONE: "primitive.cone",
+            ObjectKind.PYRAMID: "primitive.pyramid",
+            ObjectKind.WEDGE: "primitive.wedge",
+        }[kind]
+        selected = self._selected_object()
+        target = None
+        if selected is not None and selected.kind in SOLID_KINDS:
+            parent = self.document.find_parent(selected.object_id)
+            if parent is not None and parent.kind == ObjectKind.OBJECT:
+                target = parent
+        created_object = None
+        if target is None:
+            created_object = self.document.create_object(tr(text_key))
+            target = created_object
+        primitive = self.document.create_primitive(target.object_id, kind)
+        if primitive is None:
+            if created_object is not None:
+                self.document.delete_object(created_object.object_id)
+            return
+        self._populate_tree()
+        self._select_tree_object(primitive.object_id)
+        self.rebuild_view(fit=False)
+
+    def _create_point_object(self) -> None:
+        if self.document is None:
+            return
+        obj = self.document.create_object(tr("primitive.point"))
+        point = self.document.create_point(obj.object_id)
+        if point is None:
+            self.document.delete_object(obj.object_id)
+            return
+        self._populate_tree()
+        self._select_tree_object(point.object_id)
+        self.rebuild_view(fit=False)
+
+    def _create_axis_object(self) -> None:
+        if self.document is None:
+            return
+        obj = self.document.create_object(tr("primitive.axis"))
+        axis = self.document.create_datum_axis(obj.object_id)
+        if axis is None:
+            self.document.delete_object(obj.object_id)
+            return
+        self._populate_tree()
+        self._select_tree_object(axis.object_id)
+        self.rebuild_view(fit=False)
+        self.show_axis_properties(axis)
 
     def _create_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu(tr("menu.file"))
@@ -2029,10 +2231,14 @@ class MainWindow(QMainWindow):
                 return
 
             for obj in self.document.root.children:
-                self.tree.addTopLevelItem(self._create_tree_item(obj))
+                item = self._create_tree_item(obj)
+                if item is not None:
+                    self.tree.addTopLevelItem(item)
 
             self.tree.expandAll()
             self.tree.resizeColumnToContents(0)
+            self.tree.resizeColumnToContents(1)
+            self.tree.resizeColumnToContents(2)
         finally:
             self.tree.blockSignals(signals_were_blocked)
 
@@ -2173,8 +2379,18 @@ class MainWindow(QMainWindow):
         self.open_document_path(Path(file_name))
 
     def open_document_path(self, file_path: Path) -> bool:
+        canonical_path = canonical_document_path(file_path)
+        for index, session in enumerate(self.document_sessions):
+            if session.file_path is None:
+                continue
+            if canonical_document_path(session.file_path) == canonical_path:
+                self.document_tabs.setCurrentIndex(index)
+                if self.active_document_index != index:
+                    self._on_document_tab_changed(index)
+                return True
+
         try:
-            document = load_part_document(file_path)
+            document = load_part_document(canonical_path)
         except ObjectEntityLimitError as exc:
             QMessageBox.critical(
                 self,
@@ -2190,7 +2406,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return False
 
-        self._add_document_session(document, file_path)
+        self._add_document_session(document, canonical_path)
         return True
 
     def save_document(self) -> bool:
@@ -2471,17 +2687,74 @@ class MainWindow(QMainWindow):
         if hasattr(display, "View") and hasattr(display.View, "MustBeResized"):
             display.View.MustBeResized()
 
-    def _create_tree_item(self, obj: ZimaObject) -> QTreeWidgetItem:
+    def _create_tree_item(self, obj: ZimaObject) -> QTreeWidgetItem | None:
+        if obj.tree_exposure == TreeExposure.HIDDEN:
+            return None
         if obj.kind == ObjectKind.POINT:
             name = self._point_display_name(obj)
+        elif obj.kind == ObjectKind.BODY:
+            suffix = obj.name.removeprefix("Body")
+            name = (
+                f"{tr('tree.body')}{suffix}"
+                if suffix.isdigit()
+                else obj.name
+            )
         elif obj.kind == ObjectKind.SKETCH and obj.sketch_role() is not None:
             name = f"{obj.name} [{obj.sketch_role().value}]"
         else:
             name = obj.name
-        item = QTreeWidgetItem([name])
+        operation_source = obj
+        if obj.kind == ObjectKind.OBJECT:
+            solids = [
+                child
+                for child in obj.children
+                if not child.locked and child.kind in SOLID_KINDS
+            ]
+            if len(solids) == 1:
+                operation_source = solids[0]
+        if operation_source.kind in SOLID_KINDS:
+            operation = {
+                CombineMode.ADD: "+",
+                CombineMode.SUBTRACT: "−",
+            }.get(operation_source.combine_mode, "")
+            name = f"{operation} {name}".strip()
+        effectively_visible = (
+            self.document.is_effectively_visible(obj.object_id)
+            if self.document is not None
+            else obj.user_visible
+        )
+        effectively_suppressed = (
+            self.document.is_effectively_suppressed(obj.object_id)
+            if self.document is not None
+            else obj.suppressed
+        )
+        visibility_symbol = "◉" if effectively_visible else "○"
+        state_symbol = "S" if effectively_suppressed else ""
+        item = QTreeWidgetItem([name, visibility_symbol, state_symbol])
         item.setData(0, Qt.ItemDataRole.UserRole, obj.object_id)
+        item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
+        item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(
+            1,
+            tr(
+                "tree.visibility.visible"
+                if effectively_visible
+                else "tree.visibility.hidden"
+            ),
+        )
+        if effectively_suppressed:
+            font = item.font(0)
+            font.setItalic(True)
+            font.setStrikeOut(True)
+            item.setFont(0, font)
+            brush = QBrush(QColor("#808080"))
+            for column in range(3):
+                item.setForeground(column, brush)
+            item.setToolTip(2, tr("tree.state.suppressed"))
         for child in obj.children:
-            item.addChild(self._create_tree_item(child))
+            child_item = self._create_tree_item(child)
+            if child_item is not None:
+                item.addChild(child_item)
         return item
 
     def _point_display_name(self, point: ZimaObject) -> str:
@@ -2496,6 +2769,11 @@ class MainWindow(QMainWindow):
     def _on_selection_filter_changed(self) -> None:
         value = self.selection_filter_combo.currentData()
         self.view_selection_filter = ViewSelectionFilter(value)
+        self.view_selection_mode = (
+            ViewSelectionMode.FACE
+            if self.view_selection_filter == ViewSelectionFilter.FACE
+            else ViewSelectionMode.OBJECT
+        )
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
 
@@ -2513,6 +2791,36 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _on_tree_item_clicked(
+        self,
+        item: QTreeWidgetItem,
+        column: int,
+    ) -> None:
+        if column != 1:
+            return
+        obj = self._object_from_tree_item(item)
+        if obj is None or obj.locked:
+            return
+        obj.user_visible = not obj.user_visible
+        object_id = obj.object_id
+        self._populate_tree()
+        self._select_tree_object(object_id)
+        self.rebuild_view(fit=False)
+
+    def _on_tree_item_double_clicked(
+        self,
+        item: QTreeWidgetItem,
+        _column: int,
+    ) -> None:
+        obj = self._object_from_tree_item(item)
+        if obj is not None:
+            self.show_properties(obj)
+
+    def _open_selected_solid_properties(self) -> None:
+        selected = self._selected_object()
+        if selected is not None and selected.kind in SOLID_KINDS:
+            self.show_primitive_properties(selected)
 
     def _on_view_selection(self, shapes, _x: int, _y: int) -> None:
         if not self.view_selection_enabled:
@@ -2579,12 +2887,16 @@ class MainWindow(QMainWindow):
         self._highlight_selected_in_view()
         self._update_coordinate_label_highlights()
 
-    def _on_view_hover_changed(self, shape) -> None:
+    def _on_view_hover_changed(self, shape, interactive=None) -> None:
         if not self.view_selection_enabled:
             shape = None
+            interactive = None
         object_id = None
-        if shape is not None and not shape.IsNull():
-            candidate_id = self._object_id_for_selected_shape(shape)
+        if (
+            (shape is not None and not shape.IsNull())
+            or interactive is not None
+        ):
+            candidate_id = self._object_id_for_detected(shape, interactive)
             candidate = (
                 self.document.find_object(candidate_id)
                 if self.document is not None and candidate_id is not None
@@ -2592,9 +2904,12 @@ class MainWindow(QMainWindow):
             )
             if candidate is not None and candidate.kind in (
                 ObjectKind.OBJECT,
+                ObjectKind.BODY,
                 ObjectKind.POINT,
                 ObjectKind.PLANE,
                 ObjectKind.AXIS,
+                ObjectKind.SKETCH,
+                *SOLID_KINDS,
             ):
                 object_id = candidate_id
 
@@ -2612,6 +2927,7 @@ class MainWindow(QMainWindow):
         ) else None
         if selected is not None and selected.kind in (
             ObjectKind.OBJECT,
+            ObjectKind.BODY,
             ObjectKind.ORIGIN,
         ):
             selected_ids.update(self._descendant_object_ids(selected))
@@ -2624,24 +2940,57 @@ class MainWindow(QMainWindow):
             self.document is not None
             and self._hovered_coordinate_object_id is not None
         ) else None
-        if hovered is not None and hovered.kind == ObjectKind.OBJECT:
+        if hovered is not None and hovered.kind in (
+            ObjectKind.OBJECT,
+            ObjectKind.BODY,
+        ):
             hovered_ids.update(self._descendant_object_ids(hovered))
         whole_object_ids: set[str] = set()
-        if selected is not None and selected.kind == ObjectKind.OBJECT:
+        if selected is not None and selected.kind in (
+            ObjectKind.OBJECT,
+            ObjectKind.BODY,
+        ):
             whole_object_ids.update(selected_ids)
-        if hovered is not None and hovered.kind == ObjectKind.OBJECT:
+        if hovered is not None and hovered.kind in (
+            ObjectKind.OBJECT,
+            ObjectKind.BODY,
+        ):
             whole_object_ids.update(hovered_ids)
 
         context = self.viewer._display.Context
+        for overlay_shape in self._hovered_model_overlay_ais:
+            context.Erase(overlay_shape, False)
+        self._hovered_model_overlay_ais.clear()
         for overlay_shape in self._coordinate_highlight_overlay_ais:
             context.Erase(overlay_shape, False)
         self._coordinate_highlight_overlay_ais.clear()
+        for shape, owner_id in self._selectable_model_shapes:
+            if owner_id not in hovered_ids:
+                continue
+            owner = self.document.find_object(owner_id) if self.document else None
+            if owner is None or owner.kind not in SOLID_KINDS:
+                continue
+            overlay_shapes = self.viewer._display.DisplayShape(
+                shape,
+                color=YELLOW,
+                update=False,
+            )
+            for overlay_shape in overlay_shapes:
+                self._set_ais_display_mode(overlay_shape, AIS_WireFrame)
+                overlay_shape.SetWidth(3.0)
+                overlay_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                context.Deactivate(overlay_shape)
+            self._hovered_model_overlay_ais.extend(overlay_shapes)
         active_coordinate_ids: set[str] = set()
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
             selected_edge_ids = set() if self.selected_face is not None else selected_ids
             color = (
                 YELLOW
-                if object_id in selected_edge_ids or object_id in whole_object_ids
+                if (
+                    object_id in selected_edge_ids
+                    or object_id in hovered_ids
+                    or object_id in whole_object_ids
+                )
                 else BLACK
             )
             for edge_shape in edge_shapes:
@@ -2766,6 +3115,22 @@ class MainWindow(QMainWindow):
                 explorer.Next()
         return None
 
+    def _object_id_for_detected(self, shape, interactive) -> str | None:
+        if shape is not None and not shape.IsNull():
+            object_id = self._object_id_for_selected_shape(shape)
+            if object_id is not None:
+                return object_id
+        if interactive is None:
+            return None
+        for ais_shape, object_id in self._model_object_id_by_ais:
+            try:
+                matches = ais_shape == interactive or ais_shape.IsSame(interactive)
+            except (AttributeError, TypeError):
+                matches = ais_shape == interactive
+            if matches:
+                return self._selection_filtered_object_id(object_id)
+        return None
+
     def _selection_filtered_object_id(self, object_id: str) -> str:
         if (
             self.view_selection_filter != ViewSelectionFilter.OBJECT
@@ -2795,9 +3160,16 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         normal_view_action = None
+        visibility_action = None
+        suppress_action = None
+        create_body_action = None
+        add_action = None
+        subtract_action = None
 
         if obj is None or obj.kind == ObjectKind.PART:
             create_action = menu.addAction(tr("menu.context.create_object"))
+            create_body_action = menu.addAction(tr("menu.context.create_body"))
+            create_body_action.setEnabled(bool(self.document.visible_objects()))
         elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             if self._is_object_reference_plane(obj):
@@ -2805,6 +3177,11 @@ class MainWindow(QMainWindow):
                 attach_action = menu.addAction(tr("menu.context.attach_to_face"))
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
+            if obj.kind in (ObjectKind.OBJECT, ObjectKind.BODY):
+                create_body_action = menu.addAction(
+                    tr("menu.context.create_body")
+                )
+                menu.addSeparator()
             if obj.kind == ObjectKind.OBJECT:
                 create_axis_action = menu.addAction(
                     tr("menu.context.create_axis")
@@ -2829,6 +3206,36 @@ class MainWindow(QMainWindow):
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
+            operation_target = self._operation_target(obj)
+            if operation_target is not None:
+                operation_menu = menu.addMenu(tr("menu.context.operation"))
+                add_action = operation_menu.addAction(tr("menu.context.operation.add"))
+                subtract_action = operation_menu.addAction(
+                    tr("menu.context.operation.subtract")
+                )
+                add_action.setCheckable(True)
+                subtract_action.setCheckable(True)
+                add_action.setChecked(operation_target.combine_mode == CombineMode.ADD)
+                subtract_action.setChecked(
+                    operation_target.combine_mode == CombineMode.SUBTRACT
+                )
+            if not obj.locked:
+                menu.addSeparator()
+                visibility_action = menu.addAction(
+                    tr(
+                        "menu.context.hide"
+                        if obj.user_visible
+                        else "menu.context.show"
+                    )
+                )
+                if obj.kind == ObjectKind.OBJECT or obj.kind == ObjectKind.BODY or obj.kind in SOLID_KINDS:
+                    suppress_action = menu.addAction(
+                        tr(
+                            "menu.context.resume"
+                            if obj.suppressed
+                            else "menu.context.suppress"
+                        )
+                    )
 
         if menu.isEmpty():
             return
@@ -2841,6 +3248,8 @@ class MainWindow(QMainWindow):
             self._view_normal_to_reference_plane(obj)
         elif create_action is not None and action == create_action:
             self.create_new_object()
+        elif create_body_action is not None and action == create_body_action:
+            self.create_body()
         elif (
             create_axis_action is not None
             and action == create_axis_action
@@ -2870,6 +3279,27 @@ class MainWindow(QMainWindow):
             self.show_properties(obj)
         elif delete_action is not None and action == delete_action and obj is not None:
             self.delete_object(obj.object_id)
+        elif (
+            visibility_action is not None
+            and action == visibility_action
+            and obj is not None
+        ):
+            self._set_object_visibility(obj, not obj.user_visible)
+        elif (
+            suppress_action is not None
+            and action == suppress_action
+            and obj is not None
+        ):
+            self._set_object_suppressed(obj, not obj.suppressed)
+        elif obj is not None and action in (add_action, subtract_action):
+            target = self._operation_target(obj)
+            if target is not None:
+                target.combine_mode = (
+                    CombineMode.ADD if action == add_action else CombineMode.SUBTRACT
+                )
+                self._populate_tree()
+                self._select_tree_object(obj.object_id)
+                self.rebuild_view(fit=False)
 
     def _show_viewer_context_menu(self, position: QPoint) -> None:
         if self.document is None or not self.view_selection_enabled:
@@ -2908,16 +3338,29 @@ class MainWindow(QMainWindow):
                     else None
                 )
                 candidate_id = (
-                    self._object_id_for_selected_shape(detected_shape)
-                    if detected_shape is not None and not detected_shape.IsNull()
-                    else None
+                    self._object_id_for_detected(
+                        detected_shape,
+                        context.DetectedInteractive()
+                        if context.HasDetected()
+                        else None,
+                    )
                 )
                 if candidate_id is not None and candidate_id != previous_object_id:
                     break
-            self._on_view_hover_changed(detected_shape)
+            self._on_view_hover_changed(
+                detected_shape,
+                context.DetectedInteractive()
+                if context.HasDetected()
+                else None,
+            )
             self.viewer._select_cycled_detection = True
             self.statusBar().showMessage(
-                tr("selection.status.cycled_face", rank=rank)
+                tr(
+                    "selection.status.cycled_face"
+                    if self.view_selection_mode == ViewSelectionMode.FACE
+                    else "selection.status.cycled_object",
+                    rank=rank,
+                )
             )
             return
 
@@ -2946,6 +3389,8 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         normal_view_action = None
+        visibility_action = None
+        suppress_action = None
 
         if self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
@@ -2978,6 +3423,23 @@ class MainWindow(QMainWindow):
                 if obj.kind == ObjectKind.AXIS:
                     properties_action = menu.addAction(tr("menu.context.properties"))
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
+            if not obj.locked:
+                menu.addSeparator()
+                visibility_action = menu.addAction(
+                    tr(
+                        "menu.context.hide"
+                        if obj.user_visible
+                        else "menu.context.show"
+                    )
+                )
+                if obj.kind == ObjectKind.OBJECT or obj.kind == ObjectKind.BODY or obj.kind in SOLID_KINDS:
+                    suppress_action = menu.addAction(
+                        tr(
+                            "menu.context.resume"
+                            if obj.suppressed
+                            else "menu.context.suppress"
+                        )
+                    )
 
         if self.selected_face is not None and normal_view_action is None:
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
@@ -3006,6 +3468,10 @@ class MainWindow(QMainWindow):
             self.show_properties(obj)
         elif delete_action is not None and action == delete_action:
             self.delete_object(obj.object_id)
+        elif visibility_action is not None and action == visibility_action:
+            self._set_object_visibility(obj, not obj.user_visible)
+        elif suppress_action is not None and action == suppress_action:
+            self._set_object_suppressed(obj, not obj.suppressed)
 
     def _view_normal_to_reference_plane(self, plane: ZimaObject) -> None:
         if self.document is None or plane.kind != ObjectKind.PLANE:
@@ -3138,6 +3604,30 @@ class MainWindow(QMainWindow):
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
 
+    def create_body(self) -> None:
+        if self.document is None:
+            return
+        body = self.document.create_body(self.document.root.object_id)
+        if body is None:
+            return
+        self._populate_tree()
+        self._select_tree_object(body.object_id)
+        self.rebuild_view(fit=False)
+
+    def _operation_target(self, obj: ZimaObject) -> ZimaObject | None:
+        if self.document is None:
+            return None
+        if obj.kind in SOLID_KINDS:
+            return obj
+        if obj.kind != ObjectKind.OBJECT:
+            return None
+        solids = [
+            child
+            for child in obj.children
+            if not child.locked and child.kind in SOLID_KINDS
+        ]
+        return solids[0] if len(solids) == 1 else None
+
     def create_sketch_on_plane(
         self,
         plane_id: str,
@@ -3217,6 +3707,26 @@ class MainWindow(QMainWindow):
             self._populate_tree()
             self.rebuild_view(fit=False)
 
+    def _set_object_visibility(self, obj: ZimaObject, visible: bool) -> None:
+        obj.user_visible = visible
+        self._populate_tree()
+        self._select_tree_object(obj.object_id)
+        self.rebuild_view(fit=False)
+
+    def _set_object_suppressed(self, obj: ZimaObject, suppressed: bool) -> None:
+        if (
+            obj.kind != ObjectKind.OBJECT
+            and obj.kind != ObjectKind.BODY
+            and obj.kind not in SOLID_KINDS
+        ):
+            return
+        obj.suppressed = suppressed
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._populate_tree()
+        self._select_tree_object(obj.object_id)
+        self.rebuild_view(fit=False)
+
     def show_object_properties(self, obj: ZimaObject) -> None:
         if obj.kind != ObjectKind.OBJECT:
             return
@@ -3234,9 +3744,24 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.apply_to_axis():
             self._refresh_object_properties(axis)
 
+    def show_primitive_properties(self, primitive: ZimaObject) -> None:
+        if primitive.kind not in SOLID_KINDS:
+            return
+        dialog = PrimitivePropertiesDialog(primitive, self)
+        dialog.applied.connect(
+            lambda: self._refresh_object_properties(primitive)
+        )
+        if (
+            dialog.exec() == QDialog.DialogCode.Accepted
+            and dialog.apply_to_primitive()
+        ):
+            self._refresh_object_properties(primitive)
+
     def show_properties(self, obj: ZimaObject) -> None:
         if obj.kind == ObjectKind.OBJECT:
             self.show_object_properties(obj)
+        elif obj.kind in SOLID_KINDS:
+            self.show_primitive_properties(obj)
         elif obj.kind == ObjectKind.AXIS and not obj.locked:
             self.show_axis_properties(obj)
 
@@ -3364,6 +3889,7 @@ class MainWindow(QMainWindow):
         self._clear_plane_labels()
         display.EraseAll()
         self._model_ais_by_object_id.clear()
+        self._model_object_id_by_ais.clear()
         self._model_edge_ais_by_object_id.clear()
         self._sketch_ais_by_object_id.clear()
         self._selectable_model_shapes.clear()
@@ -3375,17 +3901,24 @@ class MainWindow(QMainWindow):
         self._nonselectable_ais_shapes.clear()
         self._selected_face_overlay_ais.clear()
         self._selected_model_overlay_ais.clear()
+        self._hovered_model_overlay_ais.clear()
 
         if self.document is not None:
             if rebuild_geometry or self._cached_document is not self.document:
                 self.document.resolve_attachments()
                 self._cached_document = self.document
                 self._cached_model_shapes = []
-                for obj in self.document.visible_objects():
-                    shape = apply_object_to_shape(None, obj, identity_transform())
+                for obj in self.document.displayed_model_objects():
+                    shape = (
+                        self.document.build_body_shape(obj)
+                        if obj.kind == ObjectKind.BODY
+                        else apply_object_to_shape(None, obj, identity_transform())
+                    )
                     if shape is not None:
                         owner_id = self._selection_owner_id(obj)
-                        self._cached_model_shapes.append((shape, owner_id))
+                        visibility_id = self._result_visibility_id(obj)
+                        if self.document.is_effectively_visible(visibility_id):
+                            self._cached_model_shapes.append((shape, owner_id))
             for shape, owner_id in self._cached_model_shapes:
                 self._display_model_shape(shape, owner_id)
 
@@ -3394,7 +3927,13 @@ class MainWindow(QMainWindow):
 
         if fit:
             display.FitAll()
-        display.SetSelectionModeFace()
+        if self.view_selection_mode == ViewSelectionMode.FACE:
+            display.SetSelectionModeFace()
+        else:
+            display.SetSelectionModeShape()
+            for ais_shapes in self._model_ais_by_object_id.values():
+                for ais_shape in ais_shapes:
+                    display.Context.Activate(ais_shape, 0, True)
         coordinate_kind_for_filter = {
             ViewSelectionFilter.POINT: ObjectKind.POINT,
             ViewSelectionFilter.AXIS: ObjectKind.AXIS,
@@ -3438,13 +3977,18 @@ class MainWindow(QMainWindow):
         display.Repaint()
 
     def _selection_owner_id(self, obj: ZimaObject) -> str:
+        if obj.kind == ObjectKind.BODY:
+            return obj.object_id
         solid_children = [
             child
             for child in obj.children
             if not child.locked
-            and child.kind in (ObjectKind.BOX, ObjectKind.CYLINDER, ObjectKind.WEDGE)
+            and child.kind in SOLID_KINDS
         ]
         return solid_children[0].object_id if len(solid_children) == 1 else obj.object_id
+
+    def _result_visibility_id(self, obj: ZimaObject) -> str:
+        return obj.object_id
 
     def _display_model_shape(self, shape, object_id: str) -> None:
         display = self.viewer._display
@@ -3453,7 +3997,9 @@ class MainWindow(QMainWindow):
         if self.view_display_mode == ViewDisplayMode.WIRE:
             for ais_shape in display.DisplayShape(shape, color=BLACK, update=False):
                 self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                self._configure_model_hover(ais_shape)
                 self._model_ais_by_object_id.setdefault(object_id, []).append(ais_shape)
+                self._model_object_id_by_ais.append((ais_shape, object_id))
                 self._model_edge_ais_by_object_id.setdefault(
                     object_id,
                     [],
@@ -3463,7 +4009,9 @@ class MainWindow(QMainWindow):
         for ais_shape in display.DisplayShape(shape, update=False):
             self._hide_ais_edges(ais_shape)
             self._set_ais_display_mode(ais_shape, AIS_Shaded)
+            self._configure_model_hover(ais_shape)
             self._model_ais_by_object_id.setdefault(object_id, []).append(ais_shape)
+            self._model_object_id_by_ais.append((ais_shape, object_id))
 
         if self.view_display_mode == ViewDisplayMode.SHADED_WITH_EDGES:
             for ais_shape in display.DisplayShape(shape, color=BLACK, update=False):
@@ -3473,6 +4021,15 @@ class MainWindow(QMainWindow):
                 self._model_edge_ais_by_object_id.setdefault(
                     object_id, []
                 ).append(ais_shape)
+
+    def _configure_model_hover(self, ais_shape) -> None:
+        if self.view_selection_mode != ViewSelectionMode.OBJECT:
+            return
+        highlight = Prs3d_Drawer()
+        highlight.SetColor(YELLOW)
+        highlight.SetDisplayMode(AIS_WireFrame)
+        highlight.SetZLayer(Graphic3d_ZLayerId_Topmost)
+        ais_shape.SetDynamicHilightAttributes(highlight)
 
     def _highlight_selected_in_view(self) -> None:
         if not hasattr(self, "_viewer_initialized"):
@@ -3494,9 +4051,9 @@ class MainWindow(QMainWindow):
             return
         selected_ids = {self.selected_object_id}
         selected = self.document.find_object(self.selected_object_id) if self.document else None
-        whole_object_selected = selected is not None and selected.kind == ObjectKind.OBJECT
         if selected is not None and selected.kind in (
             ObjectKind.OBJECT,
+            ObjectKind.BODY,
             ObjectKind.ORIGIN,
         ):
             selected_ids.update(self._descendant_object_ids(selected))
@@ -3629,7 +4186,11 @@ class MainWindow(QMainWindow):
         )
 
         if self.document is not None:
-            visible_objects = self.document.visible_objects()
+            visible_objects = [
+                obj
+                for obj in self.document.visible_objects()
+                if self.document.is_effectively_visible(obj.object_id)
+            ]
             if selected_owner is not None:
                 visible_objects = sorted(
                     visible_objects,
@@ -3758,12 +4319,19 @@ class MainWindow(QMainWindow):
             self._display_object_sketches(obj, identity_transform())
 
     def _display_object_sketches(self, obj: ZimaObject, parent_transform) -> None:
+        if (
+            self.document is not None
+            and not self.document.is_effectively_visible(obj.object_id)
+        ):
+            return
         world_transform = multiply_transforms(
             parent_transform,
             coordinate_system_transform(obj.coordinate_system),
         )
         for child in obj.children:
             if child.kind == ObjectKind.SKETCH:
+                if not self.document.is_effectively_visible(child.object_id):
+                    continue
                 shape = make_sketch_shape(obj, child, world_transform)
                 if shape is not None:
                     self._selectable_model_shapes.append((shape, child.object_id))

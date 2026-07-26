@@ -11,6 +11,7 @@ from zima_cad.model import (
     ObjectKind,
     PlaneOnFaceAttachment,
     PartDocument,
+    TreeExposure,
     ZimaObject,
     add_coordinate_system_children,
     create_empty_part,
@@ -100,7 +101,7 @@ def load_part_document(file_path: Path) -> PartDocument:
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
         document.document_precision.update(dict(config["DocumentPrecision"]))
-    document.document_settings["format_version"] = "4"
+    document.document_settings["format_version"] = "5"
     if config.has_section("Material") or config.has_section("MaterialProperties"):
         material_parameters = {
             "MATERIAL_NAME": config.get("Material", "Name", fallback="")
@@ -236,6 +237,9 @@ def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
         "rx": format_float(rx),
         "ry": format_float(ry),
         "rz": format_float(rz),
+        "user_visible": str(obj.user_visible).lower(),
+        "suppressed": str(obj.suppressed).lower(),
+        "tree_exposure": obj.tree_exposure.value,
     }
     if obj.kind == ObjectKind.OBJECT:
         config[section]["TYPE"] = obj.object_type.value
@@ -294,6 +298,15 @@ def read_object(
             ),
         ),
         object_id=config.get(section, "id", fallback=object_id),
+        user_visible=config.getboolean(section, "user_visible", fallback=True),
+        suppressed=config.getboolean(section, "suppressed", fallback=False),
+        tree_exposure=TreeExposure(
+            config.get(
+                section,
+                "tree_exposure",
+                fallback=TreeExposure.PUBLIC.value,
+            )
+        ),
     )
 
     for key, value in config[section].items():

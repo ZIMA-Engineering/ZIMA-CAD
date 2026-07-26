@@ -10,10 +10,13 @@ from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakePolygon,
+    BRepBuilderAPI_MakeVertex,
     BRepBuilderAPI_Transform,
 )
+from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
+    BRepPrimAPI_MakeCone,
     BRepPrimAPI_MakeCylinder,
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeWedge,
@@ -27,7 +30,7 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "4",
+        "format_version": "5",
     }
 
 
@@ -135,13 +138,17 @@ class CombineMode(str, Enum):
 class ObjectKind(str, Enum):
     PART = "part"
     OBJECT = "object"
+    BODY = "body"
     ORIGIN = "origin"
     POINT = "point"
     AXIS = "axis"
     PLANE = "plane"
     SKETCH = "sketch"
     BOX = "box"
+    SPHERE = "sphere"
     CYLINDER = "cylinder"
+    CONE = "cone"
+    PYRAMID = "pyramid"
     WEDGE = "wedge"
 
 
@@ -150,6 +157,12 @@ class ObjectType(str, Enum):
     AXIS = "AXIS"
     SKETCH = "SKETCH"
     SOLID = "SOLID"
+
+
+class TreeExposure(str, Enum):
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    HIDDEN = "hidden"
 
 
 class SketchRole(str, Enum):
@@ -165,7 +178,10 @@ ENTITY_KINDS = frozenset(
         ObjectKind.AXIS,
         ObjectKind.SKETCH,
         ObjectKind.BOX,
+        ObjectKind.SPHERE,
         ObjectKind.CYLINDER,
+        ObjectKind.CONE,
+        ObjectKind.PYRAMID,
         ObjectKind.WEDGE,
     }
 )
@@ -173,7 +189,10 @@ ENTITY_KINDS = frozenset(
 SOLID_KINDS = frozenset(
     {
         ObjectKind.BOX,
+        ObjectKind.SPHERE,
         ObjectKind.CYLINDER,
+        ObjectKind.CONE,
+        ObjectKind.PYRAMID,
         ObjectKind.WEDGE,
     }
 )
@@ -212,6 +231,9 @@ class ZimaObject:
     object_id: str = field(default_factory=lambda: uuid4().hex)
     locked: bool = False
     attachment: PlaneOnFaceAttachment | None = None
+    user_visible: bool = True
+    suppressed: bool = False
+    tree_exposure: TreeExposure = TreeExposure.PUBLIC
 
     def add_child(self, child: "ZimaObject") -> None:
         self.children.append(child)
@@ -222,6 +244,9 @@ class ZimaObject:
             for child in self.children
             if not child.locked and child.kind in ENTITY_KINDS
         ]
+
+    def body_children(self) -> list["ZimaObject"]:
+        return [child for child in self.children if child.kind == ObjectKind.BODY]
 
     def sketch_role(self) -> SketchRole | None:
         if self.kind != ObjectKind.SKETCH:
@@ -276,16 +301,18 @@ class ZimaObject:
             return False
         if kind is None:
             candidates = (
+                ObjectKind.POINT,
                 ObjectKind.AXIS,
                 ObjectKind.SKETCH,
                 ObjectKind.BOX,
+                ObjectKind.SPHERE,
                 ObjectKind.CYLINDER,
+                ObjectKind.CONE,
+                ObjectKind.PYRAMID,
                 ObjectKind.WEDGE,
             )
             return any(self.can_accept_entity(candidate) for candidate in candidates)
         if kind not in ENTITY_KINDS:
-            return False
-        if kind == ObjectKind.POINT:
             return False
         parameters = (
             {"role": sketch_role.value}
@@ -333,21 +360,38 @@ class PartDocument:
     def visible_objects(self) -> list[ZimaObject]:
         return [obj for obj in self.root.children if obj.kind != ObjectKind.ORIGIN]
 
+    def displayed_model_objects(self) -> list[ZimaObject]:
+        """Return active history results without also drawing their inputs."""
+        captured_ids: set[str] = set()
+        for obj in self.visible_objects():
+            if obj.kind != ObjectKind.BODY or obj.suppressed:
+                continue
+            captured_ids.update(
+                value
+                for value in str(obj.parameters.get("source_ids", "")).split(",")
+                if value
+            )
+        return [
+            obj
+            for obj in self.visible_objects()
+            if obj.object_id not in captured_ids
+        ]
+
     def find_object(self, object_id: str) -> ZimaObject | None:
         return find_child_object(self.root, object_id)
 
-    def next_object_name(self) -> str:
+    def next_object_name(self, prefix: str = "Object") -> str:
         existing = {child.name for child in self.root.children}
         index = 1
         while True:
-            name = f"Object{index:03}"
+            name = f"{prefix}{index:03}"
             if name not in existing:
                 return name
             index += 1
 
-    def create_object(self) -> ZimaObject:
+    def create_object(self, name_prefix: str = "Object") -> ZimaObject:
         obj = ZimaObject(
-            name=self.next_object_name(),
+            name=self.next_object_name(name_prefix),
             kind=ObjectKind.OBJECT,
             combine_mode=CombineMode.NONE,
         )
@@ -366,6 +410,22 @@ class PartDocument:
         while parent is not None and parent.kind != ObjectKind.OBJECT:
             parent = self.find_parent(parent.object_id)
         return parent
+
+    def is_effectively_visible(self, object_id: str) -> bool:
+        obj = self.find_object(object_id)
+        while obj is not None:
+            if not obj.user_visible or obj.suppressed:
+                return False
+            obj = self.find_parent(obj.object_id)
+        return True
+
+    def is_effectively_suppressed(self, object_id: str) -> bool:
+        obj = self.find_object(object_id)
+        while obj is not None:
+            if obj.suppressed:
+                return True
+            obj = self.find_parent(obj.object_id)
+        return False
 
     def create_sketch_on_plane(
         self,
@@ -433,19 +493,60 @@ class PartDocument:
         parent.add_child(axis)
         return axis
 
-    def create_cube(self, source_id: str) -> ZimaObject | None:
-        source = self.find_object(source_id)
-        if source is None:
+    def create_point(self, parent_id: str) -> ZimaObject | None:
+        parent = self.find_object(parent_id)
+        if parent is None or not parent.can_accept_entity(ObjectKind.POINT):
             return None
+        point = ZimaObject(
+            name=next_child_name(parent, "Point"),
+            kind=ObjectKind.POINT,
+            parameters={"unit": "mm"},
+        )
+        parent.add_child(point)
+        return point
 
+    def create_body(self, parent_id: str) -> ZimaObject | None:
+        parent = self.find_object(parent_id)
+        if parent is None:
+            return None
+        if parent.kind != ObjectKind.PART:
+            parent = self.root
+        previous = [
+            child
+            for child in self.root.children
+            if child.kind != ObjectKind.ORIGIN and not child.suppressed
+        ]
+        if not previous:
+            return None
+        body = ZimaObject(
+            name=next_child_name(self.root, "Body"),
+            kind=ObjectKind.BODY,
+            parameters={
+                "source_ids": ",".join(child.object_id for child in previous),
+            },
+        )
+        self.root.add_child(body)
+        return body
+
+    def _solid_feature_parent(self, source: ZimaObject) -> ZimaObject | None:
         parent = source
         if source.kind == ObjectKind.POINT:
             source_parent = self.find_owning_object(source.object_id)
             if source_parent is None:
                 return None
             parent = source_parent
+        if parent.kind == ObjectKind.OBJECT:
+            return parent
+        return None
 
-        if not parent.can_accept_entity(ObjectKind.BOX):
+    def create_cube(self, source_id: str) -> ZimaObject | None:
+        source = self.find_object(source_id)
+        if source is None:
+            return None
+
+        parent = self._solid_feature_parent(source)
+
+        if parent is None or not parent.can_accept_entity(ObjectKind.BOX):
             return None
 
         cube = ZimaObject(
@@ -467,14 +568,9 @@ class PartDocument:
         if source is None:
             return None
 
-        parent = source
-        if source.kind == ObjectKind.POINT:
-            source_parent = self.find_owning_object(source.object_id)
-            if source_parent is None:
-                return None
-            parent = source_parent
+        parent = self._solid_feature_parent(source)
 
-        if not parent.can_accept_entity(ObjectKind.WEDGE):
+        if parent is None or not parent.can_accept_entity(ObjectKind.WEDGE):
             return None
 
         wedge = ZimaObject(
@@ -492,13 +588,107 @@ class PartDocument:
         parent.add_child(wedge)
         return wedge
 
+    def create_primitive(
+        self,
+        parent_id: str,
+        kind: ObjectKind,
+    ) -> ZimaObject | None:
+        source = self.find_object(parent_id)
+        parent = self._solid_feature_parent(source) if source is not None else None
+        definitions = {
+            ObjectKind.BOX: (
+                "Cube",
+                {"length": "40", "width": "30", "height": "20", "unit": "mm"},
+            ),
+            ObjectKind.SPHERE: (
+                "Sphere",
+                {"diameter": "30", "unit": "mm"},
+            ),
+            ObjectKind.CYLINDER: (
+                "Cylinder",
+                {"diameter": "30", "height": "50", "unit": "mm"},
+            ),
+            ObjectKind.CONE: (
+                "Cone",
+                {
+                    "bottom_diameter": "40",
+                    "top_diameter": "0",
+                    "height": "50",
+                    "unit": "mm",
+                },
+            ),
+            ObjectKind.PYRAMID: (
+                "Pyramid",
+                {"length": "40", "width": "40", "height": "50", "unit": "mm"},
+            ),
+            ObjectKind.WEDGE: (
+                "Wedge",
+                {
+                    "length": "60",
+                    "width": "40",
+                    "height": "40",
+                    "top_offset": "30",
+                    "unit": "mm",
+                },
+            ),
+        }
+        if (
+            parent is None
+            or kind not in definitions
+            or not parent.can_accept_entity(kind)
+        ):
+            return None
+        name_prefix, parameters = definitions[kind]
+        primitive = ZimaObject(
+            name=next_child_name(parent, name_prefix),
+            kind=kind,
+            combine_mode=CombineMode.ADD,
+            parameters=parameters,
+        )
+        parent.add_child(primitive)
+        return primitive
+
     def rebuild_shape(self):
         self.resolve_attachments()
         result_shape = None
 
         for obj in self.visible_objects():
-            result_shape = apply_object_to_shape(result_shape, obj, identity_transform())
+            if obj.kind == ObjectKind.BODY:
+                result_shape = self.build_body_shape(obj)
+            else:
+                result_shape = apply_object_to_shape(
+                    result_shape, obj, identity_transform()
+                )
 
+        return result_shape
+
+    def build_body_shape(self, body: ZimaObject):
+        """Build the recorded history snapshot represented by a root Body."""
+        if body.kind != ObjectKind.BODY:
+            return None
+        source_ids = {
+            value
+            for value in str(body.parameters.get("source_ids", "")).split(",")
+            if value
+        }
+        result_shape = None
+        for item in self.root.children:
+            if item.object_id == body.object_id:
+                break
+            if item.kind == ObjectKind.ORIGIN or item.object_id not in source_ids:
+                continue
+            if item.kind == ObjectKind.BODY:
+                nested_shape = self.build_body_shape(item)
+                if nested_shape is not None:
+                    result_shape = (
+                        nested_shape
+                        if result_shape is None
+                        else BRepAlgoAPI_Fuse(result_shape, nested_shape).Shape()
+                    )
+            else:
+                result_shape = apply_object_to_shape(
+                    result_shape, item, identity_transform()
+                )
         return result_shape
 
     def resolve_attachments(self) -> None:
@@ -511,6 +701,8 @@ def apply_object_to_shape(
     obj: ZimaObject,
     parent_transform: tuple[tuple[float, float, float, float], ...],
 ):
+    if obj.suppressed:
+        return result_shape
     world_transform = multiply_transforms(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
@@ -544,11 +736,58 @@ def make_shape(obj: ZimaObject):
         height = float(obj.parameters.get("height", 20.0))
         return BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), length, width, height).Shape()
 
+    if obj.kind == ObjectKind.SPHERE:
+        diameter = float(obj.parameters.get("diameter", 30.0))
+        return BRepPrimAPI_MakeSphere(
+            gp_Pnt(x, y, z),
+            max(0.001, diameter / 2.0),
+        ).Shape()
+
     if obj.kind == ObjectKind.CYLINDER:
         diameter = float(obj.parameters.get("diameter", 20.0))
         height = float(obj.parameters.get("height", 40.0))
         axis = gp_Ax2(gp_Pnt(x, y, z), gp_Dir(0.0, 0.0, 1.0))
         return BRepPrimAPI_MakeCylinder(axis, diameter / 2.0, height).Shape()
+
+    if obj.kind == ObjectKind.CONE:
+        bottom_diameter = float(obj.parameters.get("bottom_diameter", 40.0))
+        top_diameter = float(obj.parameters.get("top_diameter", 0.0))
+        height = float(obj.parameters.get("height", 50.0))
+        bottom_radius = max(0.0, bottom_diameter / 2.0)
+        top_radius = max(0.0, top_diameter / 2.0)
+        if abs(bottom_radius - top_radius) <= 1e-9:
+            return BRepPrimAPI_MakeCylinder(
+                bottom_radius,
+                max(0.001, height),
+            ).Shape()
+        return BRepPrimAPI_MakeCone(
+            bottom_radius,
+            top_radius,
+            max(0.001, height),
+        ).Shape()
+
+    if obj.kind == ObjectKind.PYRAMID:
+        length = max(0.001, float(obj.parameters.get("length", 40.0)))
+        width = max(0.001, float(obj.parameters.get("width", 40.0)))
+        height = max(0.001, float(obj.parameters.get("height", 50.0)))
+        base = BRepBuilderAPI_MakePolygon()
+        for point in (
+            gp_Pnt(x, y, z),
+            gp_Pnt(x + length, y, z),
+            gp_Pnt(x + length, y + width, z),
+            gp_Pnt(x, y + width, z),
+        ):
+            base.Add(point)
+        base.Close()
+        builder = BRepOffsetAPI_ThruSections(True, True)
+        builder.AddWire(base.Wire())
+        builder.AddVertex(
+            BRepBuilderAPI_MakeVertex(
+                gp_Pnt(x + length / 2.0, y + width / 2.0, z + height)
+            ).Vertex()
+        )
+        builder.Build()
+        return builder.Shape()
 
     if obj.kind == ObjectKind.WEDGE:
         length = float(obj.parameters.get("length", 100.0))
