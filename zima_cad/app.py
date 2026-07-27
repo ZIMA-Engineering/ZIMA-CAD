@@ -906,6 +906,10 @@ class PointConstraintDialog(QDialog):
         if 0 <= row < len(self.references):
             self.referenceActivated.emit(self.references[row])
 
+    def clear_active_reference(self) -> None:
+        self.reference_list.clearSelection()
+        self.reference_list.setCurrentRow(-1)
+
     def _update_solution(self, _value: float | None = None) -> None:
         fallback = tuple(edit.value() for edit in self.coordinate_edits)
         solution, dof, status, constrained = self.solve_callback(
@@ -5190,7 +5194,6 @@ class MainWindow(QMainWindow):
                 candidates.append((key, object_id, face))
 
         if not candidates:
-            self._clear_point_constraint_preview()
             return
         keys = tuple(candidate[0] for candidate in candidates)
         if not advance or keys != self._point_constraint_cycle_keys:
@@ -5485,6 +5488,12 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._hovered_coordinate_object_id = None
         self.viewer._select_cycled_detection = False
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.clear_active_reference()
+        self.tree.blockSignals(True)
+        self.tree.clearSelection()
+        self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
         if hasattr(self, "_viewer_initialized"):
             self.viewer._display.Context.ClearDetected(False)
             self._highlight_selected_in_view()
