@@ -157,6 +157,7 @@ class ObjectKind(str, Enum):
 class ObjectType(str, Enum):
     POINT = "POINT"
     AXIS = "AXIS"
+    PLANE = "PLANE"
     SKETCH = "SKETCH"
     SOLID = "SOLID"
 
@@ -178,6 +179,7 @@ ENTITY_KINDS = frozenset(
     {
         ObjectKind.POINT,
         ObjectKind.AXIS,
+        ObjectKind.PLANE,
         ObjectKind.SKETCH,
         ObjectKind.BOX,
         ObjectKind.SPHERE,
@@ -271,21 +273,44 @@ class ZimaObject:
             return ObjectType.SKETCH
         if any(entity.kind == ObjectKind.AXIS for entity in entities):
             return ObjectType.AXIS
+        if any(entity.kind == ObjectKind.PLANE for entity in entities):
+            return ObjectType.PLANE
         return ObjectType.POINT
 
     def has_valid_entity_combination(self) -> bool:
         entities = self.entity_children()
+        if self.parameters.get("generic_container") == "true":
+            return all(
+                entity.kind
+                in (
+                    ObjectKind.POINT,
+                    ObjectKind.AXIS,
+                    ObjectKind.PLANE,
+                    ObjectKind.SKETCH,
+                )
+                for entity in entities
+            )
         points = [entity for entity in entities if entity.kind == ObjectKind.POINT]
         axes = [entity for entity in entities if entity.kind == ObjectKind.AXIS]
+        planes = [entity for entity in entities if entity.kind == ObjectKind.PLANE]
         sketches = [entity for entity in entities if entity.kind == ObjectKind.SKETCH]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
-        if len(points) > 1 or len(axes) > 1 or len(solids) > 1:
+        if len(points) > 1 or len(axes) > 1 or len(planes) > 1 or len(solids) > 1:
             return False
-        if len(points) + len(axes) + len(sketches) + len(solids) != len(entities):
+        if (
+            len(points)
+            + len(axes)
+            + len(planes)
+            + len(sketches)
+            + len(solids)
+            != len(entities)
+        ):
             return False
         if points and len(entities) != 1:
             return False
         if axes and len(entities) != 1:
+            return False
+        if planes and len(entities) != 1:
             return False
         roles = [sketch.sketch_role() for sketch in sketches]
         if any(role is None for role in roles):
@@ -575,6 +600,24 @@ class PartDocument:
         parent.add_child(axis)
         return axis
 
+    def create_datum_plane(self, parent_id: str) -> ZimaObject | None:
+        parent = self.find_object(parent_id)
+        if parent is None or not parent.can_accept_entity(ObjectKind.PLANE):
+            return None
+        plane = ZimaObject(
+            name=next_child_name(parent, "Plane"),
+            kind=ObjectKind.PLANE,
+            parameters={
+                "display_style": "datum",
+                "plane": "xy",
+                "size": "140",
+                "unit": "mm",
+            },
+            tree_exposure=TreeExposure.INTERNAL,
+        )
+        parent.add_child(plane)
+        return plane
+
     def create_point(self, parent_id: str) -> ZimaObject | None:
         parent = self.find_object(parent_id)
         if parent is None or not parent.can_accept_entity(ObjectKind.POINT):
@@ -768,18 +811,50 @@ class PartDocument:
             ),
             None,
         )
-        if sphere is None:
+        cylinder = next(
+            (
+                child for child in obj.children
+                if not child.locked and child.kind == ObjectKind.CYLINDER
+            ),
+            None,
+        )
+        if sphere is None and cylinder is None:
             return shapes
         shapes = []
-        radius = max(0.001, float(sphere.parameters.get("diameter", 30.0)) / 2.0)
+        entity = sphere if sphere is not None else cylinder
         world_transform = multiply_transforms(
             coordinate_system_transform(obj.coordinate_system),
-            coordinate_system_transform(sphere.coordinate_system),
+            coordinate_system_transform(entity.coordinate_system),
         )
-        for normal in (gp_Dir(0.0, 0.0, 1.0), gp_Dir(0.0, 1.0, 0.0)):
-            circle = gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), normal), radius)
+        radius = max(
+            0.001,
+            float(entity.parameters.get("diameter", 30.0)) / 2.0,
+        )
+        if sphere is not None:
+            circle_frames = (
+                (gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)),
+                (gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 1.0, 0.0)),
+            )
+        else:
+            half_height = max(
+                0.001,
+                float(cylinder.parameters.get("height", 40.0)),
+            ) / 2.0
+            circle_frames = (
+                (gp_Pnt(0.0, 0.0, -half_height), gp_Dir(0.0, 0.0, 1.0)),
+                (gp_Pnt(0.0, 0.0, half_height), gp_Dir(0.0, 0.0, 1.0)),
+            )
+        for center, normal in circle_frames:
+            circle = gp_Circ(gp_Ax2(center, normal), radius)
             edge = BRepBuilderAPI_MakeEdge(circle).Edge()
             shapes.append(transform_shape(edge, world_transform))
+        if cylinder is not None:
+            for x in (-radius, radius):
+                edge = BRepBuilderAPI_MakeEdge(
+                    gp_Pnt(x, 0.0, -half_height),
+                    gp_Pnt(x, 0.0, half_height),
+                ).Edge()
+                shapes.append(transform_shape(edge, world_transform))
         return shapes
 
     def build_body_shape(self, body: ZimaObject):

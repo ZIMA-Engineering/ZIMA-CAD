@@ -5,6 +5,7 @@ import copy
 import configparser
 import io
 import json
+import math
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -42,12 +43,18 @@ from OCC.Core.Prs3d import (
 from OCC.Core.gp import gp_Dir, gp_Lin, gp_Pnt
 from OCC.Core.IntCurvesFace import IntCurvesFace_ShapeIntersector
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
-from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopExp import TopExp_Explorer, topexp_MapShapesAndAncestors
+from OCC.Core.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
-from OCC.Core.GeomAbs import GeomAbs_Line, GeomAbs_Plane
-from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor
-from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from OCC.Core.GeomAbs import (
+    GeomAbs_Cylinder,
+    GeomAbs_Line,
+    GeomAbs_Plane,
+    GeomAbs_Sphere,
+)
+from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QKeySequence
+from PySide6.QtCore import QEvent, QPoint, QTime, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -67,6 +74,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QSplitter,
+    QSizePolicy,
     QTabBar,
     QTableWidget,
     QTableWidgetItem,
@@ -81,6 +89,7 @@ from PySide6.QtWidgets import (
 
 from zima_cad.model import (
     CombineMode,
+    CoordinateSystem,
     ObjectKind,
     SOLID_KINDS,
     SketchRole,
@@ -93,6 +102,7 @@ from zima_cad.model import (
     create_empty_part,
     identity_transform,
     make_sketch_shape,
+    make_shape,
     make_axis_label_points,
     make_datum_axis_shape,
     make_plane_label_points,
@@ -123,10 +133,11 @@ PLANE_COLOR = Quantity_Color(*PLANE_COLOR_RGB, Quantity_TOC_RGB)
 ENDPOINT_MARKER_SIZE = 12
 BLACK = Quantity_Color(Quantity_NOC_BLACK)
 BLUE = Quantity_Color(Quantity_NOC_BLUE1)
+SKETCH_COLOR = Quantity_Color(1.0, 0.847, 0.302, Quantity_TOC_RGB)
 GREEN = Quantity_Color(Quantity_NOC_GREEN)
 RED = Quantity_Color(Quantity_NOC_RED)
 YELLOW = Quantity_Color(Quantity_NOC_YELLOW)
-CENTERLINE_COLOR_RGB = (0.18, 0.18, 0.18)
+CENTERLINE_COLOR_RGB = PLANE_COLOR_RGB
 CENTERLINE_COLOR = Quantity_Color(*CENTERLINE_COLOR_RGB, Quantity_TOC_RGB)
 
 
@@ -652,6 +663,7 @@ class PointConstraintDialog(QDialog):
     createRequested = Signal(list, tuple, str, bool, bool)
     updateRequested = Signal(list, tuple, str, bool, bool)
     referenceActivated = Signal(dict)
+    definitionChanged = Signal()
 
     def __init__(
         self,
@@ -773,6 +785,33 @@ class PointConstraintDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._update_solution()
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.MiddleButton
+            and isinstance(watched, QWidget)
+            and watched.window()
+            in (
+                self,
+                self.parent().window()
+                if isinstance(self.parent(), QWidget)
+                else None,
+            )
+        ):
+            self._submit_and_accept()
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
+    def done(self, result: int) -> None:
+        application = QApplication.instance()
+        if application is not None:
+            application.removeEventFilter(self)
+        super().done(result)
 
     def _append_reference_row(self, reference: dict[str, Any]) -> None:
         row = self.reference_list.rowCount()
@@ -1026,6 +1065,7 @@ class PointConstraintDialog(QDialog):
                 )
             )
         self.ok_button.setEnabled(solution is not None)
+        self.definitionChanged.emit()
 
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
@@ -1092,6 +1132,9 @@ class AxisConstraintDialog(PointConstraintDialog):
             spinbox.setSingleStep(5.0)
             spinbox.setSuffix(" deg")
             spinbox.setValue(float(value))
+            spinbox.valueChanged.connect(
+                lambda _value: self.definitionChanged.emit()
+            )
             axis_form.addRow(label, spinbox)
             self.rotation_edits.append(spinbox)
         self.direction_combo = QComboBox()
@@ -1107,6 +1150,9 @@ class AxisConstraintDialog(PointConstraintDialog):
                 ),
             )
         )
+        self.direction_combo.currentIndexChanged.connect(
+            lambda _index: self.definitionChanged.emit()
+        )
         self.length_spin = QDoubleSpinBox()
         self.length_spin.setRange(0.001, 1_000_000.0)
         self.length_spin.setDecimals(3)
@@ -1118,12 +1164,17 @@ class AxisConstraintDialog(PointConstraintDialog):
                 else 100.0
             )
         )
+        self.length_spin.valueChanged.connect(
+            lambda _value: self.definitionChanged.emit()
+        )
         axis_form.addRow(
             tr("dialog.axis.display"),
             QLabel(tr("dialog.axis.centerline")),
         )
         axis_form.addRow(tr("dialog.axis.direction"), self.direction_combo)
         axis_form.addRow(tr("dialog.axis.length"), self.length_spin)
+        self.direction_label = axis_form.labelForField(self.direction_combo)
+        self.length_label = axis_form.labelForField(self.length_spin)
         dialog_layout = self.layout()
         if isinstance(dialog_layout, QVBoxLayout):
             dialog_layout.insertLayout(dialog_layout.count() - 1, axis_form)
@@ -1157,6 +1208,383 @@ class AxisConstraintDialog(PointConstraintDialog):
             self.updateAxisRequested.emit(*arguments)
         else:
             self.createAxisRequested.emit(*arguments)
+        return True
+
+
+class PlaneConstraintDialog(AxisConstraintDialog):
+    createPlaneRequested = Signal(
+        list, tuple, str, bool, bool, tuple, str, float
+    )
+    updatePlaneRequested = Signal(
+        list, tuple, str, bool, bool, tuple, str, float
+    )
+
+    def __init__(
+        self,
+        solve_callback,
+        parent=None,
+        *,
+        plane_object: ZimaObject | None = None,
+        plane_entity: ZimaObject | None = None,
+        suggested_name: str = "",
+        reference_exists_callback=None,
+        reference_kind_callback=None,
+    ) -> None:
+        super().__init__(
+            solve_callback,
+            parent,
+            axis_object=plane_object,
+            axis_entity=plane_entity,
+            suggested_name=suggested_name,
+            reference_exists_callback=reference_exists_callback,
+            reference_kind_callback=reference_kind_callback,
+        )
+        self.direction_combo.blockSignals(True)
+        self.direction_combo.clear()
+        for label, value in (("XY", "xy"), ("YZ", "yz"), ("XZ", "xz")):
+            self.direction_combo.addItem(label, value)
+        self.direction_combo.setCurrentIndex(
+            max(
+                0,
+                self.direction_combo.findData(
+                    plane_entity.parameters.get("plane", "xy")
+                    if plane_entity is not None
+                    else "xy"
+                ),
+            )
+        )
+        self.direction_combo.blockSignals(False)
+        if plane_entity is not None:
+            for index, axis in enumerate(("x", "y", "z")):
+                self.rotation_edits[index].setValue(
+                    float(plane_entity.parameters.get(f"rotation_offset_{axis}", 0.0))
+                )
+        if self.direction_label is not None:
+            self.direction_label.setVisible(False)
+        self.direction_combo.setVisible(False)
+        if self.length_label is not None:
+            self.length_label.setText(tr("dialog.plane.size"))
+        self.length_spin.setValue(
+            float(
+                plane_entity.parameters.get("size", 140.0)
+                if plane_entity is not None
+                else 140.0
+            )
+        )
+        self._update_window_title()
+
+    def add_reference(self, reference: ZimaObject) -> None:
+        if reference.kind == ObjectKind.ORIGIN:
+            return
+        super().add_reference(reference)
+        if reference.kind != ObjectKind.PLANE:
+            return
+        plane = str(reference.parameters.get("plane", ""))
+        index = self.direction_combo.findData(plane)
+        if index >= 0:
+            self.direction_combo.setCurrentIndex(index)
+
+    def has_orientation_reference(self) -> bool:
+        return any(
+            reference.get("type") == "face"
+            or (
+                reference.get("type") == "entity"
+                and self.reference_kind_callback(
+                    str(reference.get("object_id", ""))
+                )
+                == ObjectKind.PLANE
+            )
+            for reference in self.references
+        )
+
+    def _update_solution(self, _value: float | None = None) -> None:
+        super()._update_solution(_value)
+        self.ok_button.setEnabled(
+            self.solution is not None and self.has_orientation_reference()
+        )
+
+    def _update_window_title(self, _name: str | None = None) -> None:
+        self.setWindowTitle(
+            tr(
+                "dialog.plane.title",
+                name=self.name_edit.text().strip(),
+            )
+        )
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if (
+            self.solution is None
+            or not name
+            or not self.has_orientation_reference()
+        ):
+            return False
+        arguments = (
+            self.references,
+            tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            self.show_internal_entities_checkbox.isChecked(),
+            self.show_auxiliary_geometry_checkbox.isChecked(),
+            tuple(edit.value() for edit in self.rotation_edits),
+            str(self.direction_combo.currentData()),
+            self.length_spin.value(),
+        )
+        if self.edit_mode:
+            self.updatePlaneRequested.emit(*arguments)
+        else:
+            self.createPlaneRequested.emit(*arguments)
+        return True
+
+
+class SolidConstraintDialog(AxisConstraintDialog):
+    createSolidRequested = Signal(
+        list, tuple, str, bool, bool, tuple, dict
+    )
+    updateSolidRequested = Signal(
+        list, tuple, str, bool, bool, tuple, dict
+    )
+
+    def __init__(
+        self,
+        solve_callback,
+        solid_kind: ObjectKind,
+        parent=None,
+        *,
+        solid_object: ZimaObject | None = None,
+        solid_entity: ZimaObject | None = None,
+        suggested_name: str = "",
+        reference_exists_callback=None,
+        reference_kind_callback=None,
+    ) -> None:
+        self.solid_kind = solid_kind
+        super().__init__(
+            solve_callback,
+            parent,
+            axis_object=solid_object,
+            axis_entity=solid_entity,
+            suggested_name=suggested_name,
+            reference_exists_callback=reference_exists_callback,
+            reference_kind_callback=reference_kind_callback,
+        )
+        self.direction_combo.setVisible(False)
+        self.length_spin.setVisible(False)
+        if self.direction_label is not None:
+            self.direction_label.setVisible(False)
+        if self.length_label is not None:
+            self.length_label.setVisible(False)
+        self.parameter_edits: dict[str, QDoubleSpinBox] = {}
+        parameter_form = QFormLayout()
+        for key, label_key, minimum in PrimitivePropertiesDialog.PARAMETER_DEFINITIONS[
+            solid_kind
+        ]:
+            edit = QDoubleSpinBox()
+            edit.setRange(minimum, 1_000_000.0)
+            edit.setDecimals(3)
+            edit.setSingleStep(1.0)
+            edit.setSuffix(" mm")
+            defaults = {
+                ObjectKind.BOX: {
+                    "length": 40.0, "width": 30.0, "height": 20.0,
+                },
+                ObjectKind.SPHERE: {"diameter": 30.0},
+                ObjectKind.CYLINDER: {"diameter": 30.0, "height": 50.0},
+                ObjectKind.CONE: {
+                    "bottom_diameter": 40.0,
+                    "top_diameter": 0.0,
+                    "height": 50.0,
+                },
+                ObjectKind.PYRAMID: {
+                    "length": 40.0, "width": 40.0, "height": 50.0,
+                },
+                ObjectKind.WEDGE: {
+                    "length": 60.0,
+                    "width": 40.0,
+                    "height": 40.0,
+                    "top_offset": 30.0,
+                },
+            }
+            default = defaults[solid_kind].get(key, minimum)
+            edit.setValue(
+                float(solid_entity.parameters.get(key, default))
+                if solid_entity is not None
+                else default
+            )
+            edit.valueChanged.connect(
+                lambda _value: self.definitionChanged.emit()
+            )
+            self.parameter_edits[key] = edit
+            parameter_form.addRow(tr(label_key), edit)
+        layout = self.layout()
+        if isinstance(layout, QVBoxLayout):
+            layout.insertLayout(layout.count() - 1, parameter_form)
+        self._update_window_title()
+
+    def _update_window_title(self, _name: str | None = None) -> None:
+        self.setWindowTitle(
+            tr(
+                "dialog.primitive.title",
+                name=self.name_edit.text().strip(),
+            )
+        )
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if self.solution is None or not name:
+            return False
+        arguments = (
+            self.references,
+            tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            self.show_internal_entities_checkbox.isChecked(),
+            self.show_auxiliary_geometry_checkbox.isChecked(),
+            tuple(edit.value() for edit in self.rotation_edits),
+            {
+                key: edit.value()
+                for key, edit in self.parameter_edits.items()
+            },
+        )
+        if self.edit_mode:
+            self.updateSolidRequested.emit(*arguments)
+        else:
+            self.createSolidRequested.emit(*arguments)
+        return True
+
+
+class ObjectConstraintDialog(AxisConstraintDialog):
+    createObjectRequested = Signal(
+        list, tuple, str, bool, bool, tuple
+    )
+    updateObjectRequested = Signal(
+        list, tuple, str, bool, bool, tuple
+    )
+
+    def __init__(
+        self,
+        solve_callback,
+        parent=None,
+        *,
+        edited_object=None,
+        suggested_name="",
+        reference_exists_callback=None,
+        reference_kind_callback=None,
+    ) -> None:
+        super().__init__(
+            solve_callback,
+            parent,
+            axis_object=edited_object,
+            axis_entity=edited_object,
+            suggested_name=suggested_name,
+            reference_exists_callback=reference_exists_callback,
+            reference_kind_callback=reference_kind_callback,
+        )
+        self.direction_combo.setVisible(False)
+        self.length_spin.setVisible(False)
+        if self.direction_label is not None:
+            self.direction_label.setVisible(False)
+        if self.length_label is not None:
+            self.length_label.setVisible(False)
+        self._update_window_title()
+
+    def _update_window_title(self, _name: str | None = None) -> None:
+        self.setWindowTitle(
+            tr("dialog.object_definition.title", name=self.name_edit.text().strip())
+        )
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if self.solution is None or not name:
+            return False
+        arguments = (
+            self.references,
+            tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            self.show_internal_entities_checkbox.isChecked(),
+            self.show_auxiliary_geometry_checkbox.isChecked(),
+            tuple(edit.value() for edit in self.rotation_edits),
+        )
+        if self.edit_mode:
+            self.updateObjectRequested.emit(*arguments)
+        else:
+            self.createObjectRequested.emit(*arguments)
+        return True
+
+
+class SketchConstraintDialog(PlaneConstraintDialog):
+    createSketchRequested = Signal(
+        list, tuple, str, bool, bool, tuple, float
+    )
+    updateSketchRequested = Signal(
+        list, tuple, str, bool, bool, tuple, float
+    )
+
+    def __init__(
+        self,
+        solve_callback,
+        parent=None,
+        *,
+        sketch_object=None,
+        sketch_entity=None,
+        suggested_name="",
+        reference_exists_callback=None,
+        reference_kind_callback=None,
+    ) -> None:
+        super().__init__(
+            solve_callback,
+            parent,
+            plane_object=sketch_object,
+            plane_entity=sketch_entity,
+            suggested_name=suggested_name,
+            reference_exists_callback=reference_exists_callback,
+            reference_kind_callback=reference_kind_callback,
+        )
+        self.length_spin.setVisible(False)
+        if self.length_label is not None:
+            self.length_label.setVisible(False)
+        self.diameter_spin = QDoubleSpinBox()
+        self.diameter_spin.setRange(0.001, 1_000_000.0)
+        self.diameter_spin.setDecimals(3)
+        self.diameter_spin.setSuffix(" mm")
+        self.diameter_spin.setValue(
+            float(sketch_entity.parameters.get("diameter", 10.0))
+            if sketch_entity is not None
+            else 10.0
+        )
+        self.diameter_spin.valueChanged.connect(
+            lambda _value: self.definitionChanged.emit()
+        )
+        layout = self.layout()
+        if isinstance(layout, QVBoxLayout):
+            form = QFormLayout()
+            form.addRow(tr("primitive.parameter.diameter"), self.diameter_spin)
+            layout.insertLayout(layout.count() - 1, form)
+        self._update_window_title()
+
+    def _update_window_title(self, _name: str | None = None) -> None:
+        self.setWindowTitle(
+            tr("dialog.sketch.title", name=self.name_edit.text().strip())
+        )
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if (
+            self.solution is None
+            or not name
+            or not self.has_orientation_reference()
+        ):
+            return False
+        arguments = (
+            self.references,
+            tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            self.show_internal_entities_checkbox.isChecked(),
+            self.show_auxiliary_geometry_checkbox.isChecked(),
+            tuple(edit.value() for edit in self.rotation_edits),
+            self.diameter_spin.value(),
+        )
+        if self.edit_mode:
+            self.updateSketchRequested.emit(*arguments)
+        else:
+            self.createSketchRequested.emit(*arguments)
         return True
 
 
@@ -2096,13 +2524,15 @@ def parse_material_file(
 
 
 class ZimaViewer(qtViewer3d):
-    rotation_sensitivity = 1.8
+    rotation_sensitivity = 1.0
+    rotation_radians_per_pixel = 0.004
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._select_cycled_detection = False
         self._ignore_next_left_release = False
         self.selection_enabled = True
+        self._rotation_pivot: tuple[float, float, float] | None = None
         marker_size = ENDPOINT_MARKER_SIZE
         self._endpoint_marker = QWidget(self)
         self._endpoint_marker.setFixedSize(marker_size, marker_size)
@@ -2136,6 +2566,28 @@ class ZimaViewer(qtViewer3d):
             int(round(point.x() * pixel_ratio)),
             int(round(point.y() * pixel_ratio)),
         )
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.setFocus()
+            x, y = self._occ_mouse_position(event)
+            self.dragStartPosX = x
+            self.dragStartPosY = y
+            window = self.window()
+            if hasattr(window, "_rotation_pivot_at_view_center"):
+                self._rotation_pivot = (
+                    window._rotation_pivot_at_view_center()
+                )
+            if self._rotation_pivot is None:
+                center = self._display.View.Camera().Center()
+                self._rotation_pivot = (
+                    center.X(),
+                    center.Y(),
+                    center.Z(),
+                )
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         if (
@@ -2208,7 +2660,6 @@ class ZimaViewer(qtViewer3d):
         super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        point = event.pos()
         buttons = event.buttons()
 
         if (
@@ -2216,10 +2667,11 @@ class ZimaViewer(qtViewer3d):
             and event.modifiers() == Qt.KeyboardModifier.ShiftModifier
         ):
             self.clear_endpoint_marker()
-            dx = point.x() - self.dragStartPosX
-            dy = point.y() - self.dragStartPosY
-            self.dragStartPosX = point.x()
-            self.dragStartPosY = point.y()
+            x, y = self._occ_mouse_position(event)
+            dx = x - self.dragStartPosX
+            dy = y - self.dragStartPosY
+            self.dragStartPosX = x
+            self.dragStartPosY = y
             self.cursor = "pan"
             self._display.Pan(dx, -dy)
             self._drawbox = False
@@ -2227,12 +2679,27 @@ class ZimaViewer(qtViewer3d):
 
         if buttons == Qt.MouseButton.MiddleButton:
             self.clear_endpoint_marker()
-            dx = point.x() - self.dragStartPosX
-            dy = point.y() - self.dragStartPosY
-            sensitive_x = self.dragStartPosX + int(dx * self.rotation_sensitivity)
-            sensitive_y = self.dragStartPosY + int(dy * self.rotation_sensitivity)
+            x, y = self._occ_mouse_position(event)
+            dx = x - self.dragStartPosX
+            dy = y - self.dragStartPosY
+            self.dragStartPosX = x
+            self.dragStartPosY = y
             self.cursor = "rotate"
-            self._display.Rotation(sensitive_x, sensitive_y)
+            if self._rotation_pivot is not None:
+                pixel_ratio = max(1.0, float(self.devicePixelRatioF()))
+                angle_scale = (
+                    self.rotation_radians_per_pixel
+                    * self.rotation_sensitivity
+                    / pixel_ratio
+                )
+                self._display.View.Rotate(
+                    dx * angle_scale,
+                    -dy * angle_scale,
+                    0.0,
+                    *self._rotation_pivot,
+                    True,
+                )
+                self._display.Repaint()
             self._drawbox = False
             return
 
@@ -2289,8 +2756,30 @@ class ZimaViewer(qtViewer3d):
             return
 
         self.clear_endpoint_marker()
+        x, y = self._occ_mouse_position(event)
+        window = self.window()
+        anchor = (
+            window._view_anchor_at_pixel(x, y)
+            if hasattr(window, "_view_anchor_at_pixel")
+            else None
+        )
         zoom_factor = 1.25 if delta > 0 else 0.8
         self._display.ZoomFactor(zoom_factor)
+        if anchor is not None:
+            try:
+                projected_x, projected_y = self._display.View.Project(
+                    *anchor
+                )
+                new_x, new_y = self._display.View.Convert(
+                    projected_x,
+                    projected_y,
+                )
+                self._display.Pan(
+                    x - new_x,
+                    -(y - new_y),
+                )
+            except (TypeError, RuntimeError):
+                pass
         self._display.Repaint()
         event.accept()
 
@@ -2333,11 +2822,11 @@ class MainWindow(QMainWindow):
             QTreeWidget::item:selected,
             QTreeWidget::item:selected:active,
             QTreeWidget::item:selected:!active {
-                background-color: #245D8F;
+                background-color: #356E22;
                 color: #FFFFFF;
             }
             QTreeWidget::item:hover {
-                background-color: #245D8F;
+                background-color: #356E22;
                 color: #FFFFFF;
             }
             """
@@ -2391,6 +2880,8 @@ class MainWindow(QMainWindow):
         self._point_constraint_cycle_index = -1
         self._point_constraint_preview: tuple[str, Any] | None = None
         self.point_constraint_dialog: PointConstraintDialog | None = None
+        self._definition_dialog_depth = 0
+        self._definition_edit_objects: list[ZimaObject] = []
         self._pending_attachment_plane_id: str | None = None
 
         self.viewer = ZimaViewer(self)
@@ -2409,21 +2900,21 @@ class MainWindow(QMainWindow):
         self.view_toolbar.setStyleSheet(
             """
             QToolButton:hover:enabled {
-                background-color: #245D8F;
+                background-color: rgba(77, 216, 17, 90);
                 color: #FFFFFF;
-                border: 1px solid #245D8F;
+                border: none;
                 border-radius: 4px;
             }
             QToolButton:checked {
-                background-color: #245D8F;
+                background-color: rgba(77, 216, 17, 125);
                 color: #FFFFFF;
-                border: 1px solid #245D8F;
+                border: none;
                 border-radius: 4px;
             }
             QToolButton:pressed {
-                background-color: #17436A;
+                background-color: rgba(77, 216, 17, 165);
                 color: #FFFFFF;
-                border: 1px solid #17436A;
+                border: none;
                 border-radius: 4px;
             }
             """
@@ -2533,18 +3024,22 @@ class MainWindow(QMainWindow):
                 text-align: left;
             }
             QToolButton:checked {
-                background-color: #245D8F;
+                background-color: rgba(77, 216, 17, 125);
                 color: #FFFFFF;
-                border: 1px solid #245D8F;
+                border: none;
                 border-radius: 4px;
             }
             QToolButton#applicationCommandButton:hover:enabled {
-                background-color: #245D8F;
+                background-color: rgba(77, 216, 17, 90);
                 color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
             }
             QToolButton#applicationCommandButton:pressed:enabled {
-                background-color: #17436A;
+                background-color: rgba(77, 216, 17, 165);
                 color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
             }
             """
         )
@@ -2697,6 +3192,9 @@ class MainWindow(QMainWindow):
             axis_action = self.tools_toolbar.addAction(tr("primitive.axis"))
             self._mark_application_command(axis_action)
             axis_action.triggered.connect(self._create_axis_object)
+            plane_action = self.tools_toolbar.addAction(tr("primitive.plane"))
+            self._mark_application_command(plane_action)
+            plane_action.triggered.connect(self._create_plane_object)
             self.tools_toolbar.addSeparator()
             for kind, text_key in (
                 (ObjectKind.BOX, "primitive.box"),
@@ -2743,30 +3241,83 @@ class MainWindow(QMainWindow):
         button = self.tools_toolbar.widgetForAction(action)
         if button is not None:
             button.setObjectName("applicationCommandButton")
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Preferred,
+            )
+            button.setMinimumWidth(
+                max(0, self.tools_toolbar.minimumWidth() - 12)
+            )
 
     def _create_sketch_from_selection(self) -> None:
         selected = self._selected_object()
-        if selected is None:
-            QMessageBox.information(
-                self,
-                tr("menu.context.create_sketch"),
-                tr("message.select_sketch_parent"),
-            )
-            return
-        if selected.kind == ObjectKind.PLANE:
-            self.create_sketch_on_plane(selected.object_id)
-            return
-        if selected.kind == ObjectKind.OBJECT:
-            self.create_sketch(selected.object_id)
-            return
-        QMessageBox.information(
-            self,
-            tr("menu.context.create_sketch"),
-            tr("message.select_sketch_parent"),
+        reference = (
+            selected
+            if selected is not None and selected.kind == ObjectKind.PLANE
+            else None
         )
+        self._create_sketch_definition(reference)
+
+    def _create_sketch_definition(
+        self,
+        initial_reference: ZimaObject | None = None,
+    ) -> None:
+        if self.document is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = SketchConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            suggested_name=self.document.next_object_name("Sketch"),
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.createSketchRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, diameter: self._apply_new_constrained_sketch(
+                dialog, references, fallback, name, show_internal,
+                show_auxiliary, rotation, diameter,
+            )
+        )
+        dialog.updateSketchRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, diameter: self._update_sketch_object(
+                dialog.point_object, dialog.point_entity, references, fallback,
+                name, show_internal, show_auxiliary, rotation, diameter,
+            )
+            if dialog.point_object is not None
+            and dialog.point_entity is not None
+            else None
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        if initial_reference is not None:
+            dialog.add_reference(initial_reference)
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _create_primitive_object(self, kind: ObjectKind) -> None:
         if self.document is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
             return
         text_key = {
             ObjectKind.BOX: "primitive.box",
@@ -2776,24 +3327,48 @@ class MainWindow(QMainWindow):
             ObjectKind.PYRAMID: "primitive.pyramid",
             ObjectKind.WEDGE: "primitive.wedge",
         }[kind]
-        selected = self._selected_object()
-        target = None
-        if selected is not None and selected.kind in SOLID_KINDS:
-            parent = self.document.find_parent(selected.object_id)
-            if parent is not None and parent.kind == ObjectKind.OBJECT:
-                target = parent
-        created_object = None
-        if target is None:
-            created_object = self.document.create_object(tr(text_key))
-            target = created_object
-        primitive = self.document.create_primitive(target.object_id, kind)
-        if primitive is None:
-            if created_object is not None:
-                self.document.delete_object(created_object.object_id)
-            return
-        self._populate_tree()
-        self._select_tree_object(primitive.object_id)
-        self.rebuild_view(fit=False)
+        dialog = SolidConstraintDialog(
+            self._solve_point_constraints,
+            kind,
+            self,
+            suggested_name=self.document.next_object_name(tr(text_key)),
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.createSolidRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, parameters: self._apply_new_constrained_solid(
+                dialog, kind, references, fallback, name, show_internal,
+                show_auxiliary, rotation, parameters,
+            )
+        )
+        dialog.updateSolidRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, parameters: self._update_solid_object(
+                dialog.point_object, dialog.point_entity, references, fallback,
+                name, show_internal, show_auxiliary, rotation, parameters,
+            )
+            if dialog.point_object is not None
+            and dialog.point_entity is not None
+            else None
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _create_point_object(self) -> None:
         if self.document is None:
@@ -2847,6 +3422,9 @@ class MainWindow(QMainWindow):
                 else None
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         dialog.show()
@@ -2965,6 +3543,9 @@ class MainWindow(QMainWindow):
                 )
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         dialog.show()
@@ -3499,6 +4080,58 @@ class MainWindow(QMainWindow):
             else None
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _create_plane_object(self) -> None:
+        if self.document is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = PlaneConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            suggested_name=self.document.next_object_name(tr("primitive.plane")),
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.createPlaneRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, plane, size: self._apply_new_constrained_plane(
+                dialog, references, fallback, name, show_internal,
+                show_auxiliary, rotation, plane, size,
+            )
+        )
+        dialog.updatePlaneRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, plane, size: self._update_plane_object(
+                dialog.point_object, dialog.point_entity, references, fallback,
+                name, show_internal, show_auxiliary, rotation, plane, size,
+            )
+            if dialog.point_object is not None
+            and dialog.point_entity is not None
+            else None
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         dialog.show()
@@ -3644,6 +4277,405 @@ class MainWindow(QMainWindow):
             }
         )
 
+    def _apply_new_constrained_plane(
+        self,
+        dialog: PlaneConstraintDialog,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        plane,
+        size,
+    ) -> None:
+        if self.document is None:
+            return
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        obj = self.document.create_object(tr("primitive.plane"))
+        entity = self.document.create_datum_plane(obj.object_id)
+        if entity is None:
+            self.document.delete_object(obj.object_id)
+            return
+        self._set_plane_definition(
+            obj, entity, references, fallback, name, show_internal,
+            show_auxiliary, rotation, plane, size, solution,
+        )
+        dialog.adopt_created_entity(obj, entity)
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.object_id)
+        self.rebuild_view(fit=False)
+
+    def _update_plane_object(
+        self,
+        obj,
+        entity,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        plane,
+        size,
+    ) -> None:
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        self._set_plane_definition(
+            obj, entity, references, fallback, name, show_internal,
+            show_auxiliary, rotation, plane, size, solution,
+        )
+        self._refresh_object_properties(obj)
+
+    def _set_plane_definition(
+        self,
+        obj,
+        entity,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        plane,
+        size,
+        solution,
+    ) -> None:
+        base_rotation = self._plane_reference_rotation(references)
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index]
+            for index in range(3)
+        )
+        obj.show_internal_entities = show_internal
+        obj.show_auxiliary_geometry = show_auxiliary
+        entity.name = name
+        entity.tree_exposure = TreeExposure.INTERNAL
+        entity.parameters.update(
+            {
+                "display_style": "datum",
+                "plane": "xy",
+                "size": f"{size:.12g}",
+                "unit": "mm",
+                "constraint_refs": json.dumps(references, ensure_ascii=False),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
+            }
+        )
+
+    def _plane_reference_rotation(
+        self,
+        references: list[dict[str, Any]],
+    ) -> tuple[float, float, float]:
+        normal = None
+        for descriptor in references:
+            if descriptor.get("type") == "face":
+                rows = self._resolved_shape_reference_equations(descriptor)
+                if rows:
+                    normal = tuple(rows[0][:3])
+                    break
+            if descriptor.get("type") != "entity" or self.document is None:
+                continue
+            reference = self.document.find_object(
+                str(descriptor.get("object_id", ""))
+            )
+            if reference is None or reference.kind != ObjectKind.PLANE:
+                continue
+            local_normal = {
+                "xy": (0.0, 0.0, 1.0),
+                "yz": (1.0, 0.0, 0.0),
+                "xz": (0.0, 1.0, 0.0),
+            }.get(str(reference.parameters.get("plane", "xy")))
+            if local_normal is not None:
+                normal = self._reference_direction(reference, local_normal)
+                break
+        if normal is None:
+            return (0.0, 0.0, 0.0)
+        nx, ny, nz = self._normalized_vector(normal)
+        rx = math.degrees(math.atan2(-ny, nz))
+        ry = math.degrees(math.atan2(nx, math.hypot(ny, nz)))
+        return (rx, ry, 0.0)
+
+    def _apply_new_constrained_solid(
+        self,
+        dialog,
+        kind,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        parameters,
+    ) -> None:
+        if self.document is None:
+            return
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        obj = self.document.create_object(tr(f"primitive.{kind.value}"))
+        solid = self.document.create_primitive(obj.object_id, kind)
+        if solid is None:
+            self.document.delete_object(obj.object_id)
+            return
+        self._set_solid_definition(
+            obj, solid, references, fallback, name, show_internal,
+            show_auxiliary, rotation, parameters, solution,
+        )
+        dialog.adopt_created_entity(obj, solid)
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.object_id)
+        self.rebuild_view(fit=False)
+
+    def _apply_new_generic_object(
+        self,
+        dialog,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+    ) -> None:
+        if self.document is None:
+            return
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        obj = self.document.create_object(name)
+        self._set_generic_object_definition(
+            obj, references, fallback, name, show_internal,
+            show_auxiliary, rotation, solution,
+        )
+        dialog.adopt_created_entity(obj, obj)
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.object_id)
+        self.rebuild_view(fit=False)
+
+    def _update_generic_object(
+        self,
+        obj,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+    ) -> None:
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        self._set_generic_object_definition(
+            obj, references, fallback, name, show_internal,
+            show_auxiliary, rotation, solution,
+        )
+        self._refresh_object_properties(obj)
+
+    @staticmethod
+    def _set_generic_object_definition(
+        obj,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        solution,
+    ) -> None:
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = rotation
+        obj.show_internal_entities = show_internal
+        obj.show_auxiliary_geometry = show_auxiliary
+        obj.parameters.update(
+            {
+                "generic_container": "true",
+                "constraint_refs": json.dumps(references, ensure_ascii=False),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+            }
+        )
+
+    def _update_solid_object(
+        self,
+        obj,
+        solid,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        parameters,
+    ) -> None:
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        self._set_solid_definition(
+            obj, solid, references, fallback, name, show_internal,
+            show_auxiliary, rotation, parameters, solution,
+        )
+        self._refresh_object_properties(obj)
+
+    @staticmethod
+    def _set_solid_definition(
+        obj,
+        solid,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        parameters,
+        solution,
+    ) -> None:
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = rotation
+        obj.show_internal_entities = show_internal
+        obj.show_auxiliary_geometry = show_auxiliary
+        solid.name = name
+        solid.tree_exposure = TreeExposure.INTERNAL
+        solid.parameters.update(
+            {
+                **{
+                    key: f"{value:.12g}"
+                    for key, value in parameters.items()
+                },
+                "unit": "mm",
+                "constraint_refs": json.dumps(references, ensure_ascii=False),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+            }
+        )
+
+    def _apply_new_constrained_sketch(
+        self,
+        dialog,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        diameter,
+    ) -> None:
+        if self.document is None:
+            return
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        obj = self.document.create_object("Sketch")
+        sketch = self.document.create_sketch(
+            obj.object_id,
+            plane="xy",
+            role=SketchRole.PROFILE,
+        )
+        if sketch is None:
+            self.document.delete_object(obj.object_id)
+            return
+        self._set_sketch_definition(
+            obj, sketch, references, fallback, name, show_internal,
+            show_auxiliary, rotation, diameter, solution,
+        )
+        dialog.adopt_created_entity(obj, sketch)
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.object_id)
+        self.rebuild_view(fit=False)
+
+    def _update_sketch_object(
+        self,
+        obj,
+        sketch,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        diameter,
+    ) -> None:
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            references, fallback
+        )
+        if solution is None:
+            return
+        self._set_sketch_definition(
+            obj, sketch, references, fallback, name, show_internal,
+            show_auxiliary, rotation, diameter, solution,
+        )
+        self._refresh_object_properties(obj)
+
+    def _set_sketch_definition(
+        self,
+        obj,
+        sketch,
+        references,
+        fallback,
+        name,
+        show_internal,
+        show_auxiliary,
+        rotation,
+        diameter,
+        solution,
+    ) -> None:
+        base_rotation = self._plane_reference_rotation(references)
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index]
+            for index in range(3)
+        )
+        obj.show_internal_entities = show_internal
+        obj.show_auxiliary_geometry = show_auxiliary
+        sketch.name = name
+        sketch.tree_exposure = TreeExposure.INTERNAL
+        sketch.parameters.update(
+            {
+                "plane": "xy",
+                "profile": "circle",
+                "diameter": f"{diameter:.12g}",
+                "unit": "mm",
+                "role": SketchRole.PROFILE.value,
+                "constraint_refs": json.dumps(references, ensure_ascii=False),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
+            }
+        )
+
     def _create_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu(tr("menu.file"))
 
@@ -3657,9 +4689,22 @@ class MainWindow(QMainWindow):
         close_action.triggered.connect(self.close_document)
 
         save_action = file_menu.addAction(tr("menu.file.save"))
+        save_action.setShortcuts(
+            [
+                QKeySequence.StandardKey.Save,
+                QKeySequence("F1"),
+            ]
+        )
+        save_action.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
         save_action.triggered.connect(self.save_document)
 
         save_as_action = file_menu.addAction(tr("menu.file.save_as"))
+        save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        save_as_action.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
         save_as_action.triggered.connect(self.save_document_as)
 
         file_menu.addSeparator()
@@ -4092,6 +5137,14 @@ class MainWindow(QMainWindow):
         if 0 <= self.active_document_index < len(self.document_sessions):
             self.document_sessions[self.active_document_index].file_path = file_path
         self._update_window_title()
+        self.statusBar().showMessage(
+            tr(
+                "status.file_saved",
+                file=file_path.name,
+                time=QTime.currentTime().toString("HH:mm:ss"),
+            ),
+            5000,
+        )
         return True
 
     def _apply_and_save_document(self) -> bool:
@@ -4417,7 +5470,11 @@ class MainWindow(QMainWindow):
         labels: list[str] = []
         candidates = [obj, *self._descendant_objects(obj)]
         for candidate in candidates:
-            if candidate.kind not in (ObjectKind.POINT, ObjectKind.AXIS):
+            if candidate.kind not in (
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+            ):
                 continue
             try:
                 references = json.loads(
@@ -5448,7 +6505,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         attach_action = None
         create_action = None
+        create_point_action = None
         create_axis_action = None
+        create_plane_action = None
         create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
         edit_values_action = None
@@ -5490,12 +6549,24 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == ObjectKind.OBJECT:
+                is_generic = obj.parameters.get("generic_container") == "true"
+                if is_generic:
+                    create_point_action = menu.addAction(
+                        tr("menu.context.create_point")
+                    )
                 create_axis_action = menu.addAction(
                     tr("menu.context.create_axis")
                 )
                 create_axis_action.setEnabled(
                     obj.can_accept_entity(ObjectKind.AXIS)
                 )
+                if is_generic:
+                    create_plane_action = menu.addAction(
+                        tr("menu.context.create_plane")
+                    )
+                    create_plane_action.setEnabled(
+                        obj.can_accept_entity(ObjectKind.PLANE)
+                    )
                 create_sketch_action = menu.addAction(
                     tr("menu.context.create_sketch")
                 )
@@ -5522,7 +6593,12 @@ class MainWindow(QMainWindow):
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
-                elif obj.kind == ObjectKind.AXIS:
+                elif obj.kind in (
+                    ObjectKind.POINT,
+                    ObjectKind.AXIS,
+                    ObjectKind.PLANE,
+                    ObjectKind.SKETCH,
+                ):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
@@ -5574,17 +6650,32 @@ class MainWindow(QMainWindow):
         elif create_action is not None and action == create_action:
             self.create_new_object()
         elif (
+            create_point_action is not None
+            and action == create_point_action
+            and obj is not None
+        ):
+            self._create_generic_entity(obj, ObjectKind.POINT)
+        elif (
             create_axis_action is not None
             and action == create_axis_action
             and obj is not None
         ):
             self.create_datum_axis(obj.object_id)
         elif (
+            create_plane_action is not None
+            and action == create_plane_action
+            and obj is not None
+        ):
+            self._create_generic_entity(obj, ObjectKind.PLANE)
+        elif (
             create_sketch_action is not None
             and action == create_sketch_action
             and obj is not None
         ):
-            self.create_sketch(obj.object_id)
+            if obj.parameters.get("generic_container") == "true":
+                self._create_generic_entity(obj, ObjectKind.SKETCH)
+            else:
+                self.create_sketch(obj.object_id)
         elif (
             action in create_sketch_actions
             and obj is not None
@@ -6824,11 +7915,50 @@ class MainWindow(QMainWindow):
     def create_new_object(self) -> None:
         if self.document is None:
             return
-
-        obj = self.document.create_object()
-        self._populate_tree()
-        self._select_tree_object(obj.object_id)
-        self.rebuild_view(fit=False)
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = ObjectConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            suggested_name=self.document.next_object_name("Object"),
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.createObjectRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation: self._apply_new_generic_object(
+                dialog, references, fallback, name, show_internal,
+                show_auxiliary, rotation,
+            )
+        )
+        dialog.updateObjectRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation: self._update_generic_object(
+                dialog.point_object, references, fallback, name,
+                show_internal, show_auxiliary, rotation,
+            )
+            if dialog.point_object is not None
+            else None
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _operation_target(self, obj: ZimaObject) -> ZimaObject | None:
         if self.document is None:
@@ -6851,14 +7981,36 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.document is None:
             return
+        plane = self.document.find_object(plane_id)
+        if plane is not None and plane.kind == ObjectKind.PLANE:
+            self._create_sketch_definition(plane)
 
-        sketch = self.document.create_sketch_on_plane(plane_id, role)
-        if sketch is None:
-            self._show_entity_limit_message(plane_id, ObjectKind.SKETCH)
+    def _create_generic_entity(
+        self,
+        owner: ZimaObject,
+        kind: ObjectKind,
+    ) -> None:
+        if self.document is None:
             return
-
+        entity = None
+        if kind == ObjectKind.POINT:
+            entity = self.document.create_point(owner.object_id)
+        elif kind == ObjectKind.AXIS:
+            entity = self.document.create_datum_axis(owner.object_id)
+        elif kind == ObjectKind.PLANE:
+            entity = self.document.create_datum_plane(owner.object_id)
+        elif kind == ObjectKind.SKETCH:
+            entity = self.document.create_sketch(
+                owner.object_id,
+                plane="xy",
+                role=SketchRole.PROFILE,
+            )
+        if entity is None:
+            self._show_entity_limit_message(owner.object_id, kind)
+            return
+        owner.show_internal_entities = True
         self._populate_tree()
-        self._select_tree_object(sketch.object_id)
+        self._select_tree_object(entity.object_id)
         self.rebuild_view(fit=False)
 
     def create_sketch(
@@ -6866,15 +8018,7 @@ class MainWindow(QMainWindow):
         parent_id: str,
         role: SketchRole = SketchRole.PROFILE,
     ) -> None:
-        if self.document is None:
-            return
-        sketch = self.document.create_sketch(parent_id, role=role)
-        if sketch is None:
-            self._show_entity_limit_message(parent_id, ObjectKind.SKETCH)
-            return
-        self._populate_tree()
-        self._select_tree_object(sketch.object_id)
-        self.rebuild_view(fit=False)
+        self._create_sketch_definition()
 
     def create_cube(self, source_id: str) -> None:
         if self.document is None:
@@ -7003,11 +8147,76 @@ class MainWindow(QMainWindow):
         if len(axis_entities) == 1:
             self.show_axis_properties(axis_entities[0])
             return
+        plane_entities = [
+            child
+            for child in obj.children
+            if child.kind == ObjectKind.PLANE and not child.locked
+        ]
+        if len(plane_entities) == 1:
+            self.show_plane_properties(plane_entities[0])
+            return
+        solid_entities = [
+            child for child in obj.children if child.kind in SOLID_KINDS
+        ]
+        if len(solid_entities) == 1:
+            self._edit_solid_object(obj, solid_entities[0])
+            return
+        sketch_entities = [
+            child for child in obj.children if child.kind == ObjectKind.SKETCH
+        ]
+        if len(sketch_entities) == 1:
+            self._edit_sketch_object(obj, sketch_entities[0])
+            return
+        if obj.parameters.get("generic_container") == "true":
+            self._edit_generic_object(obj)
+            return
 
         dialog = ObjectPropertiesDialog(obj, self.document, self)
         dialog.applied.connect(lambda: self._refresh_object_properties(obj))
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.apply_to_object():
-            self._refresh_object_properties(obj)
+        self._begin_definition_edit(obj)
+        try:
+            if (
+                dialog.exec() == QDialog.DialogCode.Accepted
+                and dialog.apply_to_object()
+            ):
+                self._refresh_object_properties(obj)
+        finally:
+            self._end_definition_edit()
+
+    def _edit_generic_object(self, obj: ZimaObject) -> None:
+        if self.document is None or self.point_constraint_dialog is not None:
+            return
+        dialog = ObjectConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            edited_object=obj,
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.updateObjectRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation: self._update_generic_object(
+                obj, references, fallback, name, show_internal,
+                show_auxiliary, rotation,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def show_axis_properties(self, axis: ZimaObject) -> None:
         if axis.kind != ObjectKind.AXIS or axis.locked:
@@ -7056,6 +8265,52 @@ class MainWindow(QMainWindow):
             )
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def show_plane_properties(self, plane: ZimaObject) -> None:
+        if plane.kind != ObjectKind.PLANE or plane.locked or self.document is None:
+            return
+        owner = self.document.find_owning_object(plane.object_id)
+        if owner is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = PlaneConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            plane_object=owner,
+            plane_entity=plane,
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.updatePlaneRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, plane_kind, size: self._update_plane_object(
+                owner, plane, references, fallback, name, show_internal,
+                show_auxiliary, rotation, plane_kind, size,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         dialog.show()
@@ -7065,15 +8320,135 @@ class MainWindow(QMainWindow):
     def show_primitive_properties(self, primitive: ZimaObject) -> None:
         if primitive.kind not in SOLID_KINDS:
             return
-        dialog = PrimitivePropertiesDialog(primitive, self)
-        dialog.applied.connect(
-            lambda: self._refresh_object_properties(primitive)
+        if self.document is None:
+            return
+        owner = self.document.find_owning_object(primitive.object_id)
+        if owner is not None:
+            self._edit_solid_object(owner, primitive)
+
+    def _edit_solid_object(
+        self,
+        obj: ZimaObject,
+        solid: ZimaObject,
+    ) -> None:
+        if self.document is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = SolidConstraintDialog(
+            self._solve_point_constraints,
+            solid.kind,
+            self,
+            solid_object=obj,
+            solid_entity=solid,
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
         )
+        dialog.updateSolidRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, parameters: self._update_solid_object(
+                obj, solid, references, fallback, name, show_internal,
+                show_auxiliary, rotation, parameters,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _edit_sketch_object(
+        self,
+        obj: ZimaObject,
+        sketch: ZimaObject,
+    ) -> None:
+        if self.document is None or self.point_constraint_dialog is not None:
+            return
+        dialog = SketchConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            sketch_object=obj,
+            sketch_entity=sketch,
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+            reference_kind_callback=lambda object_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_object(object_id)) is not None
+                else None
+            ),
+        )
+        dialog.updateSketchRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, diameter: self._update_sketch_object(
+                obj, sketch, references, fallback, name, show_internal,
+                show_auxiliary, rotation, diameter,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _begin_definition_edit(self, obj: ZimaObject) -> None:
+        self._definition_dialog_depth += 1
+        coordinate_owner = obj
         if (
-            dialog.exec() == QDialog.DialogCode.Accepted
-            and dialog.apply_to_primitive()
+            obj.kind != ObjectKind.OBJECT
+            and self.document is not None
+            and (owner := self.document.find_owning_object(obj.object_id))
+            is not None
         ):
-            self._refresh_object_properties(primitive)
+            coordinate_owner = owner
+        self._definition_edit_objects.append(coordinate_owner)
+        if self._definition_dialog_depth == 1:
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _end_definition_edit(self) -> None:
+        self._definition_dialog_depth = max(
+            0,
+            self._definition_dialog_depth - 1,
+        )
+        if self._definition_edit_objects:
+            self._definition_edit_objects.pop()
+        if self._definition_dialog_depth == 0:
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _definition_origin_is_visible(self) -> bool:
+        return self._definition_dialog_depth > 0 or (
+            self.point_constraint_dialog is not None
+        )
+
+    def _definition_edit_object(self) -> ZimaObject | None:
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.point_object is not None
+        ):
+            return self.point_constraint_dialog.point_object
+        if self._definition_edit_objects:
+            return self._definition_edit_objects[-1]
+        return None
 
     def show_properties(self, obj: ZimaObject) -> None:
         if obj.kind == ObjectKind.OBJECT:
@@ -7082,6 +8457,16 @@ class MainWindow(QMainWindow):
             self.show_primitive_properties(obj)
         elif obj.kind == ObjectKind.AXIS and not obj.locked:
             self.show_axis_properties(obj)
+        elif obj.kind == ObjectKind.PLANE and not obj.locked:
+            self.show_plane_properties(obj)
+        elif obj.kind == ObjectKind.SKETCH and self.document is not None:
+            owner = self.document.find_owning_object(obj.object_id)
+            if owner is not None:
+                self._edit_sketch_object(owner, obj)
+        elif obj.kind == ObjectKind.POINT and self.document is not None:
+            owner = self.document.find_owning_object(obj.object_id)
+            if owner is not None:
+                self._edit_point_object(owner, obj)
 
     def _refresh_object_properties(self, obj: ZimaObject) -> None:
         self._mark_model_for_regeneration()
@@ -7217,18 +8602,28 @@ class MainWindow(QMainWindow):
         regenerated_entities = 0
         unresolved_entities = 0
         for obj in self.document.active_history_objects():
-            entity = next(
+            entity = (
+                obj
+                if "constraint_refs" in obj.parameters
+                else next(
                 (
                     child
                     for child in obj.children
                     if not child.locked
                     and (
-                        child.kind == ObjectKind.POINT
-                        or child.kind == ObjectKind.AXIS
+                        child.kind
+                        in (
+                            ObjectKind.POINT,
+                            ObjectKind.AXIS,
+                            ObjectKind.PLANE,
+                            ObjectKind.SKETCH,
+                            *SOLID_KINDS,
+                        )
                         and "constraint_refs" in child.parameters
                     )
                 ),
                 None,
+                )
             )
             if entity is None:
                 continue
@@ -7261,6 +8656,21 @@ class MainWindow(QMainWindow):
                 unresolved_entities += 1
                 continue
             obj.coordinate_system.origin = solution
+            if entity.kind in (ObjectKind.PLANE, ObjectKind.SKETCH):
+                base_rotation = self._plane_reference_rotation(references)
+                offsets = tuple(
+                    float(
+                        entity.parameters.get(
+                            f"rotation_offset_{axis}",
+                            0.0,
+                        )
+                    )
+                    for axis in ("x", "y", "z")
+                )
+                obj.coordinate_system.rotation = tuple(
+                    base_rotation[index] + offsets[index]
+                    for index in range(3)
+                )
             regenerated_entities += 1
 
         self.document.resolve_attachments()
@@ -7279,6 +8689,100 @@ class MainWindow(QMainWindow):
                 unresolved=unresolved_entities,
             ),
             5000,
+        )
+
+    def _rotation_pivot_at_view_center(
+        self,
+    ) -> tuple[float, float, float] | None:
+        if (
+            not hasattr(self, "_viewer_initialized")
+            or self.document is None
+        ):
+            return None
+        pixel_ratio = float(self.viewer.devicePixelRatioF())
+        center_x = int(round(self.viewer.width() * pixel_ratio * 0.5))
+        center_y = int(round(self.viewer.height() * pixel_ratio * 0.5))
+        return self._view_anchor_at_pixel(
+            center_x,
+            center_y,
+            fallback_to_camera_plane=False,
+        )
+
+    def _view_anchor_at_pixel(
+        self,
+        x: int,
+        y: int,
+        *,
+        fallback_to_camera_plane: bool = True,
+    ) -> tuple[float, float, float] | None:
+        if (
+            not hasattr(self, "_viewer_initialized")
+            or self.document is None
+        ):
+            return None
+        try:
+            px, py, pz, dx, dy, dz = (
+                self.viewer._display.View.ConvertWithProj(
+                    x,
+                    y,
+                )
+            )
+            ray = gp_Lin(
+                gp_Pnt(px, py, pz),
+                gp_Dir(dx, dy, dz),
+            )
+        except (TypeError, RuntimeError):
+            return None
+        nearest_parameter = None
+        nearest_point = None
+        visible_shapes = (
+            self._cached_model_shapes
+            if (
+                self.document.body_is_visible()
+                and not self.document.body_is_suppressed()
+            )
+            else self._cached_source_model_shapes
+        )
+        for shape, _object_id in visible_shapes:
+            intersector = IntCurvesFace_ShapeIntersector()
+            intersector.Load(shape, 1e-7)
+            intersector.Perform(ray, 0.0, 1e100)
+            for index in range(1, intersector.NbPnt() + 1):
+                parameter = intersector.WParameter(index)
+                if parameter < 0.0:
+                    continue
+                if (
+                    nearest_parameter is None
+                    or parameter < nearest_parameter
+                ):
+                    point = intersector.Pnt(index)
+                    nearest_parameter = parameter
+                    nearest_point = (
+                        point.X(),
+                        point.Y(),
+                        point.Z(),
+                    )
+        if nearest_point is not None or not fallback_to_camera_plane:
+            return nearest_point
+        camera = self.viewer._display.View.Camera()
+        center = camera.Center()
+        direction = camera.Direction()
+        denominator = (
+            dx * direction.X()
+            + dy * direction.Y()
+            + dz * direction.Z()
+        )
+        if abs(denominator) <= 1e-12:
+            return None
+        parameter = (
+            (center.X() - px) * direction.X()
+            + (center.Y() - py) * direction.Y()
+            + (center.Z() - pz) * direction.Z()
+        ) / denominator
+        return (
+            px + parameter * dx,
+            py + parameter * dy,
+            pz + parameter * dz,
         )
 
     def rebuild_view(self, fit: bool = True, rebuild_geometry: bool = True) -> None:
@@ -7312,13 +8816,13 @@ class MainWindow(QMainWindow):
             and self.point_constraint_dialog.isVisible()
         )
         if self.document is not None:
+            active_objects = self.document.active_history_objects()
             if rebuild_geometry or self._cached_document is not self.document:
                 self.document.resolve_attachments()
                 self._cached_document = self.document
                 self._cached_model_shapes = []
                 self._cached_source_model_shapes = []
                 shape = self.document.build_active_shape()
-                active_objects = self.document.active_history_objects()
                 if shape is not None and active_objects:
                     self._cached_model_shapes.append(
                         (shape, self.document.root.object_id)
@@ -7342,6 +8846,7 @@ class MainWindow(QMainWindow):
                 for shape, owner_id in self._cached_source_model_shapes:
                     self._display_model_shape(shape, owner_id)
 
+            self._display_curved_solid_guides(active_objects)
             self._display_origin()
             self._display_sketches()
 
@@ -7505,13 +9010,121 @@ class MainWindow(QMainWindow):
             self._model_object_id_by_ais.append((ais_shape, object_id))
 
         if self.view_display_mode == ViewDisplayMode.SHADED_WITH_EDGES:
-            for ais_shape in display.DisplayShape(shape, color=BLACK, update=False):
-                self._set_ais_display_mode(ais_shape, AIS_WireFrame)
-                display.Context.Deactivate(ais_shape)
-                self._nonselectable_ais_shapes.append(ais_shape)
+            displayed_edges = []
+            edge_faces = TopTools_IndexedDataMapOfShapeListOfShape()
+            topexp_MapShapesAndAncestors(
+                shape,
+                TopAbs_EDGE,
+                TopAbs_FACE,
+                edge_faces,
+            )
+            explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+            while explorer.More():
+                edge = explorer.Current()
+                skip_smooth_seam = False
+                ancestor_surface_types = []
+                if BRep_Tool.Degenerated(edge):
+                    skip_smooth_seam = True
+                elif edge_faces.Contains(edge):
+                    faces = edge_faces.FindFromKey(edge)
+                    ancestor_faces = list(faces)
+                    unique_faces = []
+                    for face in ancestor_faces:
+                        if not any(
+                            face.IsSame(existing)
+                            for existing in unique_faces
+                        ):
+                            unique_faces.append(face)
+                    ancestor_surface_types = [
+                        BRepAdaptor_Surface(face).GetType()
+                        for face in unique_faces
+                    ]
+                    if len(unique_faces) == 1:
+                        skip_smooth_seam = ancestor_surface_types[0] in (
+                            GeomAbs_Sphere,
+                            GeomAbs_Cylinder,
+                        )
+                if skip_smooth_seam:
+                    explorer.Next()
+                    continue
+                if not any(edge.IsSame(existing) for existing in displayed_edges):
+                    displayed_edges.append(edge)
+                    for ais_shape in display.DisplayShape(
+                        edge,
+                        color=(
+                            YELLOW
+                            if self.view_selection_filter
+                            == ViewSelectionFilter.POINT
+                            else BLACK
+                        ),
+                        update=False,
+                    ):
+                        self._set_ais_display_mode(
+                            ais_shape,
+                            AIS_WireFrame,
+                        )
+                        display.Context.Deactivate(ais_shape)
+                        self._nonselectable_ais_shapes.append(ais_shape)
+                        self._model_edge_ais_by_object_id.setdefault(
+                            object_id,
+                            [],
+                        ).append(ais_shape)
+                explorer.Next()
+
+    def _display_curved_solid_guides(
+        self,
+        active_objects: list[ZimaObject],
+    ) -> None:
+        if self.document is None:
+            return
+        guide_color = (
+            YELLOW
+            if (
+                self.point_constraint_dialog is not None
+                or self.view_selection_filter == ViewSelectionFilter.POINT
+            )
+            else BLACK
+        )
+        for obj in active_objects:
+            if not self.document.is_effectively_visible(obj.object_id):
+                continue
+            curved_entity = next(
+                (
+                    child
+                    for child in obj.children
+                    if child.kind in (
+                        ObjectKind.SPHERE,
+                        ObjectKind.CYLINDER,
+                    )
+                    and not child.locked
+                ),
+                None,
+            )
+            if (
+                curved_entity is None
+                or curved_entity.combine_mode == CombineMode.SUBTRACT
+            ):
+                continue
+            guide_shapes = self.document.source_highlight_shapes(obj)
+            if curved_entity.kind == ObjectKind.CYLINDER:
+                # The real circular boundary edges are already part of the
+                # model edge layer.  Only add the two longitudinal generators.
+                guide_shapes = guide_shapes[2:]
+            for shape in guide_shapes:
+                ais_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=guide_color,
+                    update=False,
+                )
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetWidth(1.0)
+                    self.viewer._display.Context.Deactivate(ais_shape)
+                self._nonselectable_ais_shapes.extend(ais_shapes)
                 self._model_edge_ais_by_object_id.setdefault(
-                    object_id, []
-                ).append(ais_shape)
+                    obj.object_id,
+                    [],
+                ).extend(ais_shapes)
 
     def _configure_model_hover(self, ais_shape) -> None:
         # The wireframe drawer is intended for highlighting a complete model
@@ -7523,6 +9136,10 @@ class MainWindow(QMainWindow):
             and self.point_constraint_dialog.isVisible()
         )
         if point_constraints_active:
+            highlight = Prs3d_Drawer()
+            highlight.SetColor(YELLOW)
+            highlight.SetZLayer(Graphic3d_ZLayerId_Topmost)
+            ais_shape.SetDynamicHilightAttributes(highlight)
             return
         if self.view_selection_mode != ViewSelectionMode.OBJECT:
             return
@@ -7539,14 +9156,19 @@ class MainWindow(QMainWindow):
         if self.selected_face is None:
             context.ClearSelected(False)
         self._clear_selected_shape_overlays()
+        base_edge_color = (
+            YELLOW
+            if self.view_selection_filter == ViewSelectionFilter.POINT
+            else BLACK
+        )
         for edge_shapes in self._model_edge_ais_by_object_id.values():
             for edge_shape in edge_shapes:
-                edge_shape.SetColor(BLACK)
+                edge_shape.SetColor(base_edge_color)
                 edge_shape.SetWidth(1.0)
                 context.Redisplay(edge_shape, False)
         for sketch_shapes in self._sketch_ais_by_object_id.values():
             for sketch_shape in sketch_shapes:
-                sketch_shape.SetColor(BLUE)
+                sketch_shape.SetColor(SKETCH_COLOR)
                 context.Redisplay(sketch_shape, False)
         if self.selected_object_id is None:
             context.UpdateSelected(True)
@@ -7642,7 +9264,17 @@ class MainWindow(QMainWindow):
             source_object is not None
             and self.document is not None
             and source_object in self.document.active_history_objects()
+            and not any(
+                child.kind == ObjectKind.SPHERE
+                and not child.locked
+                and child.combine_mode != CombineMode.SUBTRACT
+                for child in source_object.children
+            )
         ):
+            depth_test_source_highlight = any(
+                child.kind == ObjectKind.CYLINDER and not child.locked
+                for child in source_object.children
+            )
             for source_shape in self.document.source_highlight_shapes(source_object):
                 ais_shapes = self.viewer._display.DisplayShape(
                     source_shape,
@@ -7652,7 +9284,8 @@ class MainWindow(QMainWindow):
                 for ais_shape in ais_shapes:
                     self._set_ais_display_mode(ais_shape, AIS_WireFrame)
                     ais_shape.SetWidth(3.0)
-                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    if not depth_test_source_highlight:
+                        ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
         context.UpdateSelected(True)
@@ -7721,6 +9354,9 @@ class MainWindow(QMainWindow):
                 ObjectKind.POINT,
                 ObjectKind.AXIS,
                 ObjectKind.PLANE,
+                ObjectKind.SKETCH,
+                ObjectKind.OBJECT,
+                *SOLID_KINDS,
             ):
                 selected_owner = (
                     self.document.find_owning_object(selected_obj.object_id)
@@ -7740,6 +9376,7 @@ class MainWindow(QMainWindow):
             transform_persistence=self._origin_transform_persistence,
             coordinate_owner=global_origin,
         )
+        self._display_new_definition_origin()
 
         if self.document is not None:
             visible_objects = [
@@ -7759,6 +9396,147 @@ class MainWindow(QMainWindow):
                     selected_owner,
                     selected_key,
                 )
+
+    def _display_new_definition_origin(self) -> None:
+        dialog = self.point_constraint_dialog
+        if dialog is None:
+            return
+        origin = tuple(edit.value() for edit in dialog.coordinate_edits)
+        rotation = (
+            tuple(edit.value() for edit in dialog.rotation_edits)
+            if isinstance(dialog, AxisConstraintDialog)
+            else (0.0, 0.0, 0.0)
+        )
+        if isinstance(dialog, PlaneConstraintDialog):
+            base_rotation = self._plane_reference_rotation(dialog.references)
+            rotation = tuple(
+                base_rotation[index] + rotation[index]
+                for index in range(3)
+            )
+        coordinate_transform = coordinate_system_transform(
+            CoordinateSystem(origin=origin, rotation=rotation)
+        )
+        if isinstance(dialog, SketchConstraintDialog):
+            if not dialog.has_orientation_reference():
+                return
+            preview_sketch = ZimaObject(
+                name="",
+                kind=ObjectKind.SKETCH,
+                parameters={
+                    "plane": "xy",
+                    "profile": "circle",
+                    "diameter": f"{dialog.diameter_spin.value():.12g}",
+                },
+            )
+            shape = make_sketch_shape(
+                ZimaObject(name="", kind=ObjectKind.OBJECT),
+                preview_sketch,
+                coordinate_transform,
+            )
+            if shape is not None:
+                ais_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=SKETCH_COLOR,
+                    update=False,
+                )
+                context = self.viewer._display.Context
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetWidth(3.0)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._nonselectable_ais_shapes.extend(ais_shapes)
+        elif isinstance(dialog, SolidConstraintDialog):
+            preview_solid = ZimaObject(
+                name="",
+                kind=dialog.solid_kind,
+                parameters={
+                    key: f"{edit.value():.12g}"
+                    for key, edit in dialog.parameter_edits.items()
+                },
+            )
+            shape = make_shape(preview_solid)
+            if shape is not None:
+                shape = transform_shape(shape, coordinate_transform)
+                ais_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=YELLOW,
+                    transparency=0.7,
+                    update=False,
+                )
+                context = self.viewer._display.Context
+                for ais_shape in ais_shapes:
+                    self._hide_ais_edges(ais_shape)
+                    self._set_ais_display_mode(ais_shape, AIS_Shaded)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._nonselectable_ais_shapes.extend(ais_shapes)
+        transform_persistence = Graphic3d_TransformPers(
+            Graphic3d_TMF_ZoomPers,
+            gp_Pnt(*origin),
+        )
+        self._display_coordinate_system(
+            origin=origin,
+            selected_key=None,
+            transform_persistence=transform_persistence,
+            size=140.0,
+            coordinate_transform=coordinate_transform,
+            coordinate_owner=None,
+            force_visible=True,
+        )
+        if isinstance(dialog, PlaneConstraintDialog):
+            if not dialog.has_orientation_reference():
+                return
+            preview_plane = ZimaObject(
+                name="",
+                kind=ObjectKind.PLANE,
+                parameters={
+                    "plane": "xy",
+                    "size": f"{dialog.length_spin.value():.12g}",
+                    "display_style": "datum",
+                },
+            )
+            self._display_datum_plane(preview_plane, coordinate_transform)
+            for ais_shape in self._coordinate_ais_by_object_id.pop(
+                preview_plane.object_id, []
+            ):
+                ais_shape.SetColor(YELLOW)
+                ais_shape.SetWidth(3.0)
+                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                self.viewer._display.Context.Redisplay(ais_shape, False)
+                self.viewer._display.Context.Deactivate(ais_shape)
+            self._coordinate_shapes = [
+                item
+                for item in self._coordinate_shapes
+                if item[1] != preview_plane.object_id
+            ]
+        elif isinstance(dialog, AxisConstraintDialog):
+            preview_axis = ZimaObject(
+                name="",
+                kind=ObjectKind.AXIS,
+                parameters={
+                    "axis": str(dialog.direction_combo.currentData()),
+                    "length": f"{dialog.length_spin.value():.12g}",
+                    "display_style": "centerline",
+                },
+            )
+            shape = make_datum_axis_shape(
+                preview_axis,
+                coordinate_transform,
+            )
+            if shape is not None:
+                ais_shapes = self.viewer._display.DisplayShape(
+                    shape,
+                    color=CENTERLINE_COLOR,
+                    update=False,
+                )
+                context = self.viewer._display.Context
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetWidth(2.0)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._nonselectable_ais_shapes.extend(ais_shapes)
 
     def _display_object_coordinate_systems(
         self,
@@ -7797,6 +9575,20 @@ class MainWindow(QMainWindow):
                     )
                 ):
                     self._display_datum_axis(child, world_transform)
+                if (
+                    child.kind == ObjectKind.PLANE
+                    and not child.locked
+                    and child.parameters.get("display_style") == "datum"
+                    and (
+                        self.show_planes_action.isChecked()
+                        or self.selected_object_id in (
+                            child.object_id,
+                            obj.object_id,
+                        )
+                        or obj is self._definition_edit_object()
+                    )
+                ):
+                    self._display_datum_plane(child, world_transform)
         for child in obj.children:
             if not child.locked and child.kind == ObjectKind.OBJECT:
                 self._display_object_coordinate_systems(
@@ -7868,6 +9660,60 @@ class MainWindow(QMainWindow):
         structures[1].Erase()
         self._coordinate_labels_by_object_id[axis.object_id] = structures
 
+    def _display_datum_plane(self, plane: ZimaObject, parent_transform) -> None:
+        plane_key = f"{plane.parameters.get('plane', 'xy')}_plane"
+        size = max(0.001, float(plane.parameters.get("size", 100.0)))
+        shape = make_origin_shapes(
+            size=size,
+            origin=(0.0, 0.0, 0.0),
+            plane_scale=2.0,
+        ).get(plane_key)
+        if shape is None:
+            return
+        shape = self._transform_origin_shape(shape, parent_transform)
+        self._coordinate_shapes.append((shape, plane.object_id))
+        ais_shapes = self._display_overlay_shape(
+            shape,
+            color=PLANE_COLOR,
+            transparency=0.65,
+            transform_persistence=None,
+            selection_sensitivity=18,
+            topmost=True,
+            selection_priority=6,
+        )
+        self._coordinate_ais_shapes.extend(ais_shapes)
+        self._coordinate_ais_by_object_id[plane.object_id] = ais_shapes
+        if not plane.name:
+            return
+        label_key = f"{plane.parameters.get('plane', 'xy')}_plane"
+        local_label = make_plane_label_points(
+            size=size,
+            origin=(0.0, 0.0, 0.0),
+            plane_scale=2.0,
+        ).get(label_key)
+        if local_label is None:
+            return
+        label_point = gp_Pnt(
+            *transform_point(
+                parent_transform,
+                (local_label.X(), local_label.Y(), local_label.Z()),
+            )
+        )
+        structures = []
+        for color in (PLANE_COLOR_RGB, (0.95, 0.85, 0.2)):
+            structure = self.viewer._display.DisplayMessage(
+                label_point,
+                plane.name,
+                height=24.0,
+                message_color=color,
+                update=False,
+            )
+            structure.SetZLayer(Graphic3d_ZLayerId_Topmost)
+            structures.append(structure)
+            self._plane_label_structures.append(structure)
+        structures[1].Erase()
+        self._coordinate_labels_by_object_id[plane.object_id] = structures
+
     def _display_sketches(self) -> None:
         if self.document is None:
             return
@@ -7894,7 +9740,7 @@ class MainWindow(QMainWindow):
                     self._selectable_model_shapes.append((shape, child.object_id))
                     ais_shapes = self.viewer._display.DisplayShape(
                         shape,
-                        color=BLUE,
+                        color=SKETCH_COLOR,
                         update=False,
                     )
                     self._sketch_ais_by_object_id.setdefault(
@@ -7912,6 +9758,7 @@ class MainWindow(QMainWindow):
         size: float | None = None,
         coordinate_transform=None,
         coordinate_owner: ZimaObject | None = None,
+        force_visible: bool = False,
     ) -> None:
         shape_origin = (0.0, 0.0, 0.0) if coordinate_transform is not None else origin
         shapes = (
@@ -7944,9 +9791,15 @@ class MainWindow(QMainWindow):
                 )
                 for key, shape in shapes.items()
             }
-        visible_keys = {
-            key for key in shapes if self._coordinate_key_visible(coordinate_owner, key)
-        }
+        visible_keys = (
+            set(shapes)
+            if force_visible
+            else {
+                key
+                for key in shapes
+                if self._coordinate_key_visible(coordinate_owner, key)
+            }
+        )
         for key, color in (
             ("xy_plane", PLANE_COLOR),
             ("yz_plane", PLANE_COLOR),
@@ -7981,6 +9834,8 @@ class MainWindow(QMainWindow):
         owner: ZimaObject | None,
         key: str,
     ) -> bool:
+        if owner is self._definition_edit_object():
+            return True
         child_id = self._coordinate_child_id(owner, key)
         if child_id is not None and child_id == self.selected_object_id:
             return True
