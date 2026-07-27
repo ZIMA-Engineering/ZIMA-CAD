@@ -360,7 +360,7 @@ class PartDocument:
 
     def __post_init__(self) -> None:
         if not any(child.kind == ObjectKind.ORIGIN for child in self.root.children):
-            self.root.children.insert(0, create_origin_object())
+            self.root.children.insert(0, create_origin_object("document"))
 
     def visible_objects(self) -> list[ZimaObject]:
         return [obj for obj in self.root.children if obj.kind != ObjectKind.ORIGIN]
@@ -570,6 +570,7 @@ class PartDocument:
                 "length": "100",
                 "unit": "mm",
             },
+            tree_exposure=TreeExposure.INTERNAL,
         )
         parent.add_child(axis)
         return axis
@@ -1371,11 +1372,16 @@ def delete_child_object(parent: ZimaObject, object_id: str) -> bool:
     return False
 
 
-def create_origin_object() -> ZimaObject:
+def create_origin_object(owner_id: str | None = None) -> ZimaObject:
     origin = ZimaObject(
         name="Origin",
         kind=ObjectKind.ORIGIN,
         combine_mode=CombineMode.NONE,
+        object_id=(
+            f"{owner_id}:origin"
+            if owner_id is not None
+            else uuid4().hex
+        ),
         locked=True,
         tree_exposure=TreeExposure.INTERNAL,
     )
@@ -1387,18 +1393,24 @@ def add_coordinate_system_children(parent: ZimaObject) -> None:
     if parent.kind != ObjectKind.OBJECT:
         return
     if not any(child.kind == ObjectKind.ORIGIN for child in parent.children):
-        parent.add_child(create_origin_object())
+        parent.add_child(create_origin_object(parent.object_id))
 
 
 def add_origin_children(parent: ZimaObject) -> None:
     parent.add_child(
-        ZimaObject(name="Point 0,0,0", kind=ObjectKind.POINT, locked=True)
+        ZimaObject(
+            name="Point 0,0,0",
+            kind=ObjectKind.POINT,
+            object_id=f"{parent.object_id}:point",
+            locked=True,
+        )
     )
     parent.add_child(
         ZimaObject(
             name="X Axis",
             kind=ObjectKind.AXIS,
             parameters={"axis": "x"},
+            object_id=f"{parent.object_id}:axis:x",
             locked=True,
         )
     )
@@ -1407,6 +1419,7 @@ def add_origin_children(parent: ZimaObject) -> None:
             name="Y Axis",
             kind=ObjectKind.AXIS,
             parameters={"axis": "y"},
+            object_id=f"{parent.object_id}:axis:y",
             locked=True,
         )
     )
@@ -1415,6 +1428,7 @@ def add_origin_children(parent: ZimaObject) -> None:
             name="Z Axis",
             kind=ObjectKind.AXIS,
             parameters={"axis": "z"},
+            object_id=f"{parent.object_id}:axis:z",
             locked=True,
         )
     )
@@ -1423,6 +1437,7 @@ def add_origin_children(parent: ZimaObject) -> None:
             name="XY Plane",
             kind=ObjectKind.PLANE,
             parameters={"plane": "xy"},
+            object_id=f"{parent.object_id}:plane:xy",
             locked=True,
         )
     )
@@ -1431,6 +1446,7 @@ def add_origin_children(parent: ZimaObject) -> None:
             name="YZ Plane",
             kind=ObjectKind.PLANE,
             parameters={"plane": "yz"},
+            object_id=f"{parent.object_id}:plane:yz",
             locked=True,
         )
     )
@@ -1439,6 +1455,7 @@ def add_origin_children(parent: ZimaObject) -> None:
             name="XZ Plane",
             kind=ObjectKind.PLANE,
             parameters={"plane": "xz"},
+            object_id=f"{parent.object_id}:plane:xz",
             locked=True,
         )
     )

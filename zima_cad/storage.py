@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import io
+import json
 import math
 from pathlib import Path
 
@@ -150,8 +151,57 @@ def load_part_document(file_path: Path) -> PartDocument:
         obj for obj in document.root.children
         if obj.kind != ObjectKind.BODY
     ]
+    migrate_missing_system_references(document)
     validate_object_entities(document)
     return document
+
+
+def migrate_missing_system_references(document: PartDocument) -> None:
+    """Reconnect legacy references to randomly identified system geometry."""
+    origin = next(
+        (
+            child
+            for child in document.root.children
+            if child.kind == ObjectKind.ORIGIN
+        ),
+        None,
+    )
+    if origin is None:
+        return
+    system_entities = {child.name: child for child in origin.children}
+    for obj in walk_objects(document.root):
+        if obj.kind not in (ObjectKind.POINT, ObjectKind.AXIS):
+            continue
+        raw_references = obj.parameters.get("constraint_refs")
+        if raw_references is None:
+            continue
+        try:
+            references = json.loads(str(raw_references))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(references, list):
+            continue
+        changed = False
+        for reference in references:
+            if (
+                not isinstance(reference, dict)
+                or reference.get("type") != "entity"
+            ):
+                continue
+            object_id = str(reference.get("object_id", ""))
+            if object_id and document.find_object(object_id) is not None:
+                continue
+            replacement = system_entities.get(str(reference.get("label", "")))
+            if replacement is None:
+                continue
+            reference["object_id"] = replacement.object_id
+            reference["key"] = f"entity:{replacement.object_id}"
+            changed = True
+        if changed:
+            obj.parameters["constraint_refs"] = json.dumps(
+                references,
+                ensure_ascii=False,
+            )
 
 
 def normalize_physical_parameters(parameters: dict[str, str]) -> dict[str, str]:
@@ -364,9 +414,12 @@ def read_object(
         child_section = f"Object.{child_id}"
         if config.has_section(child_section):
             child = read_object(config, child_section, child_id)
-            if obj.kind == ObjectKind.OBJECT and child.kind == ObjectKind.POINT:
-                # A point entity is the visible geometric representation of its
-                # owning Object, not a second public item in the default tree.
+            if (
+                obj.kind == ObjectKind.OBJECT
+                and child.kind in (ObjectKind.POINT, ObjectKind.AXIS)
+            ):
+                # Point and axis entities are the geometric representation of
+                # their owning Object, not a second public tree item.
                 child.tree_exposure = TreeExposure.INTERNAL
             obj.add_child(child)
 
