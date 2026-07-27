@@ -3,6 +3,15 @@
 Prototype of a constructor-focused 3D CAD application based on OpenCascade,
 Python and Qt.
 
+Development plans and major feature milestones are tracked in
+[ROADMAP.md](ROADMAP.md).
+
+## License
+
+ZIMA-CAD is free software licensed under the GNU General Public License,
+version 3 or (at your option) any later version (`GPL-3.0-or-later`).
+See [LICENSE](LICENSE) for the license notice and warranty disclaimer.
+
 ## Run
 
 ```powershell

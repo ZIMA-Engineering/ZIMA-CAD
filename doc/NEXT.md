@@ -1,5 +1,55 @@
 # Next Work
 
+## In-View Dimension and Parameter Representation
+
+- Refine the `Edit` mode so 3D dimensions remain clear and readable for every
+  viewing direction and model size.
+- Review the placement of dimension lines, plane-like end rectangles and
+  editable value fields.
+- Prevent projected value fields from overlapping each other or obscuring
+  important model geometry.
+- Define consistent spacing and automatic offsets for solid dimensions and
+  object-position parameters.
+- Refine the representation of zero values so they remain visible and
+  editable without suggesting a false non-zero distance.
+- Finalize the color system:
+  - blue for sketches shown in the model;
+  - yellow for active parametric/system geometry and selection;
+  - cyan for dimensions;
+  - orange for the active dimension;
+  - red for invalid or conflicting dimensions.
+- Test legibility during rotate, pan and zoom, including dark and light
+  backgrounds.
+- Design angular arc dimensions for object rotation (`RX`, `RY`, `RZ`).
+- Later extend the same visual language from solids and object placement to
+  sketches, points, axes and planes.
+
+## Viewer Pan and Zoom Diagnostics
+
+- Investigate jerky pan and zoom while rotation remains smooth.
+- First run an isolated input test:
+  - pan using only `V3d_View::Pan()`;
+  - zoom using exactly one OCCT zoom operation;
+  - temporarily disable selection, hover detection, `FitAll()` and auxiliary
+    overlay updates.
+- Log each relevant input event:
+  - event type;
+  - current and previous pointer coordinates;
+  - calculated `dx` and `dy`;
+  - number of Pan, Zoom and Redraw calls caused by the event.
+- Verify that Qt and OCCT camera controls are not both processing one event.
+- Verify that pan uses the delta from the previous position and updates that
+  position after every step.
+- Check logical versus device-pixel coordinates and avoid unnecessary integer
+  rounding.
+- Check whether the fixed wheel factors (`1.25` / `0.8`) cause discrete zoom
+  jumps, especially for touchpads.
+- Test the cursor-anchor correction separately. One wheel event currently
+  performs `ZoomFactor()` followed by a corrective `Pan()`, making this the
+  primary suspected cause.
+- Confirm that pan and zoom do not invoke `FitAll()`, `ZFitAll()`, `Reset()` or
+  multiple redraws per event.
+
 ## Custom Objects
 
 - Continue with custom objects in the part tree.

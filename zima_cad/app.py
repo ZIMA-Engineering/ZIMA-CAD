@@ -46,6 +46,7 @@ from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_VE
 from OCC.Core.TopExp import TopExp_Explorer, topexp_MapShapesAndAncestors
 from OCC.Core.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 from OCC.Core.BRep import BRep_Tool
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GeomAbs import (
     GeomAbs_Cylinder,
@@ -108,6 +109,7 @@ from zima_cad.model import (
     make_plane_label_points,
     make_origin_shapes,
     multiply_transforms,
+    object_world_transform,
     transform_point,
     transform_shape,
 )
@@ -137,6 +139,8 @@ SKETCH_COLOR = Quantity_Color(1.0, 0.847, 0.302, Quantity_TOC_RGB)
 GREEN = Quantity_Color(Quantity_NOC_GREEN)
 RED = Quantity_Color(Quantity_NOC_RED)
 YELLOW = Quantity_Color(Quantity_NOC_YELLOW)
+DIMENSION_COLOR_RGB = (0.0, 0.82, 1.0)
+DIMENSION_COLOR = Quantity_Color(*DIMENSION_COLOR_RGB, Quantity_TOC_RGB)
 CENTERLINE_COLOR_RGB = PLANE_COLOR_RGB
 CENTERLINE_COLOR = Quantity_Color(*CENTERLINE_COLOR_RGB, Quantity_TOC_RGB)
 
@@ -2523,6 +2527,61 @@ def parse_material_file(
     return properties, descriptions, units
 
 
+class ParameterEditOverlay(QWidget):
+    """Small in-view prototype for editing one geometric dimension."""
+
+    valueCommitted = Signal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(82, 20)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        self.value_edit = QLineEdit(self)
+        self.value_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.value_edit.setGeometry(self.rect())
+        self.value_edit.setStyleSheet(
+            "QLineEdit {"
+            "background-color: #ffffff;"
+            "color: #202020;"
+            "border: 2px solid #00d1ff;"
+            "border-radius: 2px;"
+            "padding: 0px;"
+            "font-weight: bold;"
+            "}"
+            "QLineEdit:focus {"
+            "border: 2px solid #ff9800;"
+            "}"
+        )
+        self.value_edit.returnPressed.connect(
+            lambda: self.valueCommitted.emit(self.value_edit.text())
+        )
+        self.hide()
+
+    def show_value(self, value: str, unit: str) -> None:
+        self.value_edit.setText(value)
+        self.value_edit.setToolTip(unit)
+        self.show()
+        self.raise_()
+
+    def move_to(self, position: QPoint) -> None:
+        x = max(
+            0,
+            min(
+                position.x() - self.width() // 2,
+                self.parent().width() - self.width(),
+            ),
+        )
+        y = max(
+            0,
+            min(
+                position.y() - self.height() // 2,
+                self.parent().height() - self.height(),
+            ),
+        )
+        self.move(x, y)
+
+
 class ZimaViewer(qtViewer3d):
     rotation_sensitivity = 1.0
     rotation_radians_per_pixel = 0.004
@@ -2544,6 +2603,15 @@ class ZimaViewer(qtViewer3d):
             "background-color: #ffff00;"
         )
         self._endpoint_marker.hide()
+        self._parameter_edit_overlays: list[
+            tuple[ParameterEditOverlay, tuple[float, float, float]]
+        ] = []
+        self._parameter_overlay_timer = QTimer(self)
+        self._parameter_overlay_timer.setInterval(33)
+        self._parameter_overlay_timer.timeout.connect(
+            self._update_parameter_overlay_position
+        )
+        self._parameter_overlay_timer.start()
 
     def set_endpoint_marker(self, x: float, y: float) -> None:
         radius = ENDPOINT_MARKER_SIZE / 2.0
@@ -2556,6 +2624,45 @@ class ZimaViewer(qtViewer3d):
 
     def clear_endpoint_marker(self) -> None:
         self._endpoint_marker.hide()
+
+    def add_parameter_editor(
+        self,
+        anchor: tuple[float, float, float],
+        value: str,
+        unit: str,
+        commit_callback: Callable[[str], None],
+    ) -> None:
+        overlay = ParameterEditOverlay(self)
+        overlay.valueCommitted.connect(commit_callback)
+        self._parameter_edit_overlays.append((overlay, anchor))
+        overlay.show_value(value, unit)
+        self._update_parameter_overlay_position()
+
+    def clear_parameter_editors(self) -> None:
+        overlays = self._parameter_edit_overlays
+        self._parameter_edit_overlays = []
+        for overlay, _anchor in overlays:
+            overlay.hide()
+            overlay.deleteLater()
+
+    def _update_parameter_overlay_position(self) -> None:
+        if (
+            not self._parameter_edit_overlays
+            or not hasattr(self, "_display")
+            or not hasattr(self._display, "View")
+        ):
+            return
+        for overlay, anchor in self._parameter_edit_overlays:
+            try:
+                projected = self._display.View.Camera().Project(gp_Pnt(*anchor))
+            except (AttributeError, TypeError, RuntimeError):
+                continue
+            overlay.move_to(
+                QPoint(
+                    int(round((float(projected.X()) + 1.0) * 0.5 * self.width())),
+                    int(round((1.0 - float(projected.Y())) * 0.5 * self.height())),
+                )
+            )
 
     def _occ_mouse_position(self, event) -> tuple[int, int]:
         return self.occ_position(event.position())
@@ -2587,6 +2694,13 @@ class ZimaViewer(qtViewer3d):
                 )
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton:
+            window = self.window()
+            if (
+                self._parameter_edit_overlays
+                and hasattr(window, "_clear_edit_dimension_overlay")
+            ):
+                window._clear_edit_dimension_overlay()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
@@ -2655,6 +2769,14 @@ class ZimaViewer(qtViewer3d):
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._ignore_next_left_release = True
+            x, y = self._occ_mouse_position(event)
+            window = self.window()
+            if hasattr(window, "_on_view_double_clicked"):
+                window._on_view_double_clicked(
+                    event.position().toPoint(),
+                    x,
+                    y,
+                )
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -2807,6 +2929,8 @@ class MainWindow(QMainWindow):
         self.document: PartDocument | None = None
         self.current_file_path: Path | None = None
         self.working_directory = self.startup_context.working_directory
+        self._edit_dimension_ais: list[Any] = []
+        self._committing_edit_dimension = False
 
         self.tree = HistoryTreeWidget()
         self.tree.setHeaderLabels(
@@ -5554,6 +5678,7 @@ class MainWindow(QMainWindow):
             self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _on_tree_selection_changed(self) -> None:
+        self._clear_edit_dimension_overlay()
         self._history_source_cycle_active = False
         self._cycled_history_source_id = None
         self._reference_cycle_preview_id = None
@@ -6577,7 +6702,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -6589,7 +6716,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -6602,7 +6731,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -6685,6 +6816,15 @@ class MainWindow(QMainWindow):
                 self.create_sketch(obj.object_id, role)
             else:
                 self.create_sketch_on_plane(obj.object_id, role)
+        elif (
+            edit_values_action is not None
+            and action == edit_values_action
+            and obj is not None
+        ):
+            self._show_edit_overlays(
+                obj,
+                QPoint(self.viewer.width() // 2, self.viewer.height() // 2),
+            )
         elif (
             properties_action is not None
             and action == properties_action
@@ -7504,7 +7644,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -7516,7 +7658,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -7524,7 +7668,9 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(False)
+                    edit_values_action.setEnabled(
+                        self._first_editable_solid(obj) is not None
+                    )
                     properties_action = menu.addAction(
                         tr("menu.context.edit_definition")
                     )
@@ -7570,6 +7716,9 @@ class MainWindow(QMainWindow):
                 self.create_sketch(obj.object_id, role)
             else:
                 self.create_sketch_on_plane(obj.object_id, role)
+        elif edit_values_action is not None and action == edit_values_action:
+            local_position = self.viewer.mapFromGlobal(global_position)
+            self._show_edit_overlays(obj, local_position)
         elif properties_action is not None and action == properties_action:
             self._activate_object_for_editing(obj)
             self.show_properties(self._selected_object() or obj)
@@ -8589,6 +8738,348 @@ class MainWindow(QMainWindow):
             return None
         return self.document.find_object(self.selected_object_id)
 
+    def _on_view_double_clicked(
+        self,
+        position: QPoint,
+        x: int,
+        y: int,
+    ) -> bool:
+        """Open in-view parameter editors for the selected solid object."""
+        if (
+            self.document is None
+            or self.view_selection_mode != ViewSelectionMode.OBJECT
+        ):
+            return False
+        selected = self._selected_object()
+        if selected is None:
+            return False
+
+        candidates = self._view_candidates_under_cursor(x, y)
+        selected_source = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.object_id == selected.object_id
+                or self._object_contains(candidate, selected.object_id)
+            ),
+            None,
+        )
+        if selected_source is None:
+            return False
+
+        edit_target = (
+            selected
+            if self._first_editable_solid(selected) is not None
+            else selected_source
+        )
+        if self._first_editable_solid(edit_target) is None:
+            return False
+
+        return self._show_edit_overlays(edit_target, position)
+
+    def _show_edit_overlays(
+        self,
+        obj: ZimaObject,
+        _position: QPoint,
+    ) -> bool:
+        solid = self._first_editable_solid(obj)
+        if solid is None or self.document is None:
+            return False
+        world_transform = object_world_transform(self.document, solid.object_id)
+        if world_transform is None:
+            return False
+
+        dimension_keys = {
+            ObjectKind.BOX: ("length", "width", "height"),
+            ObjectKind.SPHERE: ("diameter",),
+            ObjectKind.CYLINDER: ("diameter", "height"),
+            ObjectKind.CONE: (
+                "bottom_diameter",
+                "top_diameter",
+                "height",
+            ),
+            ObjectKind.PYRAMID: ("length", "width", "height"),
+            ObjectKind.WEDGE: (
+                "length",
+                "width",
+                "height",
+                "top_offset",
+            ),
+        }.get(solid.kind, ())
+        values = {
+            key: float(solid.parameters.get(key, 0.0))
+            for key in dimension_keys
+        }
+        scale = max(
+            1.0,
+            *(
+                abs(value)
+                for value in values.values()
+                if math.isfinite(value)
+            ),
+        )
+        offset = max(3.0, scale * 0.2)
+        specs = self._solid_dimension_specs(solid, values, offset)
+        if not specs:
+            return False
+
+        self._clear_edit_dimension_overlay()
+        unit = str(solid.parameters.get("unit", "mm"))
+        for key, start, end, direction in specs:
+            anchor = self._display_edit_dimension(
+                world_transform,
+                start,
+                end,
+                direction,
+                scale,
+            )
+            self.viewer.add_parameter_editor(
+                anchor,
+                str(solid.parameters.get(key, "0")),
+                unit,
+                lambda text, object_id=solid.object_id, parameter=key: (
+                    self._commit_edit_parameter(object_id, parameter, text)
+                ),
+            )
+
+        owner = (
+            solid
+            if solid.kind == ObjectKind.OBJECT
+            else self.document.find_owning_object(solid.object_id)
+        )
+        if owner is not None:
+            self._display_placement_dimensions(owner, scale, offset)
+
+        self.viewer._display.Repaint()
+        self.statusBar().showMessage(f"Edit: {solid.name}")
+        return True
+
+    def _solid_dimension_specs(
+        self,
+        solid: ZimaObject,
+        values: dict[str, float],
+        offset: float,
+    ) -> list[
+        tuple[
+            str,
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ]:
+        length = values.get("length", values.get("bottom_diameter", 0.0))
+        width = values.get("width", length)
+        height = values.get("height", length)
+        if solid.kind == ObjectKind.BOX:
+            return [
+                ("length", (-length / 2, -width / 2 - offset, -height / 2),
+                 (length / 2, -width / 2 - offset, -height / 2), (1, 0, 0)),
+                ("width", (length / 2 + offset, -width / 2, -height / 2),
+                 (length / 2 + offset, width / 2, -height / 2), (0, 1, 0)),
+                ("height", (length / 2 + offset, width / 2 + offset, -height / 2),
+                 (length / 2 + offset, width / 2 + offset, height / 2), (0, 0, 1)),
+            ]
+        if solid.kind == ObjectKind.SPHERE:
+            diameter = values.get("diameter", 0.0)
+            return [("diameter", (-diameter / 2, 0, 0),
+                     (diameter / 2, 0, 0), (1, 0, 0))]
+        if solid.kind == ObjectKind.CYLINDER:
+            diameter = values.get("diameter", 0.0)
+            return [
+                ("diameter", (-diameter / 2, 0, -height / 2),
+                 (diameter / 2, 0, -height / 2), (1, 0, 0)),
+                ("height", (diameter / 2 + offset, 0, -height / 2),
+                 (diameter / 2 + offset, 0, height / 2), (0, 0, 1)),
+            ]
+        if solid.kind == ObjectKind.CONE:
+            bottom = values.get("bottom_diameter", 0.0)
+            top = values.get("top_diameter", 0.0)
+            radius = max(bottom, top) / 2
+            return [
+                ("bottom_diameter", (-bottom / 2, 0, 0),
+                 (bottom / 2, 0, 0), (1, 0, 0)),
+                ("top_diameter", (-top / 2, 0, height),
+                 (top / 2, 0, height), (1, 0, 0)),
+                ("height", (radius + offset, 0, 0),
+                 (radius + offset, 0, height), (0, 0, 1)),
+            ]
+        if solid.kind in (ObjectKind.PYRAMID, ObjectKind.WEDGE):
+            specs = [
+                ("length", (-length / 2, -width / 2 - offset, 0),
+                 (length / 2, -width / 2 - offset, 0), (1, 0, 0)),
+                ("width", (length / 2 + offset, -width / 2, 0),
+                 (length / 2 + offset, width / 2, 0), (0, 1, 0)),
+                ("height", (length / 2 + offset, width / 2 + offset, 0),
+                 (length / 2 + offset, width / 2 + offset, height), (0, 0, 1)),
+            ]
+            if solid.kind == ObjectKind.WEDGE:
+                top_offset = values.get("top_offset", 0.0)
+                specs.append(
+                    ("top_offset", (-length / 2, 0, height + offset),
+                     (-length / 2 + top_offset, 0, height + offset), (1, 0, 0))
+                )
+            return specs
+        return []
+
+    def _display_edit_dimension(
+        self,
+        transform,
+        local_start: tuple[float, float, float],
+        local_end: tuple[float, float, float],
+        direction: tuple[float, float, float],
+        scale: float,
+    ) -> tuple[float, float, float]:
+        visual_start = local_start
+        visual_end = local_end
+        if sum((local_end[i] - local_start[i]) ** 2 for i in range(3)) < 1e-12:
+            half = max(2.0, scale * 0.08)
+            visual_start = tuple(local_start[i] - direction[i] * half for i in range(3))
+            visual_end = tuple(local_end[i] + direction[i] * half for i in range(3))
+        handle = max(0.6, scale * 0.025)
+        axis_a = (0.0, 1.0, 0.0) if abs(direction[0]) > 0.5 else (1.0, 0.0, 0.0)
+        axis_b = (0.0, 0.0, 1.0) if abs(direction[2]) < 0.5 else (0.0, 1.0, 0.0)
+        segments = [(visual_start, visual_end)]
+        for endpoint in (visual_start, visual_end):
+            corners = [
+                tuple(endpoint[i] + sa * axis_a[i] * handle + sb * axis_b[i] * handle
+                      for i in range(3))
+                for sa, sb in ((-1, -1), (1, -1), (1, 1), (-1, 1))
+            ]
+            segments.extend(
+                (corners[index], corners[(index + 1) % 4])
+                for index in range(4)
+            )
+        display = self.viewer._display
+        for first_local, second_local in segments:
+            first = transform_point(transform, first_local)
+            second = transform_point(transform, second_local)
+            edge = BRepBuilderAPI_MakeEdge(gp_Pnt(*first), gp_Pnt(*second)).Edge()
+            ais_shapes = display.DisplayShape(edge, color=DIMENSION_COLOR, update=False)
+            for ais_shape in ais_shapes:
+                self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                ais_shape.SetWidth(2.0)
+                ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                display.Context.Deactivate(ais_shape)
+            self._edit_dimension_ais.extend(ais_shapes)
+        midpoint = tuple((visual_start[i] + visual_end[i]) / 2 for i in range(3))
+        return transform_point(transform, midpoint)
+
+    def _display_placement_dimensions(
+        self,
+        owner: ZimaObject,
+        scale: float,
+        offset: float,
+    ) -> None:
+        if self.document is None:
+            return
+        parent = self.document.find_parent(owner.object_id)
+        parent_transform = (
+            object_world_transform(self.document, parent.object_id)
+            if parent is not None and parent.kind != ObjectKind.PART
+            else identity_transform()
+        )
+        if parent_transform is None:
+            return
+        x, y, z = owner.coordinate_system.origin
+        specs = (
+            ("origin_x", x, (0.0, -offset, -offset), (x, -offset, -offset), (1, 0, 0)),
+            ("origin_y", y, (x + offset, 0.0, -offset), (x + offset, y, -offset), (0, 1, 0)),
+            ("origin_z", z, (x + offset, y + offset, 0.0), (x + offset, y + offset, z), (0, 0, 1)),
+        )
+        for key, value, start, end, direction in specs:
+            anchor = self._display_edit_dimension(
+                parent_transform, start, end, direction, scale
+            )
+            self.viewer.add_parameter_editor(
+                anchor,
+                f"{value:.12g}",
+                "mm",
+                lambda text, object_id=owner.object_id, parameter=key: (
+                    self._commit_edit_parameter(object_id, parameter, text)
+                ),
+            )
+
+    def _commit_edit_parameter(
+        self,
+        object_id: str,
+        parameter: str,
+        text: str,
+    ) -> None:
+        if (
+            self._committing_edit_dimension
+            or self.document is None
+        ):
+            return
+        obj = self.document.find_object(object_id)
+        if obj is None:
+            return
+        try:
+            value = float(text.strip().replace(",", "."))
+        except ValueError:
+            value = math.nan
+        allow_zero = parameter in ("top_diameter", "top_offset")
+        is_origin = parameter.startswith("origin_")
+        if (
+            not math.isfinite(value)
+            or (not is_origin and (value < 0.0 if allow_zero else value <= 0.0))
+        ):
+            self.statusBar().showMessage(
+                "Edit: neplatná číselná hodnota."
+            )
+            return
+
+        self._committing_edit_dimension = True
+        try:
+            if is_origin:
+                origin = list(obj.coordinate_system.origin)
+                origin[{"origin_x": 0, "origin_y": 1, "origin_z": 2}[parameter]] = value
+                obj.coordinate_system.origin = tuple(origin)
+            else:
+                obj.parameters[parameter] = f"{value:.12g}"
+            self._mark_model_for_regeneration()
+            self.rebuild_view(fit=False, rebuild_geometry=True)
+            owner = (
+                obj
+                if obj.kind == ObjectKind.OBJECT
+                else self.document.find_owning_object(obj.object_id) or obj
+            )
+            self._show_edit_overlays(owner, QPoint())
+        finally:
+            self._committing_edit_dimension = False
+
+    def _clear_edit_dimension_overlay(self) -> None:
+        was_committing = self._committing_edit_dimension
+        self._committing_edit_dimension = True
+        try:
+            self.viewer.clear_parameter_editors()
+        finally:
+            self._committing_edit_dimension = was_committing
+        ais_shapes = self._edit_dimension_ais
+        self._edit_dimension_ais = []
+        if hasattr(self, "_viewer_initialized"):
+            context = self.viewer._display.Context
+            for ais_shape in ais_shapes:
+                try:
+                    context.Remove(ais_shape, False)
+                except RuntimeError:
+                    pass
+
+    def _object_contains(self, parent: ZimaObject, object_id: str) -> bool:
+        return any(
+            child.object_id == object_id
+            or self._object_contains(child, object_id)
+            for child in parent.children
+        )
+
+    def _first_editable_solid(self, obj: ZimaObject) -> ZimaObject | None:
+        if obj.kind in SOLID_KINDS and not obj.locked:
+            return obj
+        for child in obj.children:
+            solid = self._first_editable_solid(child)
+            if solid is not None:
+                return solid
+        return None
+
     def _editable_selected_object(self) -> ZimaObject | None:
         obj = self._selected_object()
         if obj is None or obj.kind != ObjectKind.OBJECT:
@@ -9106,10 +9597,6 @@ class MainWindow(QMainWindow):
             ):
                 continue
             guide_shapes = self.document.source_highlight_shapes(obj)
-            if curved_entity.kind == ObjectKind.CYLINDER:
-                # The real circular boundary edges are already part of the
-                # model edge layer.  Only add the two longitudinal generators.
-                guide_shapes = guide_shapes[2:]
             for shape in guide_shapes:
                 ais_shapes = self.viewer._display.DisplayShape(
                     shape,
@@ -9119,6 +9606,11 @@ class MainWindow(QMainWindow):
                 for ais_shape in ais_shapes:
                     self._set_ais_display_mode(ais_shape, AIS_WireFrame)
                     ais_shape.SetWidth(1.0)
+                    # Curved solids need explicit guide curves because their
+                    # smooth rear contours are not topological model edges.
+                    # Keep the complete guides above the shaded body so sphere
+                    # and cylinder show all lines, consistently with a cube.
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                     self.viewer._display.Context.Deactivate(ais_shape)
                 self._nonselectable_ais_shapes.extend(ais_shapes)
                 self._model_edge_ais_by_object_id.setdefault(
