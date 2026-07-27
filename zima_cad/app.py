@@ -88,7 +88,6 @@ from zima_cad.model import (
     PlaneOnFaceAttachment,
     TreeExposure,
     ZimaObject,
-    apply_object_to_shape,
     solid_face_frames,
     coordinate_system_transform,
     create_empty_part,
@@ -173,7 +172,9 @@ class HistoryTreeWidget(QTreeWidget):
             event.button() == Qt.MouseButton.LeftButton
             and item is not None
             and item.data(0, self.ROLLBACK_ROLE)
+            and self.columnAt(event.position().toPoint().x()) == 0
         ):
+            self.setCurrentItem(item)
             self._dragging_rollback = True
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
@@ -361,6 +362,18 @@ class ObjectPropertiesDialog(QDialog):
         self.rx_spin = self._create_rotation_spinbox()
         self.ry_spin = self._create_rotation_spinbox()
         self.rz_spin = self._create_rotation_spinbox()
+        self.show_internal_entities_checkbox = QCheckBox(
+            tr("dialog.properties.show_internal_entities")
+        )
+        self.show_internal_entities_checkbox.setChecked(
+            obj.show_internal_entities
+        )
+        self.show_auxiliary_geometry_checkbox = QCheckBox(
+            tr("dialog.properties.show_auxiliary_geometry")
+        )
+        self.show_auxiliary_geometry_checkbox.setChecked(
+            obj.show_auxiliary_geometry
+        )
 
         x, y, z = obj.coordinate_system.origin
         self.x_spin.setValue(float(x))
@@ -382,6 +395,8 @@ class ObjectPropertiesDialog(QDialog):
         layout.addRow("RX", self.rx_spin)
         layout.addRow("RY", self.ry_spin)
         layout.addRow("RZ", self.rz_spin)
+        layout.addRow(self.show_internal_entities_checkbox)
+        layout.addRow(self.show_auxiliary_geometry_checkbox)
 
         attachment = obj.attachment
         if attachment is not None:
@@ -529,6 +544,12 @@ class ObjectPropertiesDialog(QDialog):
             self.ry_spin.value(),
             self.rz_spin.value(),
         )
+        self.object.show_internal_entities = (
+            self.show_internal_entities_checkbox.isChecked()
+        )
+        self.object.show_auxiliary_geometry = (
+            self.show_auxiliary_geometry_checkbox.isChecked()
+        )
         if self.detach_requested:
             self.object.attachment = None
         elif self.object.attachment is not None and self.primary_combo is not None:
@@ -627,19 +648,83 @@ class PrimitivePropertiesDialog(QDialog):
 
 
 class PointConstraintDialog(QDialog):
-    createRequested = Signal(list, tuple)
+    createRequested = Signal(list, tuple, str, bool, bool)
+    updateRequested = Signal(list, tuple, str, bool, bool)
+    referenceActivated = Signal(dict)
 
-    def __init__(self, solve_callback, parent=None) -> None:
+    def __init__(
+        self,
+        solve_callback,
+        parent=None,
+        *,
+        point_object: ZimaObject | None = None,
+        point_entity: ZimaObject | None = None,
+        suggested_name: str = "",
+        reference_exists_callback: Callable[[str], bool] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.solve_callback = solve_callback
-        self.references: list[dict[str, Any]] = []
-        self.setWindowTitle(tr("dialog.point_constraints.title"))
+        self.point_object = point_object
+        self.point_entity = point_entity
+        self.reference_exists_callback = (
+            reference_exists_callback or (lambda _object_id: True)
+        )
+        self.edit_mode = point_object is not None and point_entity is not None
+        self.references = self._stored_references(point_entity)
+        self.setWindowTitle(
+            tr(
+                "dialog.point_constraints.edit_title"
+                if self.edit_mode
+                else "dialog.point_constraints.title",
+                name=point_object.name if point_object is not None else suggested_name,
+            )
+        )
         self.setModal(False)
-        self.resize(420, 360)
+        self.resize(460, 520)
 
         layout = QVBoxLayout(self)
+        general = QFormLayout()
+        self.name_edit = QLineEdit(
+            point_object.name if point_object is not None else suggested_name
+        )
+        general.addRow(tr("dialog.properties.name"), self.name_edit)
+        self.show_internal_entities_checkbox = QCheckBox(
+            tr("dialog.properties.show_internal_entities")
+        )
+        self.show_internal_entities_checkbox.setChecked(
+            point_object.show_internal_entities
+            if point_object is not None
+            else False
+        )
+        self.show_auxiliary_geometry_checkbox = QCheckBox(
+            tr("dialog.properties.show_auxiliary_geometry")
+        )
+        self.show_auxiliary_geometry_checkbox.setChecked(
+            point_object.show_auxiliary_geometry
+            if point_object is not None
+            else False
+        )
+        general.addRow(self.show_internal_entities_checkbox)
+        general.addRow(self.show_auxiliary_geometry_checkbox)
+        layout.addLayout(general)
         layout.addWidget(QLabel(tr("dialog.point_constraints.instructions")))
         self.reference_list = QListWidget()
+        for index, reference in enumerate(self.references):
+            self.reference_list.addItem(
+                f"{index + 1}. {reference.get('label', reference.get('key', ''))}"
+            )
+        self._refresh_reference_item_warnings()
+        self.reference_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.reference_list.customContextMenuRequested.connect(
+            self._show_reference_context_menu
+        )
+        self.reference_list.itemClicked.connect(
+            lambda item: self._activate_reference(
+                self.reference_list.row(item)
+            )
+        )
         layout.addWidget(self.reference_list, 1)
         remove_button = QPushButton(tr("dialog.point_constraints.remove"))
         remove_button.clicked.connect(self._remove_selected)
@@ -654,6 +739,11 @@ class PointConstraintDialog(QDialog):
             edit.valueChanged.connect(self._update_solution)
             coordinates.addRow(axis, edit)
             self.coordinate_edits.append(edit)
+        fallback = self._stored_fallback(point_object, point_entity)
+        for edit, value in zip(self.coordinate_edits, fallback):
+            edit.blockSignals(True)
+            edit.setValue(value)
+            edit.blockSignals(False)
         layout.addLayout(coordinates)
         self.dof_label = QLabel()
         self.result_label = QLabel()
@@ -662,14 +752,55 @@ class PointConstraintDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | (
+                QDialogButtonBox.StandardButton.Apply
+                if self.edit_mode
+                else QDialogButtonBox.StandardButton.NoButton
+            )
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
         self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.clicked.connect(self._create)
+        self.ok_button.clicked.connect(self._submit_and_accept)
+        if self.edit_mode:
+            buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+                self._submit
+            )
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._update_solution()
+
+    @staticmethod
+    def _stored_references(
+        point_entity: ZimaObject | None,
+    ) -> list[dict[str, Any]]:
+        if point_entity is None:
+            return []
+        try:
+            references = json.loads(
+                str(point_entity.parameters.get("constraint_refs", "[]"))
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        return references if isinstance(references, list) else []
+
+    @staticmethod
+    def _stored_fallback(
+        point_object: ZimaObject | None,
+        point_entity: ZimaObject | None,
+    ) -> tuple[float, float, float]:
+        if point_object is None:
+            return (0.0, 0.0, 0.0)
+        values = point_object.coordinate_system.origin
+        if point_entity is None:
+            return values
+        try:
+            return tuple(
+                float(point_entity.parameters.get(f"fallback_{axis}", values[index]))
+                for index, axis in enumerate(("x", "y", "z"))
+            )
+        except (TypeError, ValueError):
+            return values
 
     def add_reference(self, reference: ZimaObject) -> None:
         if reference.kind not in (ObjectKind.AXIS, ObjectKind.PLANE):
@@ -712,6 +843,7 @@ class PointConstraintDialog(QDialog):
         self.reference_list.addItem(
             f"{len(self.references)}. {reference['label']}"
         )
+        self._refresh_reference_item_warnings()
         self._update_solution()
 
     def _remove_selected(self) -> None:
@@ -724,7 +856,55 @@ class PointConstraintDialog(QDialog):
             self.reference_list.item(index).setText(
                 f"{index + 1}. {reference['label']}"
             )
+        self._refresh_reference_item_warnings()
         self._update_solution()
+
+    def _refresh_reference_item_warnings(self) -> None:
+        for index, reference in enumerate(self.references):
+            item = self.reference_list.item(index)
+            if item is None:
+                continue
+            object_id = str(reference.get("object_id", "")).strip()
+            missing = bool(object_id) and not self.reference_exists_callback(
+                object_id
+            )
+            if missing:
+                label = str(
+                    reference.get("label", reference.get("key", object_id))
+                )
+                item.setBackground(QBrush(QColor("#8b2424")))
+                item.setForeground(QBrush(QColor("#ffffff")))
+                item.setToolTip(
+                    tr(
+                        "dialog.point_constraints.missing_reference",
+                        name=label,
+                    )
+                )
+            else:
+                item.setBackground(QBrush())
+                item.setForeground(QBrush())
+                item.setToolTip("")
+
+    def _show_reference_context_menu(self, position: QPoint) -> None:
+        item = self.reference_list.itemAt(position)
+        if item is None:
+            return
+        self.reference_list.setCurrentItem(item)
+        menu = QMenu(self)
+        delete_action = menu.addAction(
+            tr("dialog.point_constraints.delete_reference")
+        )
+        if (
+            menu.exec(
+                self.reference_list.viewport().mapToGlobal(position)
+            )
+            == delete_action
+        ):
+            self._remove_selected()
+
+    def _activate_reference(self, row: int) -> None:
+        if 0 <= row < len(self.references):
+            self.referenceActivated.emit(self.references[row])
 
     def _update_solution(self, _value: float | None = None) -> None:
         fallback = tuple(edit.value() for edit in self.coordinate_edits)
@@ -759,13 +939,26 @@ class PointConstraintDialog(QDialog):
             )
         self.ok_button.setEnabled(solution is not None)
 
-    def _create(self) -> None:
-        if self.solution is None:
-            return
-        self.createRequested.emit(
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if self.solution is None or not name:
+            return False
+        arguments = (
             self.references,
             tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            self.show_internal_entities_checkbox.isChecked(),
+            self.show_auxiliary_geometry_checkbox.isChecked(),
         )
+        if self.edit_mode:
+            self.updateRequested.emit(*arguments)
+        else:
+            self.createRequested.emit(*arguments)
+        return True
+
+    def _submit_and_accept(self) -> None:
+        if not self._submit():
+            return
         self.accept()
 
 
@@ -1797,6 +1990,20 @@ class ZimaViewer(qtViewer3d):
         window = self.window()
         if (
             event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and hasattr(window, "_select_projected_user_point")
+            and window._select_projected_user_point(x, y)
+        ):
+            event.accept()
+            return
+        if (
+            event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and hasattr(window, "_confirm_point_constraint_preview")
+            and window._confirm_point_constraint_preview(x, y)
+        ):
+            event.accept()
+            return
+        if (
+            event.modifiers() == Qt.KeyboardModifier.NoModifier
             and hasattr(window, "_confirm_preview_selection")
             and window._confirm_preview_selection()
         ):
@@ -1872,8 +2079,23 @@ class ZimaViewer(qtViewer3d):
             return
         x, y = self._occ_mouse_position(event)
         self._select_cycled_detection = False
-        self._display.MoveTo(x, y)
         window = self.window()
+        if (
+            hasattr(window, "_view_hover_selection_locked")
+            and window._view_hover_selection_locked()
+        ):
+            self._display.Context.ClearDetected(True)
+            if hasattr(window, "_on_view_hover_changed"):
+                window._on_view_hover_changed(None)
+            self.cursor = "arrow"
+            return
+        self._display.MoveTo(x, y)
+        if (
+            hasattr(window, "_preview_point_constraint_candidate")
+            and window._preview_point_constraint_candidate(x, y)
+        ):
+            self.cursor = "arrow"
+            return
         if hasattr(window, "_on_view_hover_changed"):
             detected_shape = None
             detected_interactive = None
@@ -1967,12 +2189,13 @@ class MainWindow(QMainWindow):
         self._coordinate_ais_by_object_id: dict[str, list[Any]] = {}
         self._coordinate_overlay_sources_by_object_id: dict[
             str,
-            list[tuple[Any, Any]],
+            list[tuple[Any, Any, bool]],
         ] = {}
         self._coordinate_highlight_overlay_ais: list[Any] = []
         self._nonselectable_ais_shapes: list[Any] = []
         self._cached_document = None
         self._cached_model_shapes: list[tuple[Any, str]] = []
+        self._cached_source_model_shapes: list[tuple[Any, str]] = []
         self.selected_face = None
         self.selected_face_object_id: str | None = None
         self._selected_face_overlay_ais: list[Any] = []
@@ -1986,10 +2209,22 @@ class MainWindow(QMainWindow):
         self._reference_cycle_preview_id: str | None = None
         self._view_candidate_cycle_ids: tuple[str, ...] = ()
         self._view_candidate_cycle_index = -1
+        self._point_constraint_cycle_keys: tuple[str, ...] = ()
+        self._point_constraint_cycle_index = -1
+        self._point_constraint_preview: tuple[str, Any] | None = None
         self.point_constraint_dialog: PointConstraintDialog | None = None
         self._pending_attachment_plane_id: str | None = None
 
         self.viewer = ZimaViewer(self)
+        self.regenerate_action = QAction(
+            tr("command.regenerate"),
+            self,
+        )
+        self.regenerate_action.setShortcut("F5")
+        self.regenerate_action.setToolTip(
+            tr("command.regenerate.tooltip")
+        )
+        self.regenerate_action.triggered.connect(self.regenerate_model)
 
         self.view_toolbar = QToolBar(tr("toolbar.view"))
         self.view_toolbar.setMovable(False)
@@ -2015,6 +2250,8 @@ class MainWindow(QMainWindow):
             }
             """
         )
+        self.view_toolbar.addAction(self.regenerate_action)
+        self.view_toolbar.addSeparator()
         self.reset_view_action = self.view_toolbar.addAction(
             tr("toolbar.reset_view")
         )
@@ -2175,6 +2412,10 @@ class MainWindow(QMainWindow):
         self.main_panel = QWidget()
         self.main_panel.setLayout(main_layout)
         self.setCentralWidget(self.main_panel)
+        # Create the status bar before the 3D viewer is initialized.  Creating
+        # it lazily for the first selection would shrink the viewport and make
+        # the model appear to jump backwards.
+        self.statusBar().clearMessage()
 
         self._create_menu_bar()
         self._rebuild_application_toolbar()
@@ -2183,7 +2424,6 @@ class MainWindow(QMainWindow):
         self.document_tabs.tabCloseRequested.connect(self.close_document_tab)
         self.tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.tree.itemClicked.connect(self._on_tree_item_clicked)
-        self.tree.itemDoubleClicked.connect(self._on_tree_item_double_clicked)
         self.tree.historyCursorMoved.connect(self._on_history_cursor_moved)
         self.tree.historyObjectMoved.connect(self._on_history_object_moved)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
@@ -2229,6 +2469,7 @@ class MainWindow(QMainWindow):
             if not enabled:
                 context.ClearDetected(True)
                 self._on_view_hover_changed(None)
+                self._clear_view_selection()
             self.viewer._display.Repaint()
         self.statusBar().showMessage(
             tr(
@@ -2386,21 +2627,37 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog.raise_()
             self.point_constraint_dialog.activateWindow()
             return
-        dialog = PointConstraintDialog(self._solve_point_constraints, self)
+        dialog = PointConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            suggested_name=self.document.next_object_name(tr("primitive.point")),
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+        )
         dialog.createRequested.connect(self._create_constrained_point)
+        dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _point_constraint_dialog_finished(self, _result: int) -> None:
         self.point_constraint_dialog = None
+        self._point_constraint_cycle_keys = ()
+        self._point_constraint_cycle_index = -1
+        self._point_constraint_preview = None
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _create_constrained_point(
         self,
         constraint_references: list[dict[str, Any]],
         fallback: tuple[float, float, float],
+        name: str,
+        show_internal_entities: bool,
+        show_auxiliary_geometry: bool,
     ) -> None:
         if self.document is None:
             return
@@ -2411,7 +2668,10 @@ class MainWindow(QMainWindow):
         if solution is None:
             return
         obj = self.document.create_object(tr("primitive.point"))
+        obj.name = name
         obj.coordinate_system.origin = solution
+        obj.show_internal_entities = show_internal_entities
+        obj.show_auxiliary_geometry = show_auxiliary_geometry
         point = self.document.create_point(obj.object_id)
         if point is None:
             self.document.delete_object(obj.object_id)
@@ -2429,8 +2689,139 @@ class MainWindow(QMainWindow):
             }
         )
         self._populate_tree()
-        self._select_tree_object(point.object_id)
+        self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
+
+    def _edit_point_object(
+        self,
+        obj: ZimaObject,
+        point: ZimaObject,
+    ) -> None:
+        if self.document is None:
+            return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        dialog = PointConstraintDialog(
+            self._solve_point_constraints,
+            self,
+            point_object=obj,
+            point_entity=point,
+            reference_exists_callback=lambda object_id: (
+                self.document is not None
+                and self.document.find_object(object_id) is not None
+            ),
+        )
+        dialog.updateRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary:
+                self._update_point_object(
+                    obj,
+                    point,
+                    references,
+                    fallback,
+                    name,
+                    show_internal,
+                    show_auxiliary,
+                )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        dialog.show()
+        QTimer.singleShot(0, lambda: self._position_point_dialog(dialog))
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _position_point_dialog(self, dialog: PointConstraintDialog) -> None:
+        if not dialog.isVisible():
+            return
+        available = self.screen().availableGeometry()
+        window_frame = self.frameGeometry()
+        margin = 24
+        x = min(
+            window_frame.right() - dialog.frameGeometry().width() - margin,
+            available.right() - dialog.frameGeometry().width() - margin,
+        )
+        y = max(window_frame.top() + margin, available.top() + margin)
+        dialog.move(max(available.left() + margin, x), y)
+
+    def _activate_point_reference(self, descriptor: dict[str, Any]) -> None:
+        if self.document is None:
+            return
+        object_id = str(descriptor.get("object_id", ""))
+        reference = self.document.find_object(object_id)
+        if reference is None:
+            return
+
+        tree_object_id = reference.object_id
+        if reference.tree_exposure == TreeExposure.INTERNAL:
+            owner = self.document.find_owning_object(reference.object_id)
+            if owner is not None and not owner.show_internal_entities:
+                tree_object_id = owner.object_id
+
+        self.selected_object_id = reference.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        if descriptor.get("type") == "face":
+            try:
+                topology_index = int(descriptor.get("topology_key", "0"))
+            except (TypeError, ValueError):
+                topology_index = 0
+            self.selected_face = self._subshape_by_index(
+                reference.object_id,
+                TopAbs_FACE,
+                topology_index,
+            )
+            if self.selected_face is not None:
+                self.selected_face_object_id = reference.object_id
+
+        root = self.tree.invisibleRootItem()
+        tree_item = self._find_tree_item(root, tree_object_id)
+        self.tree.blockSignals(True)
+        if tree_item is not None:
+            self.tree.setCurrentItem(tree_item)
+        else:
+            self.tree.clearSelection()
+        self.tree.blockSignals(False)
+        self._view_selection_confirmed = True
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _update_point_object(
+        self,
+        obj: ZimaObject,
+        point: ZimaObject,
+        constraint_references: list[dict[str, Any]],
+        fallback: tuple[float, float, float],
+        name: str,
+        show_internal_entities: bool,
+        show_auxiliary_geometry: bool,
+    ) -> None:
+        solution, _dof, _status, _constrained = self._solve_point_constraints(
+            constraint_references,
+            fallback,
+        )
+        if solution is None:
+            return
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.show_internal_entities = show_internal_entities
+        obj.show_auxiliary_geometry = show_auxiliary_geometry
+        point.parameters.update(
+            {
+                "constraint_refs": json.dumps(
+                    constraint_references,
+                    ensure_ascii=False,
+                ),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+            }
+        )
+        self._refresh_object_properties(obj)
 
     def _solve_point_constraints(
         self,
@@ -2700,6 +3091,7 @@ class MainWindow(QMainWindow):
         set_working_directory_action.triggered.connect(self.set_working_directory)
 
         self.edit_menu = self.menuBar().addMenu(tr("menu.edit"))
+        self.edit_menu.addAction(self.regenerate_action)
 
         view_menu = self.menuBar().addMenu(tr("menu.view"))
         view_menu.addAction(self.reset_view_action)
@@ -2822,12 +3214,38 @@ class MainWindow(QMainWindow):
             self.tree.blockSignals(signals_were_blocked)
 
     def _create_rollback_item(self) -> QTreeWidgetItem:
-        item = QTreeWidgetItem([tr("tree.insert_here"), "", ""])
+        visible = self.document.body_is_visible()
+        suppressed = self.document.body_is_suppressed()
+        item = QTreeWidgetItem(
+            [
+                tr("tree.body"),
+                "◉" if visible and not suppressed else "○",
+                "S" if suppressed else "",
+            ]
+        )
         item.setData(0, HistoryTreeWidget.ROLLBACK_ROLE, True)
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        item.setFirstColumnSpanned(True)
-        item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
+        item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            self.document.root.object_id,
+        )
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+        )
+        item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
+        item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(0, tr("tree.insert_here.tooltip"))
+        item.setToolTip(
+            1,
+            tr(
+                "tree.visibility.visible"
+                if visible and not suppressed
+                else "tree.visibility.hidden"
+            ),
+        )
+        if suppressed:
+            item.setToolTip(2, tr("tree.body.suppressed"))
         font = item.font(0)
         font.setBold(True)
         item.setFont(0, font)
@@ -2838,6 +3256,7 @@ class MainWindow(QMainWindow):
         if self.document is None or cursor == self.document.history_cursor():
             return
         self.document.set_history_cursor(cursor)
+        self._mark_model_for_regeneration()
         self.selected_face = None
         self.selected_face_object_id = None
         selected_id = self.selected_object_id
@@ -2855,6 +3274,7 @@ class MainWindow(QMainWindow):
             return
         if not self.document.move_history_object(object_id, target_index):
             return
+        self._mark_model_for_regeneration()
         self.selected_face = None
         self.selected_face_object_id = None
         self.selected_object_id = object_id
@@ -3313,8 +3733,14 @@ class MainWindow(QMainWindow):
         if hasattr(display, "View") and hasattr(display.View, "MustBeResized"):
             display.View.MustBeResized()
 
-    def _create_tree_item(self, obj: ZimaObject) -> QTreeWidgetItem | None:
+    def _create_tree_item(
+        self,
+        obj: ZimaObject,
+        show_internal: bool = True,
+    ) -> QTreeWidgetItem | None:
         if obj.tree_exposure == TreeExposure.HIDDEN:
+            return None
+        if obj.tree_exposure == TreeExposure.INTERNAL and not show_internal:
             return None
         if obj.kind == ObjectKind.POINT:
             name = self._point_display_name(obj)
@@ -3377,11 +3803,69 @@ class MainWindow(QMainWindow):
             for column in range(3):
                 item.setForeground(column, brush)
             item.setToolTip(2, tr("tree.state.suppressed"))
+        missing_references = self._missing_reference_labels(obj)
+        if missing_references and not effectively_suppressed:
+            warning_brush = QBrush(QColor("#8b2424"))
+            text_brush = QBrush(QColor("#ffffff"))
+            for column in range(3):
+                item.setBackground(column, warning_brush)
+                item.setForeground(column, text_brush)
+            item.setToolTip(
+                0,
+                tr(
+                    "tree.state.missing_references",
+                    names=", ".join(missing_references),
+                ),
+            )
         for child in obj.children:
-            child_item = self._create_tree_item(child)
+            child_item = self._create_tree_item(
+                child,
+                obj.show_internal_entities
+                if obj.kind == ObjectKind.OBJECT
+                else show_internal,
+            )
             if child_item is not None:
                 item.addChild(child_item)
         return item
+
+    def _missing_reference_labels(self, obj: ZimaObject) -> list[str]:
+        if self.document is None:
+            return []
+        labels: list[str] = []
+        candidates = [obj, *self._descendant_objects(obj)]
+        for candidate in candidates:
+            if candidate.kind != ObjectKind.POINT:
+                continue
+            try:
+                references = json.loads(
+                    str(candidate.parameters.get("constraint_refs", "[]"))
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(references, list):
+                continue
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                object_id = str(reference.get("object_id", "")).strip()
+                if (
+                    not object_id
+                    or self.document.find_object(object_id) is not None
+                ):
+                    continue
+                label = str(
+                    reference.get("label", reference.get("key", object_id))
+                )
+                if label not in labels:
+                    labels.append(label)
+        return labels
+
+    def _descendant_objects(self, parent: ZimaObject) -> list[ZimaObject]:
+        result: list[ZimaObject] = []
+        for child in parent.children:
+            result.append(child)
+            result.extend(self._descendant_objects(child))
+        return result
 
     def _point_display_name(self, point: ZimaObject) -> str:
         if self.document is None:
@@ -3391,6 +3875,19 @@ class MainWindow(QMainWindow):
             suffix = owner.name.removeprefix("Object")
             return f"Point{suffix}" if suffix.isdigit() else f"Point ({owner.name})"
         return "Point"
+
+    @staticmethod
+    def _user_point_entity(obj: ZimaObject | None) -> ZimaObject | None:
+        if obj is None or obj.kind != ObjectKind.OBJECT:
+            return None
+        return next(
+            (
+                child
+                for child in obj.children
+                if child.kind == ObjectKind.POINT and not child.locked
+            ),
+            None,
+        )
 
     def _on_selection_filter_changed(self) -> None:
         value = self.selection_filter_combo.currentData()
@@ -3436,6 +3933,18 @@ class MainWindow(QMainWindow):
         item: QTreeWidgetItem,
         column: int,
     ) -> None:
+        if (
+            self.document is not None
+            and item.data(0, HistoryTreeWidget.ROLLBACK_ROLE)
+        ):
+            if column == 1:
+                self.document.set_body_visible(
+                    not self.document.body_is_visible()
+                )
+                self._populate_tree()
+                self._select_tree_object(self.document.root.object_id)
+                self.rebuild_view(fit=False, rebuild_geometry=False)
+            return
         if column != 1:
             return
         obj = self._object_from_tree_item(item)
@@ -3453,11 +3962,7 @@ class MainWindow(QMainWindow):
         _column: int,
     ) -> None:
         obj = self._object_from_tree_item(item)
-        if (
-            obj is not None
-            and obj.kind != ObjectKind.OBJECT
-            and obj.kind not in SOLID_KINDS
-        ):
+        if obj is not None and obj.kind not in SOLID_KINDS:
             self.show_properties(obj)
 
     def _confirm_preview_selection(self) -> bool:
@@ -3487,14 +3992,23 @@ class MainWindow(QMainWindow):
         self._update_coordinate_label_highlights()
         return True
 
-    def _on_view_selection(self, shapes, _x: int, _y: int) -> None:
+    def _on_view_selection(self, shapes, x: int, y: int) -> None:
         if not self.view_selection_enabled:
             return
-        if not shapes:
+        projected_point_id = self._projected_user_point_id(x, y)
+        if not shapes and projected_point_id is None:
             self._clear_view_selection()
             return
-        selected_shape = shapes[0]
-        object_id = self._object_id_for_selected_shape(selected_shape)
+        selected_shape = shapes[0] if shapes else None
+        object_id = (
+            projected_point_id
+            or self._detected_user_point_id()
+            or (
+                self._object_id_for_selected_shape(selected_shape)
+                if selected_shape is not None
+                else None
+            )
+        )
         if object_id is None:
             return
 
@@ -3643,6 +4157,13 @@ class MainWindow(QMainWindow):
         self._hovered_coordinate_object_id = object_id
         self._update_coordinate_label_highlights()
 
+    def _view_hover_selection_locked(self) -> bool:
+        point_dialog_active = (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        )
+        return self._view_selection_confirmed and not point_dialog_active
+
     def _update_coordinate_label_highlights(self) -> None:
         if not hasattr(self, "_viewer_initialized"):
             return
@@ -3650,7 +4171,10 @@ class MainWindow(QMainWindow):
         selected = self.document.find_object(self.selected_object_id) if (
             self.document is not None and self.selected_object_id is not None
         ) else None
-        if selected is not None and selected.kind in (
+        selected_point = self._user_point_entity(selected)
+        if selected_point is not None:
+            selected_ids.add(selected_point.object_id)
+        elif selected is not None and selected.kind in (
             ObjectKind.OBJECT,
             ObjectKind.BODY,
             ObjectKind.ORIGIN,
@@ -3665,20 +4189,31 @@ class MainWindow(QMainWindow):
             self.document is not None
             and self._hovered_coordinate_object_id is not None
         ) else None
-        if hovered is not None and hovered.kind in (
+        hovered_point = self._user_point_entity(hovered)
+        if hovered_point is not None:
+            hovered_ids.add(hovered_point.object_id)
+        elif hovered is not None and hovered.kind in (
             ObjectKind.OBJECT,
             ObjectKind.BODY,
         ):
             hovered_ids.update(self._descendant_object_ids(hovered))
         whole_object_ids: set[str] = set()
-        if selected is not None and selected.kind in (
-            ObjectKind.OBJECT,
-            ObjectKind.BODY,
+        if (
+            selected_point is None
+            and selected is not None
+            and selected.kind in (
+                ObjectKind.OBJECT,
+                ObjectKind.BODY,
+            )
         ):
             whole_object_ids.update(selected_ids)
-        if hovered is not None and hovered.kind in (
-            ObjectKind.OBJECT,
-            ObjectKind.BODY,
+        if (
+            hovered_point is None
+            and hovered is not None
+            and hovered.kind in (
+                ObjectKind.OBJECT,
+                ObjectKind.BODY,
+            )
         ):
             whole_object_ids.update(hovered_ids)
 
@@ -3774,7 +4309,7 @@ class MainWindow(QMainWindow):
             if active:
                 active_coordinate_ids.add(object_id)
         for object_id in active_coordinate_ids:
-            for shape, transform_persistence in (
+            for shape, transform_persistence, topmost in (
                 self._coordinate_overlay_sources_by_object_id.get(object_id, [])
             ):
                 overlay_shapes = self.viewer._display.DisplayShape(
@@ -3783,8 +4318,11 @@ class MainWindow(QMainWindow):
                     update=False,
                 )
                 for overlay_shape in overlay_shapes:
-                    overlay_shape.SetZLayer(Graphic3d_ZLayerId_TopOSD)
-                    overlay_shape.SetTransformPersistence(transform_persistence)
+                    if topmost:
+                        overlay_shape.SetZLayer(Graphic3d_ZLayerId_TopOSD)
+                    overlay_shape.SetTransformPersistence(
+                        transform_persistence
+                    )
                     context.Deactivate(overlay_shape)
                 self._coordinate_highlight_overlay_ais.extend(overlay_shapes)
         active_coordinate_label_structures = []
@@ -3921,7 +4459,10 @@ class MainWindow(QMainWindow):
             )
 
     def _subshape_index(self, object_id: str, selected_shape) -> int:
-        for model_shape, candidate_id in self._selectable_model_shapes:
+        for model_shape, candidate_id in [
+            *self._selectable_model_shapes,
+            *self._cached_source_model_shapes,
+        ]:
             if candidate_id != object_id:
                 continue
             index = 0
@@ -3935,6 +4476,47 @@ class MainWindow(QMainWindow):
                     return index
                 explorer.Next()
         return 0
+
+    def _selectable_shape_owner_and_index(
+        self,
+        selected_shape,
+    ) -> tuple[str, int] | None:
+        shape_type = selected_shape.ShapeType()
+        for model_shape, object_id in [
+            *self._selectable_model_shapes,
+            *self._cached_source_model_shapes,
+        ]:
+            index = 0
+            explorer = TopExp_Explorer(model_shape, shape_type)
+            while explorer.More():
+                index += 1
+                if selected_shape.IsSame(explorer.Current()):
+                    return object_id, index
+                explorer.Next()
+        return None
+
+    def _subshape_by_index(
+        self,
+        object_id: str,
+        shape_type: int,
+        topology_index: int,
+    ):
+        if topology_index <= 0:
+            return None
+        for model_shape, candidate_id in [
+            *self._selectable_model_shapes,
+            *self._cached_source_model_shapes,
+        ]:
+            if candidate_id != object_id:
+                continue
+            index = 0
+            explorer = TopExp_Explorer(model_shape, shape_type)
+            while explorer.More():
+                index += 1
+                if index == topology_index:
+                    return explorer.Current()
+                explorer.Next()
+        return None
 
     def _object_id_for_selected_shape(self, selected_shape) -> str | None:
         for model_shape, object_id in [
@@ -3966,13 +4548,156 @@ class MainWindow(QMainWindow):
                 return self._selection_filtered_object_id(object_id)
         return None
 
-    def _selection_filtered_object_id(self, object_id: str) -> str:
+    def _detected_user_point_id(self) -> str | None:
         if (
-            self.view_selection_filter != ViewSelectionFilter.OBJECT
-            or self.document is None
+            self.document is None
+            or self.view_selection_mode == ViewSelectionMode.FACE
+            or self.view_selection_filter
+            not in (
+                ViewSelectionFilter.ALL,
+                ViewSelectionFilter.OBJECT,
+                ViewSelectionFilter.POINT,
+            )
         ):
+            return None
+        context = self.viewer._display.Context
+        try:
+            context.InitDetected()
+            while context.MoreDetected():
+                interactive = context.DetectedInteractive()
+                for object_id, ais_shapes in self._coordinate_ais_by_object_id.items():
+                    obj = self.document.find_object(object_id)
+                    if obj is None or obj.kind != ObjectKind.POINT or obj.locked:
+                        continue
+                    for ais_shape in ais_shapes:
+                        try:
+                            matches = (
+                                ais_shape == interactive
+                                or ais_shape.IsSame(interactive)
+                            )
+                        except (AttributeError, TypeError):
+                            matches = ais_shape == interactive
+                        if matches:
+                            return self._selection_filtered_object_id(object_id)
+                context.NextDetected()
+        except (AttributeError, RuntimeError):
+            return None
+        return None
+
+    def _projected_user_point_id(self, x: int, y: int) -> str | None:
+        if (
+            self.document is None
+            or (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            or self.view_selection_mode == ViewSelectionMode.FACE
+            or self.view_selection_filter
+            not in (
+                ViewSelectionFilter.ALL,
+                ViewSelectionFilter.OBJECT,
+                ViewSelectionFilter.POINT,
+            )
+        ):
+            return None
+
+        candidates: list[tuple[float, str]] = []
+        pixel_ratio = float(self.viewer.devicePixelRatioF())
+        pixel_radius = 18.0 * pixel_ratio
+        viewport_width = float(self.viewer.width()) * pixel_ratio
+        viewport_height = float(self.viewer.height()) * pixel_ratio
+        view = self.viewer._display.View
+        for obj in self.document.active_history_objects():
+            point = next(
+                (
+                    child
+                    for child in obj.children
+                    if child.kind == ObjectKind.POINT and not child.locked
+                ),
+                None,
+            )
+            if (
+                point is None
+                or not self.document.is_effectively_visible(obj.object_id)
+            ):
+                continue
+            transform = self._world_transform_for_object(obj)
+            world_point = transform_point(transform, (0.0, 0.0, 0.0))
+            projected = self._world_point_pixels(
+                view,
+                world_point,
+                viewport_width,
+                viewport_height,
+            )
+            if projected is None:
+                continue
+            projected_x, projected_y = projected
+            distance = (
+                (projected_x - x) ** 2
+                + (projected_y - y) ** 2
+            ) ** 0.5
+            if distance <= pixel_radius:
+                candidates.append(
+                    (
+                        distance,
+                        self._selection_filtered_object_id(point.object_id),
+                    )
+                )
+        return min(candidates)[1] if candidates else None
+
+    def _select_projected_user_point(self, x: int, y: int) -> bool:
+        object_id = self._projected_user_point_id(x, y)
+        if object_id is None or self.document is None:
+            return False
+        self.selected_object_id = object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = True
+        self._history_source_cycle_active = False
+        self._cycled_history_source_id = None
+        self._reference_cycle_preview_id = None
+        root = self.tree.invisibleRootItem()
+        item = self._find_tree_item(root, object_id)
+        self.tree.blockSignals(True)
+        if item is not None:
+            self.tree.setCurrentItem(item)
+        else:
+            self.tree.clearSelection()
+        self.tree.blockSignals(False)
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
+        return True
+
+    @staticmethod
+    def _world_point_pixels(
+        view,
+        world_point: tuple[float, float, float],
+        viewport_width: float,
+        viewport_height: float,
+    ) -> tuple[float, float] | None:
+        if viewport_width <= 0.0 or viewport_height <= 0.0:
+            return None
+        try:
+            projected = view.Camera().Project(gp_Pnt(*world_point))
+            return (
+                (float(projected.X()) + 1.0) * 0.5 * viewport_width,
+                (1.0 - float(projected.Y())) * 0.5 * viewport_height,
+            )
+        except (AttributeError, TypeError, RuntimeError):
+            return None
+
+    def _selection_filtered_object_id(self, object_id: str) -> str:
+        if self.document is None:
             return object_id
         obj = self.document.find_object(object_id)
+        if obj is None:
+            return object_id
+        if obj.tree_exposure == TreeExposure.INTERNAL:
+            owner = self.document.find_owning_object(obj.object_id)
+            if owner is not None and not owner.show_internal_entities:
+                return owner.object_id
+        if self.view_selection_filter != ViewSelectionFilter.OBJECT:
+            return object_id
         while obj is not None and obj.kind != ObjectKind.OBJECT:
             obj = self.document.find_parent(obj.object_id)
         return obj.object_id if obj is not None else object_id
@@ -3992,15 +4717,36 @@ class MainWindow(QMainWindow):
         create_axis_action = None
         create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
+        edit_values_action = None
         properties_action = None
         delete_action = None
         normal_view_action = None
         visibility_action = None
         suppress_action = None
+        body_visibility_action = None
+        body_suppress_action = None
         add_action = None
         subtract_action = None
 
-        if obj is None or obj.kind == ObjectKind.PART:
+        if (
+            item is not None
+            and item.data(0, HistoryTreeWidget.ROLLBACK_ROLE)
+        ):
+            body_visibility_action = menu.addAction(
+                tr(
+                    "menu.context.hide"
+                    if self.document.body_is_visible()
+                    else "menu.context.show"
+                )
+            )
+            body_suppress_action = menu.addAction(
+                tr(
+                    "menu.context.resume"
+                    if self.document.body_is_suppressed()
+                    else "menu.context.suppress"
+                )
+            )
+        elif obj is None or obj.kind == ObjectKind.PART:
             create_action = menu.addAction(tr("menu.context.create_object"))
         elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
@@ -4023,17 +4769,33 @@ class MainWindow(QMainWindow):
                     obj.can_accept_entity(ObjectKind.SKETCH, SketchRole.PROFILE)
                 )
                 if not obj.locked:
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
                     properties_action = menu.addAction(
-                        tr("menu.context.edit")
+                        tr("menu.context.edit_definition")
                     )
                     delete_action = menu.addAction(
                         tr("menu.context.delete_object")
                     )
             elif not obj.locked:
                 if obj.kind in SOLID_KINDS:
-                    properties_action = menu.addAction(tr("menu.context.edit"))
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
+                    properties_action = menu.addAction(
+                        tr("menu.context.edit_definition")
+                    )
                 elif obj.kind == ObjectKind.AXIS:
-                    properties_action = menu.addAction(tr("menu.context.properties"))
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
+                    properties_action = menu.addAction(
+                        tr("menu.context.edit_definition")
+                    )
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             operation_target = self._operation_target(obj)
             if operation_target is not None:
@@ -4103,7 +4865,8 @@ class MainWindow(QMainWindow):
             and action == properties_action
             and obj is not None
         ):
-            self.show_properties(obj)
+            self._activate_object_for_editing(obj)
+            self.show_properties(self._selected_object() or obj)
         elif delete_action is not None and action == delete_action and obj is not None:
             self.delete_object(obj.object_id)
         elif (
@@ -4118,6 +4881,10 @@ class MainWindow(QMainWindow):
             and obj is not None
         ):
             self._set_object_suppressed(obj, not obj.suppressed)
+        elif body_visibility_action is not None and action == body_visibility_action:
+            self._set_body_visibility(not self.document.body_is_visible())
+        elif body_suppress_action is not None and action == body_suppress_action:
+            self._set_body_suppressed(not self.document.body_is_suppressed())
         elif obj is not None and action in (add_action, subtract_action):
             target = self._operation_target(obj)
             if target is not None:
@@ -4133,13 +4900,21 @@ class MainWindow(QMainWindow):
             return
 
         x, y = self.viewer.occ_position(position)
-        self.viewer._display.MoveTo(x, y)
         context = self.viewer._display.Context
+        if self._view_hover_selection_locked():
+            context.ClearDetected(True)
+        else:
+            self.viewer._display.MoveTo(x, y)
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
         ):
-            self._cycle_point_constraint_candidate(context)
+            self._cycle_point_constraint_candidate(
+                context,
+                x,
+                y,
+                advance=True,
+            )
             return
         if self.view_selection_mode == ViewSelectionMode.OBJECT:
             selected = self._selected_object()
@@ -4289,53 +5064,432 @@ class MainWindow(QMainWindow):
         if action == create_action:
             self.create_new_object()
 
-    def _cycle_point_constraint_candidate(self, context) -> None:
-        """Cycle only through entities accepted by the point constraint tool."""
-        if not context.HasDetected():
+    def _preview_point_constraint_candidate(
+        self,
+        x: int,
+        y: int,
+    ) -> bool:
+        if (
+            self.point_constraint_dialog is None
+            or not self.point_constraint_dialog.isVisible()
+        ):
+            return False
+        self._cycle_point_constraint_candidate(
+            self.viewer._display.Context,
+            x,
+            y,
+            advance=False,
+        )
+        return True
+
+    def _cycle_point_constraint_candidate(
+        self,
+        context,
+        x: int,
+        y: int,
+        *,
+        advance: bool,
+    ) -> None:
+        """Cycle through detected edges/entities and every face hit by the ray."""
+        if self.document is None:
             return
-        rank = 1
-        detected_shape = None
-        for _attempt in range(64):
-            rank = context.HilightNextDetected(
-                self.viewer._display.View,
-                True,
-            )
-            detected_shape = (
-                context.DetectedShape()
-                if context.HasDetectedShape()
-                else None
-            )
-            candidate_id = self._object_id_for_detected(
-                detected_shape,
-                context.DetectedInteractive()
-                if context.HasDetected()
-                else None,
-            )
-            candidate = (
-                self.document.find_object(candidate_id)
-                if candidate_id is not None and self.document is not None
-                else None
-            )
-            shape_type = (
-                detected_shape.ShapeType()
-                if detected_shape is not None and not detected_shape.IsNull()
-                else None
-            )
-            if (
-                candidate is not None
-                and candidate.kind in (ObjectKind.AXIS, ObjectKind.PLANE)
-            ) or shape_type in (TopAbs_FACE, TopAbs_EDGE):
-                self._on_view_hover_changed(
+        candidates: list[tuple[str, str, Any]] = []
+        seen: set[str] = set()
+
+        if context.HasDetected():
+            seen_ranks: set[int] = set()
+            for _attempt in range(64):
+                detected_shape = (
+                    context.DetectedShape()
+                    if context.HasDetectedShape()
+                    else None
+                )
+                interactive = context.DetectedInteractive()
+                candidate_id = self._object_id_for_detected(
                     detected_shape,
-                    context.DetectedInteractive()
-                    if context.HasDetected()
-                    else None,
+                    interactive,
                 )
-                self.viewer._select_cycled_detection = True
-                self.statusBar().showMessage(
-                    tr("selection.status.cycled_face", rank=rank)
+                candidate = (
+                    self.document.find_object(candidate_id)
+                    if candidate_id is not None
+                    else None
                 )
-                return
+                shape_type = (
+                    detected_shape.ShapeType()
+                    if detected_shape is not None
+                    and not detected_shape.IsNull()
+                    else None
+                )
+                reference_entity = (
+                    candidate is not None
+                    and candidate.kind in (ObjectKind.AXIS, ObjectKind.PLANE)
+                )
+                topology_owner = (
+                    self._selectable_shape_owner_and_index(detected_shape)
+                    if shape_type == TopAbs_EDGE
+                    else None
+                )
+                accepted = reference_entity or topology_owner is not None
+                if accepted and candidate_id is not None:
+                    topology_index = 0
+                    if topology_owner is not None:
+                        candidate_id, topology_index = topology_owner
+                    key = f"{candidate_id}:{shape_type}:{topology_index}"
+                    if key not in seen:
+                        seen.add(key)
+                        candidates.append((key, candidate_id, detected_shape))
+                rank = context.HilightNextDetected(
+                    self.viewer._display.View,
+                    False,
+                )
+                if rank in seen_ranks:
+                    break
+                seen_ranks.add(rank)
+
+        for _distance, object_id, edge, topology_index in (
+            self._point_edges_under_cursor(x, y)
+        ):
+            key = f"{object_id}:{TopAbs_EDGE}:{topology_index}"
+            if key not in seen:
+                seen.add(key)
+                candidates.append((key, object_id, edge))
+
+        try:
+            px, py, pz, dx, dy, dz = (
+                self.viewer._display.View.ConvertWithProj(x, y)
+            )
+            ray = gp_Lin(gp_Pnt(px, py, pz), gp_Dir(dx, dy, dz))
+        except (TypeError, RuntimeError):
+            ray = None
+        face_hits: list[tuple[float, str, Any]] = []
+        if ray is not None:
+            ray_shapes = (
+                self._cached_source_model_shapes
+                or self._selectable_model_shapes
+            )
+            for model_shape, object_id in ray_shapes:
+                intersector = IntCurvesFace_ShapeIntersector()
+                intersector.Load(model_shape, 1e-7)
+                intersector.Perform(ray, 0.0, 1e100)
+                for hit_index in range(1, intersector.NbPnt() + 1):
+                    face_hits.append(
+                        (
+                            intersector.WParameter(hit_index),
+                            object_id,
+                            intersector.Face(hit_index),
+                        )
+                    )
+        for _distance, object_id, face in sorted(
+            face_hits,
+            key=lambda hit: hit[0],
+        ):
+            topology_index = self._subshape_index(object_id, face)
+            key = f"{object_id}:{TopAbs_FACE}:{topology_index}"
+            if key not in seen:
+                seen.add(key)
+                candidates.append((key, object_id, face))
+
+        if not candidates:
+            self._clear_point_constraint_preview()
+            return
+        keys = tuple(candidate[0] for candidate in candidates)
+        if not advance or keys != self._point_constraint_cycle_keys:
+            self._point_constraint_cycle_keys = keys
+            self._point_constraint_cycle_index = 0
+        else:
+            self._point_constraint_cycle_index = (
+                self._point_constraint_cycle_index + 1
+            ) % len(candidates)
+        _key, object_id, shape = candidates[self._point_constraint_cycle_index]
+        self._point_constraint_preview = (object_id, shape)
+        self.selected_object_id = object_id
+        self.selected_face = (
+            shape
+            if shape is not None
+            and not shape.IsNull()
+            and shape.ShapeType() == TopAbs_FACE
+            else None
+        )
+        self.selected_face_object_id = (
+            object_id if self.selected_face is not None else None
+        )
+        self._hovered_coordinate_object_id = object_id
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
+        candidate_object = self.document.find_object(object_id)
+        candidate_name = object_id
+        if candidate_object is not None:
+            shape_type = (
+                shape.ShapeType()
+                if shape is not None and not shape.IsNull()
+                else None
+            )
+            if candidate_object.kind in (ObjectKind.AXIS, ObjectKind.PLANE):
+                owner = self.document.find_owning_object(object_id)
+                candidate_name = (
+                    f"{owner.name} — {candidate_object.name}"
+                    if owner is not None
+                    else candidate_object.name
+                )
+            elif shape_type == TopAbs_FACE:
+                candidate_name = tr(
+                    "dialog.point_constraints.face_reference",
+                    name=candidate_object.name,
+                    index=self._subshape_index(object_id, shape),
+                )
+            elif shape_type == TopAbs_EDGE:
+                candidate_name = tr(
+                    "dialog.point_constraints.edge_reference",
+                    name=candidate_object.name,
+                    index=self._subshape_index(object_id, shape),
+                )
+            else:
+                candidate_name = candidate_object.name
+        self.statusBar().showMessage(
+            tr(
+                "selection.status.cycled_candidate",
+                rank=self._point_constraint_cycle_index + 1,
+                count=len(candidates),
+                name=candidate_name,
+            )
+        )
+
+    def _point_edges_under_cursor(
+        self,
+        x: int,
+        y: int,
+    ) -> list[tuple[float, str, Any, int]]:
+        pixel_ratio = float(self.viewer.devicePixelRatioF())
+        tolerance = 10.0 * pixel_ratio
+        viewport_width = float(self.viewer.width()) * pixel_ratio
+        viewport_height = float(self.viewer.height()) * pixel_ratio
+        view = self.viewer._display.View
+        hits: list[tuple[float, str, Any, int]] = []
+        shapes = self._cached_source_model_shapes or self._selectable_model_shapes
+        for model_shape, object_id in shapes:
+            edge_index = 0
+            explorer = TopExp_Explorer(model_shape, TopAbs_EDGE)
+            while explorer.More():
+                edge_index += 1
+                edge = explorer.Current()
+                adaptor = BRepAdaptor_Curve(edge)
+                if adaptor.GetType() != GeomAbs_Line:
+                    explorer.Next()
+                    continue
+                try:
+                    first = float(adaptor.FirstParameter())
+                    last = float(adaptor.LastParameter())
+                    first_point = adaptor.Value(first)
+                    last_point = adaptor.Value(last)
+                except (AttributeError, RuntimeError):
+                    explorer.Next()
+                    continue
+                first_pixels = self._world_point_pixels(
+                    view,
+                    (
+                        first_point.X(),
+                        first_point.Y(),
+                        first_point.Z(),
+                    ),
+                    viewport_width,
+                    viewport_height,
+                )
+                last_pixels = self._world_point_pixels(
+                    view,
+                    (
+                        last_point.X(),
+                        last_point.Y(),
+                        last_point.Z(),
+                    ),
+                    viewport_width,
+                    viewport_height,
+                )
+                if first_pixels is not None and last_pixels is not None:
+                    distance = self._point_to_segment_pixel_distance(
+                        float(x),
+                        float(y),
+                        first_pixels[0],
+                        first_pixels[1],
+                        last_pixels[0],
+                        last_pixels[1],
+                    )
+                    if distance <= tolerance:
+                        hits.append(
+                            (distance, object_id, edge, edge_index)
+                        )
+                explorer.Next()
+        hits.sort(key=lambda hit: hit[0])
+        return hits
+
+    @staticmethod
+    def _point_to_segment_pixel_distance(
+        px: float,
+        py: float,
+        ax: float,
+        ay: float,
+        bx: float,
+        by: float,
+    ) -> float:
+        dx = bx - ax
+        dy = by - ay
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 1e-12:
+            return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+        parameter = max(
+            0.0,
+            min(
+                1.0,
+                ((px - ax) * dx + (py - ay) * dy)
+                / length_squared,
+            ),
+        )
+        closest_x = ax + parameter * dx
+        closest_y = ay + parameter * dy
+        return (
+            (px - closest_x) ** 2
+            + (py - closest_y) ** 2
+        ) ** 0.5
+
+    def _confirm_point_constraint_preview(self, x: int, y: int) -> bool:
+        if (
+            self.point_constraint_dialog is None
+            or not self.point_constraint_dialog.isVisible()
+            or self.document is None
+        ):
+            return False
+        if not self._point_constraint_reference_under_cursor(x, y):
+            self._clear_point_constraint_preview()
+            return True
+        if self._point_constraint_preview is None:
+            return True
+        object_id, shape = self._point_constraint_preview
+        obj = self.document.find_object(object_id)
+        if obj is None:
+            return False
+        if obj.kind in (ObjectKind.AXIS, ObjectKind.PLANE):
+            self.point_constraint_dialog.add_reference(obj)
+        elif (
+            shape is not None
+            and not shape.IsNull()
+            and shape.ShapeType() in (TopAbs_FACE, TopAbs_EDGE)
+        ):
+            self._add_point_shape_constraint(obj, shape)
+        else:
+            return False
+        return True
+
+    def _point_constraint_reference_under_cursor(
+        self,
+        x: int,
+        y: int,
+    ) -> bool:
+        if (
+            self.document is None
+            or not hasattr(self, "_viewer_initialized")
+            or self._point_constraint_preview is None
+        ):
+            return False
+        preview_object_id, preview_shape = self._point_constraint_preview
+        preview_object = self.document.find_object(preview_object_id)
+        preview_shape_type = (
+            preview_shape.ShapeType()
+            if preview_shape is not None and not preview_shape.IsNull()
+            else None
+        )
+        preview_topology_index = (
+            self._subshape_index(preview_object_id, preview_shape)
+            if preview_shape_type in (TopAbs_FACE, TopAbs_EDGE)
+            else 0
+        )
+        if preview_shape_type == TopAbs_EDGE:
+            if any(
+                object_id == preview_object_id
+                and topology_index == preview_topology_index
+                for _distance, object_id, _edge, topology_index
+                in self._point_edges_under_cursor(x, y)
+            ):
+                return True
+        context = self.viewer._display.Context
+        self.viewer._display.MoveTo(x, y)
+        try:
+            context.InitDetected()
+            while context.MoreDetected():
+                shape = (
+                    context.DetectedShape()
+                    if context.HasDetectedShape()
+                    else None
+                )
+                object_id = self._object_id_for_detected(
+                    shape,
+                    context.DetectedInteractive(),
+                )
+                if (
+                    preview_object is not None
+                    and preview_object.kind in (
+                        ObjectKind.AXIS,
+                        ObjectKind.PLANE,
+                    )
+                    and object_id == preview_object_id
+                ):
+                    return True
+                if (
+                    preview_shape_type == TopAbs_EDGE
+                    and shape is not None
+                    and not shape.IsNull()
+                    and shape.ShapeType() == TopAbs_EDGE
+                ):
+                    owner_and_index = (
+                        self._selectable_shape_owner_and_index(shape)
+                    )
+                    if owner_and_index == (
+                        preview_object_id,
+                        preview_topology_index,
+                    ):
+                        return True
+                context.NextDetected()
+        except (AttributeError, RuntimeError):
+            pass
+        if preview_shape_type != TopAbs_FACE:
+            return False
+        try:
+            px, py, pz, dx, dy, dz = (
+                self.viewer._display.View.ConvertWithProj(x, y)
+            )
+            ray = gp_Lin(gp_Pnt(px, py, pz), gp_Dir(dx, dy, dz))
+        except (TypeError, RuntimeError):
+            return False
+        for model_shape, object_id in (
+            self._cached_source_model_shapes
+            or self._selectable_model_shapes
+        ):
+            if object_id != preview_object_id:
+                continue
+            intersector = IntCurvesFace_ShapeIntersector()
+            intersector.Load(model_shape, 1e-7)
+            intersector.Perform(ray, 0.0, 1e100)
+            for hit_index in range(1, intersector.NbPnt() + 1):
+                face = intersector.Face(hit_index)
+                if (
+                    self._subshape_index(object_id, face)
+                    == preview_topology_index
+                ):
+                    return True
+        return False
+
+    def _clear_point_constraint_preview(self) -> None:
+        self._point_constraint_cycle_keys = ()
+        self._point_constraint_cycle_index = -1
+        self._point_constraint_preview = None
+        self.selected_object_id = None
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._hovered_coordinate_object_id = None
+        self.viewer._select_cycled_detection = False
+        if hasattr(self, "_viewer_initialized"):
+            self.viewer._display.Context.ClearDetected(False)
+            self._highlight_selected_in_view()
+            self._update_coordinate_label_highlights()
+        self.statusBar().clearMessage()
 
     def _show_selected_view_context_menu(self, obj: ZimaObject, global_position) -> None:
         menu = QMenu(self)
@@ -4352,14 +5506,30 @@ class MainWindow(QMainWindow):
         create_axis_action = None
         create_sketch_action = None
         create_sketch_actions: dict[Any, SketchRole] = {}
+        edit_values_action = None
         properties_action = None
         delete_action = None
         normal_view_action = None
         visibility_action = None
         suppress_action = None
+        body_visibility_action = None
+        body_suppress_action = None
 
         if obj.kind == ObjectKind.PART:
-            pass
+            body_visibility_action = menu.addAction(
+                tr(
+                    "menu.context.hide"
+                    if self.document.body_is_visible()
+                    else "menu.context.show"
+                )
+            )
+            body_suppress_action = menu.addAction(
+                tr(
+                    "menu.context.resume"
+                    if self.document.body_is_suppressed()
+                    else "menu.context.suppress"
+                )
+            )
         elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             if self._is_object_reference_plane(obj):
@@ -4381,17 +5551,33 @@ class MainWindow(QMainWindow):
                     obj.can_accept_entity(ObjectKind.SKETCH, SketchRole.PROFILE)
                 )
                 if not obj.locked:
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
                     properties_action = menu.addAction(
-                        tr("menu.context.edit")
+                        tr("menu.context.edit_definition")
                     )
                     delete_action = menu.addAction(
                         tr("menu.context.delete_object")
                     )
             elif not obj.locked:
                 if obj.kind in SOLID_KINDS:
-                    properties_action = menu.addAction(tr("menu.context.edit"))
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
+                    properties_action = menu.addAction(
+                        tr("menu.context.edit_definition")
+                    )
                 elif obj.kind == ObjectKind.AXIS:
-                    properties_action = menu.addAction(tr("menu.context.properties"))
+                    edit_values_action = menu.addAction(
+                        tr("menu.context.edit_values")
+                    )
+                    edit_values_action.setEnabled(False)
+                    properties_action = menu.addAction(
+                        tr("menu.context.edit_definition")
+                    )
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             if not obj.locked:
                 menu.addSeparator()
@@ -4435,13 +5621,18 @@ class MainWindow(QMainWindow):
             else:
                 self.create_sketch_on_plane(obj.object_id, role)
         elif properties_action is not None and action == properties_action:
-            self.show_properties(obj)
+            self._activate_object_for_editing(obj)
+            self.show_properties(self._selected_object() or obj)
         elif delete_action is not None and action == delete_action:
             self.delete_object(obj.object_id)
         elif visibility_action is not None and action == visibility_action:
             self._set_object_visibility(obj, not obj.user_visible)
         elif suppress_action is not None and action == suppress_action:
             self._set_object_suppressed(obj, not obj.suppressed)
+        elif body_visibility_action is not None and action == body_visibility_action:
+            self._set_body_visibility(not self.document.body_is_visible())
+        elif body_suppress_action is not None and action == body_suppress_action:
+            self._set_body_suppressed(not self.document.body_is_suppressed())
 
     def _view_candidates_under_cursor(
         self,
@@ -4476,6 +5667,12 @@ class MainWindow(QMainWindow):
             for source in self._history_sources_under_cursor(x, y)
         ]
         candidate_ids: list[str] = list(source_ids)
+        projected_point_id = self._projected_user_point_id(x, y)
+        if (
+            projected_point_id is not None
+            and projected_point_id not in candidate_ids
+        ):
+            candidate_ids.append(projected_point_id)
         for detected_id in detected_ids:
             detected = self.document.find_object(detected_id)
             expanded_ids = (
@@ -4821,6 +6018,7 @@ class MainWindow(QMainWindow):
             return
 
         if self.document.delete_object(object_id):
+            self._mark_model_for_regeneration()
             self.selected_object_id = None
             self._populate_tree()
             self.rebuild_view(fit=False)
@@ -4839,14 +6037,62 @@ class MainWindow(QMainWindow):
         ):
             return
         obj.suppressed = suppressed
+        self._mark_model_for_regeneration()
         self.selected_face = None
         self.selected_face_object_id = None
         self._populate_tree()
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
 
+    def _set_body_visibility(self, visible: bool) -> None:
+        if self.document is None:
+            return
+        self.document.set_body_visible(visible)
+        self.selected_object_id = self.document.root.object_id
+        self._populate_tree()
+        self._select_tree_object(self.document.root.object_id)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _set_body_suppressed(self, suppressed: bool) -> None:
+        if self.document is None:
+            return
+        self.document.set_body_suppressed(suppressed)
+        self.selected_object_id = self.document.root.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._populate_tree()
+        self._select_tree_object(self.document.root.object_id)
+        self.rebuild_view(fit=False, rebuild_geometry=True)
+
+    def _activate_object_for_editing(self, obj: ZimaObject) -> ZimaObject:
+        """Synchronize the edit target between the tree and the 3D view."""
+        target = obj
+        if (
+            self.document is not None
+            and obj.tree_exposure == TreeExposure.INTERNAL
+        ):
+            owner = self.document.find_owning_object(obj.object_id)
+            if owner is not None and not owner.show_internal_entities:
+                target = owner
+        self.selected_object_id = target.object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = True
+        self._populate_tree()
+        self._select_tree_object(target.object_id)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+        return target
+
     def show_object_properties(self, obj: ZimaObject) -> None:
         if obj.kind != ObjectKind.OBJECT:
+            return
+        point_entities = [
+            child
+            for child in obj.children
+            if child.kind == ObjectKind.POINT and not child.locked
+        ]
+        if len(point_entities) == 1:
+            self._edit_point_object(obj, point_entities[0])
             return
 
         dialog = ObjectPropertiesDialog(obj, self.document, self)
@@ -4884,9 +6130,14 @@ class MainWindow(QMainWindow):
             self.show_axis_properties(obj)
 
     def _refresh_object_properties(self, obj: ZimaObject) -> None:
+        self._mark_model_for_regeneration()
         self._populate_tree()
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
+
+    def _mark_model_for_regeneration(self) -> None:
+        if self.document is not None:
+            self.document.regeneration_required = True
 
     def _add_sketch_role_menu(
         self,
@@ -4995,6 +6246,72 @@ class MainWindow(QMainWindow):
             return None
         return obj
 
+    def regenerate_model(self) -> None:
+        if self.document is None:
+            return
+
+        regenerated_points = 0
+        unresolved_points = 0
+        for obj in self.document.active_history_objects():
+            point = next(
+                (
+                    child
+                    for child in obj.children
+                    if child.kind == ObjectKind.POINT and not child.locked
+                ),
+                None,
+            )
+            if point is None:
+                continue
+            try:
+                references = json.loads(
+                    str(point.parameters.get("constraint_refs", "[]"))
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                references = []
+            if not isinstance(references, list):
+                references = []
+            fallback_values = obj.coordinate_system.origin
+            try:
+                fallback = tuple(
+                    float(
+                        point.parameters.get(
+                            f"fallback_{axis}",
+                            fallback_values[index],
+                        )
+                    )
+                    for index, axis in enumerate(("x", "y", "z"))
+                )
+            except (TypeError, ValueError):
+                fallback = fallback_values
+            solution, _dof, _status, _constrained = self._solve_point_constraints(
+                references,
+                fallback,
+            )
+            if solution is None:
+                unresolved_points += 1
+                continue
+            obj.coordinate_system.origin = solution
+            regenerated_points += 1
+
+        self.document.resolve_attachments()
+        self.document.regeneration_required = False
+        selected_id = self.selected_object_id
+        self._populate_tree()
+        if selected_id is not None:
+            self._select_tree_object(selected_id)
+        self.rebuild_view(fit=False, rebuild_geometry=True)
+        self.statusBar().showMessage(
+            tr(
+                "status.regeneration.complete"
+                if unresolved_points == 0
+                else "status.regeneration.incomplete",
+                count=regenerated_points,
+                unresolved=unresolved_points,
+            ),
+            5000,
+        )
+
     def rebuild_view(self, fit: bool = True, rebuild_geometry: bool = True) -> None:
         if self.document is not None and not hasattr(self, "_viewer_initialized"):
             self._ensure_viewer_initialized()
@@ -5021,29 +6338,46 @@ class MainWindow(QMainWindow):
         self._selected_model_overlay_ais.clear()
         self._hovered_model_overlay_ais.clear()
 
+        point_constraints_active = (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        )
         if self.document is not None:
             if rebuild_geometry or self._cached_document is not self.document:
                 self.document.resolve_attachments()
                 self._cached_document = self.document
                 self._cached_model_shapes = []
+                self._cached_source_model_shapes = []
                 shape = self.document.build_active_shape()
                 active_objects = self.document.active_history_objects()
                 if shape is not None and active_objects:
                     self._cached_model_shapes.append(
                         (shape, self.document.root.object_id)
                     )
-            for shape, owner_id in self._cached_model_shapes:
-                self._display_model_shape(shape, owner_id)
+                for source_object in active_objects:
+                    if not self.document.is_effectively_visible(
+                        source_object.object_id
+                    ):
+                        continue
+                    source_shape = self.document.build_standalone_shape(
+                        source_object
+                    )
+                    if source_shape is not None:
+                        self._cached_source_model_shapes.append(
+                            (source_shape, source_object.object_id)
+                        )
+            if self.document.body_is_visible() and not self.document.body_is_suppressed():
+                for shape, owner_id in self._cached_model_shapes:
+                    self._display_model_shape(shape, owner_id)
+            else:
+                for shape, owner_id in self._cached_source_model_shapes:
+                    self._display_model_shape(shape, owner_id)
 
             self._display_origin()
             self._display_sketches()
 
         if fit:
             display.FitAll()
-        point_constraints_active = (
-            self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
-        )
         if point_constraints_active:
             # Edges have a very narrow hit area compared with faces.  A wider
             # point-picking tolerance plus a higher edge sensitivity lets the
@@ -5106,6 +6440,19 @@ class MainWindow(QMainWindow):
             for ais_shape in ais_shapes:
                 if enabled:
                     display.Context.Activate(ais_shape, 0, True)
+                    try:
+                        selection_owner = ais_shape.GlobalSelOwner()
+                        selection_owner.SetPriority(
+                            9
+                            if obj.kind == ObjectKind.POINT and not obj.locked
+                            else 2
+                            if obj.kind == ObjectKind.AXIS
+                            else 1
+                            if obj.kind == ObjectKind.PLANE
+                            else 0
+                        )
+                    except (AttributeError, RuntimeError):
+                        pass
                     if point_constraints_active:
                         display.Context.SetSelectionSensitivity(
                             ais_shape,
@@ -5231,9 +6578,36 @@ class MainWindow(QMainWindow):
         if self.selected_object_id is None:
             context.UpdateSelected(True)
             return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self._point_constraint_preview is not None
+        ):
+            _preview_object_id, preview_shape = self._point_constraint_preview
+            if (
+                preview_shape is not None
+                and not preview_shape.IsNull()
+                and preview_shape.ShapeType() == TopAbs_EDGE
+            ):
+                ais_shapes = self.viewer._display.DisplayShape(
+                    preview_shape,
+                    color=YELLOW,
+                    update=False,
+                )
+                for ais_shape in ais_shapes:
+                    self._set_ais_display_mode(ais_shape, AIS_WireFrame)
+                    ais_shape.SetWidth(3.0)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    context.Deactivate(ais_shape)
+                self._selected_model_overlay_ais.extend(ais_shapes)
+                context.UpdateSelected(True)
+                return
         selected_ids = {self.selected_object_id}
         selected = self.document.find_object(self.selected_object_id) if self.document else None
-        if selected is not None and selected.kind in (
+        selected_point = self._user_point_entity(selected)
+        if selected_point is not None:
+            selected_ids.add(selected_point.object_id)
+        elif selected is not None and selected.kind in (
             ObjectKind.OBJECT,
             ObjectKind.BODY,
             ObjectKind.ORIGIN,
@@ -5502,7 +6876,7 @@ class MainWindow(QMainWindow):
         label_point = gp_Pnt(
             *transform_point(
                 parent_transform,
-                tuple(value * length * 0.56 for value in direction),
+                tuple(value * length * 0.5 for value in direction),
             )
         )
         structures = []
@@ -5572,8 +6946,23 @@ class MainWindow(QMainWindow):
             else make_origin_shapes(size=size, origin=shape_origin, plane_scale=2.0)
         )
         if coordinate_transform is not None:
+            has_user_point = (
+                coordinate_owner is not None
+                and coordinate_owner.kind == ObjectKind.OBJECT
+                and any(
+                    child.kind == ObjectKind.POINT and not child.locked
+                    for child in coordinate_owner.children
+                )
+            )
             shapes = {
-                key: self._transform_origin_shape(shape, coordinate_transform)
+                key: (
+                    shape
+                    if key == "point" and has_user_point
+                    else self._transform_origin_shape(
+                        shape,
+                        coordinate_transform,
+                    )
+                )
                 for key, shape in shapes.items()
             }
         visible_keys = {
@@ -5617,7 +7006,9 @@ class MainWindow(QMainWindow):
         if child_id is not None and child_id == self.selected_object_id:
             return True
         if owner is not None and self.selected_object_id == owner.object_id:
-            return True
+            if key == "point":
+                return True
+            return owner.show_auxiliary_geometry
         if owner is not None and owner.kind == ObjectKind.OBJECT:
             internal_origin = next(
                 (child for child in owner.children if child.kind == ObjectKind.ORIGIN),
@@ -5628,6 +7019,18 @@ class MainWindow(QMainWindow):
                 and self.selected_object_id == internal_origin.object_id
             ):
                 return True
+            if not owner.show_auxiliary_geometry:
+                if key == "point":
+                    point_entity = next(
+                        (
+                            child
+                            for child in owner.children
+                            if child.kind == ObjectKind.POINT and not child.locked
+                        ),
+                        None,
+                    )
+                    return point_entity is not None
+                return False
         coordinate = (
             self.document.find_object(child_id)
             if self.document is not None and child_id is not None
@@ -5659,13 +7062,28 @@ class MainWindow(QMainWindow):
         coordinate_owner: ZimaObject | None,
     ) -> None:
         coordinate_object_id = self._coordinate_child_id(coordinate_owner, key)
+        coordinate_object = (
+            self.document.find_object(coordinate_object_id)
+            if self.document is not None and coordinate_object_id is not None
+            else None
+        )
+        is_user_point = (
+            key == "point"
+            and coordinate_object is not None
+            and coordinate_object.kind == ObjectKind.POINT
+            and not coordinate_object.locked
+        )
+        # User-authored reference geometry stays visible even when it lies on
+        # or inside a solid.  Its local shape is positioned exactly once by
+        # transform persistence, so using the top layer no longer displaces it.
+        topmost = True
         if coordinate_object_id is not None:
             for item in shape if isinstance(shape, list) else [shape]:
                 self._coordinate_shapes.append((item, coordinate_object_id))
                 self._coordinate_overlay_sources_by_object_id.setdefault(
                     coordinate_object_id,
                     [],
-                ).append((item, transform_persistence))
+                ).append((item, transform_persistence, topmost))
         if key == selected_key:
             ais_shapes = self._display_overlay_shape(
                 shape,
@@ -5673,6 +7091,8 @@ class MainWindow(QMainWindow):
                 transparency=0.0,
                 transform_persistence=transform_persistence,
                 selection_sensitivity=32 if key.endswith("_axis") or key == "point" else 18,
+                topmost=topmost,
+                selection_priority=9 if is_user_point else 0,
             )
             if coordinate_object_id is not None:
                 self._coordinate_ais_shapes.extend(ais_shapes)
@@ -5687,12 +7107,19 @@ class MainWindow(QMainWindow):
             transparency=transparency,
             transform_persistence=transform_persistence,
             selection_sensitivity=32 if key.endswith("_axis") or key == "point" else 18,
+            topmost=topmost,
+            selection_priority=9 if is_user_point else 0,
         )
         if key.endswith("_axis") or key == "point":
             highlight = Prs3d_Drawer()
             highlight.SetColor(Quantity_Color(Quantity_NOC_YELLOW))
             highlight.SetDisplayMode(AIS_Shaded)
-            highlight.SetZLayer(Graphic3d_ZLayerId_Topmost)
+            if topmost:
+                highlight.SetZLayer(
+                    Graphic3d_ZLayerId_TopOSD
+                    if is_user_point
+                    else Graphic3d_ZLayerId_Topmost
+                )
             for ais_shape in ais_shapes:
                 ais_shape.SetDynamicHilightAttributes(highlight)
                 ais_shape.SetHilightAttributes(highlight)
@@ -5746,6 +7173,8 @@ class MainWindow(QMainWindow):
         transparency: float,
         transform_persistence,
         selection_sensitivity: int = 18,
+        topmost: bool = True,
+        selection_priority: int = 0,
     ):
         ais_shapes = self.viewer._display.DisplayShape(
             shape,
@@ -5754,9 +7183,23 @@ class MainWindow(QMainWindow):
             update=False,
         )
         for ais_shape in ais_shapes:
-            ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+            if topmost:
+                ais_shape.SetZLayer(
+                    Graphic3d_ZLayerId_TopOSD
+                    if selection_priority > 0
+                    else Graphic3d_ZLayerId_Topmost
+                )
             ais_shape.SetTransformPersistence(transform_persistence)
             self.viewer._display.Context.RecomputeSelectionOnly(ais_shape)
+            try:
+                selection_owner = ais_shape.GlobalSelOwner()
+                selection_owner.SetPriority(selection_priority)
+                if selection_priority > 0 and topmost:
+                    selection_owner.SetZLayer(
+                        Graphic3d_ZLayerId_TopOSD
+                    )
+            except (AttributeError, RuntimeError):
+                pass
             for selection_mode in (0,):
                 try:
                     self.viewer._display.Context.SetSelectionSensitivity(

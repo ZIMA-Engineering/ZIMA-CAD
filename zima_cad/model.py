@@ -31,6 +31,8 @@ def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
         "format_version": "6",
+        "body_visible": "true",
+        "body_suppressed": "false",
     }
 
 
@@ -234,6 +236,8 @@ class ZimaObject:
     user_visible: bool = True
     suppressed: bool = False
     tree_exposure: TreeExposure = TreeExposure.PUBLIC
+    show_internal_entities: bool = False
+    show_auxiliary_geometry: bool = False
 
     def add_child(self, child: "ZimaObject") -> None:
         self.children.append(child)
@@ -329,6 +333,7 @@ class ZimaObject:
 
 @dataclass
 class PartDocument:
+    regeneration_required: bool = False
     document_settings: dict[str, str] = field(default_factory=default_document_settings)
     document_units: dict[str, str] = field(default_factory=default_document_units)
     document_precision: dict[str, str] = field(default_factory=default_document_precision)
@@ -382,6 +387,18 @@ class PartDocument:
         self.document_settings["history_cursor"] = str(
             max(0, min(cursor, len(self.history_objects())))
         )
+
+    def body_is_visible(self) -> bool:
+        return self.document_settings.get("body_visible", "true").lower() == "true"
+
+    def set_body_visible(self, visible: bool) -> None:
+        self.document_settings["body_visible"] = str(visible).lower()
+
+    def body_is_suppressed(self) -> bool:
+        return self.document_settings.get("body_suppressed", "false").lower() == "true"
+
+    def set_body_suppressed(self, suppressed: bool) -> None:
+        self.document_settings["body_suppressed"] = str(suppressed).lower()
 
     def move_history_object(self, object_id: str, target_index: int) -> bool:
         history = self.history_objects()
@@ -565,6 +582,7 @@ class PartDocument:
             name=next_child_name(parent, "Point"),
             kind=ObjectKind.POINT,
             parameters={"unit": "mm"},
+            tree_exposure=TreeExposure.INTERNAL,
         )
         parent.add_child(point)
         return point
@@ -718,6 +736,8 @@ class PartDocument:
 
     def build_active_shape(self):
         """Build the automatic solid result up to the history cursor."""
+        if self.body_is_suppressed():
+            return None
         result_shape = None
         for obj in self.active_history_objects():
             result_shape = apply_object_to_shape(
@@ -1357,6 +1377,7 @@ def create_origin_object() -> ZimaObject:
         kind=ObjectKind.ORIGIN,
         combine_mode=CombineMode.NONE,
         locked=True,
+        tree_exposure=TreeExposure.INTERNAL,
     )
     add_origin_children(origin)
     return origin

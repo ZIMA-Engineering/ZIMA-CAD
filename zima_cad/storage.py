@@ -246,6 +246,8 @@ def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
         "user_visible": str(obj.user_visible).lower(),
         "suppressed": str(obj.suppressed).lower(),
         "tree_exposure": obj.tree_exposure.value,
+        "show_internal_entities": str(obj.show_internal_entities).lower(),
+        "show_auxiliary_geometry": str(obj.show_auxiliary_geometry).lower(),
     }
     if obj.kind == ObjectKind.OBJECT:
         config[section]["TYPE"] = obj.object_type.value
@@ -306,6 +308,16 @@ def read_object(
         object_id=config.get(section, "id", fallback=object_id),
         user_visible=config.getboolean(section, "user_visible", fallback=True),
         suppressed=config.getboolean(section, "suppressed", fallback=False),
+        show_internal_entities=config.getboolean(
+            section,
+            "show_internal_entities",
+            fallback=False,
+        ),
+        show_auxiliary_geometry=config.getboolean(
+            section,
+            "show_auxiliary_geometry",
+            fallback=False,
+        ),
         tree_exposure=TreeExposure(
             config.get(
                 section,
@@ -351,7 +363,12 @@ def read_object(
     for child_id in child_ids:
         child_section = f"Object.{child_id}"
         if config.has_section(child_section):
-            obj.add_child(read_object(config, child_section, child_id))
+            child = read_object(config, child_section, child_id)
+            if obj.kind == ObjectKind.OBJECT and child.kind == ObjectKind.POINT:
+                # A point entity is the visible geometric representation of its
+                # owning Object, not a second public item in the default tree.
+                child.tree_exposure = TreeExposure.INTERNAL
+            obj.add_child(child)
 
     return obj
 
