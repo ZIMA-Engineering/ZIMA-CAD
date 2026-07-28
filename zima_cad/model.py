@@ -452,6 +452,26 @@ class PartDocument:
     def active_history_objects(self) -> list[ZimaObject]:
         return self.history_objects()[:self.history_cursor()]
 
+    def history_index(self, object_id: str) -> int | None:
+        return next(
+            (
+                index
+                for index, obj in enumerate(self.history_objects())
+                if obj.object_id == object_id
+            ),
+            None,
+        )
+
+    def history_objects_at(self, cursor: int) -> list[ZimaObject]:
+        history = self.history_objects()
+        return history[:max(0, min(cursor, len(history)))]
+
+    def history_objects_before(self, object_id: str) -> list[ZimaObject]:
+        index = self.history_index(object_id)
+        return self.history_objects_at(
+            len(self.history_objects()) if index is None else index
+        )
+
     def find_object(self, object_id: str) -> ZimaObject | None:
         return find_child_object(self.root, object_id)
 
@@ -503,14 +523,11 @@ class PartDocument:
         return parent
 
     def is_effectively_visible(self, object_id: str) -> bool:
-        if self.is_effectively_suppressed(object_id):
-            return False
-        obj = self.find_object(object_id)
-        while obj is not None:
-            if not obj.user_visible or obj.suppressed:
-                return False
-            obj = self.find_parent(obj.object_id)
-        return True
+        # Per-object visibility was removed when the automatic Body became
+        # authoritative.  Keep reading the legacy field for file
+        # compatibility, but it must no longer leave old documents hidden
+        # without any corresponding control in the UI.
+        return not self.is_effectively_suppressed(object_id)
 
     def is_effectively_suppressed(self, object_id: str) -> bool:
         obj = self.find_object(object_id)
@@ -780,10 +797,34 @@ class PartDocument:
 
     def build_active_shape(self):
         """Build the automatic solid result up to the history cursor."""
+        return self.build_shape_at(self.history_cursor())
+
+    def build_shape_before(self, object_id: str):
+        """Build the automatic solid result immediately before an object."""
+        index = self.history_index(object_id)
+        return self.build_shape_at(
+            len(self.history_objects()) if index is None else index
+        )
+
+    def build_shape_at(self, cursor: int):
+        """Build the automatic solid result at an explicit history boundary."""
+        return self.build_shape_for_objects(self.history_objects_at(cursor))
+
+    def build_shape_for_object_ids(self, object_ids: list[str]):
+        """Build a history snapshot from stable source object IDs."""
+        objects = []
+        for object_id in object_ids:
+            obj = self.find_object(object_id)
+            if obj is not None and obj.kind == ObjectKind.OBJECT:
+                objects.append(obj)
+        return self.build_shape_for_objects(objects)
+
+    def build_shape_for_objects(self, objects: list[ZimaObject]):
+        """Build an automatic solid result from an explicit object sequence."""
         if self.body_is_suppressed():
             return None
         result_shape = None
-        for obj in self.active_history_objects():
+        for obj in objects:
             result_shape = apply_object_to_shape(
                 result_shape,
                 obj,

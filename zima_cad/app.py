@@ -54,8 +54,25 @@ from OCC.Core.GeomAbs import (
     GeomAbs_Plane,
     GeomAbs_Sphere,
 )
-from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QKeySequence
-from PySide6.QtCore import QEvent, QPoint, QTime, QTimer, Qt, Signal
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QBrush,
+    QColor,
+    QKeySequence,
+    QPainter,
+    QPen,
+)
+from PySide6.QtCore import (
+    QEvent,
+    QLibraryInfo,
+    QPoint,
+    QTime,
+    QTimer,
+    QTranslator,
+    Qt,
+    Signal,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -185,6 +202,60 @@ class HistoryTreeWidget(QTreeWidget):
         self._pending_history_object_id: str | None = None
         self._dragging_history_object = False
         self._drag_start = QPoint()
+        self._insertion_line_y: int | None = None
+
+    def _set_history_drag_active(self, active: bool) -> None:
+        if bool(self.property("historyDragActive")) == active:
+            return
+        self.setProperty("historyDragActive", active)
+        if active:
+            self.clearSelection()
+            self.setCurrentItem(None)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.viewport().update()
+
+    def _set_rollback_hidden(self, hidden: bool) -> None:
+        for index in range(self.topLevelItemCount()):
+            item = self.topLevelItem(index)
+            if item.data(0, self.ROLLBACK_ROLE):
+                item.setHidden(hidden)
+
+    def _update_insertion_line(self, position: QPoint) -> None:
+        boundaries: list[int] = []
+        for index in range(self.topLevelItemCount()):
+            item = self.topLevelItem(index)
+            if not item.data(0, self.HISTORY_OBJECT_ROLE) or item.isHidden():
+                continue
+            rect = self.visualItemRect(item)
+            boundaries.append(rect.top())
+            boundaries.append(rect.bottom() + 1)
+        self._insertion_line_y = (
+            min(boundaries, key=lambda value: abs(value - position.y()))
+            if boundaries
+            else position.y()
+        )
+        self.viewport().update()
+
+    def _finish_insertion_line(self) -> None:
+        self._insertion_line_y = None
+        self._set_rollback_hidden(False)
+        self._set_history_drag_active(False)
+        self.viewport().update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._insertion_line_y is None:
+            return
+        painter = QPainter(self.viewport())
+        painter.setPen(QPen(QColor("#4DD811"), 2))
+        margin = 4
+        painter.drawLine(
+            margin,
+            self._insertion_line_y,
+            self.viewport().width() - margin,
+            self._insertion_line_y,
+        )
 
     def mousePressEvent(self, event) -> None:
         item = self.itemAt(event.position().toPoint())
@@ -212,6 +283,9 @@ class HistoryTreeWidget(QTreeWidget):
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging_rollback:
+            self._set_history_drag_active(True)
+            self._set_rollback_hidden(True)
+            self._update_insertion_line(event.position().toPoint())
             event.accept()
             return
         if (
@@ -222,10 +296,14 @@ class HistoryTreeWidget(QTreeWidget):
             ).manhattanLength() >= QApplication.startDragDistance()
         ):
             self._dragging_history_object = True
+            self._set_history_drag_active(True)
+            self._set_rollback_hidden(True)
+            self._update_insertion_line(event.position().toPoint())
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if self._dragging_history_object:
+            self._update_insertion_line(event.position().toPoint())
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -236,6 +314,7 @@ class HistoryTreeWidget(QTreeWidget):
             self._pending_history_object_id = None
             self._dragging_history_object = False
             self.viewport().unsetCursor()
+            self._finish_insertion_line()
             y = event.position().toPoint().y()
             target_index = 0
             for index in range(self.topLevelItemCount()):
@@ -257,6 +336,7 @@ class HistoryTreeWidget(QTreeWidget):
             return
         self._dragging_rollback = False
         self.viewport().unsetCursor()
+        self._finish_insertion_line()
         y = event.position().toPoint().y()
         cursor = 0
         for index in range(self.topLevelItemCount()):
@@ -2729,6 +2809,13 @@ class ZimaViewer(qtViewer3d):
         window = self.window()
         if (
             event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and hasattr(window, "_select_detected_coordinate")
+            and window._select_detected_coordinate(x, y)
+        ):
+            event.accept()
+            return
+        if (
+            event.modifiers() == Qt.KeyboardModifier.NoModifier
             and hasattr(window, "_select_projected_user_point")
             and window._select_projected_user_point(x, y)
         ):
@@ -2911,6 +2998,27 @@ class ZimaViewer(qtViewer3d):
 
 
 class MainWindow(QMainWindow):
+    def _install_qt_translations(
+        self,
+        language: str,
+    ) -> list[QTranslator]:
+        application = QApplication.instance()
+        if application is None:
+            return []
+        locale_name = language.replace("-", "_")
+        translations_path = QLibraryInfo.path(
+            QLibraryInfo.LibraryPath.TranslationsPath
+        )
+        for catalog in (
+            f"qt_{locale_name}",
+            f"qtbase_{locale_name}",
+        ):
+            translator = QTranslator(self)
+            if translator.load(catalog, translations_path):
+                application.installTranslator(translator)
+                return [translator]
+        return []
+
     def __init__(self, startup_context: StartupContext | None = None) -> None:
         super().__init__()
 
@@ -2926,6 +3034,9 @@ class MainWindow(QMainWindow):
             self.settings.localization_path,
             self.settings.language,
         )
+        self._qt_translators = self._install_qt_translations(
+            self.settings.language
+        )
         self.setWindowTitle(tr("app.title"))
         self.resize(1200, 800)
         self.document_sessions: list[DocumentSession] = []
@@ -2940,7 +3051,6 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderLabels(
             [
                 tr("tree.header"),
-                tr("tree.visibility"),
                 tr("tree.state"),
             ]
         )
@@ -2956,6 +3066,13 @@ class MainWindow(QMainWindow):
             QTreeWidget::item:hover {
                 background-color: #356E22;
                 color: #FFFFFF;
+            }
+            QTreeWidget[historyDragActive="true"]::item:hover,
+            QTreeWidget[historyDragActive="true"]::item:selected,
+            QTreeWidget[historyDragActive="true"]::item:selected:active,
+            QTreeWidget[historyDragActive="true"]::item:selected:!active {
+                background-color: transparent;
+                color: #E7EAF0;
             }
             """
         )
@@ -2989,6 +3106,7 @@ class MainWindow(QMainWindow):
         self._coordinate_highlight_overlay_ais: list[Any] = []
         self._nonselectable_ais_shapes: list[Any] = []
         self._cached_document = None
+        self._cached_history_boundary: int | None = None
         self._cached_model_shapes: list[tuple[Any, str]] = []
         self._cached_source_model_shapes: list[tuple[Any, str]] = []
         self.selected_face = None
@@ -3710,17 +3828,50 @@ class MainWindow(QMainWindow):
         self.selected_object_id = reference.object_id
         self.selected_face = None
         self.selected_face_object_id = None
-        if descriptor.get("type") == "face":
+        self._point_constraint_preview = None
+        reference_type = descriptor.get("type")
+        active_reference_label = str(
+            descriptor.get("label", reference.name)
+        )
+        if reference_type in ("face", "edge", "vertex"):
             try:
-                topology_index = int(descriptor.get("topology_key", "0"))
+                topology_index = int(
+                    descriptor.get(
+                        "vertex_index"
+                        if reference_type == "vertex"
+                        else "topology_key",
+                        "0",
+                    )
+                )
             except (TypeError, ValueError):
                 topology_index = 0
-            self.selected_face = self._subshape_by_index(
-                reference.object_id,
-                TopAbs_FACE,
+            shape_type = {
+                "face": TopAbs_FACE,
+                "edge": TopAbs_EDGE,
+                "vertex": TopAbs_VERTEX,
+            }[reference_type]
+            active_reference_label = self._topology_reference_label(
+                reference,
+                str(reference_type),
                 topology_index,
             )
-            if self.selected_face is not None:
+            model_shape = self._shape_for_reference_descriptor(
+                descriptor,
+                reference,
+            )
+            selected_shape = self._subshape_from_shape(
+                model_shape,
+                shape_type,
+                topology_index,
+            ) if model_shape is not None else None
+            if reference_type == "face":
+                self.selected_face = selected_shape
+            elif selected_shape is not None:
+                self._point_constraint_preview = (
+                    reference.object_id,
+                    selected_shape,
+                )
+            if reference_type == "face" and self.selected_face is not None:
                 self.selected_face_object_id = reference.object_id
 
         root = self.tree.invisibleRootItem()
@@ -3733,6 +3884,12 @@ class MainWindow(QMainWindow):
         self.tree.blockSignals(False)
         self._view_selection_confirmed = True
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        self.statusBar().showMessage(
+            tr(
+                "selection.status.reference",
+                name=active_reference_label,
+            )
+        )
 
     def _update_point_object(
         self,
@@ -3973,7 +4130,10 @@ class MainWindow(QMainWindow):
         )
         if reference is None:
             return None
-        model_shape = self.document.build_standalone_shape(reference)
+        model_shape = self._shape_for_reference_descriptor(
+            descriptor,
+            reference,
+        )
         if model_shape is None:
             return None
 
@@ -4102,6 +4262,43 @@ class MainWindow(QMainWindow):
             [0.0, 1.0, 0.0, point.Y()],
             [0.0, 0.0, 1.0, point.Z()],
         ]
+
+    def _shape_for_reference_descriptor(
+        self,
+        descriptor: dict[str, Any],
+        reference: ZimaObject,
+    ):
+        if (
+            descriptor.get("reference_scope") == "history_result"
+            or reference.kind == ObjectKind.PART
+        ):
+            raw_source_ids = descriptor.get("history_object_ids", [])
+            source_ids = (
+                [
+                    str(object_id)
+                    for object_id in raw_source_ids
+                    if str(object_id)
+                ]
+                if isinstance(raw_source_ids, list)
+                else []
+            )
+            if source_ids:
+                model_shape = self.document.build_shape_for_object_ids(
+                    source_ids
+                )
+            else:
+                try:
+                    boundary = int(
+                        descriptor.get(
+                            "history_cursor",
+                            self._definition_history_boundary(),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    boundary = self._definition_history_boundary()
+                return self.document.build_shape_at(boundary)
+            return model_shape
+        return self.document.build_standalone_shape(reference)
 
     def _reference_origin(
         self,
@@ -4835,6 +5032,24 @@ class MainWindow(QMainWindow):
         )
         save_as_action.triggered.connect(self.save_document_as)
 
+        self.delete_file_menu = file_menu.addMenu(tr("menu.file.delete"))
+        self.delete_old_versions_action = self.delete_file_menu.addAction(
+            tr("menu.file.delete.old_versions")
+        )
+        self.delete_old_versions_action.triggered.connect(
+            self.delete_old_file_versions
+        )
+        self.delete_all_versions_action = self.delete_file_menu.addAction(
+            tr("menu.file.delete.all_versions")
+        )
+        self.delete_all_versions_action.triggered.connect(
+            self.delete_all_file_versions
+        )
+        self.delete_file_menu.aboutToShow.connect(
+            self._refresh_delete_file_actions
+        )
+        self._refresh_delete_file_actions()
+
         file_menu.addSeparator()
 
         set_working_directory_action = file_menu.addAction(
@@ -4943,7 +5158,7 @@ class MainWindow(QMainWindow):
                     self.tree.addTopLevelItem(item)
 
             history = self.document.history_objects()
-            cursor = self.document.history_cursor()
+            cursor = self._definition_history_boundary()
             for index, obj in enumerate(history):
                 if index == cursor:
                     self.tree.addTopLevelItem(self._create_rollback_item())
@@ -4961,17 +5176,14 @@ class MainWindow(QMainWindow):
             self.tree.expandAll()
             self.tree.resizeColumnToContents(0)
             self.tree.resizeColumnToContents(1)
-            self.tree.resizeColumnToContents(2)
         finally:
             self.tree.blockSignals(signals_were_blocked)
 
     def _create_rollback_item(self) -> QTreeWidgetItem:
-        visible = self.document.body_is_visible()
         suppressed = self.document.body_is_suppressed()
         item = QTreeWidgetItem(
             [
-                tr("tree.body"),
-                "◉" if visible and not suppressed else "○",
+                tr("tree.insert_here"),
                 "S" if suppressed else "",
             ]
         )
@@ -4986,22 +5198,15 @@ class MainWindow(QMainWindow):
             | Qt.ItemFlag.ItemIsSelectable
         )
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
-        item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(0, tr("tree.insert_here.tooltip"))
-        item.setToolTip(
-            1,
-            tr(
-                "tree.visibility.visible"
-                if visible and not suppressed
-                else "tree.visibility.hidden"
-            ),
-        )
         if suppressed:
-            item.setToolTip(2, tr("tree.body.suppressed"))
+            item.setToolTip(1, tr("tree.body.suppressed"))
         font = item.font(0)
         font.setBold(True)
         item.setFont(0, font)
-        item.setForeground(0, QBrush(QColor("#d18b00")))
+        insert_here_color = QBrush(QColor("#4DD811"))
+        for column in range(item.columnCount()):
+            item.setForeground(column, insert_here_color)
         return item
 
     def _on_history_cursor_moved(self, cursor: int) -> None:
@@ -5275,6 +5480,126 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    def _document_archive_paths(self, file_path: Path) -> list[Path]:
+        target = canonical_document_path(file_path)
+        prefix = f"{target.name}."
+        archives: list[tuple[int, Path]] = []
+        if target.parent.is_dir():
+            for candidate in target.parent.iterdir():
+                if not candidate.is_file() or not candidate.name.startswith(prefix):
+                    continue
+                suffix = candidate.name[len(prefix):]
+                if suffix.isdigit():
+                    archives.append((int(suffix), candidate))
+        return [path for _version, path in sorted(archives)]
+
+    def _refresh_delete_file_actions(self) -> None:
+        target = (
+            canonical_document_path(self.current_file_path)
+            if self.current_file_path is not None
+            else None
+        )
+        has_saved_document = (
+            self.document is not None
+            and target is not None
+            and target.is_file()
+        )
+        archives = (
+            self._document_archive_paths(target)
+            if has_saved_document
+            else []
+        )
+        self.delete_old_versions_action.setEnabled(bool(archives))
+        self.delete_all_versions_action.setEnabled(has_saved_document)
+
+    def delete_old_file_versions(self) -> None:
+        if self.current_file_path is None:
+            return
+        target = canonical_document_path(self.current_file_path)
+        archives = self._document_archive_paths(target)
+        if not archives:
+            QMessageBox.information(
+                self,
+                tr("menu.file.delete.old_versions"),
+                tr("message.delete.no_old_versions", file=target.name),
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            tr("menu.file.delete.old_versions"),
+            tr(
+                "message.delete.old_versions.confirm",
+                count=len(archives),
+                file=target.name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            for archive in archives:
+                archive.unlink()
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.delete.failed"),
+                str(exc),
+            )
+            return
+        self.statusBar().showMessage(
+            tr(
+                "status.delete.old_versions",
+                count=len(archives),
+                file=target.name,
+            ),
+            5000,
+        )
+
+    def delete_all_file_versions(self) -> None:
+        if self.current_file_path is None:
+            return
+        target = canonical_document_path(self.current_file_path)
+        archives = self._document_archive_paths(target)
+        existing_paths = [
+            path
+            for path in [*archives, target]
+            if path.is_file()
+        ]
+        answer = QMessageBox.warning(
+            self,
+            tr("menu.file.delete.all_versions"),
+            tr(
+                "message.delete.all_versions.confirm",
+                count=len(existing_paths),
+                file=target.name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            for path in existing_paths:
+                path.unlink()
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.delete.failed"),
+                str(exc),
+            )
+            return
+        deleted_name = target.name
+        self.close_document_tab(self.active_document_index)
+        self.statusBar().showMessage(
+            tr(
+                "status.delete.all_versions",
+                count=len(existing_paths),
+                file=deleted_name,
+            ),
+            5000,
+        )
+
     def _apply_and_save_document(self) -> bool:
         self._store_active_session()
         return self.save_document()
@@ -5541,44 +5866,29 @@ class MainWindow(QMainWindow):
                 CombineMode.SUBTRACT: "−",
             }.get(operation_source.combine_mode, "")
             name = f"{operation} {name}".strip()
-        effectively_visible = (
-            self.document.is_effectively_visible(obj.object_id)
-            if self.document is not None
-            else obj.user_visible
-        )
         effectively_suppressed = (
-            self.document.is_effectively_suppressed(obj.object_id)
+            self._is_effectively_suppressed_at_boundary(obj)
             if self.document is not None
             else obj.suppressed
         )
-        visibility_symbol = "◉" if effectively_visible else "○"
         state_symbol = "S" if effectively_suppressed else ""
-        item = QTreeWidgetItem([name, visibility_symbol, state_symbol])
+        item = QTreeWidgetItem([name, state_symbol])
         item.setData(0, Qt.ItemDataRole.UserRole, obj.object_id)
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
-        item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
-        item.setToolTip(
-            1,
-            tr(
-                "tree.visibility.visible"
-                if effectively_visible
-                else "tree.visibility.hidden"
-            ),
-        )
         if effectively_suppressed:
             font = item.font(0)
             font.setItalic(True)
             font.setStrikeOut(True)
             item.setFont(0, font)
             brush = QBrush(QColor("#808080"))
-            for column in range(3):
+            for column in range(item.columnCount()):
                 item.setForeground(column, brush)
-            item.setToolTip(2, tr("tree.state.suppressed"))
+            item.setToolTip(1, tr("tree.state.suppressed"))
         missing_references = self._missing_reference_labels(obj)
         if missing_references and not effectively_suppressed:
             warning_brush = QBrush(QColor("#8b2424"))
             text_brush = QBrush(QColor("#ffffff"))
-            for column in range(3):
+            for column in range(item.columnCount()):
                 item.setBackground(column, warning_brush)
                 item.setForeground(column, text_brush)
             item.setToolTip(
@@ -5598,6 +5908,27 @@ class MainWindow(QMainWindow):
             if child_item is not None:
                 item.addChild(child_item)
         return item
+
+    def _is_effectively_suppressed_at_boundary(
+        self,
+        obj: ZimaObject,
+    ) -> bool:
+        if self.document is None:
+            return obj.suppressed
+        if self.document.is_effectively_suppressed(obj.object_id):
+            return True
+        history_object = (
+            obj
+            if obj.kind == ObjectKind.OBJECT
+            else self.document.find_owning_object(obj.object_id)
+        )
+        if history_object is None:
+            return False
+        index = self.document.history_index(history_object.object_id)
+        return (
+            index is not None
+            and index >= self._definition_history_boundary()
+        )
 
     def _missing_reference_labels(self, obj: ZimaObject) -> list[str]:
         if self.document is None:
@@ -5724,28 +6055,7 @@ class MainWindow(QMainWindow):
         item: QTreeWidgetItem,
         column: int,
     ) -> None:
-        if (
-            self.document is not None
-            and item.data(0, HistoryTreeWidget.ROLLBACK_ROLE)
-        ):
-            if column == 1:
-                self.document.set_body_visible(
-                    not self.document.body_is_visible()
-                )
-                self._populate_tree()
-                self._select_tree_object(self.document.root.object_id)
-                self.rebuild_view(fit=False, rebuild_geometry=False)
-            return
-        if column != 1:
-            return
-        obj = self._object_from_tree_item(item)
-        if obj is None or obj.locked:
-            return
-        obj.user_visible = not obj.user_visible
-        object_id = obj.object_id
-        self._populate_tree()
-        self._select_tree_object(object_id)
-        self.rebuild_view(fit=False)
+        return
 
     def _on_tree_item_double_clicked(
         self,
@@ -5787,13 +6097,29 @@ class MainWindow(QMainWindow):
         if not self.view_selection_enabled:
             return
         projected_point_id = self._projected_user_point_id(x, y)
-        if not shapes and projected_point_id is None:
+        context = self.viewer._display.Context
+        detected_coordinate_id = (
+            self._object_id_for_detected(
+                context.DetectedShape()
+                if context.HasDetectedShape()
+                else None,
+                context.DetectedInteractive(),
+            )
+            if context.HasDetected()
+            else None
+        )
+        if (
+            not shapes
+            and projected_point_id is None
+            and detected_coordinate_id is None
+        ):
             self._clear_view_selection()
             return
         selected_shape = shapes[0] if shapes else None
         object_id = (
             projected_point_id
             or self._detected_user_point_id()
+            or detected_coordinate_id
             or (
                 self._object_id_for_selected_shape(selected_shape)
                 if selected_shape is not None
@@ -6068,6 +6394,43 @@ class MainWindow(QMainWindow):
                 overlay_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                 context.Deactivate(overlay_shape)
             self._hovered_model_overlay_ais.extend(overlay_shapes)
+        hover_source = hovered
+        if hover_source is not None and hover_source.kind in SOLID_KINDS:
+            hover_source = (
+                self.document.find_owning_object(hover_source.object_id)
+                if self.document is not None
+                else None
+            )
+        if (
+            hover_source is not None
+            and hover_source.kind == ObjectKind.OBJECT
+            and self.document is not None
+            and any(
+                child.kind in (ObjectKind.SPHERE, ObjectKind.CYLINDER)
+                and not child.locked
+                and child.combine_mode != CombineMode.SUBTRACT
+                for child in hover_source.children
+            )
+        ):
+            for guide_shape in self.document.source_highlight_shapes(
+                hover_source
+            ):
+                guide_ais_shapes = self.viewer._display.DisplayShape(
+                    guide_shape,
+                    color=HOVER_COLOR,
+                    update=False,
+                )
+                for guide_ais_shape in guide_ais_shapes:
+                    self._set_ais_display_mode(
+                        guide_ais_shape,
+                        AIS_WireFrame,
+                    )
+                    guide_ais_shape.SetWidth(3.0)
+                    guide_ais_shape.SetZLayer(
+                        Graphic3d_ZLayerId_Topmost
+                    )
+                    context.Deactivate(guide_ais_shape)
+                self._hovered_model_overlay_ais.extend(guide_ais_shapes)
         active_coordinate_ids: set[str] = set()
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
             selected_edge_ids = set() if self.selected_face is not None else selected_ids
@@ -6134,7 +6497,10 @@ class MainWindow(QMainWindow):
             else:
                 continue
             for coordinate_shape in coordinate_shapes:
-                coordinate_shape.SetColor(color)
+                if coordinate.kind == ObjectKind.AXIS:
+                    self._set_ais_line_color(coordinate_shape, color)
+                else:
+                    coordinate_shape.SetColor(color)
                 if coordinate.kind == ObjectKind.PLANE:
                     coordinate_shape.SetWidth(3.0 if active else 1.0)
                 elif coordinate.kind == ObjectKind.AXIS:
@@ -6152,6 +6518,11 @@ class MainWindow(QMainWindow):
             if active:
                 active_coordinate_ids.add(object_id)
         for object_id in active_coordinate_ids:
+            overlay_coordinate = (
+                self.document.find_object(object_id)
+                if self.document is not None
+                else None
+            )
             overlay_color = (
                 SELECTION_COLOR
                 if object_id in selected_ids
@@ -6173,6 +6544,14 @@ class MainWindow(QMainWindow):
                     update=False,
                 )
                 for overlay_shape in overlay_shapes:
+                    if (
+                        overlay_coordinate is not None
+                        and overlay_coordinate.kind == ObjectKind.AXIS
+                    ):
+                        self._set_ais_line_color(
+                            overlay_shape,
+                            overlay_color,
+                        )
                     if topmost:
                         overlay_shape.SetZLayer(Graphic3d_ZLayerId_TopOSD)
                     overlay_shape.SetTransformPersistence(
@@ -6241,6 +6620,7 @@ class MainWindow(QMainWindow):
             return
         shape_type = shape.ShapeType()
         topology_index = self._subshape_index(obj.object_id, shape)
+        reference_metadata = self._shape_reference_metadata(obj)
         if shape_type == TopAbs_VERTEX:
             point = BRep_Tool.Pnt(shape)
             endpoint_identity = self._vertex_endpoint_identity(
@@ -6254,10 +6634,10 @@ class MainWindow(QMainWindow):
             )
             dialog.add_shape_reference(
                 obj.object_id,
-                tr(
-                    "dialog.point_constraints.vertex_reference",
-                    name=obj.name,
-                    index=topology_index,
+                self._topology_reference_label(
+                    obj,
+                    "vertex",
+                    topology_index,
                 ),
                 "vertex",
                 [
@@ -6267,6 +6647,7 @@ class MainWindow(QMainWindow):
                 ],
                 topology_key,
                 {
+                    **reference_metadata,
                     "vertex_index": topology_index,
                     **(
                         {
@@ -6303,14 +6684,15 @@ class MainWindow(QMainWindow):
             ]
             dialog.add_shape_reference(
                 obj.object_id,
-                tr(
-                    "dialog.point_constraints.face_reference",
-                    name=obj.name,
-                    index=topology_index,
+                self._topology_reference_label(
+                    obj,
+                    "face",
+                    topology_index,
                 ),
                 "face",
                 [equation],
                 str(topology_index),
+                reference_metadata,
             )
             return
         if shape_type == TopAbs_EDGE:
@@ -6350,15 +6732,46 @@ class MainWindow(QMainWindow):
             ]
             dialog.add_shape_reference(
                 obj.object_id,
-                tr(
-                    "dialog.point_constraints.edge_reference",
-                    name=obj.name,
-                    index=topology_index,
+                self._topology_reference_label(
+                    obj,
+                    "edge",
+                    topology_index,
                 ),
                 "edge",
                 equations,
                 str(topology_index),
+                reference_metadata,
             )
+
+    @staticmethod
+    def _topology_reference_label(
+        obj: ZimaObject,
+        reference_type: str,
+        topology_index: int,
+    ) -> str:
+        owner_name = tr("tree.body") if obj.kind == ObjectKind.PART else obj.name
+        return tr(
+            f"dialog.point_constraints.{reference_type}_reference",
+            name=owner_name,
+            index=topology_index,
+        )
+
+    def _shape_reference_metadata(
+        self,
+        obj: ZimaObject,
+    ) -> dict[str, Any]:
+        if self.document is None or obj.kind != ObjectKind.PART:
+            return {"source_object_id": obj.object_id}
+        boundary = self._definition_history_boundary()
+        source_ids = [
+            source.object_id
+            for source in self.document.history_objects_at(boundary)
+        ]
+        return {
+            "reference_scope": "history_result",
+            "history_cursor": boundary,
+            "history_object_ids": source_ids,
+        }
 
     def _subshape_index(self, object_id: str, selected_shape) -> int:
         for model_shape, candidate_id in [
@@ -6396,6 +6809,22 @@ class MainWindow(QMainWindow):
                     return object_id, index
                 explorer.Next()
         return None
+
+    def _point_reference_shapes(self) -> list[tuple[Any, str]]:
+        """Return the visible history result followed by its source features."""
+        shapes: list[tuple[Any, str]] = []
+        for model_shape, object_id in [
+            *self._selectable_model_shapes,
+            *self._cached_source_model_shapes,
+        ]:
+            if any(
+                object_id == existing_id
+                and model_shape.IsSame(existing_shape)
+                for existing_shape, existing_id in shapes
+            ):
+                continue
+            shapes.append((model_shape, object_id))
+        return shapes
 
     def _subshape_by_index(
         self,
@@ -6497,6 +6926,17 @@ class MainWindow(QMainWindow):
                 return object_id
         if interactive is None:
             return None
+        for object_id, ais_shapes in self._coordinate_ais_by_object_id.items():
+            for ais_shape in ais_shapes:
+                try:
+                    matches = (
+                        ais_shape == interactive
+                        or ais_shape.IsSame(interactive)
+                    )
+                except (AttributeError, TypeError):
+                    matches = ais_shape == interactive
+                if matches:
+                    return self._selection_filtered_object_id(object_id)
         for ais_shape, object_id in self._model_object_id_by_ais:
             try:
                 matches = ais_shape == interactive or ais_shape.IsSame(interactive)
@@ -6554,6 +6994,86 @@ class MainWindow(QMainWindow):
                         return self._selection_filtered_object_id(object_id)
         return None
 
+    def _select_detected_coordinate(self, x: int, y: int) -> bool:
+        """Prefer a visible coordinate entity over model geometry on click."""
+        if (
+            self.document is None
+            or self.view_selection_mode == ViewSelectionMode.FACE
+            or self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            return False
+        display = self.viewer._display
+        context = display.Context
+        coordinate_ids = set(self._coordinate_ais_by_object_id)
+
+        def detected_coordinate_id() -> str | None:
+            for shape, interactive in self._detected_items(context):
+                candidate_id = self._object_id_for_detected(
+                    shape,
+                    interactive,
+                )
+                if candidate_id in coordinate_ids:
+                    return candidate_id
+            return None
+
+        display.MoveTo(x, y)
+        object_id = detected_coordinate_id()
+        if object_id is None:
+            # OCCT can discard zoom-persistent coordinate geometry completely
+            # when a solid lies under the same pixel, regardless of selection
+            # priority.  Repeat picking with model selection temporarily
+            # disabled, as already done for projected user points.
+            model_ais_shapes = [
+                ais_shape
+                for ais_shapes in self._model_ais_by_object_id.values()
+                for ais_shape in ais_shapes
+            ]
+            try:
+                for ais_shape in model_ais_shapes:
+                    context.Deactivate(ais_shape)
+                context.ClearDetected(False)
+                display.MoveTo(x, y)
+                object_id = detected_coordinate_id()
+            finally:
+                if self.view_selection_filter not in (
+                    ViewSelectionFilter.POINT,
+                    ViewSelectionFilter.AXIS,
+                    ViewSelectionFilter.PLANE,
+                ):
+                    for ais_shape in model_ais_shapes:
+                        context.Activate(ais_shape, 0, True)
+        if object_id is None:
+            return False
+        coordinate = self.document.find_object(object_id)
+        if coordinate is None or coordinate.kind not in (
+            ObjectKind.POINT,
+            ObjectKind.AXIS,
+            ObjectKind.PLANE,
+        ):
+            return False
+
+        self.selected_object_id = object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._view_selection_confirmed = True
+        self._history_source_cycle_active = False
+        self._cycled_history_source_id = None
+        self._reference_cycle_preview_id = None
+        self._hovered_coordinate_object_id = object_id
+
+        root = self.tree.invisibleRootItem()
+        item = self._find_tree_item(root, object_id)
+        self.tree.blockSignals(True)
+        if item is not None:
+            self.tree.setCurrentItem(item)
+        else:
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+        return True
+
     def _projected_user_point_id(self, x: int, y: int) -> str | None:
         if (
             self.document is None
@@ -6577,7 +7097,9 @@ class MainWindow(QMainWindow):
         viewport_width = float(self.viewer.width()) * pixel_ratio
         viewport_height = float(self.viewer.height()) * pixel_ratio
         view = self.viewer._display.View
-        for obj in self.document.active_history_objects():
+        for obj in self.document.history_objects_at(
+            self._definition_history_boundary()
+        ):
             point = next(
                 (
                     child
@@ -6662,6 +7184,21 @@ class MainWindow(QMainWindow):
         obj = self.document.find_object(object_id)
         if obj is None:
             return object_id
+        if obj.kind in (
+            ObjectKind.POINT,
+            ObjectKind.AXIS,
+            ObjectKind.PLANE,
+        ):
+            owner = self.document.find_owning_object(obj.object_id)
+            if (
+                owner is not None
+                and owner.kind == ObjectKind.OBJECT
+                and owner.show_auxiliary_geometry
+            ):
+                # View visibility and picking are controlled solely by
+                # show_auxiliary_geometry.  Whether the same entity is exposed
+                # in the tree must not change the ID returned by view picking.
+                return obj.object_id
         if obj.tree_exposure == TreeExposure.INTERNAL:
             owner = self.document.find_owning_object(obj.object_id)
             if owner is not None and not owner.show_internal_entities:
@@ -6703,9 +7240,7 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         normal_view_action = None
-        visibility_action = None
         suppress_action = None
-        body_visibility_action = None
         body_suppress_action = None
         add_action = None
         subtract_action = None
@@ -6714,13 +7249,6 @@ class MainWindow(QMainWindow):
             item is not None
             and item.data(0, HistoryTreeWidget.ROLLBACK_ROLE)
         ):
-            body_visibility_action = menu.addAction(
-                tr(
-                    "menu.context.hide"
-                    if self.document.body_is_visible()
-                    else "menu.context.show"
-                )
-            )
             body_suppress_action = menu.addAction(
                 tr(
                     "menu.context.resume"
@@ -6816,15 +7344,8 @@ class MainWindow(QMainWindow):
                     operation_target.combine_mode == CombineMode.SUBTRACT
                 )
             if not obj.locked:
-                menu.addSeparator()
-                visibility_action = menu.addAction(
-                    tr(
-                        "menu.context.hide"
-                        if obj.user_visible
-                        else "menu.context.show"
-                    )
-                )
                 if obj.kind == ObjectKind.OBJECT or obj.kind == ObjectKind.BODY or obj.kind in SOLID_KINDS:
+                    menu.addSeparator()
                     suppress_action = menu.addAction(
                         tr(
                             "menu.context.resume"
@@ -6899,19 +7420,11 @@ class MainWindow(QMainWindow):
         elif delete_action is not None and action == delete_action and obj is not None:
             self.delete_object(obj.object_id)
         elif (
-            visibility_action is not None
-            and action == visibility_action
-            and obj is not None
-        ):
-            self._set_object_visibility(obj, not obj.user_visible)
-        elif (
             suppress_action is not None
             and action == suppress_action
             and obj is not None
         ):
             self._set_object_suppressed(obj, not obj.suppressed)
-        elif body_visibility_action is not None and action == body_visibility_action:
-            self._set_body_visibility(not self.document.body_is_visible())
         elif body_suppress_action is not None and action == body_suppress_action:
             self._set_body_suppressed(not self.document.body_is_suppressed())
         elif obj is not None and action in (add_action, subtract_action):
@@ -7182,10 +7695,10 @@ class MainWindow(QMainWindow):
             ray = None
         face_hits: list[tuple[float, str, Any]] = []
         if ray is not None:
-            ray_shapes = (
-                self._cached_source_model_shapes
-                or self._selectable_model_shapes
-            )
+            # The history result comes first, so edges created by a boolean
+            # operation are selectable.  Its source features remain available
+            # as later cycle candidates for references to original geometry.
+            ray_shapes = self._point_reference_shapes()
             for model_shape, object_id in ray_shapes:
                 intersector = IntCurvesFace_ShapeIntersector()
                 intersector.Load(model_shape, 1e-7)
@@ -7276,22 +7789,22 @@ class MainWindow(QMainWindow):
                     else candidate_object.name
                 )
             elif shape_type == TopAbs_FACE:
-                candidate_name = tr(
-                    "dialog.point_constraints.face_reference",
-                    name=candidate_object.name,
-                    index=self._subshape_index(object_id, shape),
+                candidate_name = self._topology_reference_label(
+                    candidate_object,
+                    "face",
+                    self._subshape_index(object_id, shape),
                 )
             elif shape_type == TopAbs_EDGE:
-                candidate_name = tr(
-                    "dialog.point_constraints.edge_reference",
-                    name=candidate_object.name,
-                    index=self._subshape_index(object_id, shape),
+                candidate_name = self._topology_reference_label(
+                    candidate_object,
+                    "edge",
+                    self._subshape_index(object_id, shape),
                 )
             elif shape_type == TopAbs_VERTEX:
-                candidate_name = tr(
-                    "dialog.point_constraints.vertex_reference",
-                    name=candidate_object.name,
-                    index=self._subshape_index(object_id, shape),
+                candidate_name = self._topology_reference_label(
+                    candidate_object,
+                    "vertex",
+                    self._subshape_index(object_id, shape),
                 )
             else:
                 candidate_name = candidate_object.name
@@ -7343,7 +7856,7 @@ class MainWindow(QMainWindow):
         viewport_height = float(self.viewer.height()) * pixel_ratio
         view = self.viewer._display.View
         hits: list[tuple[float, str, Any, int]] = []
-        shapes = self._cached_source_model_shapes or self._selectable_model_shapes
+        shapes = self._point_reference_shapes()
         for model_shape, object_id in shapes:
             vertex_index = 0
             explorer = TopExp_Explorer(model_shape, TopAbs_VERTEX)
@@ -7371,7 +7884,17 @@ class MainWindow(QMainWindow):
                             (distance, object_id, vertex, vertex_index)
                         )
                 explorer.Next()
-        hits.sort(key=lambda hit: hit[0])
+        result_id = (
+            self.document.root.object_id
+            if self.document is not None
+            else ""
+        )
+        hits.sort(
+            key=lambda hit: (
+                hit[1] != result_id,
+                hit[0],
+            )
+        )
         return hits
 
     def _point_edges_under_cursor(
@@ -7385,7 +7908,7 @@ class MainWindow(QMainWindow):
         viewport_height = float(self.viewer.height()) * pixel_ratio
         view = self.viewer._display.View
         hits: list[tuple[float, str, Any, int]] = []
-        shapes = self._cached_source_model_shapes or self._selectable_model_shapes
+        shapes = self._point_reference_shapes()
         for model_shape, object_id in shapes:
             edge_index = 0
             explorer = TopExp_Explorer(model_shape, TopAbs_EDGE)
@@ -7438,7 +7961,17 @@ class MainWindow(QMainWindow):
                             (distance, object_id, edge, edge_index)
                         )
                 explorer.Next()
-        hits.sort(key=lambda hit: hit[0])
+        result_id = (
+            self.document.root.object_id
+            if self.document is not None
+            else ""
+        )
+        hits.sort(
+            key=lambda hit: (
+                hit[1] != result_id,
+                hit[0],
+            )
+        )
         return hits
 
     @staticmethod
@@ -7597,10 +8130,7 @@ class MainWindow(QMainWindow):
             ray = gp_Lin(gp_Pnt(px, py, pz), gp_Dir(dx, dy, dz))
         except (TypeError, RuntimeError):
             return False
-        for model_shape, object_id in (
-            self._cached_source_model_shapes
-            or self._selectable_model_shapes
-        ):
+        for model_shape, object_id in self._point_reference_shapes():
             if object_id != preview_object_id:
                 continue
             intersector = IntCurvesFace_ShapeIntersector()
@@ -7657,19 +8187,10 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         normal_view_action = None
-        visibility_action = None
         suppress_action = None
-        body_visibility_action = None
         body_suppress_action = None
 
         if obj.kind == ObjectKind.PART:
-            body_visibility_action = menu.addAction(
-                tr(
-                    "menu.context.hide"
-                    if self.document.body_is_visible()
-                    else "menu.context.show"
-                )
-            )
             body_suppress_action = menu.addAction(
                 tr(
                     "menu.context.resume"
@@ -7733,15 +8254,8 @@ class MainWindow(QMainWindow):
                     )
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             if not obj.locked:
-                menu.addSeparator()
-                visibility_action = menu.addAction(
-                    tr(
-                        "menu.context.hide"
-                        if obj.user_visible
-                        else "menu.context.show"
-                    )
-                )
                 if obj.kind == ObjectKind.OBJECT or obj.kind == ObjectKind.BODY or obj.kind in SOLID_KINDS:
+                    menu.addSeparator()
                     suppress_action = menu.addAction(
                         tr(
                             "menu.context.resume"
@@ -7781,12 +8295,8 @@ class MainWindow(QMainWindow):
             self.show_properties(self._selected_object() or obj)
         elif delete_action is not None and action == delete_action:
             self.delete_object(obj.object_id)
-        elif visibility_action is not None and action == visibility_action:
-            self._set_object_visibility(obj, not obj.user_visible)
         elif suppress_action is not None and action == suppress_action:
             self._set_object_suppressed(obj, not obj.suppressed)
-        elif body_visibility_action is not None and action == body_visibility_action:
-            self._set_body_visibility(not self.document.body_is_visible())
         elif body_suppress_action is not None and action == body_suppress_action:
             self._set_body_suppressed(not self.document.body_is_suppressed())
 
@@ -7940,7 +8450,9 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             return []
         hits: list[tuple[float, ZimaObject]] = []
-        for source in self.document.active_history_objects():
+        for source in self.document.history_objects_at(
+            self._definition_history_boundary()
+        ):
             shape = self.document.build_standalone_shape(source)
             if shape is None:
                 continue
@@ -8264,12 +8776,6 @@ class MainWindow(QMainWindow):
             self._populate_tree()
             self.rebuild_view(fit=False)
 
-    def _set_object_visibility(self, obj: ZimaObject, visible: bool) -> None:
-        obj.user_visible = visible
-        self._populate_tree()
-        self._select_tree_object(obj.object_id)
-        self.rebuild_view(fit=False)
-
     def _set_object_suppressed(self, obj: ZimaObject, suppressed: bool) -> None:
         if (
             obj.kind != ObjectKind.OBJECT
@@ -8284,15 +8790,6 @@ class MainWindow(QMainWindow):
         self._populate_tree()
         self._select_tree_object(obj.object_id)
         self.rebuild_view(fit=False)
-
-    def _set_body_visibility(self, visible: bool) -> None:
-        if self.document is None:
-            return
-        self.document.set_body_visible(visible)
-        self.selected_object_id = self.document.root.object_id
-        self._populate_tree()
-        self._select_tree_object(self.document.root.object_id)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _set_body_suppressed(self, suppressed: bool) -> None:
         if self.document is None:
@@ -8645,6 +9142,19 @@ class MainWindow(QMainWindow):
         if self._definition_edit_objects:
             return self._definition_edit_objects[-1]
         return None
+
+    def _definition_history_boundary(self) -> int:
+        if self.document is None:
+            return 0
+        edit_object = self._definition_edit_object()
+        if edit_object is None:
+            return self.document.history_cursor()
+        index = self.document.history_index(edit_object.object_id)
+        return (
+            self.document.history_cursor()
+            if index is None
+            else index
+        )
 
     def show_properties(self, obj: ZimaObject) -> None:
         if obj.kind == ObjectKind.OBJECT:
@@ -9275,10 +9785,7 @@ class MainWindow(QMainWindow):
         nearest_point = None
         visible_shapes = (
             self._cached_model_shapes
-            if (
-                self.document.body_is_visible()
-                and not self.document.body_is_suppressed()
-            )
+            if not self.document.body_is_suppressed()
             else self._cached_source_model_shapes
         )
         for shape, _object_id in visible_shapes:
@@ -9330,6 +9837,17 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_viewer_initialized"):
             return
 
+        history_boundary = (
+            self._definition_history_boundary()
+            if self.document is not None
+            else 0
+        )
+        if (
+            self.document is not None
+            and self._cached_history_boundary != history_boundary
+        ):
+            self._populate_tree()
+
         self._sync_viewer_size()
         display = self.viewer._display
         self._clear_plane_labels()
@@ -9354,13 +9872,18 @@ class MainWindow(QMainWindow):
             and self.point_constraint_dialog.isVisible()
         )
         if self.document is not None:
-            active_objects = self.document.active_history_objects()
-            if rebuild_geometry or self._cached_document is not self.document:
+            active_objects = self.document.history_objects_at(history_boundary)
+            if (
+                rebuild_geometry
+                or self._cached_document is not self.document
+                or self._cached_history_boundary != history_boundary
+            ):
                 self.document.resolve_attachments()
                 self._cached_document = self.document
+                self._cached_history_boundary = history_boundary
                 self._cached_model_shapes = []
                 self._cached_source_model_shapes = []
-                shape = self.document.build_active_shape()
+                shape = self.document.build_shape_at(history_boundary)
                 if shape is not None and active_objects:
                     self._cached_model_shapes.append(
                         (shape, self.document.root.object_id)
@@ -9377,7 +9900,7 @@ class MainWindow(QMainWindow):
                         self._cached_source_model_shapes.append(
                             (source_shape, source_object.object_id)
                         )
-            if self.document.body_is_visible() and not self.document.body_is_suppressed():
+            if not self.document.body_is_suppressed():
                 for shape, owner_id in self._cached_model_shapes:
                     self._display_model_shape(shape, owner_id)
             else:
@@ -9460,10 +9983,10 @@ class MainWindow(QMainWindow):
                         selection_owner = ais_shape.GlobalSelOwner()
                         selection_owner.SetPriority(
                             9
-                            if obj.kind == ObjectKind.POINT and not obj.locked
-                            else 2
+                            if obj.kind == ObjectKind.POINT
+                            else 8
                             if obj.kind == ObjectKind.AXIS
-                            else 1
+                            else 7
                             if obj.kind == ObjectKind.PLANE
                             else 0
                         )
@@ -9615,14 +10138,12 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.document is None:
             return
-        guide_color = (
-            HOVER_COLOR
-            if (
-                self.point_constraint_dialog is not None
-                or self.view_selection_filter == ViewSelectionFilter.POINT
-            )
-            else BLACK
-        )
+        if (
+            self.point_constraint_dialog is None
+            and self.view_selection_filter != ViewSelectionFilter.POINT
+        ):
+            return
+        guide_color = HOVER_COLOR
         for obj in active_objects:
             if not self.document.is_effectively_visible(obj.object_id):
                 continue
@@ -9730,7 +10251,7 @@ class MainWindow(QMainWindow):
             ):
                 ais_shapes = self.viewer._display.DisplayShape(
                     preview_shape,
-                    color=HOVER_COLOR,
+                    color=active_color,
                     update=False,
                 )
                 for ais_shape in ais_shapes:
@@ -9807,18 +10328,10 @@ class MainWindow(QMainWindow):
         if (
             source_object is not None
             and self.document is not None
-            and source_object in self.document.active_history_objects()
-            and not any(
-                child.kind == ObjectKind.SPHERE
-                and not child.locked
-                and child.combine_mode != CombineMode.SUBTRACT
-                for child in source_object.children
+            and source_object in self.document.history_objects_at(
+                self._definition_history_boundary()
             )
         ):
-            depth_test_source_highlight = any(
-                child.kind == ObjectKind.CYLINDER and not child.locked
-                for child in source_object.children
-            )
             for source_shape in self.document.source_highlight_shapes(source_object):
                 ais_shapes = self.viewer._display.DisplayShape(
                     source_shape,
@@ -9828,8 +10341,7 @@ class MainWindow(QMainWindow):
                 for ais_shape in ais_shapes:
                     self._set_ais_display_mode(ais_shape, AIS_WireFrame)
                     ais_shape.SetWidth(3.0)
-                    if not depth_test_source_highlight:
-                        ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
+                    ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                     context.Deactivate(ais_shape)
                 self._selected_model_overlay_ais.extend(ais_shapes)
         context.UpdateSelected(True)
@@ -9873,6 +10385,26 @@ class MainWindow(QMainWindow):
         context = self.viewer._display.Context
         context.SetDisplayMode(ais_shape, display_mode, False)
         context.Redisplay(ais_shape, False)
+
+    @staticmethod
+    def _set_ais_line_color(ais_shape, color) -> None:
+        """Apply one color to every OCCT wire aspect of an AIS shape."""
+        ais_shape.SetColor(color)
+        attributes = ais_shape.Attributes()
+        attributes.SetOwnLineAspects()
+        for aspect_getter, aspect_setter in (
+            (attributes.LineAspect, attributes.SetLineAspect),
+            (attributes.WireAspect, attributes.SetWireAspect),
+            (attributes.FreeBoundaryAspect, attributes.SetFreeBoundaryAspect),
+            (attributes.UnFreeBoundaryAspect, attributes.SetUnFreeBoundaryAspect),
+            (attributes.SeenLineAspect, attributes.SetSeenLineAspect),
+        ):
+            aspect = aspect_getter()
+            if aspect is None:
+                continue
+            aspect.SetColor(color)
+            aspect_setter(aspect)
+        ais_shape.SetAttributes(attributes)
 
     def _hide_ais_edges(self, ais_shape) -> None:
         attributes = ais_shape.Attributes()
@@ -10461,6 +10993,18 @@ class MainWindow(QMainWindow):
             and coordinate_object.kind == ObjectKind.POINT
             and not coordinate_object.locked
         )
+        selection_priority = (
+            9
+            if coordinate_object is not None
+            and coordinate_object.kind == ObjectKind.POINT
+            else 8
+            if coordinate_object is not None
+            and coordinate_object.kind == ObjectKind.AXIS
+            else 7
+            if coordinate_object is not None
+            and coordinate_object.kind == ObjectKind.PLANE
+            else 0
+        )
         # User-authored reference geometry stays visible even when it lies on
         # or inside a solid.  Its local shape is positioned exactly once by
         # transform persistence, so using the top layer no longer displaces it.
@@ -10480,7 +11024,7 @@ class MainWindow(QMainWindow):
                 transform_persistence=transform_persistence,
                 selection_sensitivity=32 if key.endswith("_axis") or key == "point" else 18,
                 topmost=topmost,
-                selection_priority=9 if is_user_point else 0,
+                selection_priority=selection_priority,
             )
             if key.endswith("_axis") or key == "point":
                 self._configure_coordinate_hover(
@@ -10502,7 +11046,7 @@ class MainWindow(QMainWindow):
             transform_persistence=transform_persistence,
             selection_sensitivity=32 if key.endswith("_axis") or key == "point" else 18,
             topmost=topmost,
-            selection_priority=9 if is_user_point else 0,
+            selection_priority=selection_priority,
         )
         if key.endswith("_axis") or key == "point":
             self._configure_coordinate_hover(
@@ -10601,6 +11145,16 @@ class MainWindow(QMainWindow):
                     else Graphic3d_ZLayerId_Topmost
                 )
             ais_shape.SetTransformPersistence(transform_persistence)
+            if transform_persistence is not None:
+                # A zoom-persistent object changes its effective location
+                # relative to the camera.  OCCT otherwise keeps the sensitive
+                # selection entities at their pre-persistence location; this
+                # happened to work for the global origin at (0, 0, 0), but
+                # made object-local origins visible and unpickable.
+                ais_shape.RecomputeTransformation(
+                    self.viewer._display.View.Camera()
+                )
+                ais_shape.UpdateSelection(0)
             self.viewer._display.Context.RecomputeSelectionOnly(ais_shape)
             try:
                 selection_owner = ais_shape.GlobalSelOwner()

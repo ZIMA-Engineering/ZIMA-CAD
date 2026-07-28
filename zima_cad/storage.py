@@ -151,9 +151,43 @@ def load_part_document(file_path: Path) -> PartDocument:
         obj for obj in document.root.children
         if obj.kind != ObjectKind.BODY
     ]
+    reconnect_history_result_references(document)
     migrate_missing_system_references(document)
     validate_object_entities(document)
     return document
+
+
+def reconnect_history_result_references(document: PartDocument) -> None:
+    """Bind persisted automatic-Body references to the new runtime Part ID."""
+    for obj in walk_objects(document.root):
+        raw_references = obj.parameters.get("constraint_refs")
+        if raw_references is None:
+            continue
+        try:
+            references = json.loads(str(raw_references))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(references, list):
+            continue
+        changed = False
+        for reference in references:
+            if (
+                not isinstance(reference, dict)
+                or reference.get("reference_scope") != "history_result"
+            ):
+                continue
+            reference_type = str(reference.get("type", ""))
+            topology_key = str(reference.get("topology_key", "0"))
+            reference["object_id"] = document.root.object_id
+            reference["key"] = (
+                f"{reference_type}:{document.root.object_id}:{topology_key}"
+            )
+            changed = True
+        if changed:
+            obj.parameters["constraint_refs"] = json.dumps(
+                references,
+                ensure_ascii=False,
+            )
 
 
 def migrate_missing_system_references(document: PartDocument) -> None:
