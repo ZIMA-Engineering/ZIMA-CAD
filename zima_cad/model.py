@@ -627,7 +627,7 @@ class PartDocument:
             parameters={
                 "display_style": "datum",
                 "plane": "xy",
-                "size": "140",
+                "size": "50",
                 "unit": "mm",
             },
             tree_exposure=TreeExposure.INTERNAL,

@@ -61,21 +61,27 @@ from PySide6.QtGui import (
     QColor,
     QKeySequence,
     QIcon,
+    QPalette,
     QPainter,
     QPen,
     QPixmap,
 )
 from PySide6.QtCore import (
+    QByteArray,
     QEvent,
     QLibraryInfo,
+    QObject,
     QPoint,
     QPointF,
+    QSettings,
+    QSize,
     QTime,
     QTimer,
     QTranslator,
     Qt,
     Signal,
 )
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -175,9 +181,54 @@ DIMENSION_COLOR = Quantity_Color(*DIMENSION_COLOR_RGB, Quantity_TOC_RGB)
 CENTERLINE_COLOR_RGB = PLANE_COLOR_RGB
 CENTERLINE_COLOR = Quantity_Color(*CENTERLINE_COLOR_RGB, Quantity_TOC_RGB)
 
+_RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
+
 
 def resource_icon(name: str) -> QIcon:
-    return QIcon(str(app_path("resources", "icons", f"{name}.svg")))
+    path = app_path("resources", "icons", f"{name}.svg")
+    application = QApplication.instance()
+    if application is None:
+        return QIcon(str(path))
+
+    # Qt does not consistently resolve SVG currentColor against the widget
+    # palette. Render the icon with an explicit palette colour so transparent
+    # SVG artwork remains legible in both light and dark themes.
+    color = application.palette().color(QPalette.ColorRole.WindowText).name()
+    cache_key = (name, color)
+    if cache_key in _RESOURCE_ICON_CACHE:
+        return _RESOURCE_ICON_CACHE[cache_key]
+    svg = path.read_text(encoding="utf-8").replace("currentColor", color)
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    if not renderer.isValid():
+        return QIcon(str(path))
+
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 48):
+        pixmap = QPixmap(QSize(size, size))
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        icon.addPixmap(pixmap)
+    _RESOURCE_ICON_CACHE[cache_key] = icon
+    return icon
+
+
+TREE_ICON_NAMES = {
+    ObjectKind.PART: "part",
+    ObjectKind.OBJECT: "part",
+    ObjectKind.BODY: "part",
+    ObjectKind.ORIGIN: "origin",
+    ObjectKind.POINT: "point",
+    ObjectKind.AXIS: "axis",
+    ObjectKind.PLANE: "plane",
+    ObjectKind.SKETCH: "sketch",
+    ObjectKind.BOX: "box",
+    ObjectKind.SPHERE: "sphere",
+    ObjectKind.CYLINDER: "cylinder",
+    ObjectKind.PYRAMID: "pyramid",
+    ObjectKind.WEDGE: "wedge",
+}
 
 
 def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
@@ -397,6 +448,16 @@ class DocumentSession:
     active_application: ApplicationMode = ApplicationMode.MODELING
 
 
+class ApplicationWorkspace(QObject):
+    sessionsChanged = Signal(object)
+    documentChanged = Signal(object, object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.document_sessions: list[DocumentSession] = []
+        self.windows: list[MainWindow] = []
+
+
 def canonical_document_path(file_path: Path) -> Path:
     """Normalize relative paths and symlinks for open-document comparisons."""
     return file_path.expanduser().resolve(strict=False)
@@ -406,6 +467,7 @@ class NewDocumentDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.new.title"))
+        self.setMinimumWidth(420)
 
         layout = QVBoxLayout(self)
 
@@ -419,6 +481,9 @@ class NewDocumentDialog(QDialog):
         self.part_radio = QRadioButton(tr("dialog.new.part"))
         self.assembly_radio = QRadioButton(tr("dialog.new.assembly"))
         self.drawing_radio = QRadioButton(tr("dialog.new.drawing"))
+        self.part_radio.setIcon(resource_icon("part"))
+        self.assembly_radio.setIcon(resource_icon("assembly"))
+        self.drawing_radio.setIcon(resource_icon("drawing"))
         self.part_radio.setChecked(True)
 
         layout.addWidget(self.part_radio)
@@ -1367,9 +1432,9 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self.length_label.setText(tr("dialog.plane.size"))
         self.length_spin.setValue(
             float(
-                plane_entity.parameters.get("size", 140.0)
+                plane_entity.parameters.get("size", 50.0)
                 if plane_entity is not None
-                else 140.0
+                else 50.0
             )
         )
         self._update_window_title()
@@ -3057,9 +3122,22 @@ class MainWindow(QMainWindow):
                 return [translator]
         return []
 
-    def __init__(self, startup_context: StartupContext | None = None) -> None:
+    def __init__(
+        self,
+        startup_context: StartupContext | None = None,
+        workspace: ApplicationWorkspace | None = None,
+    ) -> None:
         super().__init__()
 
+        self.workspace = workspace or ApplicationWorkspace()
+        self.workspace.windows.append(self)
+        self.workspace.sessionsChanged.connect(
+            self._sync_workspace_sessions
+        )
+        self.workspace.documentChanged.connect(
+            self._sync_workspace_document
+        )
+        self._handling_workspace_update = False
         self.application_root = application_root()
         ensure_application_directories()
         self.startup_context = startup_context or StartupContext(
@@ -3080,7 +3158,7 @@ class MainWindow(QMainWindow):
             QIcon(str(app_path("resources", "branding", "app-icon.svg")))
         )
         self.resize(1200, 800)
-        self.document_sessions: list[DocumentSession] = []
+        self.document_sessions = self.workspace.document_sessions
         self.active_document_index = -1
         self.document: PartDocument | None = None
         self.current_file_path: Path | None = None
@@ -3426,6 +3504,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.customContextMenuRequested.connect(
             self._show_native_viewer_context_menu
         )
+        self._sync_workspace_sessions(None)
         self._update_window_title()
 
     def _add_display_mode_action(
@@ -3517,6 +3596,12 @@ class MainWindow(QMainWindow):
             plane_action.setIcon(resource_icon("plane"))
             self._mark_application_command(plane_action)
             plane_action.triggered.connect(self._create_plane_object)
+            sketch_action = self.tools_toolbar.addAction(
+                tr("menu.context.create_sketch")
+            )
+            sketch_action.setIcon(resource_icon("sketch"))
+            self._mark_application_command(sketch_action)
+            sketch_action.triggered.connect(self._create_sketch_from_selection)
             self.tools_toolbar.addSeparator()
             for kind, text_key in (
                 (ObjectKind.BOX, "primitive.box"),
@@ -3542,12 +3627,6 @@ class MainWindow(QMainWindow):
                     self._create_primitive_object(primitive_kind)
                 )
             self.tools_toolbar.addSeparator()
-            sketch_action = self.tools_toolbar.addAction(
-                tr("menu.context.create_sketch")
-            )
-            sketch_action.setIcon(resource_icon("sketch"))
-            self._mark_application_command(sketch_action)
-            sketch_action.triggered.connect(self._create_sketch_from_selection)
             profile_action = self.tools_toolbar.addAction(
                 tr("application.command.profile_on_geometry")
             )
@@ -3815,6 +3894,7 @@ class MainWindow(QMainWindow):
         if point is None:
             self.document.delete_object(obj.object_id)
             return None
+        point.name = name
         point.parameters.update(
             {
                 "constraint_refs": json.dumps(
@@ -3997,6 +4077,7 @@ class MainWindow(QMainWindow):
         obj.coordinate_system.origin = solution
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
+        point.name = name
         point.parameters.update(
             {
                 "constraint_refs": json.dumps(
@@ -5090,29 +5171,29 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu(tr("menu.file"))
 
-        new_action = file_menu.addAction(tr("menu.file.new"))
-        new_action.setIcon(resource_icon("new"))
-        new_action.triggered.connect(self.new_document)
+        self.new_document_action = file_menu.addAction(tr("menu.file.new"))
+        self.new_document_action.setIcon(resource_icon("new"))
+        self.new_document_action.triggered.connect(self.new_document)
 
-        open_action = file_menu.addAction(tr("menu.file.open"))
-        open_action.setIcon(resource_icon("open"))
-        open_action.triggered.connect(self.open_document)
+        self.open_document_action = file_menu.addAction(tr("menu.file.open"))
+        self.open_document_action.setIcon(resource_icon("open"))
+        self.open_document_action.triggered.connect(self.open_document)
 
         close_action = file_menu.addAction(tr("menu.file.close"))
         close_action.triggered.connect(self.close_document)
 
-        save_action = file_menu.addAction(tr("menu.file.save"))
-        save_action.setIcon(resource_icon("save"))
-        save_action.setShortcuts(
+        self.save_document_action = file_menu.addAction(tr("menu.file.save"))
+        self.save_document_action.setIcon(resource_icon("save"))
+        self.save_document_action.setShortcuts(
             [
                 QKeySequence.StandardKey.Save,
                 QKeySequence("F1"),
             ]
         )
-        save_action.setShortcutContext(
+        self.save_document_action.setShortcutContext(
             Qt.ShortcutContext.ApplicationShortcut
         )
-        save_action.triggered.connect(self.save_document)
+        self.save_document_action.triggered.connect(self.save_document)
 
         save_as_action = file_menu.addAction(tr("menu.file.save_as"))
         save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
@@ -5224,6 +5305,99 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu(tr("menu.help"))
         about_action = help_menu.addAction(tr("menu.help.about"))
         about_action.triggered.connect(self.show_about_dialog)
+
+        self.main_toolbar = QToolBar(self)
+        self.main_toolbar.setObjectName("mainToolbar")
+        self.main_toolbar.setMovable(False)
+        self.main_toolbar.setIconSize(QSize(24, 24))
+        self.main_toolbar.addAction(self.new_document_action)
+        self.main_toolbar.addAction(self.open_document_action)
+        self.main_toolbar.addAction(self.save_document_action)
+        self.main_toolbar.addSeparator()
+        self.main_toolbar.addAction(global_settings_action)
+
+        toolbar_spacer = QWidget()
+        toolbar_spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.main_toolbar.addWidget(toolbar_spacer)
+
+        logo_widget = QWidget()
+        logo_layout = QHBoxLayout(logo_widget)
+        logo_layout.setContentsMargins(8, 2, 12, 2)
+        logo_layout.setSpacing(6)
+        logo_symbol = QLabel()
+        logo_pixmap = QPixmap(
+            str(app_path("resources", "branding", "app-icon.svg"))
+        )
+        logo_symbol.setPixmap(
+            logo_pixmap.scaled(
+                30,
+                30,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        logo_text = QLabel(
+            '<span style="color:#80AA1A">ZIMA</span>-CAD'
+        )
+        logo_font = logo_text.font()
+        logo_font.setBold(True)
+        logo_font.setPointSizeF(max(11.0, logo_font.pointSizeF()))
+        logo_text.setFont(logo_font)
+        logo_layout.addWidget(logo_symbol)
+        logo_layout.addWidget(logo_text)
+        self.main_toolbar.addWidget(logo_widget)
+        self.addToolBar(
+            Qt.ToolBarArea.TopToolBarArea,
+            self.main_toolbar,
+        )
+        self._restore_window_layout()
+
+    @staticmethod
+    def _window_settings() -> QSettings:
+        return QSettings("ZIMA-Engineering", "ZIMA-CAD")
+
+    def _restore_window_layout(self) -> None:
+        settings = self._window_settings()
+        geometry = settings.value("main_window/geometry")
+        if isinstance(geometry, QByteArray) and not geometry.isEmpty():
+            self.restoreGeometry(geometry)
+        state = settings.value("main_window/state")
+        if isinstance(state, QByteArray) and not state.isEmpty():
+            self.restoreState(state)
+        QTimer.singleShot(0, self._ensure_window_on_available_screen)
+
+    def _ensure_window_on_available_screen(self) -> None:
+        frame = self.frameGeometry()
+        if any(
+            frame.intersected(screen.availableGeometry()).width() >= 100
+            and frame.intersected(screen.availableGeometry()).height() >= 60
+            for screen in QApplication.screens()
+        ):
+            return
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        if not self.isMaximized():
+            self.resize(
+                min(self.width(), available.width()),
+                min(self.height(), available.height()),
+            )
+        frame = self.frameGeometry()
+        frame.moveCenter(available.center())
+        self.move(frame.topLeft())
+
+    def closeEvent(self, event) -> None:
+        settings = self._window_settings()
+        settings.setValue("main_window/geometry", self.saveGeometry())
+        settings.setValue("main_window/state", self.saveState())
+        settings.sync()
+        if self in self.workspace.windows:
+            self.workspace.windows.remove(self)
+        super().closeEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -5358,6 +5532,59 @@ class MainWindow(QMainWindow):
             session.selected_object_id = self.selected_object_id
             session.active_application = self.active_application
 
+    def _sync_workspace_sessions(self, source_window) -> None:
+        if source_window is self:
+            return
+        active_document = self.document
+        self.document_tabs.blockSignals(True)
+        while self.document_tabs.count():
+            self.document_tabs.removeTab(0)
+        for session in self.document_sessions:
+            self.document_tabs.addTab(
+                self._file_label(session.file_path, session.document)
+            )
+        self.document_tabs.blockSignals(False)
+
+        if not self.document_sessions:
+            self.active_document_index = -1
+            self.document = None
+            self.current_file_path = None
+            self.selected_object_id = None
+            self._populate_tree()
+            self.rebuild_view(fit=True)
+            self._update_window_title()
+            self._refresh_window_menu()
+            return
+
+        index = next(
+            (
+                session_index
+                for session_index, session in enumerate(self.document_sessions)
+                if session.document is active_document
+            ),
+            0,
+        )
+        self.active_document_index = -1
+        self.document_tabs.setCurrentIndex(index)
+        self._on_document_tab_changed(index)
+
+    def _sync_workspace_document(
+        self,
+        source_window,
+        document: PartDocument,
+    ) -> None:
+        if source_window is self or self.document is not document:
+            return
+        self._handling_workspace_update = True
+        try:
+            selected_id = self.selected_object_id
+            self._populate_tree()
+            if selected_id is not None:
+                self._select_tree_object(selected_id)
+            self.rebuild_view(fit=False, rebuild_geometry=True)
+        finally:
+            self._handling_workspace_update = False
+
     def _add_document_session(
         self,
         document: PartDocument,
@@ -5372,6 +5599,7 @@ class MainWindow(QMainWindow):
         if self.active_document_index != new_index:
             self._on_document_tab_changed(new_index)
         self._refresh_window_menu()
+        self.workspace.sessionsChanged.emit(self)
 
     def _on_document_tab_changed(self, index: int) -> None:
         if index == self.active_document_index:
@@ -5423,20 +5651,39 @@ class MainWindow(QMainWindow):
             self.rebuild_view(fit=True)
             self._update_window_title()
             self._refresh_window_menu()
+            self.workspace.sessionsChanged.emit(self)
             return
 
         new_index = min(index, len(self.document_sessions) - 1)
         self.active_document_index = -1
         self.document_tabs.setCurrentIndex(new_index)
         self._on_document_tab_changed(new_index)
+        self.workspace.sessionsChanged.emit(self)
 
     def new_document(self) -> None:
         dialog = NewDocumentDialog(self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+        while True:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            document_type = dialog.selected_document_type()
+            file_stem = dialog.file_stem()
+            extension = {
+                "part": ".prtz",
+                "assembly": ".asmz",
+                "drawing": ".drwz",
+            }[document_type]
+            file_path = self.working_directory / f"{file_stem}{extension}"
+            if not self._document_file_name_exists(file_path):
+                break
+            QMessageBox.information(
+                self,
+                tr("dialog.new.title"),
+                tr(
+                    "message.file_already_exists",
+                    file=file_path.name,
+                ),
+            )
 
-        document_type = dialog.selected_document_type()
-        file_stem = dialog.file_stem()
         if document_type != "part":
             QMessageBox.information(
                 self,
@@ -5449,8 +5696,27 @@ class MainWindow(QMainWindow):
         for unit_name in document.document_units:
             if unit_name in self.settings.units:
                 document.document_units[unit_name] = self.settings.units[unit_name]
-        file_path = self.working_directory / f"{file_stem}.prtz"
         self._add_document_session(document, file_path)
+
+    def _document_file_name_exists(self, file_path: Path) -> bool:
+        target_name = file_path.name.casefold()
+        target_directory = canonical_document_path(file_path.parent)
+        for session in self.document_sessions:
+            if session.file_path is None:
+                continue
+            session_path = canonical_document_path(session.file_path)
+            if (
+                session_path.parent == target_directory
+                and session_path.name.casefold() == target_name
+            ):
+                return True
+        try:
+            return any(
+                entry.name.casefold() == target_name
+                for entry in file_path.parent.iterdir()
+            )
+        except FileNotFoundError:
+            return False
 
     def close_document(self) -> None:
         self.close_document_tab(self.active_document_index)
@@ -5561,6 +5827,7 @@ class MainWindow(QMainWindow):
         if 0 <= self.active_document_index < len(self.document_sessions):
             self.document_sessions[self.active_document_index].file_path = file_path
         self._update_window_title()
+        self.workspace.sessionsChanged.emit(self)
         self.statusBar().showMessage(
             tr(
                 "status.file_saved",
@@ -5738,6 +6005,11 @@ class MainWindow(QMainWindow):
             return
 
         self.window_menu.clear()
+        new_window_action = self.window_menu.addAction(
+            tr("menu.window.new_window")
+        )
+        new_window_action.triggered.connect(self.open_new_window)
+        self.window_menu.addSeparator()
         if not self.document_sessions:
             no_windows_action = self.window_menu.addAction(tr("status.no_open_documents"))
             no_windows_action.setEnabled(False)
@@ -5754,6 +6026,35 @@ class MainWindow(QMainWindow):
                     tab_index
                 )
             )
+
+    def open_new_window(self) -> None:
+        window = MainWindow(self.startup_context, self.workspace)
+        window.showNormal()
+        if len(self.document_sessions) > 1:
+            window.document_tabs.setCurrentIndex(
+                (self.active_document_index + 1)
+                % len(self.document_sessions)
+            )
+
+        screens = QApplication.screens()
+        current_screen = self.screen()
+        target_screen = next(
+            (screen for screen in screens if screen is not current_screen),
+            current_screen,
+        )
+        if target_screen is None:
+            return
+        available = target_screen.availableGeometry()
+        window.resize(
+            min(max(self.width(), 900), available.width()),
+            min(max(self.height(), 650), available.height()),
+        )
+        frame = window.frameGeometry()
+        frame.moveCenter(available.center())
+        window.move(frame.topLeft())
+        window.showMaximized()
+        window.raise_()
+        window.activateWindow()
 
     def show_about_dialog(self) -> None:
         dialog = QMessageBox(self)
@@ -5951,6 +6252,9 @@ class MainWindow(QMainWindow):
         )
         state_symbol = "S" if effectively_suppressed else ""
         item = QTreeWidgetItem([name, state_symbol])
+        icon_name = TREE_ICON_NAMES.get(obj.kind)
+        if icon_name is not None:
+            item.setIcon(0, resource_icon(icon_name))
         item.setData(0, Qt.ItemDataRole.UserRole, obj.object_id)
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
         if effectively_suppressed:
@@ -6105,6 +6409,18 @@ class MainWindow(QMainWindow):
         if not owner_id or edge_index <= 0:
             return
         self.native_viewer.set_object_overlay(None)
+        if self.document is not None:
+            owner = self.document.find_object(owner_id)
+            if owner is not None and owner.kind in (
+                ObjectKind.ORIGIN,
+                ObjectKind.AXIS,
+            ):
+                self._on_native_coordinate_selected(
+                    owner_id,
+                    edge_index,
+                    "axis",
+                )
+                return
         scene = self._native_viewer_scene
         if scene is None:
             return
@@ -6263,6 +6579,20 @@ class MainWindow(QMainWindow):
                 if child is not None:
                     selected_id = child.object_id
         selected_reference = self.document.find_object(selected_id)
+        if (
+            selected_reference is not None
+            and selected_reference.kind in (
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+            )
+            and not selected_reference.locked
+        ):
+            owner = self.document.find_owning_object(
+                selected_reference.object_id
+            )
+            if owner is not None and owner.kind == ObjectKind.OBJECT:
+                selected_id = owner.object_id
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
@@ -10398,6 +10728,11 @@ class MainWindow(QMainWindow):
         self._cached_document = self.document
         self._cached_history_boundary = history_boundary
         self._rebuild_native_view(history_boundary, fit)
+        if (
+            self.document is not None
+            and not self._handling_workspace_update
+        ):
+            self.workspace.documentChanged.emit(self, self.document)
         return
 
         self._sync_viewer_size()
@@ -10607,6 +10942,12 @@ class MainWindow(QMainWindow):
             show_user_points=self.show_points_action.isChecked(),
             show_user_axes=self.show_axes_action.isChecked(),
             show_user_planes=self.show_planes_action.isChecked(),
+            editing_object_id=(
+                editing_object.object_id
+                if (editing_object := self._definition_edit_object())
+                is not None
+                else None
+            ),
         )
         self._selectable_model_shapes = list(
             (
@@ -10671,6 +11012,33 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_object_overlay(None)
         obj = self._selected_object()
         if obj is None:
+            return
+        user_reference = (
+            obj
+            if obj.kind in (
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+            )
+            and not obj.locked
+            else next(
+                (
+                    child
+                    for child in obj.children
+                    if child.kind in (
+                        ObjectKind.POINT,
+                        ObjectKind.AXIS,
+                        ObjectKind.PLANE,
+                    )
+                    and not child.locked
+                ),
+                None,
+            )
+        )
+        if user_reference is not None:
+            self.native_viewer.set_selected_reference_owner(
+                user_reference.object_id
+            )
             return
         if obj.kind == ObjectKind.BODY:
             self.native_viewer._set_selected_object(
@@ -11441,7 +11809,7 @@ class MainWindow(QMainWindow):
 
     def _display_datum_plane(self, plane: ZimaObject, parent_transform) -> None:
         plane_key = f"{plane.parameters.get('plane', 'xy')}_plane"
-        size = max(0.001, float(plane.parameters.get("size", 100.0)))
+        size = max(0.001, float(plane.parameters.get("size", 50.0)))
         shape = make_origin_shapes(
             size=size,
             origin=(0.0, 0.0, 0.0),

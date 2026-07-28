@@ -75,6 +75,7 @@ def build_document_viewer_scene_data(
     show_user_points: bool = False,
     show_user_axes: bool = False,
     show_user_planes: bool = False,
+    editing_object_id: str | None = None,
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -125,6 +126,7 @@ def build_document_viewer_scene_data(
             layers,
             show_object_planes,
             show_object_origins,
+            editing_object_id,
         )
 
     if show_document_origin:
@@ -174,6 +176,12 @@ def _append_object_sketches(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
     )
+    owner = document.find_owning_object(obj.object_id)
+    display_name = (
+        owner.name
+        if owner is not None and owner.kind == ObjectKind.OBJECT
+        else obj.name
+    )
     if (
         obj.kind == ObjectKind.POINT
         and not obj.locked
@@ -183,7 +191,7 @@ def _append_object_sketches(
             transform_viewer_mesh(
                 point_marker_mesh(
                     owner_id=obj.object_id,
-                    label=obj.name,
+                    label=display_name,
                 ),
                 world_transform,
             )
@@ -202,7 +210,7 @@ def _append_object_sketches(
                     owner_id=obj.object_id,
                     edge_kind="centerline",
                     edge_color=BROWN,
-                    edge_label=obj.name,
+                    edge_label=display_name,
                 )
             )
     if (
@@ -214,9 +222,9 @@ def _append_object_sketches(
             transform_viewer_mesh(
                 datum_plane_mesh(
                     owner_id=obj.object_id,
-                    size=float(obj.parameters.get("size", 140.0)),
+                    size=float(obj.parameters.get("size", 50.0)),
                     plane=str(obj.parameters.get("plane", "xy")),
-                    label=obj.name,
+                    label=display_name,
                 ),
                 world_transform,
             )
@@ -256,6 +264,7 @@ def _append_object_origins(
     layers: list[ViewerMesh],
     show_object_planes: bool,
     show_object_origins: bool,
+    editing_object_id: str | None,
 ) -> None:
     if not document.is_effectively_visible(obj.object_id):
         return
@@ -300,6 +309,16 @@ def _append_object_origins(
                         world_transform,
                     )
                 )
+    elif origin is not None and obj.object_id == editing_object_id:
+        layers.append(
+            transform_viewer_mesh(
+                point_marker_mesh(
+                    owner_id=origin.object_id,
+                    label="0,0,0",
+                ),
+                world_transform,
+            )
+        )
     for child in obj.children:
         if not child.locked:
             _append_object_origins(
@@ -309,6 +328,7 @@ def _append_object_origins(
                 layers,
                 show_object_planes,
                 show_object_origins,
+                editing_object_id,
             )
 
 

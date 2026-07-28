@@ -3,6 +3,10 @@
 Prototype of a constructor-focused 3D CAD application based on OpenCascade,
 Python and Qt.
 
+ZIMA-CAD uses OpenCascade for CAD geometry, but is developing its own
+high-performance rendering engine instead of relying on OpenCascade
+visualization.
+
 Development plans and major feature milestones are tracked in
 [ROADMAP.md](ROADMAP.md).
 
