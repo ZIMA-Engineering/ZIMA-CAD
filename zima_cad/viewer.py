@@ -1129,14 +1129,53 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (1.0, 0.48, 0.0)
             if key == self._selected_edge:
                 color = (0.0, 0.82, 1.0)
-            if edge.owner_id == self._selected_reference_owner_id:
+            if edge.owner_id in {
+                self._selected_reference_owner_id,
+                self._selected_container_origin_id,
+            }:
                 color = (0.0, 0.82, 1.0)
-            painter.setPen(
-                QColor.fromRgbF(color[0], color[1], color[2], 1.0)
+            axis_color = QColor.fromRgbF(*color, 1.0)
+            painter.setPen(QPen(axis_color, 1.5))
+            display_points = self._display_edge_points(edge)
+            startpoint = self._screen_point(
+                self._camera_point(display_points[0])
             )
             endpoint = self._screen_point(
-                self._camera_point(self._display_edge_points(edge)[-1])
+                self._camera_point(display_points[-1])
             )
+            if (
+                edge.element_kind == "axis"
+                and edge.screen_constant
+                and edge.label in {"X", "Y", "Z"}
+            ):
+                dx = endpoint.x() - startpoint.x()
+                dy = endpoint.y() - startpoint.y()
+                screen_length = hypot(dx, dy)
+                if screen_length > 1e-6:
+                    direction_x = dx / screen_length
+                    direction_y = dy / screen_length
+                    perpendicular_x = -direction_y
+                    perpendicular_y = direction_x
+                    arrow_length = 10.0
+                    half_width = 4.5
+                    base_x = endpoint.x() - direction_x * arrow_length
+                    base_y = endpoint.y() - direction_y * arrow_length
+                    arrow = QPolygonF(
+                        [
+                            endpoint,
+                            QPointF(
+                                base_x + perpendicular_x * half_width,
+                                base_y + perpendicular_y * half_width,
+                            ),
+                            QPointF(
+                                base_x - perpendicular_x * half_width,
+                                base_y - perpendicular_y * half_width,
+                            ),
+                        ]
+                    )
+                    painter.setBrush(QBrush(axis_color))
+                    painter.drawPolygon(arrow)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawText(
                 QPointF(endpoint.x() + 6.0, endpoint.y() - 5.0),
                 edge.label,
@@ -1210,7 +1249,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
             if (
                 key == self._selected_edge
-                or edge.owner_id == self._selected_reference_owner_id
+                or edge.owner_id in {
+                    self._selected_reference_owner_id,
+                    self._selected_container_origin_id,
+                }
             ):
                 color = QColor.fromRgbF(0.0, 0.82, 1.0)
             if color is None or edge.element_kind not in {

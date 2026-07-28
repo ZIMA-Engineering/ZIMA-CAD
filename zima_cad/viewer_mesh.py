@@ -16,6 +16,9 @@ from OCC.Core.TopLoc import TopLoc_Location
 Point3 = tuple[float, float, float]
 BROWN: Point3 = (0.68, 0.43, 0.18)
 BLACK: Point3 = (0.0, 0.0, 0.0)
+X_AXIS_COLOR: Point3 = (0.91, 0.30, 0.24)
+Y_AXIS_COLOR: Point3 = (0.18, 0.80, 0.44)
+Z_AXIS_COLOR: Point3 = (0.20, 0.60, 0.86)
 
 
 @dataclass(frozen=True)
@@ -271,13 +274,14 @@ def origin_axes_mesh(
     owner_id: str,
     length: float,
     center: Point3 = (0.0, 0.0, 0.0),
+    point_label: str = "0,0,0",
 ) -> ViewerMesh:
     """Create renderer-owned X/Y/Z origin axes without an OCCT presentation."""
     axis_length = max(float(length), 1e-6)
     colors = (
-        BROWN,
-        BROWN,
-        BROWN,
+        X_AXIS_COLOR,
+        Y_AXIS_COLOR,
+        Z_AXIS_COLOR,
     )
     axes = (
         ((center[0] + axis_length, center[1], center[2]), "X"),
@@ -312,7 +316,7 @@ def origin_axes_mesh(
                 point_index=1,
                 position=center,
                 owner_id=owner_id,
-                label="0,0,0",
+                label=point_label,
             ),
         ),
         planes=(),

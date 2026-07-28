@@ -138,6 +138,7 @@ def build_document_viewer_scene_data(
             origin_axes_mesh(
                 owner_id=origin_id,
                 length=max(scene_size * 0.12, 4.0),
+                point_label=f"{document.root.name} · Origin",
             )
         )
     if show_document_planes:
@@ -305,6 +306,7 @@ def _append_object_origins(
                 origin_axes_mesh(
                     owner_id=origin.entity_id,
                     length=reference_size,
+                    point_label=f"{obj.name} · Origin",
                 ),
                 world_transform,
             )
@@ -335,7 +337,7 @@ def _append_object_origins(
             transform_viewer_mesh(
                 point_marker_mesh(
                     owner_id=origin.entity_id,
-                    label="0,0,0",
+                    label=f"{obj.name} · Origin",
                 ),
                 world_transform,
             )

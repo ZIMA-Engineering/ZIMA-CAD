@@ -174,6 +174,13 @@ class TreeExposure(str, Enum):
     HIDDEN = "hidden"
 
 
+class OriginScope(str, Enum):
+    PART = "part"
+    ASSEMBLY = "assembly"
+    CONTAINER = "container"
+    LOCAL = "local"
+
+
 class SketchRole(str, Enum):
     PROFILE = "PROFILE"
     PATH = "PATH"
@@ -246,6 +253,7 @@ class ZimaEntity:
     tree_exposure: TreeExposure = TreeExposure.PUBLIC
     show_internal_entities: bool = True
     show_auxiliary_geometry: bool = False
+    origin_scope: OriginScope | None = None
 
     def add_child(self, child: "ZimaEntity") -> None:
         self.children.append(child)
@@ -398,7 +406,10 @@ class PartDocument:
 
     def __post_init__(self) -> None:
         if not any(child.kind == EntityKind.ORIGIN for child in self.root.children):
-            self.root.children.insert(0, create_origin_object("document"))
+            self.root.children.insert(
+                0,
+                create_origin_object("document", OriginScope.PART),
+            )
 
     def visible_objects(self) -> list[ZimaEntity]:
         return [obj for obj in self.root.children if obj.kind != EntityKind.ORIGIN]
@@ -1506,9 +1517,17 @@ def delete_child_entity(parent: ZimaEntity, entity_id: str) -> bool:
     return False
 
 
-def create_origin_object(owner_id: str | None = None) -> ZimaEntity:
+def create_origin_object(
+    owner_id: str | None = None,
+    scope: OriginScope = OriginScope.LOCAL,
+) -> ZimaEntity:
     origin = ZimaEntity(
-        name="Origin",
+        name={
+            OriginScope.PART: "Part Origin",
+            OriginScope.ASSEMBLY: "Assembly Origin",
+            OriginScope.CONTAINER: "Container Origin",
+            OriginScope.LOCAL: "Local Origin",
+        }[scope],
         kind=EntityKind.ORIGIN,
         combine_mode=CombineMode.NONE,
         entity_id=(
@@ -1518,6 +1537,7 @@ def create_origin_object(owner_id: str | None = None) -> ZimaEntity:
         ),
         locked=True,
         tree_exposure=TreeExposure.INTERNAL,
+        origin_scope=scope,
     )
     add_origin_children(origin)
     return origin
@@ -1527,7 +1547,12 @@ def add_coordinate_system_children(parent: ZimaEntity) -> None:
     if parent.kind != EntityKind.CONTAINER:
         return
     if not any(child.kind == EntityKind.ORIGIN for child in parent.children):
-        parent.add_child(create_origin_object(parent.entity_id))
+        parent.add_child(
+            create_origin_object(
+                parent.entity_id,
+                OriginScope.CONTAINER,
+            )
+        )
 
 
 def add_origin_children(parent: ZimaEntity) -> None:

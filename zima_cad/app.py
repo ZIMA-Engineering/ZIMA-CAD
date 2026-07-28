@@ -85,6 +85,7 @@ from zima_cad.model import (
     CombineMode,
     ContainerType,
     EntityKind,
+    OriginScope,
     SOLID_KINDS,
     SketchRole,
     PartDocument,
@@ -5840,6 +5841,18 @@ class MainWindow(QMainWindow):
             return None
         if obj.kind == EntityKind.POINT:
             name = self._point_display_name(obj)
+        elif obj.kind == EntityKind.ORIGIN:
+            name = tr(
+                {
+                    OriginScope.PART: "tree.origin.part",
+                    OriginScope.ASSEMBLY: "tree.origin.assembly",
+                    OriginScope.CONTAINER: "tree.origin.container",
+                    OriginScope.LOCAL: "tree.origin.local",
+                }.get(
+                    obj.origin_scope or OriginScope.LOCAL,
+                    "tree.origin.local",
+                )
+            )
         elif obj.kind == EntityKind.BODY:
             suffix = obj.name.removeprefix("Body")
             name = (

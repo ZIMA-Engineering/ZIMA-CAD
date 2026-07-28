@@ -11,6 +11,7 @@ from zima_cad.model import (
     ContainerType,
     CoordinateSystem,
     EntityKind,
+    OriginScope,
     PlaneOnFaceAttachment,
     PartDocument,
     TreeExposure,
@@ -340,6 +341,8 @@ def write_entity(config: configparser.ConfigParser, obj: ZimaEntity) -> None:
         "tree_exposure": obj.tree_exposure.value,
         "show_auxiliary_geometry": str(obj.show_auxiliary_geometry).lower(),
     }
+    if obj.kind == EntityKind.ORIGIN and obj.origin_scope is not None:
+        config[section]["origin_scope"] = obj.origin_scope.value
     if obj.kind == EntityKind.CONTAINER:
         config[section]["TYPE"] = obj.container_type.value
 
@@ -412,6 +415,17 @@ def read_entity(
                 "tree_exposure",
                 fallback=TreeExposure.PUBLIC.value,
             )
+        ),
+        origin_scope=(
+            OriginScope(
+                config.get(
+                    section,
+                    "origin_scope",
+                    fallback=OriginScope.LOCAL.value,
+                )
+            )
+            if kind == EntityKind.ORIGIN
+            else None
         ),
     )
 
