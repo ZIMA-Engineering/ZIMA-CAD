@@ -135,11 +135,15 @@ PLANE_COLOR = Quantity_Color(*PLANE_COLOR_RGB, Quantity_TOC_RGB)
 ENDPOINT_MARKER_SIZE = 12
 BLACK = Quantity_Color(Quantity_NOC_BLACK)
 BLUE = Quantity_Color(Quantity_NOC_BLUE1)
-SKETCH_COLOR = Quantity_Color(1.0, 0.847, 0.302, Quantity_TOC_RGB)
 GREEN = Quantity_Color(Quantity_NOC_GREEN)
 RED = Quantity_Color(Quantity_NOC_RED)
-YELLOW = Quantity_Color(Quantity_NOC_YELLOW)
-DIMENSION_COLOR_RGB = (0.0, 0.82, 1.0)
+PREVIEW_COLOR = Quantity_Color(Quantity_NOC_YELLOW)
+HOVER_COLOR_RGB = (1.0, 0.35, 0.0)
+HOVER_COLOR = Quantity_Color(*HOVER_COLOR_RGB, Quantity_TOC_RGB)
+SELECTION_COLOR_RGB = (0.0, 0.843, 1.0)
+SELECTION_COLOR = Quantity_Color(*SELECTION_COLOR_RGB, Quantity_TOC_RGB)
+SKETCH_COLOR = Quantity_Color(0.898, 0.722, 0.18, Quantity_TOC_RGB)
+DIMENSION_COLOR_RGB = (1.0, 0.941, 0.416)
 DIMENSION_COLOR = Quantity_Color(*DIMENSION_COLOR_RGB, Quantity_TOC_RGB)
 CENTERLINE_COLOR_RGB = PLANE_COLOR_RGB
 CENTERLINE_COLOR = Quantity_Color(*CENTERLINE_COLOR_RGB, Quantity_TOC_RGB)
@@ -2544,7 +2548,7 @@ class ParameterEditOverlay(QWidget):
             "QLineEdit {"
             "background-color: #ffffff;"
             "color: #202020;"
-            "border: 2px solid #00d1ff;"
+            "border: 2px solid #fff06a;"
             "border-radius: 2px;"
             "padding: 0px;"
             "font-weight: bold;"
@@ -5466,15 +5470,22 @@ class MainWindow(QMainWindow):
 
     def _configure_view_highlight(self) -> None:
         context = self.viewer._display.Context
-        yellow = Quantity_Color(Quantity_NOC_YELLOW)
-        for style_type in (
-            Prs3d_TypeOfHighlight_Dynamic,
-            Prs3d_TypeOfHighlight_LocalDynamic,
-            Prs3d_TypeOfHighlight_Selected,
-            Prs3d_TypeOfHighlight_LocalSelected,
+        # OCCT 7.9 can crash in StdPrs_WFShape when MoveTo automatically
+        # highlights a detected subshape.  This is especially easy to trigger
+        # when opening a definition dialog: rebuilding the view replaces the
+        # selectable presentations while the pointer is still over the
+        # viewport.  Detection remains enabled with automatic highlighting
+        # disabled; ZIMA-CAD renders its hover feedback in
+        # _on_view_hover_changed instead.
+        context.SetAutomaticHilight(False)
+        for style_type, color in (
+            (Prs3d_TypeOfHighlight_Dynamic, HOVER_COLOR),
+            (Prs3d_TypeOfHighlight_LocalDynamic, HOVER_COLOR),
+            (Prs3d_TypeOfHighlight_Selected, SELECTION_COLOR),
+            (Prs3d_TypeOfHighlight_LocalSelected, SELECTION_COLOR),
         ):
             style = context.HighlightStyle(style_type)
-            style.SetColor(yellow)
+            style.SetColor(color)
             style.SetZLayer(Graphic3d_ZLayerId_Topmost)
             if style.LineAspect() is not None:
                 style.LineAspect().SetWidth(3.0)
@@ -5975,9 +5986,16 @@ class MainWindow(QMainWindow):
     def _update_coordinate_label_highlights(self) -> None:
         if not hasattr(self, "_viewer_initialized"):
             return
-        selected_ids = {self.selected_object_id} if self.selected_object_id else set()
+        selected_ids = (
+            {self.selected_object_id}
+            if self.selected_object_id is not None
+            and self._view_selection_confirmed
+            else set()
+        )
         selected = self.document.find_object(self.selected_object_id) if (
-            self.document is not None and self.selected_object_id is not None
+            self.document is not None
+            and self.selected_object_id is not None
+            and self._view_selection_confirmed
         ) else None
         selected_point = self._user_point_entity(selected)
         if selected_point is not None:
@@ -6005,7 +6023,8 @@ class MainWindow(QMainWindow):
             ObjectKind.BODY,
         ):
             hovered_ids.update(self._descendant_object_ids(hovered))
-        whole_object_ids: set[str] = set()
+        selected_whole_object_ids: set[str] = set()
+        hovered_whole_object_ids: set[str] = set()
         if (
             selected_point is None
             and selected is not None
@@ -6014,7 +6033,7 @@ class MainWindow(QMainWindow):
                 ObjectKind.BODY,
             )
         ):
-            whole_object_ids.update(selected_ids)
+            selected_whole_object_ids.update(selected_ids)
         if (
             hovered_point is None
             and hovered is not None
@@ -6023,7 +6042,7 @@ class MainWindow(QMainWindow):
                 ObjectKind.BODY,
             )
         ):
-            whole_object_ids.update(hovered_ids)
+            hovered_whole_object_ids.update(hovered_ids)
 
         context = self.viewer._display.Context
         for overlay_shape in self._hovered_model_overlay_ais:
@@ -6040,7 +6059,7 @@ class MainWindow(QMainWindow):
                 continue
             overlay_shapes = self.viewer._display.DisplayShape(
                 shape,
-                color=YELLOW,
+                color=HOVER_COLOR,
                 update=False,
             )
             for overlay_shape in overlay_shapes:
@@ -6052,12 +6071,22 @@ class MainWindow(QMainWindow):
         active_coordinate_ids: set[str] = set()
         for object_id, edge_shapes in self._model_edge_ais_by_object_id.items():
             selected_edge_ids = set() if self.selected_face is not None else selected_ids
-            highlighted = (
+            selected_edge = (
                 object_id in selected_edge_ids
-                or object_id in hovered_ids
-                or object_id in whole_object_ids
+                or object_id in selected_whole_object_ids
             )
-            color = YELLOW if highlighted else BLACK
+            hovered_edge = (
+                object_id in hovered_ids
+                or object_id in hovered_whole_object_ids
+            )
+            highlighted = selected_edge or hovered_edge
+            color = (
+                SELECTION_COLOR
+                if selected_edge
+                else HOVER_COLOR
+                if hovered_edge
+                else BLACK
+            )
             for edge_shape in edge_shapes:
                 edge_shape.SetColor(color)
                 edge_shape.SetWidth(3.0 if highlighted else 1.0)
@@ -6076,13 +6105,19 @@ class MainWindow(QMainWindow):
                 if coordinate_owner is not None
                 else None
             )
-            active = (
+            selected_coordinate = (
                 object_id in selected_ids
-                or object_id in hovered_ids
-                or owner_id in whole_object_ids
+                or owner_id in selected_whole_object_ids
             )
-            if active:
-                color = YELLOW
+            hovered_coordinate = (
+                object_id in hovered_ids
+                or owner_id in hovered_whole_object_ids
+            )
+            active = selected_coordinate or hovered_coordinate
+            if selected_coordinate:
+                color = SELECTION_COLOR
+            elif hovered_coordinate:
+                color = HOVER_COLOR
             elif coordinate.kind == ObjectKind.PLANE:
                 color = PLANE_COLOR
             elif coordinate.kind == ObjectKind.POINT:
@@ -6117,12 +6152,24 @@ class MainWindow(QMainWindow):
             if active:
                 active_coordinate_ids.add(object_id)
         for object_id in active_coordinate_ids:
+            overlay_color = (
+                SELECTION_COLOR
+                if object_id in selected_ids
+                or (
+                    self.document is not None
+                    and (
+                        owner := self.document.find_owning_object(object_id)
+                    ) is not None
+                    and owner.object_id in selected_whole_object_ids
+                )
+                else HOVER_COLOR
+            )
             for shape, transform_persistence, topmost in (
                 self._coordinate_overlay_sources_by_object_id.get(object_id, [])
             ):
                 overlay_shapes = self.viewer._display.DisplayShape(
                     shape,
-                    color=YELLOW,
+                    color=overlay_color,
                     update=False,
                 )
                 for overlay_shape in overlay_shapes:
@@ -6135,7 +6182,7 @@ class MainWindow(QMainWindow):
                 self._coordinate_highlight_overlay_ais.extend(overlay_shapes)
         active_coordinate_label_structures = []
         for object_id, structures in self._coordinate_labels_by_object_id.items():
-            normal_structure, highlighted_structure = structures
+            normal_structure, hovered_structure, selected_structure = structures
             coordinate_owner = (
                 self.document.find_owning_object(object_id)
                 if self.document is not None
@@ -6146,20 +6193,25 @@ class MainWindow(QMainWindow):
                 if coordinate_owner is not None
                 else None
             )
-            active = (
+            selected_label = (
                 object_id in selected_ids
-                or object_id in hovered_ids
-                or owner_id in whole_object_ids
+                or owner_id in selected_whole_object_ids
             )
-            normal_structure.Erase()
-            highlighted_structure.Erase()
-            if active:
-                active_coordinate_label_structures.append(highlighted_structure)
+            hovered_label = (
+                object_id in hovered_ids
+                or owner_id in hovered_whole_object_ids
+            )
+            for structure in structures:
+                structure.Erase()
+            if selected_label:
+                active_coordinate_label_structures.append(selected_structure)
+            elif hovered_label:
+                active_coordinate_label_structures.append(hovered_structure)
             else:
                 normal_structure.Display()
         # Coincident coordinate systems also have coincident labels. Display the
-        # active label after every normal label so the selected plane keeps its
-        # yellow text regardless of object creation order.
+        # active label after every normal label so a coincident selected or
+        # hovered entity keeps its state color regardless of creation order.
         for highlighted_structure in active_coordinate_label_structures:
             highlighted_structure.Display()
         self.viewer._display.Repaint()
@@ -6454,6 +6506,24 @@ class MainWindow(QMainWindow):
                 return self._selection_filtered_object_id(object_id)
         return None
 
+    @staticmethod
+    def _detected_items(context) -> list[tuple[Any, Any]]:
+        """Return OCCT detections without invoking its native highlighting."""
+        items: list[tuple[Any, Any]] = []
+        try:
+            context.InitDetected()
+            while context.MoreDetected():
+                items.append(
+                    (
+                        context.DetectedCurrentShape(),
+                        context.DetectedCurrentObject(),
+                    )
+                )
+                context.NextDetected()
+        except (AttributeError, RuntimeError):
+            return items
+        return items
+
     def _detected_user_point_id(self) -> str | None:
         if (
             self.document is None
@@ -6467,27 +6537,21 @@ class MainWindow(QMainWindow):
         ):
             return None
         context = self.viewer._display.Context
-        try:
-            context.InitDetected()
-            while context.MoreDetected():
-                interactive = context.DetectedInteractive()
-                for object_id, ais_shapes in self._coordinate_ais_by_object_id.items():
-                    obj = self.document.find_object(object_id)
-                    if obj is None or obj.kind != ObjectKind.POINT or obj.locked:
-                        continue
-                    for ais_shape in ais_shapes:
-                        try:
-                            matches = (
-                                ais_shape == interactive
-                                or ais_shape.IsSame(interactive)
-                            )
-                        except (AttributeError, TypeError):
-                            matches = ais_shape == interactive
-                        if matches:
-                            return self._selection_filtered_object_id(object_id)
-                context.NextDetected()
-        except (AttributeError, RuntimeError):
-            return None
+        for _shape, interactive in self._detected_items(context):
+            for object_id, ais_shapes in self._coordinate_ais_by_object_id.items():
+                obj = self.document.find_object(object_id)
+                if obj is None or obj.kind != ObjectKind.POINT or obj.locked:
+                    continue
+                for ais_shape in ais_shapes:
+                    try:
+                        matches = (
+                            ais_shape == interactive
+                            or ais_shape.IsSame(interactive)
+                        )
+                    except (AttributeError, TypeError):
+                        matches = ais_shape == interactive
+                    if matches:
+                        return self._selection_filtered_object_id(object_id)
         return None
 
     def _projected_user_point_id(self, x: int, y: int) -> str | None:
@@ -6955,24 +7019,13 @@ class MainWindow(QMainWindow):
             previous_object_id = self._hovered_coordinate_object_id
             rank = 1
             detected_shape = None
-            for _attempt in range(64):
-                rank = context.HilightNextDetected(
-                    self.viewer._display.View,
-                    True,
-                )
-                detected_shape = (
-                    context.DetectedShape()
-                    if context.HasDetectedShape()
-                    else None
-                )
-                candidate_id = (
-                    self._object_id_for_detected(
-                        detected_shape,
-                        context.DetectedInteractive()
-                        if context.HasDetected()
-                        else None,
-                    )
-                )
+            detected_interactive = None
+            candidate_id = None
+            for rank, (shape, interactive) in enumerate(
+                self._detected_items(context),
+                start=1,
+            ):
+                candidate_id = self._object_id_for_detected(shape, interactive)
                 detected_candidate = (
                     self.document.find_object(candidate_id)
                     if candidate_id is not None
@@ -6989,6 +7042,8 @@ class MainWindow(QMainWindow):
                     )
                     and candidate_id != previous_object_id
                 ):
+                    detected_shape = shape
+                    detected_interactive = interactive
                     break
             candidate = (
                 self.document.find_object(candidate_id)
@@ -7007,9 +7062,7 @@ class MainWindow(QMainWindow):
                 self._cycled_history_source_id = None
             self._on_view_hover_changed(
                 detected_shape,
-                context.DetectedInteractive()
-                if context.HasDetected()
-                else None,
+                detected_interactive,
             )
             self.viewer._select_cycled_detection = True
             self.statusBar().showMessage(
@@ -7062,14 +7115,7 @@ class MainWindow(QMainWindow):
         seen: set[str] = set()
 
         if context.HasDetected():
-            seen_ranks: set[int] = set()
-            for _attempt in range(64):
-                detected_shape = (
-                    context.DetectedShape()
-                    if context.HasDetectedShape()
-                    else None
-                )
-                interactive = context.DetectedInteractive()
+            for detected_shape, interactive in self._detected_items(context):
                 candidate_id = self._object_id_for_detected(
                     detected_shape,
                     interactive,
@@ -7108,13 +7154,6 @@ class MainWindow(QMainWindow):
                     if key not in seen:
                         seen.add(key)
                         candidates.append((key, candidate_id, detected_shape))
-                rank = context.HilightNextDetected(
-                    self.viewer._display.View,
-                    False,
-                )
-                if rank in seen_ranks:
-                    break
-                seen_ranks.add(rank)
 
         vertex_candidates: list[tuple[str, str, Any]] = []
         for _distance, object_id, vertex, topology_index in (
@@ -7185,6 +7224,20 @@ class MainWindow(QMainWindow):
         self._point_constraint_preview = (object_id, shape)
         self._update_endpoint_marker(shape)
         self.selected_object_id = object_id
+        candidate_object = self.document.find_object(object_id)
+        self._view_selection_confirmed = (
+            candidate_object is not None
+            and candidate_object.kind in (
+                ObjectKind.ORIGIN,
+                ObjectKind.POINT,
+                ObjectKind.AXIS,
+                ObjectKind.PLANE,
+            )
+            and any(
+                str(reference.get("object_id", "")) == object_id
+                for reference in self.point_constraint_dialog.references
+            )
+        )
         self.selected_face = (
             shape
             if shape is not None
@@ -7203,7 +7256,6 @@ class MainWindow(QMainWindow):
         context.ClearDetected(False)
         self._highlight_selected_in_view()
         self._update_coordinate_label_highlights()
-        candidate_object = self.document.find_object(object_id)
         candidate_name = object_id
         if candidate_object is not None:
             shape_type = (
@@ -7449,6 +7501,10 @@ class MainWindow(QMainWindow):
             self._add_point_shape_constraint(obj, shape)
         else:
             return False
+        self._view_selection_confirmed = True
+        self._hovered_coordinate_object_id = object_id
+        self._highlight_selected_in_view()
+        self._update_coordinate_label_highlights()
         return True
 
     def _point_constraint_reference_under_cursor(
@@ -7565,6 +7621,7 @@ class MainWindow(QMainWindow):
         self._point_constraint_preview = None
         self.viewer.clear_endpoint_marker()
         self.selected_object_id = None
+        self._view_selection_confirmed = False
         self.selected_face = None
         self.selected_face_object_id = None
         self._hovered_coordinate_object_id = None
@@ -7742,24 +7799,14 @@ class MainWindow(QMainWindow):
             return []
         context = self.viewer._display.Context
         detected_ids: list[str] = []
-        seen_ranks: set[int] = set()
         if context.HasDetected():
-            for _attempt in range(64):
+            for detected_shape, interactive in self._detected_items(context):
                 detected_id = self._object_id_for_detected(
-                    context.DetectedShape()
-                    if context.HasDetectedShape()
-                    else None,
-                    context.DetectedInteractive(),
+                    detected_shape,
+                    interactive,
                 )
                 if detected_id is not None and detected_id not in detected_ids:
                     detected_ids.append(detected_id)
-                rank = context.HilightNextDetected(
-                    self.viewer._display.View,
-                    False,
-                )
-                if rank in seen_ranks:
-                    break
-                seen_ranks.add(rank)
 
         source_ids = [
             source.object_id
@@ -9543,7 +9590,7 @@ class MainWindow(QMainWindow):
                     for ais_shape in display.DisplayShape(
                         edge,
                         color=(
-                            YELLOW
+                            HOVER_COLOR
                             if self.view_selection_filter
                             == ViewSelectionFilter.POINT
                             else BLACK
@@ -9569,7 +9616,7 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
         guide_color = (
-            YELLOW
+            HOVER_COLOR
             if (
                 self.point_constraint_dialog is not None
                 or self.view_selection_filter == ViewSelectionFilter.POINT
@@ -9629,14 +9676,14 @@ class MainWindow(QMainWindow):
         )
         if point_constraints_active:
             highlight = Prs3d_Drawer()
-            highlight.SetColor(YELLOW)
+            highlight.SetColor(HOVER_COLOR)
             highlight.SetZLayer(Graphic3d_ZLayerId_Topmost)
             ais_shape.SetDynamicHilightAttributes(highlight)
             return
         if self.view_selection_mode != ViewSelectionMode.OBJECT:
             return
         highlight = Prs3d_Drawer()
-        highlight.SetColor(YELLOW)
+        highlight.SetColor(HOVER_COLOR)
         highlight.SetDisplayMode(AIS_WireFrame)
         highlight.SetZLayer(Graphic3d_ZLayerId_Topmost)
         ais_shape.SetDynamicHilightAttributes(highlight)
@@ -9649,7 +9696,7 @@ class MainWindow(QMainWindow):
             context.ClearSelected(False)
         self._clear_selected_shape_overlays()
         base_edge_color = (
-            YELLOW
+            HOVER_COLOR
             if self.view_selection_filter == ViewSelectionFilter.POINT
             else BLACK
         )
@@ -9665,6 +9712,11 @@ class MainWindow(QMainWindow):
         if self.selected_object_id is None:
             context.UpdateSelected(True)
             return
+        active_color = (
+            SELECTION_COLOR
+            if self._view_selection_confirmed
+            else HOVER_COLOR
+        )
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
@@ -9678,7 +9730,7 @@ class MainWindow(QMainWindow):
             ):
                 ais_shapes = self.viewer._display.DisplayShape(
                     preview_shape,
-                    color=YELLOW,
+                    color=HOVER_COLOR,
                     update=False,
                 )
                 for ais_shape in ais_shapes:
@@ -9706,11 +9758,11 @@ class MainWindow(QMainWindow):
             return
         for object_id in selected_ids:
             for edge_shape in self._model_edge_ais_by_object_id.get(object_id, []):
-                edge_shape.SetColor(YELLOW)
+                edge_shape.SetColor(active_color)
                 edge_shape.SetWidth(3.0)
                 context.Redisplay(edge_shape, False)
             for sketch_shape in self._sketch_ais_by_object_id.get(object_id, []):
-                sketch_shape.SetColor(YELLOW)
+                sketch_shape.SetColor(active_color)
                 context.Redisplay(sketch_shape, False)
         for shape, owner_id in self._selectable_model_shapes:
             if owner_id not in selected_ids:
@@ -9720,7 +9772,7 @@ class MainWindow(QMainWindow):
                 continue
             ais_shapes = self.viewer._display.DisplayShape(
                 shape,
-                color=YELLOW,
+                color=active_color,
                 update=False,
             )
             for ais_shape in ais_shapes:
@@ -9735,7 +9787,7 @@ class MainWindow(QMainWindow):
                     continue
                 ais_shapes = self.viewer._display.DisplayShape(
                     shape,
-                    color=YELLOW,
+                    color=active_color,
                     update=False,
                 )
                 for ais_shape in ais_shapes:
@@ -9770,7 +9822,7 @@ class MainWindow(QMainWindow):
             for source_shape in self.document.source_highlight_shapes(source_object):
                 ais_shapes = self.viewer._display.DisplayShape(
                     source_shape,
-                    color=YELLOW,
+                    color=active_color,
                     update=False,
                 )
                 for ais_shape in ais_shapes:
@@ -9790,7 +9842,7 @@ class MainWindow(QMainWindow):
         while explorer.More():
             ais_shapes = self.viewer._display.DisplayShape(
                 explorer.Current(),
-                color=YELLOW,
+                color=SELECTION_COLOR,
                 update=False,
             )
             for ais_shape in ais_shapes:
@@ -9952,7 +10004,7 @@ class MainWindow(QMainWindow):
                 shape = transform_shape(shape, coordinate_transform)
                 ais_shapes = self.viewer._display.DisplayShape(
                     shape,
-                    color=YELLOW,
+                    color=PREVIEW_COLOR,
                     transparency=0.7,
                     update=False,
                 )
@@ -9992,7 +10044,7 @@ class MainWindow(QMainWindow):
             for ais_shape in self._coordinate_ais_by_object_id.pop(
                 preview_plane.object_id, []
             ):
-                ais_shape.SetColor(YELLOW)
+                ais_shape.SetColor(PREVIEW_COLOR)
                 ais_shape.SetWidth(3.0)
                 ais_shape.SetZLayer(Graphic3d_ZLayerId_Topmost)
                 self.viewer._display.Context.Redisplay(ais_shape, False)
@@ -10138,7 +10190,11 @@ class MainWindow(QMainWindow):
             )
         )
         structures = []
-        for color in (CENTERLINE_COLOR_RGB, (0.95, 0.85, 0.2)):
+        for color in (
+            CENTERLINE_COLOR_RGB,
+            HOVER_COLOR_RGB,
+            SELECTION_COLOR_RGB,
+        ):
             structure = self.viewer._display.DisplayMessage(
                 label_point,
                 axis.name,
@@ -10150,6 +10206,7 @@ class MainWindow(QMainWindow):
             structures.append(structure)
             self._plane_label_structures.append(structure)
         structures[1].Erase()
+        structures[2].Erase()
         self._coordinate_labels_by_object_id[axis.object_id] = structures
 
     def _display_datum_plane(self, plane: ZimaObject, parent_transform) -> None:
@@ -10192,7 +10249,11 @@ class MainWindow(QMainWindow):
             )
         )
         structures = []
-        for color in (PLANE_COLOR_RGB, (0.95, 0.85, 0.2)):
+        for color in (
+            PLANE_COLOR_RGB,
+            HOVER_COLOR_RGB,
+            SELECTION_COLOR_RGB,
+        ):
             structure = self.viewer._display.DisplayMessage(
                 label_point,
                 plane.name,
@@ -10204,6 +10265,7 @@ class MainWindow(QMainWindow):
             structures.append(structure)
             self._plane_label_structures.append(structure)
         structures[1].Erase()
+        structures[2].Erase()
         self._coordinate_labels_by_object_id[plane.object_id] = structures
 
     def _display_sketches(self) -> None:
@@ -10413,13 +10475,19 @@ class MainWindow(QMainWindow):
         if key == selected_key:
             ais_shapes = self._display_overlay_shape(
                 shape,
-                color=YELLOW,
+                color=SELECTION_COLOR,
                 transparency=0.0,
                 transform_persistence=transform_persistence,
                 selection_sensitivity=32 if key.endswith("_axis") or key == "point" else 18,
                 topmost=topmost,
                 selection_priority=9 if is_user_point else 0,
             )
+            if key.endswith("_axis") or key == "point":
+                self._configure_coordinate_hover(
+                    ais_shapes,
+                    is_user_point=is_user_point,
+                    topmost=topmost,
+                )
             if coordinate_object_id is not None:
                 self._coordinate_ais_shapes.extend(ais_shapes)
                 self._coordinate_ais_by_object_id.setdefault(
@@ -10437,23 +10505,40 @@ class MainWindow(QMainWindow):
             selection_priority=9 if is_user_point else 0,
         )
         if key.endswith("_axis") or key == "point":
-            highlight = Prs3d_Drawer()
-            highlight.SetColor(Quantity_Color(Quantity_NOC_YELLOW))
-            highlight.SetDisplayMode(AIS_Shaded)
-            if topmost:
-                highlight.SetZLayer(
-                    Graphic3d_ZLayerId_TopOSD
-                    if is_user_point
-                    else Graphic3d_ZLayerId_Topmost
-                )
-            for ais_shape in ais_shapes:
-                ais_shape.SetDynamicHilightAttributes(highlight)
-                ais_shape.SetHilightAttributes(highlight)
+            self._configure_coordinate_hover(
+                ais_shapes,
+                is_user_point=is_user_point,
+                topmost=topmost,
+            )
         if coordinate_object_id is not None:
             self._coordinate_ais_shapes.extend(ais_shapes)
             self._coordinate_ais_by_object_id.setdefault(
                 coordinate_object_id, []
             ).extend(ais_shapes)
+
+    def _configure_coordinate_hover(
+        self,
+        ais_shapes,
+        *,
+        is_user_point: bool,
+        topmost: bool,
+    ) -> None:
+        # OCCT 7.9 can segfault in StdPrs_WFShape when MoveTo applies a
+        # wireframe highlight to a detected subshape.  Coordinate axes and
+        # points use a shaded highlight in both their normal and selected
+        # presentation paths.
+        highlight = Prs3d_Drawer()
+        highlight.SetColor(HOVER_COLOR)
+        highlight.SetDisplayMode(AIS_Shaded)
+        if topmost:
+            highlight.SetZLayer(
+                Graphic3d_ZLayerId_TopOSD
+                if is_user_point
+                else Graphic3d_ZLayerId_Topmost
+            )
+        for ais_shape in ais_shapes:
+            ais_shape.SetDynamicHilightAttributes(highlight)
+            ais_shape.SetHilightAttributes(highlight)
 
     def _coordinate_child_id(
         self,
@@ -10536,7 +10621,10 @@ class MainWindow(QMainWindow):
         return ais_shapes
 
     def _selected_origin_shape_key(self) -> str | None:
-        if self.selected_object_id is None:
+        if (
+            self.selected_object_id is None
+            or not self._view_selection_confirmed
+        ):
             return None
 
         if self.document is None:
@@ -10622,12 +10710,20 @@ class MainWindow(QMainWindow):
             if visible_keys is not None and key not in visible_keys:
                 continue
             object_id = self._coordinate_child_id(coordinate_owner, key)
-            active = key == selected_key or object_id in (
-                self.selected_object_id,
-                self._hovered_coordinate_object_id,
+            selected = (
+                self._view_selection_confirmed
+                and (
+                    key == selected_key
+                    or object_id == self.selected_object_id
+                )
             )
+            hovered = object_id == self._hovered_coordinate_object_id
             structures = []
-            for color in (normal_colors[key], (0.95, 0.85, 0.2)):
+            for color in (
+                normal_colors[key],
+                HOVER_COLOR_RGB,
+                SELECTION_COLOR_RGB,
+            ):
                 structure = self.viewer._display.DisplayMessage(
                     label_points[key],
                     label,
@@ -10642,11 +10738,15 @@ class MainWindow(QMainWindow):
                 structures.append(structure)
                 self._plane_label_structures.append(structure)
 
-            normal_structure, highlighted_structure = structures
-            if active:
-                normal_structure.Erase()
+            normal_structure, hovered_structure, selected_structure = structures
+            for structure in structures:
+                structure.Erase()
+            if selected:
+                selected_structure.Display()
+            elif hovered:
+                hovered_structure.Display()
             else:
-                highlighted_structure.Erase()
+                normal_structure.Display()
             if object_id is not None:
                 self._coordinate_labels_by_object_id[object_id] = structures
 
