@@ -145,6 +145,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     hoveredObjectChanged = Signal(str)
     selectedObjectChanged = Signal(str)
     objectDoubleClicked = Signal()
+    selectionPreviewConfirmed = Signal()
     selectionFilterChanged = Signal(str)
     displayModeChanged = Signal(str)
     rotation_degrees_per_pixel = 0.18
@@ -197,7 +198,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_persistent = False
         self._object_overlay_anchor: Point3 | None = None
         self._selected_reference_owner_id: str | None = None
+        self._selected_container_origin_id: str | None = None
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
+        self._selection_preview_pending = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -326,6 +329,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def set_selected_reference_owner(self, owner_id: str | None) -> None:
         self._selected_reference_owner_id = owner_id
         self.update()
+
+    def set_selected_container_origin(self, origin_id: str | None) -> None:
+        self._selected_container_origin_id = origin_id
+        self.update()
+
+    def set_selection_preview_pending(self, pending: bool) -> None:
+        self._selection_preview_pending = pending
 
     def mesh_is_under_cursor(
         self,
@@ -491,6 +501,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._selection_enabled
         ):
             if self._interaction_mode == "object":
+                if self._selection_preview_pending:
+                    self._selection_preview_pending = False
+                    if self._object_overlay_mesh is not None:
+                        self._object_overlay_persistent = True
+                        self._object_overlay_color = QColor.fromRgbF(
+                            0.0, 0.82, 1.0
+                        )
+                    else:
+                        self._clear_topology_selection()
+                        if self._hovered_point is not None:
+                            self._set_selected_point(self._hovered_point)
+                        elif self._hovered_plane is not None:
+                            self._set_selected_plane(self._hovered_plane)
+                        elif self._hovered_edge is not None:
+                            self._set_selected_edge(self._hovered_edge)
+                    self.selectionPreviewConfirmed.emit()
+                    self.update()
+                    event.accept()
+                    return
                 point = self._pick_point(event.position())
                 plane = (
                     None
@@ -1133,7 +1162,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             screen = self._screen_point(
                 self._camera_point(self._object_overlay_anchor)
             )
-            painter.setPen(QPen(QColor("#101318"), 1.0))
+            painter.setPen(QPen(self._object_overlay_color, 1.0))
             painter.setBrush(QBrush(self._object_overlay_color))
             painter.drawEllipse(screen, 6.0, 6.0)
         painter.end()
@@ -1481,16 +1510,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (0.0, 0.82, 1.0)
             if marker.owner_id == self._selected_reference_owner_id:
                 color = (0.0, 0.82, 1.0)
+            if marker.owner_id == self._selected_container_origin_id:
+                color = (0.0, 0.82, 1.0)
             screen = self._screen_point(self._camera_point(marker.position))
-            painter.setPen(QPen(QColor("#101318"), 1.0))
-            painter.setBrush(
-                QBrush(QColor.fromRgbF(*color, 1.0))
-            )
+            marker_color = QColor.fromRgbF(*color, 1.0)
+            painter.setPen(QPen(marker_color, 1.0))
+            painter.setBrush(QBrush(marker_color))
             radius = (
                 6.0
                 if (
                     key in (self._hovered_point, self._selected_point)
                     or marker.owner_id == self._selected_reference_owner_id
+                    or marker.owner_id == self._selected_container_origin_id
                 )
                 else 4.5
             )

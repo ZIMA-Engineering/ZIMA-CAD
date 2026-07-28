@@ -2913,6 +2913,9 @@ class MainWindow(QMainWindow):
         self.native_viewer.objectDoubleClicked.connect(
             self._on_native_object_double_clicked
         )
+        self.native_viewer.selectionPreviewConfirmed.connect(
+            self._on_view_selection_preview_confirmed
+        )
         self.regenerate_action = QAction(
             tr("command.regenerate"),
             self,
@@ -2928,7 +2931,7 @@ class MainWindow(QMainWindow):
         self.view_toolbar.setStyleSheet(
             """
             QToolButton:hover:enabled {
-                background-color: rgba(77, 216, 17, 90);
+                background-color: rgba(255, 255, 255, 32);
                 color: #FFFFFF;
                 border: none;
                 border-radius: 4px;
@@ -5112,11 +5115,6 @@ class MainWindow(QMainWindow):
             ]
         )
         item.setData(0, HistoryTreeWidget.ROLLBACK_ROLE, True)
-        item.setData(
-            0,
-            Qt.ItemDataRole.UserRole,
-            self.document.root.entity_id,
-        )
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled
             | Qt.ItemFlag.ItemIsSelectable
@@ -6215,13 +6213,17 @@ class MainWindow(QMainWindow):
                 EntityKind.AXIS,
                 EntityKind.PLANE,
             )
-            and not selected_reference.locked
         ):
             owner = self.document.find_owning_object(
                 selected_reference.entity_id
             )
             if owner is not None and owner.kind == EntityKind.CONTAINER:
-                selected_id = owner.entity_id
+                owner_item = self._find_tree_item(
+                    self.tree.invisibleRootItem(),
+                    owner.entity_id,
+                )
+                if owner_item is None or not owner_item.isExpanded():
+                    selected_id = owner.entity_id
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
@@ -6269,6 +6271,7 @@ class MainWindow(QMainWindow):
         self._view_selection_confirmed = True
 
     def _on_tree_selection_changed(self) -> None:
+        self.native_viewer.set_selection_preview_pending(False)
         self._history_source_cycle_active = False
         self._cycled_history_source_id = None
         self._reference_cycle_preview_id = None
@@ -7076,6 +7079,7 @@ class MainWindow(QMainWindow):
                     rank=self._history_source_cycle_index + 1,
                 )
             )
+            self.native_viewer.set_selection_preview_pending(True)
             return
 
         detected: tuple[str, tuple[str, int]] | None = None
@@ -7402,11 +7406,16 @@ class MainWindow(QMainWindow):
         self.tree.blockSignals(False)
         if not hasattr(self, "_viewer_initialized"):
             return
+        self.native_viewer.set_selection_preview_pending(False)
         self.native_viewer._set_selected_edge(None)
         self.native_viewer._set_selected_face(None)
         self.native_viewer._set_selected_point(None)
         self.native_viewer._set_selected_plane(None)
         self.native_viewer.update()
+
+    def _on_view_selection_preview_confirmed(self) -> None:
+        self._view_selection_confirmed = self.selected_object_id is not None
+        self._history_source_cycle_active = False
 
     def _begin_plane_attachment(self, plane_id: str) -> None:
         self._pending_attachment_plane_id = plane_id
@@ -8365,85 +8374,115 @@ class MainWindow(QMainWindow):
     def _sync_native_tree_selection(self) -> None:
         if self.document is None:
             return
-        self.native_viewer._set_selected_object(None)
-        self.native_viewer.set_selected_reference_owner(None)
-        self.native_viewer.set_object_overlay(None)
-        obj = self._selected_object()
-        if obj is None:
-            return
-        user_reference = (
-            obj
-            if obj.kind in (
-                EntityKind.POINT,
-                EntityKind.AXIS,
-                EntityKind.PLANE,
-            )
-            and not obj.locked
-            else next(
-                (
-                    child
-                    for child in obj.children
-                    if child.kind in (
-                        EntityKind.POINT,
-                        EntityKind.AXIS,
-                        EntityKind.PLANE,
-                    )
-                    and not child.locked
-                ),
-                None,
-            )
-        )
-        if user_reference is not None:
-            self.native_viewer.set_selected_reference_owner(
-                user_reference.entity_id
-            )
-            return
-        if obj.kind == EntityKind.BODY:
-            self.native_viewer._set_selected_object(
-                self.document.root.entity_id
-            )
-            return
-        if obj.kind == EntityKind.CONTAINER or obj.kind in SOLID_KINDS:
-            container = (
+        signals_were_blocked = self.native_viewer.blockSignals(True)
+        try:
+            self.native_viewer._set_selected_object(None)
+            self.native_viewer.set_selected_reference_owner(None)
+            self.native_viewer.set_selected_container_origin(None)
+            self.native_viewer.set_object_overlay(None)
+            obj = self._selected_object()
+            if obj is None:
+                return
+            selected_container = (
                 obj
                 if obj.kind == EntityKind.CONTAINER
-                else self.document.find_parent(obj.entity_id)
-            )
-            self.native_viewer._set_selected_object(
-                container.entity_id
-                if (
-                    self.document.body_is_suppressed()
-                    and container is not None
+                else (
+                    self.document.find_parent(obj.entity_id)
+                    if obj.kind in SOLID_KINDS
+                    else None
                 )
-                else self.document.root.entity_id
             )
-            return
-        if obj.kind == EntityKind.ORIGIN:
-            self.native_viewer.set_selected_reference_owner(obj.entity_id)
-            return
-        parent = self.document.find_parent(obj.entity_id)
-        if parent is None or parent.kind != EntityKind.ORIGIN:
-            return
-        if obj.kind == EntityKind.AXIS:
-            axis_index = {"x": 1, "y": 2, "z": 3}.get(
-                str(obj.parameters.get("axis", ""))
-            )
-            if axis_index is not None:
-                self.native_viewer._set_selected_edge(
-                    (parent.entity_id, axis_index)
+            if (
+                selected_container is not None
+                and selected_container.kind == EntityKind.CONTAINER
+            ):
+                origin = next(
+                    (
+                        child
+                        for child in selected_container.children
+                        if child.kind == EntityKind.ORIGIN
+                    ),
+                    None,
                 )
-        elif obj.kind == EntityKind.PLANE:
-            plane_index = {"xy": 1, "yz": 2, "xz": 3}.get(
-                str(obj.parameters.get("plane", ""))
-            )
-            if plane_index is not None:
-                self.native_viewer._set_selected_plane(
-                    (parent.entity_id, plane_index)
+                if origin is not None:
+                    self.native_viewer.set_selected_container_origin(
+                        origin.entity_id
+                    )
+            user_reference = (
+                obj
+                if obj.kind in (
+                    EntityKind.POINT,
+                    EntityKind.AXIS,
+                    EntityKind.PLANE,
                 )
-        elif obj.kind == EntityKind.POINT:
-            self.native_viewer._set_selected_point(
-                (parent.entity_id, 1)
+                and not obj.locked
+                else next(
+                    (
+                        child
+                        for child in obj.children
+                        if child.kind in (
+                            EntityKind.POINT,
+                            EntityKind.AXIS,
+                            EntityKind.PLANE,
+                        )
+                        and not child.locked
+                    ),
+                    None,
+                )
             )
+            if user_reference is not None:
+                self.native_viewer.set_selected_reference_owner(
+                    user_reference.entity_id
+                )
+                return
+            if obj.kind == EntityKind.BODY:
+                self.native_viewer._set_selected_object(
+                    self.document.root.entity_id
+                )
+                return
+            if obj.kind == EntityKind.CONTAINER or obj.kind in SOLID_KINDS:
+                container = (
+                    obj
+                    if obj.kind == EntityKind.CONTAINER
+                    else self.document.find_parent(obj.entity_id)
+                )
+                self.native_viewer._set_selected_object(
+                    container.entity_id
+                    if (
+                        self.document.body_is_suppressed()
+                        and container is not None
+                    )
+                    else self.document.root.entity_id
+                )
+                return
+            if obj.kind == EntityKind.ORIGIN:
+                self.native_viewer.set_selected_reference_owner(obj.entity_id)
+                return
+            parent = self.document.find_parent(obj.entity_id)
+            if parent is None or parent.kind != EntityKind.ORIGIN:
+                return
+            if obj.kind == EntityKind.AXIS:
+                axis_index = {"x": 1, "y": 2, "z": 3}.get(
+                    str(obj.parameters.get("axis", ""))
+                )
+                if axis_index is not None:
+                    self.native_viewer._set_selected_edge(
+                        (parent.entity_id, axis_index)
+                    )
+            elif obj.kind == EntityKind.PLANE:
+                plane_index = {"xy": 1, "yz": 2, "xz": 3}.get(
+                    str(obj.parameters.get("plane", ""))
+                )
+                if plane_index is not None:
+                    self.native_viewer._set_selected_plane(
+                        (parent.entity_id, plane_index)
+                    )
+            elif obj.kind == EntityKind.POINT:
+                self.native_viewer._set_selected_point(
+                    (parent.entity_id, 1)
+                )
+        finally:
+            self.native_viewer.blockSignals(signals_were_blocked)
 
     def _native_object_origin(
         self,
