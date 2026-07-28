@@ -30,7 +30,7 @@ ORIGIN_WIDGET_SIZE = 320.0
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "6",
+        "format_version": "7",
         "body_visible": "true",
         "body_suppressed": "false",
     }
@@ -137,9 +137,9 @@ class CombineMode(str, Enum):
     SUBTRACT = "-"
 
 
-class ObjectKind(str, Enum):
+class EntityKind(str, Enum):
     PART = "part"
-    OBJECT = "object"
+    CONTAINER = "container"
     BODY = "body"
     ORIGIN = "origin"
     POINT = "point"
@@ -154,12 +154,18 @@ class ObjectKind(str, Enum):
     WEDGE = "wedge"
 
 
-class ObjectType(str, Enum):
+class ContainerType(str, Enum):
+    EMPTY = "EMPTY"
     POINT = "POINT"
     AXIS = "AXIS"
     PLANE = "PLANE"
     SKETCH = "SKETCH"
-    SOLID = "SOLID"
+    BOX = "BOX"
+    SPHERE = "SPHERE"
+    CYLINDER = "CYLINDER"
+    CONE = "CONE"
+    PYRAMID = "PYRAMID"
+    WEDGE = "WEDGE"
 
 
 class TreeExposure(str, Enum):
@@ -177,27 +183,27 @@ class SketchRole(str, Enum):
 
 ENTITY_KINDS = frozenset(
     {
-        ObjectKind.POINT,
-        ObjectKind.AXIS,
-        ObjectKind.PLANE,
-        ObjectKind.SKETCH,
-        ObjectKind.BOX,
-        ObjectKind.SPHERE,
-        ObjectKind.CYLINDER,
-        ObjectKind.CONE,
-        ObjectKind.PYRAMID,
-        ObjectKind.WEDGE,
+        EntityKind.POINT,
+        EntityKind.AXIS,
+        EntityKind.PLANE,
+        EntityKind.SKETCH,
+        EntityKind.BOX,
+        EntityKind.SPHERE,
+        EntityKind.CYLINDER,
+        EntityKind.CONE,
+        EntityKind.PYRAMID,
+        EntityKind.WEDGE,
     }
 )
 
 SOLID_KINDS = frozenset(
     {
-        ObjectKind.BOX,
-        ObjectKind.SPHERE,
-        ObjectKind.CYLINDER,
-        ObjectKind.CONE,
-        ObjectKind.PYRAMID,
-        ObjectKind.WEDGE,
+        EntityKind.BOX,
+        EntityKind.SPHERE,
+        EntityKind.CYLINDER,
+        EntityKind.CONE,
+        EntityKind.PYRAMID,
+        EntityKind.WEDGE,
     }
 )
 
@@ -225,37 +231,37 @@ class PlaneOnFaceAttachment:
 
 
 @dataclass
-class ZimaObject:
+class ZimaEntity:
     name: str
-    kind: ObjectKind
+    kind: EntityKind
     combine_mode: CombineMode = CombineMode.NONE
     coordinate_system: CoordinateSystem = field(default_factory=CoordinateSystem)
     parameters: dict[str, Any] = field(default_factory=dict)
-    children: list["ZimaObject"] = field(default_factory=list)
-    object_id: str = field(default_factory=lambda: uuid4().hex)
+    children: list["ZimaEntity"] = field(default_factory=list)
+    entity_id: str = field(default_factory=lambda: uuid4().hex)
     locked: bool = False
     attachment: PlaneOnFaceAttachment | None = None
     user_visible: bool = True
     suppressed: bool = False
     tree_exposure: TreeExposure = TreeExposure.PUBLIC
-    show_internal_entities: bool = False
+    show_internal_entities: bool = True
     show_auxiliary_geometry: bool = False
 
-    def add_child(self, child: "ZimaObject") -> None:
+    def add_child(self, child: "ZimaEntity") -> None:
         self.children.append(child)
 
-    def entity_children(self) -> list["ZimaObject"]:
+    def entity_children(self) -> list["ZimaEntity"]:
         return [
             child
             for child in self.children
             if not child.locked and child.kind in ENTITY_KINDS
         ]
 
-    def body_children(self) -> list["ZimaObject"]:
-        return [child for child in self.children if child.kind == ObjectKind.BODY]
+    def body_children(self) -> list["ZimaEntity"]:
+        return [child for child in self.children if child.kind == EntityKind.BODY]
 
     def sketch_role(self) -> SketchRole | None:
-        if self.kind != ObjectKind.SKETCH:
+        if self.kind != EntityKind.SKETCH:
             return None
         try:
             return SketchRole(
@@ -265,35 +271,42 @@ class ZimaObject:
             return None
 
     @property
-    def object_type(self) -> ObjectType:
+    def container_type(self) -> ContainerType:
+        configured_type = self.parameters.get("container_type")
+        if configured_type is not None:
+            return ContainerType(str(configured_type).upper())
         entities = self.entity_children()
-        if any(entity.kind in SOLID_KINDS for entity in entities):
-            return ObjectType.SOLID
-        if any(entity.kind == ObjectKind.SKETCH for entity in entities):
-            return ObjectType.SKETCH
-        if any(entity.kind == ObjectKind.AXIS for entity in entities):
-            return ObjectType.AXIS
-        if any(entity.kind == ObjectKind.PLANE for entity in entities):
-            return ObjectType.PLANE
-        return ObjectType.POINT
+        solid = next(
+            (entity for entity in entities if entity.kind in SOLID_KINDS),
+            None,
+        )
+        if solid is not None:
+            return ContainerType(solid.kind.value.upper())
+        if any(entity.kind == EntityKind.SKETCH for entity in entities):
+            return ContainerType.SKETCH
+        if any(entity.kind == EntityKind.AXIS for entity in entities):
+            return ContainerType.AXIS
+        if any(entity.kind == EntityKind.PLANE for entity in entities):
+            return ContainerType.PLANE
+        return ContainerType.POINT
 
     def has_valid_entity_combination(self) -> bool:
         entities = self.entity_children()
-        if self.parameters.get("generic_container") == "true":
+        if self.parameters.get("experimental_container") == "true":
             return all(
                 entity.kind
                 in (
-                    ObjectKind.POINT,
-                    ObjectKind.AXIS,
-                    ObjectKind.PLANE,
-                    ObjectKind.SKETCH,
+                    EntityKind.POINT,
+                    EntityKind.AXIS,
+                    EntityKind.PLANE,
+                    EntityKind.SKETCH,
                 )
                 for entity in entities
             )
-        points = [entity for entity in entities if entity.kind == ObjectKind.POINT]
-        axes = [entity for entity in entities if entity.kind == ObjectKind.AXIS]
-        planes = [entity for entity in entities if entity.kind == ObjectKind.PLANE]
-        sketches = [entity for entity in entities if entity.kind == ObjectKind.SKETCH]
+        points = [entity for entity in entities if entity.kind == EntityKind.POINT]
+        axes = [entity for entity in entities if entity.kind == EntityKind.AXIS]
+        planes = [entity for entity in entities if entity.kind == EntityKind.PLANE]
+        sketches = [entity for entity in entities if entity.kind == EntityKind.SKETCH]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
         if len(points) > 1 or len(axes) > 1 or len(planes) > 1 or len(solids) > 1:
             return False
@@ -323,32 +336,32 @@ class ZimaObject:
 
     def can_accept_entity(
         self,
-        kind: ObjectKind | None = None,
+        kind: EntityKind | None = None,
         sketch_role: SketchRole = SketchRole.PROFILE,
     ) -> bool:
-        if self.kind != ObjectKind.OBJECT:
+        if self.kind != EntityKind.CONTAINER:
             return False
         if kind is None:
             candidates = (
-                ObjectKind.POINT,
-                ObjectKind.AXIS,
-                ObjectKind.SKETCH,
-                ObjectKind.BOX,
-                ObjectKind.SPHERE,
-                ObjectKind.CYLINDER,
-                ObjectKind.CONE,
-                ObjectKind.PYRAMID,
-                ObjectKind.WEDGE,
+                EntityKind.POINT,
+                EntityKind.AXIS,
+                EntityKind.SKETCH,
+                EntityKind.BOX,
+                EntityKind.SPHERE,
+                EntityKind.CYLINDER,
+                EntityKind.CONE,
+                EntityKind.PYRAMID,
+                EntityKind.WEDGE,
             )
             return any(self.can_accept_entity(candidate) for candidate in candidates)
         if kind not in ENTITY_KINDS:
             return False
         parameters = (
             {"role": sketch_role.value}
-            if kind == ObjectKind.SKETCH
+            if kind == EntityKind.SKETCH
             else {}
         )
-        candidate = ZimaObject(name="", kind=kind, parameters=parameters)
+        candidate = ZimaEntity(name="", kind=kind, parameters=parameters)
         self.children.append(candidate)
         try:
             return self.has_valid_entity_combination()
@@ -375,25 +388,25 @@ class PartDocument:
     user_parameter_values: dict[str, dict[str, str]] = field(
         default_factory=default_user_parameter_values
     )
-    root: ZimaObject = field(
-        default_factory=lambda: ZimaObject(
+    root: ZimaEntity = field(
+        default_factory=lambda: ZimaEntity(
             name="Part001",
-            kind=ObjectKind.PART,
+            kind=EntityKind.PART,
             combine_mode=CombineMode.NONE,
         )
     )
 
     def __post_init__(self) -> None:
-        if not any(child.kind == ObjectKind.ORIGIN for child in self.root.children):
+        if not any(child.kind == EntityKind.ORIGIN for child in self.root.children):
             self.root.children.insert(0, create_origin_object("document"))
 
-    def visible_objects(self) -> list[ZimaObject]:
-        return [obj for obj in self.root.children if obj.kind != ObjectKind.ORIGIN]
+    def visible_objects(self) -> list[ZimaEntity]:
+        return [obj for obj in self.root.children if obj.kind != EntityKind.ORIGIN]
 
-    def history_objects(self) -> list[ZimaObject]:
+    def history_objects(self) -> list[ZimaEntity]:
         return [
             obj for obj in self.root.children
-            if obj.kind == ObjectKind.OBJECT
+            if obj.kind == EntityKind.CONTAINER
         ]
 
     def history_cursor(self) -> int:
@@ -425,10 +438,10 @@ class PartDocument:
     def set_body_suppressed(self, suppressed: bool) -> None:
         self.document_settings["body_suppressed"] = str(suppressed).lower()
 
-    def move_history_object(self, object_id: str, target_index: int) -> bool:
+    def move_history_object(self, entity_id: str, target_index: int) -> bool:
         history = self.history_objects()
         moving = next(
-            (obj for obj in history if obj.object_id == object_id),
+            (obj for obj in history if obj.entity_id == entity_id),
             None,
         )
         if moving is None:
@@ -449,33 +462,33 @@ class PartDocument:
             self.root.add_child(moving)
         return True
 
-    def active_history_objects(self) -> list[ZimaObject]:
+    def active_history_objects(self) -> list[ZimaEntity]:
         return self.history_objects()[:self.history_cursor()]
 
-    def history_index(self, object_id: str) -> int | None:
+    def history_index(self, entity_id: str) -> int | None:
         return next(
             (
                 index
                 for index, obj in enumerate(self.history_objects())
-                if obj.object_id == object_id
+                if obj.entity_id == entity_id
             ),
             None,
         )
 
-    def history_objects_at(self, cursor: int) -> list[ZimaObject]:
+    def history_objects_at(self, cursor: int) -> list[ZimaEntity]:
         history = self.history_objects()
         return history[:max(0, min(cursor, len(history)))]
 
-    def history_objects_before(self, object_id: str) -> list[ZimaObject]:
-        index = self.history_index(object_id)
+    def history_objects_before(self, entity_id: str) -> list[ZimaEntity]:
+        index = self.history_index(entity_id)
         return self.history_objects_at(
             len(self.history_objects()) if index is None else index
         )
 
-    def find_object(self, object_id: str) -> ZimaObject | None:
-        return find_child_object(self.root, object_id)
+    def find_entity(self, entity_id: str) -> ZimaEntity | None:
+        return find_child_entity(self.root, entity_id)
 
-    def next_object_name(self, prefix: str = "Object") -> str:
+    def next_container_name(self, prefix: str = "Container") -> str:
         existing = {child.name for child in self.root.children}
         index = 1
         while True:
@@ -484,11 +497,16 @@ class PartDocument:
                 return name
             index += 1
 
-    def create_object(self, name_prefix: str = "Object") -> ZimaObject:
-        obj = ZimaObject(
-            name=self.next_object_name(name_prefix),
-            kind=ObjectKind.OBJECT,
+    def create_container(
+        self,
+        name_prefix: str = "Container",
+        container_type: ContainerType = ContainerType.EMPTY,
+    ) -> ZimaEntity:
+        obj = ZimaEntity(
+            name=self.next_container_name(name_prefix),
+            kind=EntityKind.CONTAINER,
             combine_mode=CombineMode.NONE,
+            parameters={"container_type": container_type.value},
         )
         add_coordinate_system_children(obj)
         history = self.history_objects()
@@ -501,42 +519,42 @@ class PartDocument:
         self.set_history_cursor(cursor + 1)
         return obj
 
-    def delete_object(self, object_id: str) -> bool:
+    def delete_container(self, entity_id: str) -> bool:
         history = self.history_objects()
         cursor = self.history_cursor()
         deleted_index = next(
-            (index for index, obj in enumerate(history) if obj.object_id == object_id),
+            (index for index, obj in enumerate(history) if obj.entity_id == entity_id),
             None,
         )
-        deleted = delete_child_object(self.root, object_id)
+        deleted = delete_child_entity(self.root, entity_id)
         if deleted and deleted_index is not None and deleted_index < cursor:
             self.set_history_cursor(cursor - 1)
         return deleted
 
-    def find_parent(self, object_id: str) -> ZimaObject | None:
-        return find_parent_object(self.root, object_id)
+    def find_parent(self, entity_id: str) -> ZimaEntity | None:
+        return find_parent_entity(self.root, entity_id)
 
-    def find_owning_object(self, object_id: str) -> ZimaObject | None:
-        parent = self.find_parent(object_id)
-        while parent is not None and parent.kind != ObjectKind.OBJECT:
-            parent = self.find_parent(parent.object_id)
+    def find_owning_object(self, entity_id: str) -> ZimaEntity | None:
+        parent = self.find_parent(entity_id)
+        while parent is not None and parent.kind != EntityKind.CONTAINER:
+            parent = self.find_parent(parent.entity_id)
         return parent
 
-    def is_effectively_visible(self, object_id: str) -> bool:
+    def is_effectively_visible(self, entity_id: str) -> bool:
         # Per-object visibility was removed when the automatic Body became
         # authoritative.  Keep reading the legacy field for file
         # compatibility, but it must no longer leave old documents hidden
         # without any corresponding control in the UI.
-        return not self.is_effectively_suppressed(object_id)
+        return not self.is_effectively_suppressed(entity_id)
 
-    def is_effectively_suppressed(self, object_id: str) -> bool:
-        obj = self.find_object(object_id)
+    def is_effectively_suppressed(self, entity_id: str) -> bool:
+        obj = self.find_entity(entity_id)
         owning_history_object = obj
         while (
             owning_history_object is not None
-            and owning_history_object.kind != ObjectKind.OBJECT
+            and owning_history_object.kind != EntityKind.CONTAINER
         ):
-            owning_history_object = self.find_parent(owning_history_object.object_id)
+            owning_history_object = self.find_parent(owning_history_object.entity_id)
         if owning_history_object is not None:
             history = self.history_objects()
             try:
@@ -547,27 +565,27 @@ class PartDocument:
         while obj is not None:
             if obj.suppressed:
                 return True
-            obj = self.find_parent(obj.object_id)
+            obj = self.find_parent(obj.entity_id)
         return False
 
     def create_sketch_on_plane(
         self,
         plane_id: str,
         role: SketchRole = SketchRole.PROFILE,
-    ) -> ZimaObject | None:
+    ) -> ZimaEntity | None:
         parent = self.find_owning_object(plane_id)
-        plane = self.find_object(plane_id)
+        plane = self.find_entity(plane_id)
         if parent is None or plane is None:
             return None
         if (
-            parent.kind != ObjectKind.OBJECT
-            or plane.kind != ObjectKind.PLANE
-            or not parent.can_accept_entity(ObjectKind.SKETCH, role)
+            parent.kind != EntityKind.CONTAINER
+            or plane.kind != EntityKind.PLANE
+            or not parent.can_accept_entity(EntityKind.SKETCH, role)
         ):
             return None
 
         return self.create_sketch(
-            parent.object_id,
+            parent.entity_id,
             str(plane.parameters.get("plane", "")),
             role,
         )
@@ -577,16 +595,16 @@ class PartDocument:
         parent_id: str,
         plane: str = "xy",
         role: SketchRole = SketchRole.PROFILE,
-    ) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.SKETCH, role):
+    ) -> ZimaEntity | None:
+        parent = self.find_entity(parent_id)
+        if parent is None or not parent.can_accept_entity(EntityKind.SKETCH, role):
             return None
         if plane not in {"xy", "yz", "xz"}:
             return None
 
-        sketch = ZimaObject(
+        sketch = ZimaEntity(
             name=next_child_name(parent, "Sketch"),
-            kind=ObjectKind.SKETCH,
+            kind=EntityKind.SKETCH,
             combine_mode=CombineMode.NONE,
             parameters={
                 "plane": plane,
@@ -599,13 +617,13 @@ class PartDocument:
         parent.add_child(sketch)
         return sketch
 
-    def create_datum_axis(self, parent_id: str) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.AXIS):
+    def create_datum_axis(self, parent_id: str) -> ZimaEntity | None:
+        parent = self.find_entity(parent_id)
+        if parent is None or not parent.can_accept_entity(EntityKind.AXIS):
             return None
-        axis = ZimaObject(
+        axis = ZimaEntity(
             name=next_child_name(parent, "Axis"),
-            kind=ObjectKind.AXIS,
+            kind=EntityKind.AXIS,
             parameters={
                 "display_style": "centerline",
                 "axis": "z",
@@ -617,13 +635,13 @@ class PartDocument:
         parent.add_child(axis)
         return axis
 
-    def create_datum_plane(self, parent_id: str) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.PLANE):
+    def create_datum_plane(self, parent_id: str) -> ZimaEntity | None:
+        parent = self.find_entity(parent_id)
+        if parent is None or not parent.can_accept_entity(EntityKind.PLANE):
             return None
-        plane = ZimaObject(
+        plane = ZimaEntity(
             name=next_child_name(parent, "Plane"),
-            kind=ObjectKind.PLANE,
+            kind=EntityKind.PLANE,
             parameters={
                 "display_style": "datum",
                 "plane": "xy",
@@ -635,66 +653,66 @@ class PartDocument:
         parent.add_child(plane)
         return plane
 
-    def create_point(self, parent_id: str) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
-        if parent is None or not parent.can_accept_entity(ObjectKind.POINT):
+    def create_point(self, parent_id: str) -> ZimaEntity | None:
+        parent = self.find_entity(parent_id)
+        if parent is None or not parent.can_accept_entity(EntityKind.POINT):
             return None
-        point = ZimaObject(
+        point = ZimaEntity(
             name=next_child_name(parent, "Point"),
-            kind=ObjectKind.POINT,
+            kind=EntityKind.POINT,
             parameters={"unit": "mm"},
             tree_exposure=TreeExposure.INTERNAL,
         )
         parent.add_child(point)
         return point
 
-    def create_body(self, parent_id: str) -> ZimaObject | None:
-        parent = self.find_object(parent_id)
+    def create_body(self, parent_id: str) -> ZimaEntity | None:
+        parent = self.find_entity(parent_id)
         if parent is None:
             return None
-        if parent.kind != ObjectKind.PART:
+        if parent.kind != EntityKind.PART:
             parent = self.root
         previous = [
             child
             for child in self.root.children
-            if child.kind != ObjectKind.ORIGIN and not child.suppressed
+            if child.kind != EntityKind.ORIGIN and not child.suppressed
         ]
         if not previous:
             return None
-        body = ZimaObject(
+        body = ZimaEntity(
             name=next_child_name(self.root, "Body"),
-            kind=ObjectKind.BODY,
+            kind=EntityKind.BODY,
             parameters={
-                "source_ids": ",".join(child.object_id for child in previous),
+                "source_ids": ",".join(child.entity_id for child in previous),
             },
         )
         self.root.add_child(body)
         return body
 
-    def _solid_feature_parent(self, source: ZimaObject) -> ZimaObject | None:
+    def _solid_feature_parent(self, source: ZimaEntity) -> ZimaEntity | None:
         parent = source
-        if source.kind == ObjectKind.POINT:
-            source_parent = self.find_owning_object(source.object_id)
+        if source.kind == EntityKind.POINT:
+            source_parent = self.find_owning_object(source.entity_id)
             if source_parent is None:
                 return None
             parent = source_parent
-        if parent.kind == ObjectKind.OBJECT:
+        if parent.kind == EntityKind.CONTAINER:
             return parent
         return None
 
-    def create_cube(self, source_id: str) -> ZimaObject | None:
-        source = self.find_object(source_id)
+    def create_cube(self, source_id: str) -> ZimaEntity | None:
+        source = self.find_entity(source_id)
         if source is None:
             return None
 
         parent = self._solid_feature_parent(source)
 
-        if parent is None or not parent.can_accept_entity(ObjectKind.BOX):
+        if parent is None or not parent.can_accept_entity(EntityKind.BOX):
             return None
 
-        cube = ZimaObject(
+        cube = ZimaEntity(
             name=next_child_name(parent, "Cube"),
-            kind=ObjectKind.BOX,
+            kind=EntityKind.BOX,
             combine_mode=CombineMode.ADD,
             parameters={
                 "length": "10",
@@ -706,19 +724,19 @@ class PartDocument:
         parent.add_child(cube)
         return cube
 
-    def create_wedge(self, source_id: str) -> ZimaObject | None:
-        source = self.find_object(source_id)
+    def create_wedge(self, source_id: str) -> ZimaEntity | None:
+        source = self.find_entity(source_id)
         if source is None:
             return None
 
         parent = self._solid_feature_parent(source)
 
-        if parent is None or not parent.can_accept_entity(ObjectKind.WEDGE):
+        if parent is None or not parent.can_accept_entity(EntityKind.WEDGE):
             return None
 
-        wedge = ZimaObject(
+        wedge = ZimaEntity(
             name=next_child_name(parent, "Wedge"),
-            kind=ObjectKind.WEDGE,
+            kind=EntityKind.WEDGE,
             combine_mode=CombineMode.ADD,
             parameters={
                 "length": "100",
@@ -734,24 +752,24 @@ class PartDocument:
     def create_primitive(
         self,
         parent_id: str,
-        kind: ObjectKind,
-    ) -> ZimaObject | None:
-        source = self.find_object(parent_id)
+        kind: EntityKind,
+    ) -> ZimaEntity | None:
+        source = self.find_entity(parent_id)
         parent = self._solid_feature_parent(source) if source is not None else None
         definitions = {
-            ObjectKind.BOX: (
+            EntityKind.BOX: (
                 "Cube",
                 {"length": "40", "width": "30", "height": "20", "unit": "mm"},
             ),
-            ObjectKind.SPHERE: (
+            EntityKind.SPHERE: (
                 "Sphere",
                 {"diameter": "30", "unit": "mm"},
             ),
-            ObjectKind.CYLINDER: (
+            EntityKind.CYLINDER: (
                 "Cylinder",
                 {"diameter": "30", "height": "50", "unit": "mm"},
             ),
-            ObjectKind.CONE: (
+            EntityKind.CONE: (
                 "Cone",
                 {
                     "bottom_diameter": "40",
@@ -760,11 +778,11 @@ class PartDocument:
                     "unit": "mm",
                 },
             ),
-            ObjectKind.PYRAMID: (
+            EntityKind.PYRAMID: (
                 "Pyramid",
                 {"length": "40", "width": "40", "height": "50", "unit": "mm"},
             ),
-            ObjectKind.WEDGE: (
+            EntityKind.WEDGE: (
                 "Wedge",
                 {
                     "length": "60",
@@ -782,7 +800,7 @@ class PartDocument:
         ):
             return None
         name_prefix, parameters = definitions[kind]
-        primitive = ZimaObject(
+        primitive = ZimaEntity(
             name=next_child_name(parent, name_prefix),
             kind=kind,
             combine_mode=CombineMode.ADD,
@@ -799,9 +817,9 @@ class PartDocument:
         """Build the automatic solid result up to the history cursor."""
         return self.build_shape_at(self.history_cursor())
 
-    def build_shape_before(self, object_id: str):
+    def build_shape_before(self, entity_id: str):
         """Build the automatic solid result immediately before an object."""
-        index = self.history_index(object_id)
+        index = self.history_index(entity_id)
         return self.build_shape_at(
             len(self.history_objects()) if index is None else index
         )
@@ -813,13 +831,13 @@ class PartDocument:
     def build_shape_for_object_ids(self, object_ids: list[str]):
         """Build a history snapshot from stable source object IDs."""
         objects = []
-        for object_id in object_ids:
-            obj = self.find_object(object_id)
-            if obj is not None and obj.kind == ObjectKind.OBJECT:
+        for entity_id in object_ids:
+            obj = self.find_entity(entity_id)
+            if obj is not None and obj.kind == EntityKind.CONTAINER:
                 objects.append(obj)
         return self.build_shape_for_objects(objects)
 
-    def build_shape_for_objects(self, objects: list[ZimaObject]):
+    def build_shape_for_objects(self, objects: list[ZimaEntity]):
         """Build an automatic solid result from an explicit object sequence."""
         if self.body_is_suppressed():
             return None
@@ -833,7 +851,7 @@ class PartDocument:
 
         return result_shape
 
-    def build_standalone_shape(self, obj: ZimaObject):
+    def build_standalone_shape(self, obj: ZimaEntity):
         """Build one history object for source inspection, ignoring its first sign."""
         return apply_object_to_shape(
             None,
@@ -842,20 +860,20 @@ class PartDocument:
             accept_first_shape=True,
         )
 
-    def source_highlight_shapes(self, obj: ZimaObject) -> list[Any]:
+    def source_highlight_shapes(self, obj: ZimaEntity) -> list[Any]:
         shape = self.build_standalone_shape(obj)
         shapes = [shape] if shape is not None else []
         sphere = next(
             (
                 child for child in obj.children
-                if not child.locked and child.kind == ObjectKind.SPHERE
+                if not child.locked and child.kind == EntityKind.SPHERE
             ),
             None,
         )
         cylinder = next(
             (
                 child for child in obj.children
-                if not child.locked and child.kind == ObjectKind.CYLINDER
+                if not child.locked and child.kind == EntityKind.CYLINDER
             ),
             None,
         )
@@ -898,9 +916,9 @@ class PartDocument:
                 shapes.append(transform_shape(edge, world_transform))
         return shapes
 
-    def build_body_shape(self, body: ZimaObject):
+    def build_body_shape(self, body: ZimaEntity):
         """Build the recorded history snapshot represented by a root Body."""
-        if body.kind != ObjectKind.BODY:
+        if body.kind != EntityKind.BODY:
             return None
         source_ids = {
             value
@@ -909,11 +927,11 @@ class PartDocument:
         }
         result_shape = None
         for item in self.root.children:
-            if item.object_id == body.object_id:
+            if item.entity_id == body.entity_id:
                 break
-            if item.kind == ObjectKind.ORIGIN or item.object_id not in source_ids:
+            if item.kind == EntityKind.ORIGIN or item.entity_id not in source_ids:
                 continue
-            if item.kind == ObjectKind.BODY:
+            if item.kind == EntityKind.BODY:
                 nested_shape = self.build_body_shape(item)
                 if nested_shape is not None:
                     result_shape = (
@@ -929,12 +947,12 @@ class PartDocument:
 
     def resolve_attachments(self) -> None:
         for obj in self.visible_objects():
-            resolve_object_attachments(self, obj)
+            resolve_entity_attachments(self, obj)
 
 
 def apply_object_to_shape(
     result_shape,
-    obj: ZimaObject,
+    obj: ZimaEntity,
     parent_transform: tuple[tuple[float, float, float, float], ...],
     accept_first_shape: bool = False,
 ):
@@ -959,7 +977,7 @@ def apply_object_to_shape(
             result_shape = BRepAlgoAPI_Cut(result_shape, shape).Shape()
 
     for child in obj.children:
-        if child.locked or child.kind == ObjectKind.SKETCH:
+        if child.locked or child.kind == EntityKind.SKETCH:
             continue
         result_shape = apply_object_to_shape(
             result_shape,
@@ -971,10 +989,10 @@ def apply_object_to_shape(
     return result_shape
 
 
-def make_shape(obj: ZimaObject):
+def make_shape(obj: ZimaEntity):
     x, y, z = (0.0, 0.0, 0.0)
 
-    if obj.kind == ObjectKind.BOX:
+    if obj.kind == EntityKind.BOX:
         length = float(obj.parameters.get("length", 100.0))
         width = float(obj.parameters.get("width", 60.0))
         height = float(obj.parameters.get("height", 20.0))
@@ -989,14 +1007,14 @@ def make_shape(obj: ZimaObject):
             height,
         ).Shape()
 
-    if obj.kind == ObjectKind.SPHERE:
+    if obj.kind == EntityKind.SPHERE:
         diameter = float(obj.parameters.get("diameter", 30.0))
         return BRepPrimAPI_MakeSphere(
             gp_Pnt(x, y, z),
             max(0.001, diameter / 2.0),
         ).Shape()
 
-    if obj.kind == ObjectKind.CYLINDER:
+    if obj.kind == EntityKind.CYLINDER:
         diameter = float(obj.parameters.get("diameter", 20.0))
         height = float(obj.parameters.get("height", 40.0))
         axis = gp_Ax2(
@@ -1005,7 +1023,7 @@ def make_shape(obj: ZimaObject):
         )
         return BRepPrimAPI_MakeCylinder(axis, diameter / 2.0, height).Shape()
 
-    if obj.kind == ObjectKind.CONE:
+    if obj.kind == EntityKind.CONE:
         bottom_diameter = float(obj.parameters.get("bottom_diameter", 40.0))
         top_diameter = float(obj.parameters.get("top_diameter", 0.0))
         height = float(obj.parameters.get("height", 50.0))
@@ -1022,7 +1040,7 @@ def make_shape(obj: ZimaObject):
             max(0.001, height),
         ).Shape()
 
-    if obj.kind == ObjectKind.PYRAMID:
+    if obj.kind == EntityKind.PYRAMID:
         length = max(0.001, float(obj.parameters.get("length", 40.0)))
         width = max(0.001, float(obj.parameters.get("width", 40.0)))
         height = max(0.001, float(obj.parameters.get("height", 50.0)))
@@ -1045,7 +1063,7 @@ def make_shape(obj: ZimaObject):
         builder.Build()
         return builder.Shape()
 
-    if obj.kind == ObjectKind.WEDGE:
+    if obj.kind == EntityKind.WEDGE:
         length = float(obj.parameters.get("length", 100.0))
         width = float(obj.parameters.get("width", 60.0))
         height = float(obj.parameters.get("height", 50.0))
@@ -1175,16 +1193,16 @@ def normalized(vector) -> tuple[float, float, float] | None:
     return tuple(value / length for value in vector)
 
 
-def object_world_transform(
+def entity_world_transform(
     document: PartDocument,
-    object_id: str,
+    entity_id: str,
 ) -> tuple[tuple[float, float, float, float], ...] | None:
-    def visit(obj: ZimaObject, parent_transform):
+    def visit(obj: ZimaEntity, parent_transform):
         world_transform = multiply_transforms(
             parent_transform,
             coordinate_system_transform(obj.coordinate_system),
         )
-        if obj.object_id == object_id:
+        if obj.entity_id == entity_id:
             return world_transform
         for child in obj.children:
             found = visit(child, world_transform)
@@ -1201,10 +1219,10 @@ def object_world_transform(
 
 def box_face_frame(
     document: PartDocument,
-    box: ZimaObject,
+    box: ZimaEntity,
     role: str,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
-    if box.kind != ObjectKind.BOX:
+    if box.kind != EntityKind.BOX:
         return None
     length = float(box.parameters.get("length", 100.0))
     width = float(box.parameters.get("width", 60.0))
@@ -1218,7 +1236,7 @@ def box_face_frame(
         "z_max": ((length / 2.0, width / 2.0, height), (0.0, 0.0, 1.0)),
     }
     local_frame = local_frames.get(role)
-    world_transform = object_world_transform(document, box.object_id)
+    world_transform = entity_world_transform(document, box.entity_id)
     if local_frame is None or world_transform is None:
         return None
     point = transform_point(world_transform, local_frame[0])
@@ -1228,10 +1246,10 @@ def box_face_frame(
 
 def wedge_face_frame(
     document: PartDocument,
-    wedge: ZimaObject,
+    wedge: ZimaEntity,
     role: str,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
-    if wedge.kind != ObjectKind.WEDGE:
+    if wedge.kind != EntityKind.WEDGE:
         return None
     length = float(wedge.parameters.get("length", 100.0))
     width = float(wedge.parameters.get("width", 60.0))
@@ -1252,7 +1270,7 @@ def wedge_face_frame(
         "z_max": ((0.0, 0.0, height), (0.0, 0.0, 1.0)),
     }
     local_frame = local_frames.get(role)
-    world_transform = object_world_transform(document, wedge.object_id)
+    world_transform = entity_world_transform(document, wedge.entity_id)
     if local_frame is None or world_transform is None:
         return None
     point = transform_point(world_transform, local_frame[0])
@@ -1262,16 +1280,16 @@ def wedge_face_frame(
 
 def solid_face_frames(
     document: PartDocument,
-    solid: ZimaObject,
+    solid: ZimaEntity,
 ) -> dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]]:
     roles = (
         ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
-        if solid.kind == ObjectKind.BOX
+        if solid.kind == EntityKind.BOX
         else ("x_min", "slope", "y_min", "y_max", "z_min", "z_max")
-        if solid.kind == ObjectKind.WEDGE
+        if solid.kind == EntityKind.WEDGE
         else ()
     )
-    frame_function = box_face_frame if solid.kind == ObjectKind.BOX else wedge_face_frame
+    frame_function = box_face_frame if solid.kind == EntityKind.BOX else wedge_face_frame
     frames = {}
     for role in roles:
         frame = frame_function(document, solid, role)
@@ -1280,19 +1298,19 @@ def solid_face_frames(
     return frames
 
 
-def resolve_object_attachments(document: PartDocument, obj: ZimaObject) -> None:
+def resolve_entity_attachments(document: PartDocument, obj: ZimaEntity) -> None:
     if obj.attachment is not None:
         resolve_plane_on_face_attachment(document, obj)
     for child in obj.children:
         if not child.locked:
-            resolve_object_attachments(document, child)
+            resolve_entity_attachments(document, child)
 
 
-def resolve_plane_on_face_attachment(document: PartDocument, obj: ZimaObject) -> bool:
+def resolve_plane_on_face_attachment(document: PartDocument, obj: ZimaEntity) -> bool:
     attachment = obj.attachment
     if attachment is None:
         return True
-    target = document.find_object(attachment.target_object_id)
+    target = document.find_entity(attachment.target_object_id)
     if target is None:
         attachment.status = "broken_face"
         return False
@@ -1405,11 +1423,11 @@ def transform_shape(
 
 
 def make_sketch_shape(
-    parent: ZimaObject,
-    sketch: ZimaObject,
+    parent: ZimaEntity,
+    sketch: ZimaEntity,
     parent_transform: tuple[tuple[float, float, float, float], ...] | None = None,
 ):
-    if sketch.kind != ObjectKind.SKETCH:
+    if sketch.kind != EntityKind.SKETCH:
         return None
     if sketch.parameters.get("profile") != "circle":
         return None
@@ -1429,10 +1447,10 @@ def make_sketch_shape(
 
 
 def make_datum_axis_shape(
-    axis: ZimaObject,
+    axis: ZimaEntity,
     parent_transform: tuple[tuple[float, float, float, float], ...],
 ):
-    if axis.kind != ObjectKind.AXIS or axis.parameters.get("display_style") != "centerline":
+    if axis.kind != EntityKind.AXIS or axis.parameters.get("display_style") != "centerline":
         return None
     length = max(0.001, float(axis.parameters.get("length", 100.0)))
     direction = {
@@ -1446,27 +1464,27 @@ def make_datum_axis_shape(
     return transform_shape(BRepBuilderAPI_MakeEdge(start, end).Edge(), parent_transform)
 
 
-def find_child_object(parent: ZimaObject, object_id: str) -> ZimaObject | None:
-    if parent.object_id == object_id:
+def find_child_entity(parent: ZimaEntity, entity_id: str) -> ZimaEntity | None:
+    if parent.entity_id == entity_id:
         return parent
     for child in parent.children:
-        found = find_child_object(child, object_id)
+        found = find_child_entity(child, entity_id)
         if found is not None:
             return found
     return None
 
 
-def find_parent_object(parent: ZimaObject, object_id: str) -> ZimaObject | None:
+def find_parent_entity(parent: ZimaEntity, entity_id: str) -> ZimaEntity | None:
     for child in parent.children:
-        if child.object_id == object_id:
+        if child.entity_id == entity_id:
             return parent
-        found = find_parent_object(child, object_id)
+        found = find_parent_entity(child, entity_id)
         if found is not None:
             return found
     return None
 
 
-def next_child_name(parent: ZimaObject, prefix: str) -> str:
+def next_child_name(parent: ZimaEntity, prefix: str) -> str:
     existing = {child.name for child in parent.children}
     index = 1
     while True:
@@ -1476,24 +1494,24 @@ def next_child_name(parent: ZimaObject, prefix: str) -> str:
         index += 1
 
 
-def delete_child_object(parent: ZimaObject, object_id: str) -> bool:
+def delete_child_entity(parent: ZimaEntity, entity_id: str) -> bool:
     for index, child in enumerate(parent.children):
-        if child.object_id == object_id:
+        if child.entity_id == entity_id:
             if child.locked:
                 return False
             del parent.children[index]
             return True
-        if delete_child_object(child, object_id):
+        if delete_child_entity(child, entity_id):
             return True
     return False
 
 
-def create_origin_object(owner_id: str | None = None) -> ZimaObject:
-    origin = ZimaObject(
+def create_origin_object(owner_id: str | None = None) -> ZimaEntity:
+    origin = ZimaEntity(
         name="Origin",
-        kind=ObjectKind.ORIGIN,
+        kind=EntityKind.ORIGIN,
         combine_mode=CombineMode.NONE,
-        object_id=(
+        entity_id=(
             f"{owner_id}:origin"
             if owner_id is not None
             else uuid4().hex
@@ -1505,73 +1523,73 @@ def create_origin_object(owner_id: str | None = None) -> ZimaObject:
     return origin
 
 
-def add_coordinate_system_children(parent: ZimaObject) -> None:
-    if parent.kind != ObjectKind.OBJECT:
+def add_coordinate_system_children(parent: ZimaEntity) -> None:
+    if parent.kind != EntityKind.CONTAINER:
         return
-    if not any(child.kind == ObjectKind.ORIGIN for child in parent.children):
-        parent.add_child(create_origin_object(parent.object_id))
+    if not any(child.kind == EntityKind.ORIGIN for child in parent.children):
+        parent.add_child(create_origin_object(parent.entity_id))
 
 
-def add_origin_children(parent: ZimaObject) -> None:
+def add_origin_children(parent: ZimaEntity) -> None:
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="Point 0,0,0",
-            kind=ObjectKind.POINT,
-            object_id=f"{parent.object_id}:point",
+            kind=EntityKind.POINT,
+            entity_id=f"{parent.entity_id}:point",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="X Axis",
-            kind=ObjectKind.AXIS,
+            kind=EntityKind.AXIS,
             parameters={"axis": "x"},
-            object_id=f"{parent.object_id}:axis:x",
+            entity_id=f"{parent.entity_id}:axis:x",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="Y Axis",
-            kind=ObjectKind.AXIS,
+            kind=EntityKind.AXIS,
             parameters={"axis": "y"},
-            object_id=f"{parent.object_id}:axis:y",
+            entity_id=f"{parent.entity_id}:axis:y",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="Z Axis",
-            kind=ObjectKind.AXIS,
+            kind=EntityKind.AXIS,
             parameters={"axis": "z"},
-            object_id=f"{parent.object_id}:axis:z",
+            entity_id=f"{parent.entity_id}:axis:z",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="XY Plane",
-            kind=ObjectKind.PLANE,
+            kind=EntityKind.PLANE,
             parameters={"plane": "xy"},
-            object_id=f"{parent.object_id}:plane:xy",
+            entity_id=f"{parent.entity_id}:plane:xy",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="YZ Plane",
-            kind=ObjectKind.PLANE,
+            kind=EntityKind.PLANE,
             parameters={"plane": "yz"},
-            object_id=f"{parent.object_id}:plane:yz",
+            entity_id=f"{parent.entity_id}:plane:yz",
             locked=True,
         )
     )
     parent.add_child(
-        ZimaObject(
+        ZimaEntity(
             name="XZ Plane",
-            kind=ObjectKind.PLANE,
+            kind=EntityKind.PLANE,
             parameters={"plane": "xz"},
-            object_id=f"{parent.object_id}:plane:xz",
+            entity_id=f"{parent.entity_id}:plane:xz",
             locked=True,
         )
     )

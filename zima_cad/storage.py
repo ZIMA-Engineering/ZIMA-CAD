@@ -8,12 +8,13 @@ from pathlib import Path
 
 from zima_cad.model import (
     CombineMode,
+    ContainerType,
     CoordinateSystem,
-    ObjectKind,
+    EntityKind,
     PlaneOnFaceAttachment,
     PartDocument,
     TreeExposure,
-    ZimaObject,
+    ZimaEntity,
     add_coordinate_system_children,
     create_empty_part,
     default_user_parameter_labels,
@@ -21,18 +22,18 @@ from zima_cad.model import (
 from zima_cad.versioned_io import write_text_versioned
 
 
-class ObjectEntityLimitError(ValueError):
-    def __init__(self, object_name: str, entity_names: list[str]) -> None:
-        self.object_name = object_name
+class ContainerEntityLimitError(ValueError):
+    def __init__(self, container_name: str, entity_names: list[str]) -> None:
+        self.container_name = container_name
         self.entity_names = entity_names
         super().__init__(
-            f"Object {object_name!r} contains an invalid entity combination: "
+            f"Container {container_name!r} contains an invalid entity combination: "
             + ", ".join(entity_names)
         )
 
 
 def save_part_document(document: PartDocument, file_path: Path) -> None:
-    validate_object_entities(document)
+    validate_container_entities(document)
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
 
@@ -57,11 +58,13 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     config["UserParameterLabels"] = flatten_language_map(document.user_parameter_labels)
     config["UserParameterValues"] = flatten_language_map(document.user_parameter_values)
 
-    objects = document.visible_objects()
-    config["Objects"] = {"items": ",".join(obj.object_id for obj in objects)}
+    containers = document.visible_objects()
+    config["Containers"] = {
+        "items": ",".join(container.entity_id for container in containers)
+    }
 
-    for obj in objects:
-        write_object(config, obj)
+    for container in containers:
+        write_entity(config, container)
 
     buffer = io.StringIO()
     config.write(buffer)
@@ -76,6 +79,8 @@ def load_part_document(file_path: Path) -> PartDocument:
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
     config.read(file_path, encoding="utf-8")
+    if config.get("Document", "format_version", fallback="") != "7":
+        raise ValueError("Unsupported document format; expected format 7.")
 
     document = create_empty_part()
     if config.has_section("Document"):
@@ -102,7 +107,7 @@ def load_part_document(file_path: Path) -> PartDocument:
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
         document.document_precision.update(dict(config["DocumentPrecision"]))
-    document.document_settings["format_version"] = "6"
+    document.document_settings["format_version"] = "7"
     if config.has_section("Material") or config.has_section("MaterialProperties"):
         material_parameters = {
             "MATERIAL_NAME": config.get("Material", "Name", fallback="")
@@ -131,35 +136,35 @@ def load_part_document(file_path: Path) -> PartDocument:
     if config.has_section("UserParameters"):
         load_user_parameters(config, document)
 
-    object_ids = [
+    container_ids = [
         item.strip()
-        for item in config.get("Objects", "items", fallback="").split(",")
+        for item in config.get("Containers", "items", fallback="").split(",")
         if item.strip()
     ]
 
-    for object_id in object_ids:
-        section = f"Object.{object_id}"
+    for container_id in container_ids:
+        section = f"Container.{container_id}"
         if not config.has_section(section):
             continue
 
-        obj = read_object(config, section, object_id)
+        obj = read_entity(config, section, container_id)
         document.root.add_child(obj)
 
     # Format 6 uses one automatic internal solid result. Explicit format-5 Body
     # snapshots are redundant because their source objects remain in the history.
     document.root.children = [
         obj for obj in document.root.children
-        if obj.kind != ObjectKind.BODY
+        if obj.kind != EntityKind.BODY
     ]
     reconnect_history_result_references(document)
     migrate_missing_system_references(document)
-    validate_object_entities(document)
+    validate_container_entities(document)
     return document
 
 
 def reconnect_history_result_references(document: PartDocument) -> None:
     """Bind persisted automatic-Body references to the new runtime Part ID."""
-    for obj in walk_objects(document.root):
+    for obj in walk_entities(document.root):
         raw_references = obj.parameters.get("constraint_refs")
         if raw_references is None:
             continue
@@ -178,9 +183,9 @@ def reconnect_history_result_references(document: PartDocument) -> None:
                 continue
             reference_type = str(reference.get("type", ""))
             topology_key = str(reference.get("topology_key", "0"))
-            reference["object_id"] = document.root.object_id
+            reference["entity_id"] = document.root.entity_id
             reference["key"] = (
-                f"{reference_type}:{document.root.object_id}:{topology_key}"
+                f"{reference_type}:{document.root.entity_id}:{topology_key}"
             )
             changed = True
         if changed:
@@ -196,15 +201,15 @@ def migrate_missing_system_references(document: PartDocument) -> None:
         (
             child
             for child in document.root.children
-            if child.kind == ObjectKind.ORIGIN
+            if child.kind == EntityKind.ORIGIN
         ),
         None,
     )
     if origin is None:
         return
     system_entities = {child.name: child for child in origin.children}
-    for obj in walk_objects(document.root):
-        if obj.kind not in (ObjectKind.POINT, ObjectKind.AXIS):
+    for obj in walk_entities(document.root):
+        if obj.kind not in (EntityKind.POINT, EntityKind.AXIS):
             continue
         raw_references = obj.parameters.get("constraint_refs")
         if raw_references is None:
@@ -222,14 +227,14 @@ def migrate_missing_system_references(document: PartDocument) -> None:
                 or reference.get("type") != "entity"
             ):
                 continue
-            object_id = str(reference.get("object_id", ""))
-            if object_id and document.find_object(object_id) is not None:
+            entity_id = str(reference.get("entity_id", ""))
+            if entity_id and document.find_entity(entity_id) is not None:
                 continue
             replacement = system_entities.get(str(reference.get("label", "")))
             if replacement is None:
                 continue
-            reference["object_id"] = replacement.object_id
-            reference["key"] = f"entity:{replacement.object_id}"
+            reference["entity_id"] = replacement.entity_id
+            reference["key"] = f"entity:{replacement.entity_id}"
             changed = True
         if changed:
             obj.parameters["constraint_refs"] = json.dumps(
@@ -297,27 +302,30 @@ def normalize_material_descriptions(
     return normalized
 
 
-def validate_object_entities(document: PartDocument) -> None:
-    for obj in walk_objects(document.root):
-        if obj.kind != ObjectKind.OBJECT:
+def validate_container_entities(document: PartDocument) -> None:
+    for obj in walk_entities(document.root):
+        if obj.kind != EntityKind.CONTAINER:
             continue
         entities = obj.entity_children()
         if not obj.has_valid_entity_combination():
-            raise ObjectEntityLimitError(obj.name, [entity.name for entity in entities])
+            raise ContainerEntityLimitError(obj.name, [entity.name for entity in entities])
 
 
-def walk_objects(obj: ZimaObject):
+def walk_entities(obj: ZimaEntity):
     yield obj
     for child in obj.children:
-        yield from walk_objects(child)
+        yield from walk_entities(child)
 
 
-def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
+def write_entity(config: configparser.ConfigParser, obj: ZimaEntity) -> None:
     x, y, z = obj.coordinate_system.origin
     rx, ry, rz = obj.coordinate_system.rotation
-    section = f"Object.{obj.object_id}"
+    section_prefix = (
+        "Container" if obj.kind == EntityKind.CONTAINER else "Entity"
+    )
+    section = f"{section_prefix}.{obj.entity_id}"
     config[section] = {
-        "id": obj.object_id,
+        "id": obj.entity_id,
         "name": obj.name,
         "kind": obj.kind.value,
         "combine_mode": obj.combine_mode.value,
@@ -330,11 +338,10 @@ def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
         "user_visible": str(obj.user_visible).lower(),
         "suppressed": str(obj.suppressed).lower(),
         "tree_exposure": obj.tree_exposure.value,
-        "show_internal_entities": str(obj.show_internal_entities).lower(),
         "show_auxiliary_geometry": str(obj.show_auxiliary_geometry).lower(),
     }
-    if obj.kind == ObjectKind.OBJECT:
-        config[section]["TYPE"] = obj.object_type.value
+    if obj.kind == EntityKind.CONTAINER:
+        config[section]["TYPE"] = obj.container_type.value
 
     for key, value in obj.parameters.items():
         config[section][f"param.{key}"] = str(value)
@@ -358,21 +365,23 @@ def write_object(config: configparser.ConfigParser, obj: ZimaObject) -> None:
 
     user_children = [child for child in obj.children if not child.locked]
     if user_children:
-        config[f"Children.{obj.object_id}"] = {
-            "items": ",".join(child.object_id for child in user_children)
+        config[f"Children.{obj.entity_id}"] = {
+            "items": ",".join(child.entity_id for child in user_children)
         }
         for child in user_children:
-            write_object(config, child)
+            write_entity(config, child)
 
 
-def read_object(
+def read_entity(
     config: configparser.ConfigParser,
     section: str,
-    object_id: str,
-) -> ZimaObject:
-    kind = ObjectKind(config.get(section, "kind", fallback=ObjectKind.OBJECT.value))
-    obj = ZimaObject(
-        name=config.get(section, "name", fallback=object_id),
+    entity_id: str,
+) -> ZimaEntity:
+    kind = EntityKind(
+        config.get(section, "kind", fallback=EntityKind.CONTAINER.value)
+    )
+    obj = ZimaEntity(
+        name=config.get(section, "name", fallback=entity_id),
         kind=kind,
         combine_mode=CombineMode(
             config.get(section, "combine_mode", fallback=CombineMode.NONE.value)
@@ -389,14 +398,9 @@ def read_object(
                 config.getfloat(section, "rz", fallback=0.0),
             ),
         ),
-        object_id=config.get(section, "id", fallback=object_id),
+        entity_id=config.get(section, "id", fallback=entity_id),
         user_visible=config.getboolean(section, "user_visible", fallback=True),
         suppressed=config.getboolean(section, "suppressed", fallback=False),
-        show_internal_entities=config.getboolean(
-            section,
-            "show_internal_entities",
-            fallback=False,
-        ),
         show_auxiliary_geometry=config.getboolean(
             section,
             "show_auxiliary_geometry",
@@ -414,7 +418,13 @@ def read_object(
     for key, value in config[section].items():
         if key.startswith("param."):
             obj.parameters[key.removeprefix("param.")] = value
-    if kind == ObjectKind.SKETCH and "role" not in obj.parameters:
+    if kind == EntityKind.CONTAINER:
+        obj.parameters["container_type"] = config.get(
+            section,
+            "TYPE",
+            fallback=obj.parameters.get("container_type", ContainerType.EMPTY.value),
+        )
+    if kind == EntityKind.SKETCH and "role" not in obj.parameters:
         obj.parameters["role"] = "PROFILE"
 
     if config.get(section, "attachment.type", fallback="") == "plane_on_face":
@@ -436,24 +446,24 @@ def read_object(
             status=config.get(section, "attachment.status", fallback="resolved"),
         )
 
-    if kind == ObjectKind.OBJECT:
+    if kind == EntityKind.CONTAINER:
         add_coordinate_system_children(obj)
 
     child_ids = [
         item.strip()
-        for item in config.get(f"Children.{obj.object_id}", "items", fallback="").split(",")
+        for item in config.get(f"Children.{obj.entity_id}", "items", fallback="").split(",")
         if item.strip()
     ]
     for child_id in child_ids:
-        child_section = f"Object.{child_id}"
+        child_section = f"Entity.{child_id}"
         if config.has_section(child_section):
-            child = read_object(config, child_section, child_id)
+            child = read_entity(config, child_section, child_id)
             if (
-                obj.kind == ObjectKind.OBJECT
-                and child.kind in (ObjectKind.POINT, ObjectKind.AXIS)
+                obj.kind == EntityKind.CONTAINER
+                and child.kind in (EntityKind.POINT, EntityKind.AXIS)
             ):
                 # Point and axis entities are the geometric representation of
-                # their owning Object, not a second public tree item.
+                # their owning Container, not a second public tree item.
                 child.tree_exposure = TreeExposure.INTERNAL
             obj.add_child(child)
 

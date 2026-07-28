@@ -6,15 +6,15 @@ mechanical engineers.
 The roadmap describes the intended development direction. Its order may change
 as the document model, geometric kernel integration and user workflows evolve.
 
-## 1. Core and Parametric Object Model
+## 1. Core and Parametric Container Model
 
 **Status: In progress**
 
-- document and object hierarchy
+- document and container hierarchy
 - feature history
 - local coordinate systems
 - parametric primitive solids
-- object references and attachments
+- container references and attachments
 - in-view parameter editing
 - persistent ZIMA-CAD document formats
 

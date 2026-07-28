@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIMA_CAD_PYTHON="$PROJECT_ROOT/runtime/linux/python/bin/python"
+export QT_QPA_PLATFORM=wayland
 
 if [[ ! -x "$ZIMA_CAD_PYTHON" ]]; then
     echo "ZIMA-CAD Linux runtime was not found:"

@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from math import cos, hypot, radians, sin, sqrt
+from math import atan2, cos, degrees, hypot, radians, sin, sqrt
 import traceback
 
 from PySide6.QtCore import QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
-    QLinearGradient,
     QMatrix4x4,
     QMouseEvent,
     QPainter,
@@ -129,9 +128,8 @@ class CameraState:
 class ZimaOpenGLViewer(QOpenGLWidget):
     """Native ZIMA-CAD viewport.
 
-    Geometry, picking, and overlays will be added to this widget without using
-    AIS_InteractiveContext.  The first stage deliberately owns only the OpenGL
-    surface, background, viewport size, and navigation state.
+    Geometry, picking and overlays are owned by this widget without an OCCT
+    presentation context.
     """
 
     navigationChanged = Signal(CameraState)
@@ -235,6 +233,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.camera.pitch_degrees = pitch
         self.camera.pan_x = 0.0
         self.camera.pan_y = 0.0
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
+    def set_view_normal(self, normal: Point3) -> None:
+        nx, ny, nz = normal
+        length = sqrt(nx * nx + ny * ny + nz * nz)
+        if length <= 1e-12:
+            return
+        nx, ny, nz = nx / length, ny / length, nz / length
+        horizontal = hypot(nx, ny)
+        self.camera.yaw_degrees = (
+            degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
+        )
+        self.camera.pitch_degrees = -degrees(atan2(horizontal, nz))
+        self.camera.pan_x = 0.0
+        self.camera.pan_y = 0.0
+        self.camera.zoom = 1.0
         self.navigationChanged.emit(self.camera)
         self.update()
 
@@ -1227,9 +1242,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if mesh is None:
             return ()
         candidates: list[tuple[str, str, int]] = []
-        object_id = self._pick_object(position)
-        if object_id is not None:
-            candidates.append(("object", object_id, 0))
+        entity_id = self._pick_object(position)
+        if entity_id is not None:
+            candidates.append(("object", entity_id, 0))
         threshold = 9.0 * float(self.devicePixelRatioF())
         for marker in mesh.points:
             screen = self._screen_point(self._camera_point(marker.position))

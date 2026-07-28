@@ -42,16 +42,16 @@ Linux launch syntax uses the same arguments:
 
 The first prototype opens one main window:
 
-- object tree on the left
+- container tree on the left
 - OpenCascade 3D viewer on the right
 - empty startup with no open document
 - part files with the `.prtz` extension
-- object tree with Origin, objects, sketches and first test solids
+- container tree with Origin, entities, sketches and first test solids
 
-## Object Model
+## Container Model
 
-Each `Object` owns a mandatory system `Origin` and at most one user entity:
-Point, Axis, Sketch or Solid. Additional geometry is created in another Object.
+Each `Container` owns a mandatory system `Origin` and at most one user entity:
+Point, Axis, Sketch or Solid. Additional geometry is created in another Container.
 The creation commands and `.prtz` format validation enforce this rule.
 
 ## Portable Layout

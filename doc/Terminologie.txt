@@ -1,12 +1,12 @@
 Main Window       = hlavní okno aplikace
 Menu Bar          = horní menu File/Edit/...
 Document Tab      = záložka jednoho otevřeného souboru
-Tree              = strom objektů vlevo
+Tree              = strom kontejnerů vlevo
 Viewport / View   = 3D zobrazovací prostor vpravo
-Properties Dialog = okno vlastností objektu
+Properties Dialog = okno vlastností kontejneru
 Document          = otevřený .prtz/.asmz/.drwz soubor v paměti
 Part              = konkrétní typ dokumentu/díl
-Object            = objekt uvnitř dokumentu
+Container            = kontejner uvnitř dokumentu
 
 
 hlavní okno
@@ -17,4 +17,4 @@ viewport / zobrazovač
 okno vlastností
 dokument
 díl
-objekt
+kontejner

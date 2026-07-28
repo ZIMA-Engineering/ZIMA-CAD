@@ -5,9 +5,10 @@ from math import sqrt
 from typing import Any
 
 from zima_cad.model import (
-    ObjectKind,
+    ContainerType,
+    EntityKind,
     PartDocument,
-    ZimaObject,
+    ZimaEntity,
     coordinate_system_transform,
     identity_transform,
     make_sketch_shape,
@@ -89,22 +90,22 @@ def build_document_viewer_scene_data(
 
     if document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
-            if not document.is_effectively_visible(obj.object_id):
+            if not document.is_effectively_visible(obj.entity_id):
                 continue
             shape = document.build_standalone_shape(obj)
             if shape is not None:
-                shapes_by_owner_id[obj.object_id] = shape
+                shapes_by_owner_id[obj.entity_id] = shape
                 layers.append(
-                    triangulate_shape(shape, owner_id=obj.object_id)
+                    triangulate_shape(shape, owner_id=obj.entity_id)
                 )
     else:
         shape = document.build_shape_at(boundary)
         if shape is not None and document.body_is_visible():
-            shapes_by_owner_id[document.root.object_id] = shape
+            shapes_by_owner_id[document.root.entity_id] = shape
             layers.append(
                 triangulate_shape(
                     shape,
-                    owner_id=document.root.object_id,
+                    owner_id=document.root.entity_id,
                 )
             )
 
@@ -126,6 +127,7 @@ def build_document_viewer_scene_data(
             layers,
             show_object_planes,
             show_object_origins,
+            show_user_points,
             editing_object_id,
         )
 
@@ -162,7 +164,7 @@ def build_document_viewer_scene_data(
 
 def _append_object_sketches(
     document: PartDocument,
-    obj: ZimaObject,
+    obj: ZimaEntity,
     parent_transform,
     layers: list[ViewerMesh],
     shapes_by_owner_id: dict[str, Any],
@@ -170,58 +172,58 @@ def _append_object_sketches(
     show_user_axes: bool,
     show_user_planes: bool,
 ) -> None:
-    if not document.is_effectively_visible(obj.object_id):
+    if not document.is_effectively_visible(obj.entity_id):
         return
     world_transform = multiply_transforms(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
     )
-    owner = document.find_owning_object(obj.object_id)
+    owner = document.find_owning_object(obj.entity_id)
     display_name = (
         owner.name
-        if owner is not None and owner.kind == ObjectKind.OBJECT
+        if owner is not None and owner.kind == EntityKind.CONTAINER
         else obj.name
     )
     if (
-        obj.kind == ObjectKind.POINT
+        obj.kind == EntityKind.POINT
         and not obj.locked
         and show_user_points
     ):
         layers.append(
             transform_viewer_mesh(
                 point_marker_mesh(
-                    owner_id=obj.object_id,
+                    owner_id=obj.entity_id,
                     label=display_name,
                 ),
                 world_transform,
             )
         )
     if (
-        obj.kind == ObjectKind.AXIS
+        obj.kind == EntityKind.AXIS
         and not obj.locked
         and show_user_axes
     ):
         shape = make_datum_axis_shape(obj, world_transform)
         if shape is not None:
-            shapes_by_owner_id[obj.object_id] = shape
+            shapes_by_owner_id[obj.entity_id] = shape
             layers.append(
                 triangulate_shape(
                     shape,
-                    owner_id=obj.object_id,
+                    owner_id=obj.entity_id,
                     edge_kind="centerline",
                     edge_color=BROWN,
                     edge_label=display_name,
                 )
             )
     if (
-        obj.kind == ObjectKind.PLANE
+        obj.kind == EntityKind.PLANE
         and not obj.locked
         and show_user_planes
     ):
         layers.append(
             transform_viewer_mesh(
                 datum_plane_mesh(
-                    owner_id=obj.object_id,
+                    owner_id=obj.entity_id,
                     size=float(obj.parameters.get("size", 50.0)),
                     plane=str(obj.parameters.get("plane", "xy")),
                     label=display_name,
@@ -230,16 +232,16 @@ def _append_object_sketches(
             )
         )
     for child in obj.children:
-        if child.kind == ObjectKind.SKETCH:
-            if not document.is_effectively_visible(child.object_id):
+        if child.kind == EntityKind.SKETCH:
+            if not document.is_effectively_visible(child.entity_id):
                 continue
             shape = make_sketch_shape(obj, child, world_transform)
             if shape is not None:
-                shapes_by_owner_id[child.object_id] = shape
+                shapes_by_owner_id[child.entity_id] = shape
                 layers.append(
                     triangulate_shape(
                         shape,
-                        owner_id=child.object_id,
+                        owner_id=child.entity_id,
                         edge_kind="sketch",
                         edge_color=SKETCH_COLOR,
                     )
@@ -259,23 +261,38 @@ def _append_object_sketches(
 
 def _append_object_origins(
     document: PartDocument,
-    obj: ZimaObject,
+    obj: ZimaEntity,
     parent_transform,
     layers: list[ViewerMesh],
     show_object_planes: bool,
     show_object_origins: bool,
+    show_user_points: bool,
     editing_object_id: str | None,
 ) -> None:
-    if not document.is_effectively_visible(obj.object_id):
+    if not document.is_effectively_visible(obj.entity_id):
         return
     world_transform = multiply_transforms(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
     )
     origin = next(
-        (child for child in obj.children if child.kind == ObjectKind.ORIGIN),
+        (child for child in obj.children if child.kind == EntityKind.ORIGIN),
         None,
     )
+    if (
+        origin is not None
+        and obj.container_type == ContainerType.POINT
+        and show_user_points
+    ):
+        layers.append(
+            transform_viewer_mesh(
+                point_marker_mesh(
+                    owner_id=origin.entity_id,
+                    label=obj.name,
+                ),
+                world_transform,
+            )
+        )
     if (
         origin is not None
         and obj.show_auxiliary_geometry
@@ -286,7 +303,7 @@ def _append_object_origins(
         layers.append(
             transform_viewer_mesh(
                 origin_axes_mesh(
-                    owner_id=origin.object_id,
+                    owner_id=origin.entity_id,
                     length=reference_size,
                 ),
                 world_transform,
@@ -300,7 +317,7 @@ def _append_object_origins(
                 layers.append(
                     transform_viewer_mesh(
                         datum_plane_mesh(
-                            owner_id=origin.object_id,
+                            owner_id=origin.entity_id,
                             plane_index=plane_index,
                             size=reference_size * 2.0,
                             plane=plane_name,
@@ -309,11 +326,15 @@ def _append_object_origins(
                         world_transform,
                     )
                 )
-    elif origin is not None and obj.object_id == editing_object_id:
+    elif (
+        origin is not None
+        and obj.entity_id == editing_object_id
+        and obj.container_type != ContainerType.POINT
+    ):
         layers.append(
             transform_viewer_mesh(
                 point_marker_mesh(
-                    owner_id=origin.object_id,
+                    owner_id=origin.entity_id,
                     label="0,0,0",
                 ),
                 world_transform,
@@ -328,6 +349,7 @@ def _append_object_origins(
                 layers,
                 show_object_planes,
                 show_object_origins,
+                show_user_points,
                 editing_object_id,
             )
 
@@ -357,8 +379,8 @@ def _document_origin_id(document: PartDocument) -> str:
         (
             child
             for child in document.root.children
-            if child.kind == ObjectKind.ORIGIN
+            if child.kind == EntityKind.ORIGIN
         ),
         None,
     )
-    return origin.object_id if origin is not None else "document-origin"
+    return origin.entity_id if origin is not None else "document-origin"

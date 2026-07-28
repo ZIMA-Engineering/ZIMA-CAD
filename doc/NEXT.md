@@ -1,22 +1,16 @@
 # Next Work
 
-## Critical: Axis Editor Native Crash
+## Critical: Finish OCCT Viewer Removal
 
-- Reproduce and fix the repeatable `SIGSEGV` after creating or editing a datum
-  axis and moving the pointer in the 3D view.
-- Core dumps from 2026-07-27 consistently show the crash in:
-  - `StdPrs_WFShape::Add()`;
-  - `StdSelect_BRepOwner::HilightWithColor()`;
-  - `AIS_InteractiveContext::MoveTo()`.
-- The first attempted fix added the safe shaded hover drawer to the selected
-  coordinate-axis path as well as the normal path, but the crash still occurs.
-- Next investigation should identify the exact detected `AIS_InteractiveObject`
-  and selection mode immediately before `MoveTo()`.
-- Test with all coordinate, sketch, model and temporary preview presentations
-  deactivated in isolation. Do not assume the selected datum-axis presentation
-  is the only wireframe object involved.
-- Consider disabling native OCCT dynamic highlighting while the axis constraint
-  dialog is active and drawing a controlled application overlay instead.
+- Follow the staged inventory and acceptance criteria in
+  `doc/OCCT_VIEWER_CLEANUP.md`.
+- The hidden legacy viewer, unreachable AIS rebuild path and OCCT presentation
+  imports have been removed.
+- Verify native selection and constraint previews across all reference types.
+- Implement native in-view dimension overlays; the unreachable AIS
+  implementation was removed during cleanup.
+- The axis-editor pointer path can no longer enter OCCT presentation or
+  highlighting code.
 
 ## In-View Dimension and Parameter Representation
 
@@ -27,7 +21,7 @@
 - Prevent projected value fields from overlapping each other or obscuring
   important model geometry.
 - Define consistent spacing and automatic offsets for solid dimensions and
-  object-position parameters.
+  container-position parameters.
 - Refine the representation of zero values so they remain visible and
   editable without suggesting a false non-zero distance.
 - Finalize the color system:
@@ -38,59 +32,40 @@
   - red for invalid or conflicting dimensions.
 - Test legibility during rotate, pan and zoom, including dark and light
   backgrounds.
-- Design angular arc dimensions for object rotation (`RX`, `RY`, `RZ`).
-- Later extend the same visual language from solids and object placement to
+- Design angular arc dimensions for container rotation (`RX`, `RY`, `RZ`).
+- Later extend the same visual language from solids and container placement to
   sketches, points, axes and planes.
 
-## Viewer Pan and Zoom Diagnostics
+## Native Viewer Pan and Zoom
 
-- Investigate jerky pan and zoom while rotation remains smooth.
-- First run an isolated input test:
-  - pan using only `V3d_View::Pan()`;
-  - zoom using exactly one OCCT zoom operation;
-  - temporarily disable selection, hover detection, `FitAll()` and auxiliary
-    overlay updates.
-- Log each relevant input event:
-  - event type;
-  - current and previous pointer coordinates;
-  - calculated `dx` and `dy`;
-  - number of Pan, Zoom and Redraw calls caused by the event.
-- Verify that Qt and OCCT camera controls are not both processing one event.
-- Verify that pan uses the delta from the previous position and updates that
-  position after every step.
-- Check logical versus device-pixel coordinates and avoid unnecessary integer
-  rounding.
-- Check whether the fixed wheel factors (`1.25` / `0.8`) cause discrete zoom
-  jumps, especially for touchpads.
-- Test the cursor-anchor correction separately. One wheel event currently
-  performs `ZoomFactor()` followed by a corrective `Pan()`, making this the
-  primary suspected cause.
-- Confirm that pan and zoom do not invoke `FitAll()`, `ZFitAll()`, `Reset()` or
-  multiple redraws per event.
+- Tune pan and zoom only in `ZimaOpenGLViewer`; the legacy V3d diagnostics are
+  obsolete because V3d is no longer the active viewport.
+- Test mouse wheels and touchpads at multiple device-pixel ratios.
+- Keep cursor anchoring and overlay updates synchronized with the native camera.
 
-## Custom Objects
+## Custom Containers
 
-- Continue with custom objects in the part tree.
-- Each Object may contain exactly one user entity (Point, Axis, Sketch or Solid)
+- Continue with custom entities in the part tree.
+- Each Container may contain exactly one user entity (Point, Axis, Sketch or Solid)
   in addition to its mandatory system Origin. Creation commands and `.prtz`
   validation enforce this invariant.
-- Add editable object position:
+- Add editable container position:
   - X
   - Y
   - Z
-- Add editable object rotation:
+- Add editable container rotation:
   - RX
   - RY
   - RZ
-- Initial RX/RY/RZ support is implemented in object properties, `.prtz` storage,
-  solid rebuild and selected-object local coordinate-system display.
-- Object rotation must rotate its local coordinate system:
+- Initial RX/RY/RZ support is implemented in container properties, `.prtz` storage,
+  solid rebuild and selected-container local coordinate-system display.
+- Container rotation must rotate its local coordinate system:
   - point
   - axes
   - planes
-- Child solids and sketches now follow the complete parent object transform.
+- Child solids and sketches now follow the complete parent container transform.
 - Continue extending local-coordinate evaluation to future geometry types.
-- Initial plane-on-face attachment is implemented for Object XY/YZ/XZ planes
+- Initial plane-on-face attachment is implemented for Container XY/YZ/XZ planes
   and semantic Box faces (`x_min` through `z_max`). Attachments project the
   global Origin onto the target plane, use two perpendicular global reference
   axes with a 45-degree switch, persist in `.prtz`, and preserve the last valid

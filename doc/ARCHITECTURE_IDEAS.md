@@ -3,27 +3,27 @@
 > Tento dokument je pracovní poznámka z neformální diskuse. Nejde o schválenou
 > specifikaci ani závazný plán implementace.
 
-## Jednotný objektový model
+## Jednotný kontejnerový model
 
-- Základní abstrakcí ZIMA-CADu je objekt.
-- Objekt má stabilní ID, název, parametry, vlastnosti, data a podřízené objekty.
+- Základní abstrakcí ZIMA-CADu je kontejner.
+- Kontejner má stabilní ID, název, parametry, vlastnosti, data a podřízené kontejnery.
 - Skica, geometrická operace, solid, díl, sestava i výkres mohou využívat společný
-  objektový mechanismus; liší se obsahem dat a povolenými operacemi.
-- Objekty se mohou vnořovat.
-- Výsledná geometrie může vznikat skládáním a odečítáním výstupů objektů.
+  kontejnerový mechanismus; liší se obsahem dat a povolenými operacemi.
+- Kontejnery se mohou vnořovat.
+- Výsledná geometrie může vznikat skládáním a odečítáním výstupů kontejnerů.
 - Společný mechanismus může později obsloužit kopírování, historii, verzování,
   vlastnosti a reference.
 
-## Souřadný systém objektu
+## Souřadný systém kontejneru
 
-Každý prostorový objekt může mít vlastní:
+Každý prostorový kontejner může mít vlastní:
 
 - počátek,
 - osy X, Y a Z,
 - roviny XY, YZ a XZ,
-- transformaci vůči nadřazenému objektu.
+- transformaci vůči nadřazenému kontejneru.
 
-Podřízená geometrie se vyhodnocuje v lokálním souřadném systému objektu.
+Podřízená geometrie se vyhodnocuje v lokálním souřadném systému kontejneru.
 
 ## Interpretace ploch OpenCascade
 
@@ -35,7 +35,7 @@ OpenCascade rozlišuje zejména:
 - `TopLoc_Location` – umístění,
 - `TopAbs_Orientation` – orientaci.
 
-Plocha OpenCascade není automaticky stabilní trvalý objekt ZIMA-CADu. Po změně
+Plocha OpenCascade není automaticky stabilní trvalý kontejner ZIMA-CADu. Po změně
 parametrů nebo booleovské operaci může vzniknout nová topologie a jiné instance
 `TopoDS_Face`.
 
@@ -43,12 +43,12 @@ parametrů nebo booleovské operaci může vzniknout nová topologie a jiné ins
 
 - Nepoužívat pořadí typu `Face1`, `Face2` nebo `faces[4]` jako trvalou identitu.
 - Oddělit dočasnou OCC topologii od trvalé reference ZIMA-CADu.
-- Trvalá reference by měla popisovat zdrojový objekt, zdrojovou operaci a význam
+- Trvalá reference by měla popisovat zdrojový kontejner, zdrojovou operaci a význam
   plochy.
 - Příklady významu: `StartFace`, `EndFace`, `LateralFace`,
   `GeneratedFromEdge` nebo u boxu `x_min`, `x_max`, `y_min`, `y_max`, `z_min`,
   `z_max`.
-- Pokud referenční plocha při přepočtu zmizí, závislý objekt má zachovat poslední
+- Pokud referenční plocha při přepočtu zmizí, závislý kontejner má zachovat poslední
   platnou transformaci a reference se má označit jako neplatná.
 
 ## Budoucí analyzátor ploch
@@ -78,15 +78,15 @@ pojmenováním plochy.
 
 - Sketch může být společnou 2D geometrickou vrstvou pro modelování i výkresy.
 - DXF může sloužit jako import/export 2D geometrie Sketch.
-- Drawing může být objekt obsahující formát, rámeček, razítko, pohledy, řezy,
+- Drawing může být kontejner obsahující formát, rámeček, razítko, pohledy, řezy,
   kóty, poznámky, tabulky a Sketch.
 - Cílem je jeden obecný 2D editor používaný v různých kontextech, nikoli několik
   nesouvisejících editorů.
 
 ## Témata k pozdějšímu rozhodnutí
 
-- Přepočet závislostí objektů a dependency graph.
-- Stabilní reference mezi objekty.
-- Historie, undo/redo a verzování objektů.
+- Přepočet závislostí kontejnerů a dependency graph.
+- Stabilní reference mezi kontejnery.
+- Historie, undo/redo a verzování kontejnerů.
 - Obecné topologické pojmenování mimo jednoduché parametrické tvary.
-- Přesná hranice mezi objektem, feature a výsledným body/solidem.
+- Přesná hranice mezi kontejnerem, feature a výsledným body/solidem.
