@@ -187,6 +187,26 @@ def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
 
 def position_dialog_top_right(dialog: QDialog) -> None:
     parent = dialog.parentWidget()
+    if (
+        parent is not None
+        and dialog.windowFlags() & Qt.WindowType.SubWindow
+    ):
+        margin = 12
+        frame = dialog.frameGeometry()
+        bounds = (
+            parent.centralWidget().geometry()
+            if (
+                isinstance(parent, QMainWindow)
+                and parent.centralWidget() is not None
+            )
+            else parent.rect()
+        )
+        dialog.move(
+            max(bounds.left() + margin, bounds.right() - frame.width() - margin),
+            bounds.top() + margin,
+        )
+        dialog.raise_()
+        return
     reference = parent.window() if parent is not None else None
     screen = reference.screen() if reference is not None else dialog.screen()
     available = screen.availableGeometry()
@@ -794,6 +814,14 @@ class PointConstraintDialog(QDialog):
         reference_kind_callback: Callable[[str], EntityKind | None] | None = None,
     ) -> None:
         super().__init__(parent)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
         self.solve_callback = solve_callback
         self.point_object = point_object
         self.point_entity = point_entity
@@ -812,11 +840,58 @@ class PointConstraintDialog(QDialog):
         self._middle_click_origin: QPointF | None = None
         self._middle_click_moved = False
         self._middle_click_chord = False
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
         self._references_being_removed: set[str] = set()
         self.setModal(False)
         self.resize(460, 520)
 
         layout = QVBoxLayout(self)
+        if self.windowFlags() & Qt.WindowType.SubWindow:
+            self.setObjectName("propertiesSubWindow")
+            self.setStyleSheet(
+                "QDialog#propertiesSubWindow {"
+                " background: palette(window);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 5px;"
+                "}"
+            )
+            layout.setContentsMargins(8, 6, 8, 8)
+            self._internal_title_bar = QWidget(self)
+            self._internal_title_bar.setObjectName("propertiesTitleBar")
+            self._internal_title_bar.setFixedHeight(34)
+            self._internal_title_bar.setCursor(
+                Qt.CursorShape.SizeAllCursor
+            )
+            self._internal_title_bar.setStyleSheet(
+                "QWidget#propertiesTitleBar {"
+                " background: palette(midlight);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 4px;"
+                "}"
+            )
+            title_layout = QHBoxLayout(self._internal_title_bar)
+            title_layout.setContentsMargins(10, 2, 4, 2)
+            self._internal_title_label = QLabel(self.windowTitle())
+            title_font = self._internal_title_label.font()
+            title_font.setBold(True)
+            self._internal_title_label.setFont(title_font)
+            title_layout.addWidget(self._internal_title_label, 1)
+            close_button = QPushButton("×")
+            close_button.setFixedSize(27, 26)
+            close_button.setToolTip(tr("button.cancel"))
+            close_button.setStyleSheet(
+                "QPushButton { border: none; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; }"
+                "QPushButton:hover { background: #b83232; color: white; }"
+            )
+            close_button.clicked.connect(self.reject)
+            title_layout.addWidget(close_button)
+            self._internal_title_bar.installEventFilter(self)
+            self.windowTitleChanged.connect(
+                self._internal_title_label.setText
+            )
+            layout.addWidget(self._internal_title_bar)
         general = QFormLayout()
         self.name_edit = QLineEdit(
             point_object.name if point_object is not None else suggested_name
@@ -937,6 +1012,51 @@ class PointConstraintDialog(QDialog):
         self.container_type_combo.setEnabled(editable)
 
     def eventFilter(self, watched, event) -> bool:
+        if watched is getattr(self, "_internal_title_bar", None):
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                parent = self.parentWidget()
+                target = self._title_drag_window_origin + QPoint(
+                    int(delta.x()),
+                    int(delta.y()),
+                )
+                if parent is not None:
+                    target.setX(
+                        max(
+                            0,
+                            min(target.x(), parent.width() - self.width()),
+                        )
+                    )
+                    target.setY(
+                        max(
+                            0,
+                            min(target.y(), parent.height() - 34),
+                        )
+                    )
+                self.move(target)
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                event.accept()
+                return True
         spinbox = (
             watched
             if isinstance(watched, QAbstractSpinBox)
