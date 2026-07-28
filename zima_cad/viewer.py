@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from math import atan2, cos, degrees, hypot, radians, sin, sqrt
+from math import atan2, cos, degrees, hypot, radians, sin, sqrt, tan
 import traceback
+from typing import Any
 
 from PySide6.QtCore import QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import (
@@ -30,6 +31,17 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from zima_cad.viewer_mesh import Point3, ViewerMesh
 
 TopologyKey = tuple[str, int]
+
+
+@dataclass(frozen=True)
+class LinearDimension:
+    key: str
+    first_point: Point3
+    second_point: Point3
+    first_dimension_point: Point3
+    second_dimension_point: Point3
+    direction: Point3
+
 
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
@@ -145,6 +157,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     hoveredObjectChanged = Signal(str)
     selectedObjectChanged = Signal(str)
     objectDoubleClicked = Signal()
+    dimensionsDismissRequested = Signal()
     selectionPreviewConfirmed = Signal()
     selectionFilterChanged = Signal(str)
     displayModeChanged = Signal(str)
@@ -199,8 +212,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_anchor: Point3 | None = None
         self._selected_reference_owner_id: str | None = None
         self._selected_container_origin_id: str | None = None
+        self._selected_container_content_ids: frozenset[str] = frozenset()
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
+        self._dimensions: tuple[LinearDimension, ...] = ()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -334,8 +349,32 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_origin_id = origin_id
         self.update()
 
+    def set_selected_container_contents(
+        self,
+        owner_ids: set[str] | frozenset[str],
+    ) -> None:
+        self._selected_container_content_ids = frozenset(owner_ids)
+        self.update()
+
     def set_selection_preview_pending(self, pending: bool) -> None:
         self._selection_preview_pending = pending
+
+    def set_dimensions(
+        self,
+        dimensions: tuple[LinearDimension, ...],
+    ) -> None:
+        self._dimensions = dimensions
+        self.update()
+
+    def dimension_value_position(self, key: str) -> QPointF | None:
+        dimension = next(
+            (item for item in self._dimensions if item.key == key),
+            None,
+        )
+        if dimension is None:
+            return None
+        geometry = self._dimension_screen_geometry(dimension)
+        return geometry["value_position"] if geometry is not None else None
 
     def mesh_is_under_cursor(
         self,
@@ -490,9 +529,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
-        self._paint_object_overlay()
         self._paint_planes()
         self._paint_points()
+        self._paint_dimensions()
+        self._paint_object_overlay()
         self._paint_edge_labels()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -682,6 +722,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.dimensionsDismissRequested.emit()
+            self._last_mouse_position = None
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._interaction_mode == "object"
@@ -1131,8 +1176,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (0.0, 0.82, 1.0)
             if edge.owner_id in {
                 self._selected_reference_owner_id,
-                self._selected_container_origin_id,
-            }:
+            } or edge.owner_id in self._selected_container_content_ids:
                 color = (0.0, 0.82, 1.0)
             axis_color = QColor.fromRgbF(*color, 1.0)
             painter.setPen(QPen(axis_color, 1.5))
@@ -1157,7 +1201,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     perpendicular_x = -direction_y
                     perpendicular_y = direction_x
                     arrow_length = 10.0
-                    half_width = 4.5
+                    half_width = arrow_length * tan(radians(15.0))
                     base_x = endpoint.x() - direction_x * arrow_length
                     base_y = endpoint.y() - direction_y * arrow_length
                     arrow = QPolygonF(
@@ -1206,6 +1250,143 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.drawEllipse(screen, 6.0, 6.0)
         painter.end()
 
+    def _dimension_screen_geometry(
+        self,
+        dimension: LinearDimension,
+    ) -> dict[str, Any]:
+        first = self._screen_point(self._camera_point(dimension.first_point))
+        second = self._screen_point(self._camera_point(dimension.second_point))
+        first_dimension = self._screen_point(
+            self._camera_point(dimension.first_dimension_point)
+        )
+        second_dimension = self._screen_point(
+            self._camera_point(dimension.second_dimension_point)
+        )
+        dx = second_dimension.x() - first_dimension.x()
+        dy = second_dimension.y() - first_dimension.y()
+        length = hypot(dx, dy)
+        if length <= 1e-6:
+            direction_end = tuple(
+                dimension.first_dimension_point[index]
+                + dimension.direction[index]
+                for index in range(3)
+            )
+            projected_direction = self._screen_point(
+                self._camera_point(direction_end)
+            )
+            dx = projected_direction.x() - first_dimension.x()
+            dy = projected_direction.y() - first_dimension.y()
+            length = hypot(dx, dy)
+        if length <= 1e-6:
+            dx, dy, length = 1.0, 0.0, 1.0
+        direction_x = dx / length
+        direction_y = dy / length
+        perpendicular_x = -direction_y
+        perpendicular_y = direction_x
+        arrow_length = 10.0
+        arrow_half_width = arrow_length * tan(radians(15.0))
+        tail_length = 7.0
+
+        def arrow(
+            tip: QPointF,
+            outside_sign: float,
+        ) -> tuple[QPolygonF, QPointF, QPointF]:
+            base_x = tip.x() + direction_x * arrow_length * outside_sign
+            base_y = tip.y() + direction_y * arrow_length * outside_sign
+            base = QPointF(base_x, base_y)
+            tail = QPointF(
+                base_x + direction_x * tail_length * outside_sign,
+                base_y + direction_y * tail_length * outside_sign,
+            )
+            return (
+                QPolygonF(
+                    [
+                        tip,
+                        QPointF(
+                            base_x + perpendicular_x * arrow_half_width,
+                            base_y + perpendicular_y * arrow_half_width,
+                        ),
+                        QPointF(
+                            base_x - perpendicular_x * arrow_half_width,
+                            base_y - perpendicular_y * arrow_half_width,
+                        ),
+                    ]
+                ),
+                base,
+                tail,
+            )
+
+        first_arrow, first_arrow_base, first_tail = arrow(
+            first_dimension,
+            -1.0,
+        )
+        second_arrow, second_arrow_base, second_tail = arrow(
+            second_dimension,
+            1.0,
+        )
+        rightmost_tail = max(
+            (first_tail, second_tail),
+            key=lambda point: point.x(),
+        )
+        leader_start = QPointF(rightmost_tail)
+        leader_end = QPointF(leader_start.x() + 30.0, leader_start.y())
+        return {
+            "first": first,
+            "second": second,
+            "first_dimension": first_dimension,
+            "second_dimension": second_dimension,
+            "first_arrow": first_arrow,
+            "second_arrow": second_arrow,
+            "first_arrow_base": first_arrow_base,
+            "second_arrow_base": second_arrow_base,
+            "first_tail": first_tail,
+            "second_tail": second_tail,
+            "leader_start": leader_start,
+            "leader_end": leader_end,
+            "value_position": QPointF(
+                leader_end.x() + 48.0,
+                leader_end.y(),
+            ),
+        }
+
+    def _paint_dimensions(self) -> None:
+        if not self._dimensions:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        color = QColor("#FFF06A")
+        painter.setPen(QPen(color, 1.5))
+        painter.setBrush(QBrush(color))
+        for dimension in self._dimensions:
+            geometry = self._dimension_screen_geometry(dimension)
+            painter.drawLine(
+                geometry["first"],
+                geometry["first_dimension"],
+            )
+            painter.drawLine(
+                geometry["second"],
+                geometry["second_dimension"],
+            )
+            painter.drawLine(
+                geometry["first_dimension"],
+                geometry["second_dimension"],
+            )
+            painter.drawPolygon(geometry["first_arrow"])
+            painter.drawPolygon(geometry["second_arrow"])
+            painter.drawLine(
+                geometry["first_arrow_base"],
+                geometry["first_tail"],
+            )
+            painter.drawLine(
+                geometry["second_arrow_base"],
+                geometry["second_tail"],
+            )
+            painter.drawLine(
+                geometry["leader_start"],
+                geometry["leader_end"],
+            )
+        painter.end()
+
     def _paint_object_highlights(self) -> None:
         mesh = self._mesh
         if mesh is None:
@@ -1251,14 +1432,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 key == self._selected_edge
                 or edge.owner_id in {
                     self._selected_reference_owner_id,
-                    self._selected_container_origin_id,
                 }
+                or edge.owner_id in self._selected_container_content_ids
             ):
                 color = QColor.fromRgbF(0.0, 0.82, 1.0)
             if color is None or edge.element_kind not in {
                 "axis",
                 "centerline",
                 "edge",
+                "sketch",
             }:
                 continue
             painter.setPen(
@@ -1470,6 +1652,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (0.0, 0.82, 1.0)
             if plane.owner_id == self._selected_reference_owner_id:
                 color = (0.0, 0.82, 1.0)
+            if plane.owner_id in self._selected_container_content_ids:
+                color = (0.0, 0.82, 1.0)
             polygon = QPolygonF(
                 [
                     self._screen_point(self._camera_point(point))
@@ -1554,6 +1738,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (0.0, 0.82, 1.0)
             if marker.owner_id == self._selected_container_origin_id:
                 color = (0.0, 0.82, 1.0)
+            if marker.owner_id in self._selected_container_content_ids:
+                color = (0.0, 0.82, 1.0)
             screen = self._screen_point(self._camera_point(marker.position))
             marker_color = QColor.fromRgbF(*color, 1.0)
             painter.setPen(QPen(marker_color, 1.0))
@@ -1564,6 +1750,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     key in (self._hovered_point, self._selected_point)
                     or marker.owner_id == self._selected_reference_owner_id
                     or marker.owner_id == self._selected_container_origin_id
+                    or marker.owner_id in self._selected_container_content_ids
                 )
                 else 4.5
             )

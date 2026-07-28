@@ -109,7 +109,7 @@ from zima_cad.settings import (
     resolve_startup_context,
 )
 from zima_cad.localization import configure_localization, tr
-from zima_cad.viewer import ZimaOpenGLViewer
+from zima_cad.viewer import LinearDimension, ZimaOpenGLViewer
 from zima_cad.viewer_scene import (
     DocumentViewerScene,
     build_document_viewer_scene_data,
@@ -947,6 +947,7 @@ class PointConstraintDialog(QDialog):
             event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.MiddleButton
             and isinstance(watched, QWidget)
+            and not isinstance(watched, ZimaOpenGLViewer)
             and watched.window()
             in (
                 self,
@@ -2717,7 +2718,7 @@ class ParameterEditOverlay(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedSize(82, 20)
+        self.setFixedSize(96, 22)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self.value_edit = QLineEdit(self)
@@ -2742,7 +2743,9 @@ class ParameterEditOverlay(QWidget):
         self.hide()
 
     def show_value(self, value: str, unit: str) -> None:
-        self.value_edit.setText(value)
+        self.value_edit.setText(
+            f"{value} {unit}".strip()
+        )
         self.value_edit.setToolTip(unit)
         self.show()
         self.raise_()
@@ -2892,6 +2895,15 @@ class MainWindow(QMainWindow):
 
         self.native_viewer = ZimaOpenGLViewer(self)
         self._native_viewer_scene: DocumentViewerScene | None = None
+        self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
+        self._dimension_object_id: str | None = None
+        self.native_viewer.navigationChanged.connect(
+            lambda _camera: self._position_dimension_overlays()
+        )
+        self.native_viewer.viewportResized.connect(
+            lambda _width, _height, _ratio:
+            self._position_dimension_overlays()
+        )
         self.native_viewer.selectedEdgeChanged.connect(
             self._on_native_edge_selected
         )
@@ -2913,6 +2925,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.objectDoubleClicked.connect(
             self._on_native_object_double_clicked
+        )
+        self.native_viewer.dimensionsDismissRequested.connect(
+            self._clear_dimension_overlays
         )
         self.native_viewer.selectionPreviewConfirmed.connect(
             self._on_view_selection_preview_confirmed
@@ -5263,6 +5278,8 @@ class MainWindow(QMainWindow):
         if index == self.active_document_index:
             return
 
+        if self._dimension_overlays:
+            self._clear_dimension_overlays()
         self._store_active_session()
         self.active_document_index = index
 
@@ -6089,7 +6106,11 @@ class MainWindow(QMainWindow):
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
             return
+        self.native_viewer.set_selected_container_contents(set())
+        self.native_viewer.set_selected_container_origin(None)
         if not owner_id:
+            if self._dimension_overlays:
+                self._clear_dimension_overlays()
             self.native_viewer.set_object_overlay(None)
             self.native_viewer.set_selected_reference_owner(None)
             self.tree.blockSignals(True)
@@ -6154,8 +6175,28 @@ class MainWindow(QMainWindow):
         obj = self._selected_object()
         if obj is None or not self._view_selection_confirmed:
             return
-        self._activate_object_for_editing(obj)
-        self.show_properties(self._selected_object() or obj)
+        target = obj
+        if obj.kind in (EntityKind.PART, EntityKind.BODY):
+            if self.document is None:
+                return
+            target = next(
+                (
+                    candidate
+                    for candidate in reversed(
+                        self.document.active_history_objects()
+                    )
+                    if self._first_editable_solid(candidate) is not None
+                ),
+                obj,
+            )
+        target = self._activate_object_for_editing(target)
+        self._show_edit_overlays(
+            target,
+            QPoint(
+                self.native_viewer.width() // 2,
+                self.native_viewer.height() // 2,
+            ),
+        )
 
     def _on_native_face_selected(
         self,
@@ -6180,6 +6221,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or self.document is None:
             return
+        self.native_viewer.set_selected_container_contents(set())
+        self.native_viewer.set_selected_container_origin(None)
         obj = self.document.find_entity(owner_id)
         if obj is None:
             return
@@ -6284,6 +6327,8 @@ class MainWindow(QMainWindow):
         self._view_selection_confirmed = True
 
     def _on_tree_selection_changed(self) -> None:
+        if self._dimension_overlays:
+            self._clear_dimension_overlays()
         self.native_viewer.set_selection_preview_pending(False)
         self._history_source_cycle_active = False
         self._cycled_history_source_id = None
@@ -7993,15 +8038,11 @@ class MainWindow(QMainWindow):
     def _definition_history_boundary(self) -> int:
         if self.document is None:
             return 0
-        edit_object = self._definition_edit_object()
-        if edit_object is None:
-            return self.document.history_cursor()
-        index = self.document.history_index(edit_object.entity_id)
-        return (
-            self.document.history_cursor()
-            if index is None
-            else index
-        )
+        # Editing an existing definition is a live operation. Keep the full
+        # active history visible instead of rolling the model back before the
+        # edited object; otherwise the object disappears from the viewport
+        # while its Properties dialog is open.
+        return self.document.history_cursor()
 
     def show_properties(self, obj: ZimaEntity) -> None:
         if obj.kind == EntityKind.CONTAINER:
@@ -8144,16 +8185,278 @@ class MainWindow(QMainWindow):
 
     def _show_edit_overlays(
         self,
-        _obj: ZimaEntity,
+        obj: ZimaEntity,
         _position: QPoint,
     ) -> bool:
-        # Native dimension overlays are tracked separately from the removed
-        # AIS implementation. Keep the command harmless until that layer is
-        # available.
-        self.statusBar().showMessage(
-            "Edit: native dimension overlay is not implemented yet."
+        primitive = self._first_editable_solid(obj)
+        if primitive is None:
+            return False
+        dimensions = self._primitive_dimensions(primitive)
+        if not dimensions:
+            return False
+        self._clear_dimension_overlays()
+        self._dimension_object_id = primitive.entity_id
+        self.native_viewer.set_dimensions(dimensions)
+        unit = str(primitive.parameters.get("unit", "mm"))
+        for dimension in dimensions:
+            overlay = ParameterEditOverlay(self.native_viewer)
+            overlay.show_value(
+                str(primitive.parameters.get(dimension.key, "0")),
+                unit,
+            )
+            overlay.valueCommitted.connect(
+                lambda value, key=dimension.key:
+                self._commit_dimension_value(key, value)
+            )
+            self._dimension_overlays[dimension.key] = overlay
+        QTimer.singleShot(0, self._position_dimension_overlays)
+        return True
+
+    def _clear_dimension_overlays(self) -> None:
+        for overlay in self._dimension_overlays.values():
+            overlay.hide()
+            overlay.deleteLater()
+        self._dimension_overlays.clear()
+        self._dimension_object_id = None
+        self.native_viewer.set_dimensions(())
+
+    def _position_dimension_overlays(self) -> None:
+        for key, overlay in self._dimension_overlays.items():
+            position = self.native_viewer.dimension_value_position(key)
+            if position is not None:
+                overlay.move_to(position.toPoint())
+
+    def _commit_dimension_value(self, key: str, raw_value: str) -> None:
+        if self.document is None or self._dimension_object_id is None:
+            return
+        primitive = self.document.find_entity(self._dimension_object_id)
+        if primitive is None:
+            self._clear_dimension_overlays()
+            return
+        unit = str(primitive.parameters.get("unit", "mm")).strip()
+        value_text = raw_value.strip()
+        if unit and value_text.lower().endswith(unit.lower()):
+            value_text = value_text[:-len(unit)].strip()
+        try:
+            value = float(value_text.replace(",", "."))
+        except ValueError:
+            self.statusBar().showMessage(
+                tr("dimension.invalid_value", value=raw_value)
+            )
+            return
+        if not math.isfinite(value) or value < 0.0:
+            self.statusBar().showMessage(
+                tr("dimension.invalid_value", value=raw_value)
+            )
+            return
+        primitive.parameters[key] = f"{value:.12g}"
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._show_edit_overlays(
+            primitive,
+            QPoint(
+                self.native_viewer.width() // 2,
+                self.native_viewer.height() // 2,
+            ),
         )
-        return False
+        self.statusBar().showMessage(
+            tr("dimension.value_updated", value=f"{value:.12g}", unit=unit)
+        )
+
+    def _primitive_dimensions(
+        self,
+        primitive: ZimaEntity,
+    ) -> tuple[LinearDimension, ...]:
+        if self.document is None:
+            return ()
+        transform = entity_world_transform(
+            self.document,
+            primitive.entity_id,
+        )
+        if transform is None:
+            return ()
+
+        def number(key: str, fallback: float) -> float:
+            try:
+                return float(primitive.parameters.get(key, fallback))
+            except (TypeError, ValueError):
+                return fallback
+
+        length = number("length", 40.0)
+        width = number("width", 30.0)
+        height = number("height", 20.0)
+        diameter = number("diameter", 30.0)
+        bottom_diameter = number("bottom_diameter", 40.0)
+        top_diameter = number("top_diameter", 0.0)
+        top_offset = number("top_offset", 0.0)
+        scale = max(
+            5.0,
+            abs(length),
+            abs(width),
+            abs(height),
+            abs(diameter),
+            abs(bottom_diameter),
+            abs(top_diameter),
+        )
+        margin = max(5.0, scale * 0.16)
+        specifications: list[
+            tuple[str, tuple[float, float, float],
+                  tuple[float, float, float],
+                  tuple[float, float, float],
+                  tuple[float, float, float]]
+        ] = []
+
+        if primitive.kind == EntityKind.BOX:
+            specifications.extend(
+                (
+                    (
+                        "length",
+                        (-length / 2, -width / 2, -height / 2),
+                        (length / 2, -width / 2, -height / 2),
+                        (0.0, -margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    ),
+                    (
+                        "width",
+                        (length / 2, -width / 2, -height / 2),
+                        (length / 2, width / 2, -height / 2),
+                        (margin, 0.0, 0.0),
+                        (0.0, 1.0, 0.0),
+                    ),
+                    (
+                        "height",
+                        (length / 2, width / 2, -height / 2),
+                        (length / 2, width / 2, height / 2),
+                        (margin, margin, 0.0),
+                        (0.0, 0.0, 1.0),
+                    ),
+                )
+            )
+        elif primitive.kind in (EntityKind.PYRAMID, EntityKind.WEDGE):
+            specifications.extend(
+                (
+                    (
+                        "length",
+                        (-length / 2, -width / 2, 0.0),
+                        (length / 2, -width / 2, 0.0),
+                        (0.0, -margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    ),
+                    (
+                        "width",
+                        (length / 2, -width / 2, 0.0),
+                        (length / 2, width / 2, 0.0),
+                        (margin, 0.0, 0.0),
+                        (0.0, 1.0, 0.0),
+                    ),
+                    (
+                        "height",
+                        (length / 2, width / 2, 0.0),
+                        (length / 2, width / 2, height),
+                        (margin, margin, 0.0),
+                        (0.0, 0.0, 1.0),
+                    ),
+                )
+            )
+            if primitive.kind == EntityKind.WEDGE:
+                specifications.append(
+                    (
+                        "top_offset",
+                        (-length / 2, width / 2, height),
+                        (-length / 2 + top_offset, width / 2, height),
+                        (0.0, margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    )
+                )
+        elif primitive.kind == EntityKind.SPHERE:
+            radius = diameter / 2.0
+            specifications.append(
+                (
+                    "diameter",
+                    (-radius, 0.0, 0.0),
+                    (radius, 0.0, 0.0),
+                    (0.0, margin, 0.0),
+                    (1.0, 0.0, 0.0),
+                )
+            )
+        elif primitive.kind == EntityKind.CYLINDER:
+            radius = diameter / 2.0
+            specifications.extend(
+                (
+                    (
+                        "diameter",
+                        (-radius, 0.0, -height / 2),
+                        (radius, 0.0, -height / 2),
+                        (0.0, -margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    ),
+                    (
+                        "height",
+                        (radius, 0.0, -height / 2),
+                        (radius, 0.0, height / 2),
+                        (margin, 0.0, 0.0),
+                        (0.0, 0.0, 1.0),
+                    ),
+                )
+            )
+        elif primitive.kind == EntityKind.CONE:
+            bottom_radius = bottom_diameter / 2.0
+            top_radius = top_diameter / 2.0
+            outer_radius = max(bottom_radius, top_radius)
+            specifications.extend(
+                (
+                    (
+                        "bottom_diameter",
+                        (-bottom_radius, 0.0, 0.0),
+                        (bottom_radius, 0.0, 0.0),
+                        (0.0, -margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    ),
+                    (
+                        "top_diameter",
+                        (-top_radius, 0.0, height),
+                        (top_radius, 0.0, height),
+                        (0.0, margin, 0.0),
+                        (1.0, 0.0, 0.0),
+                    ),
+                    (
+                        "height",
+                        (outer_radius, 0.0, 0.0),
+                        (outer_radius, 0.0, height),
+                        (margin, 0.0, 0.0),
+                        (0.0, 0.0, 1.0),
+                    ),
+                )
+            )
+
+        def world(point: tuple[float, float, float]):
+            return transform_point(transform, point)
+
+        dimensions = []
+        for key, first, second, offset, direction in specifications:
+            first_dimension = tuple(
+                first[index] + offset[index] for index in range(3)
+            )
+            second_dimension = tuple(
+                second[index] + offset[index] for index in range(3)
+            )
+            world_origin = world((0.0, 0.0, 0.0))
+            world_direction_end = world(direction)
+            world_direction = tuple(
+                world_direction_end[index] - world_origin[index]
+                for index in range(3)
+            )
+            dimensions.append(
+                LinearDimension(
+                    key=key,
+                    first_point=world(first),
+                    second_point=world(second),
+                    first_dimension_point=world(first_dimension),
+                    second_dimension_point=world(second_dimension),
+                    direction=world_direction,
+                )
+            )
+        return tuple(dimensions)
 
 
     def _object_contains(self, parent: ZimaEntity, entity_id: str) -> bool:
@@ -8392,6 +8695,7 @@ class MainWindow(QMainWindow):
             self.native_viewer._set_selected_object(None)
             self.native_viewer.set_selected_reference_owner(None)
             self.native_viewer.set_selected_container_origin(None)
+            self.native_viewer.set_selected_container_contents(set())
             self.native_viewer.set_object_overlay(None)
             obj = self._selected_object()
             if obj is None:
@@ -8421,6 +8725,19 @@ class MainWindow(QMainWindow):
                     self.native_viewer.set_selected_container_origin(
                         origin.entity_id
                     )
+                content_ids: set[str] = set()
+
+                def add_content_ids(parent: ZimaEntity) -> None:
+                    for child in parent.children:
+                        if child.kind == EntityKind.ORIGIN:
+                            continue
+                        content_ids.add(child.entity_id)
+                        add_content_ids(child)
+
+                add_content_ids(selected_container)
+                self.native_viewer.set_selected_container_contents(
+                    content_ids
+                )
             user_reference = (
                 obj
                 if obj.kind in (
@@ -8459,6 +8776,18 @@ class MainWindow(QMainWindow):
                     if obj.kind == EntityKind.CONTAINER
                     else self.document.find_parent(obj.entity_id)
                 )
+                if obj.kind == EntityKind.CONTAINER:
+                    source_shape = self.document.build_standalone_shape(obj)
+                    if source_shape is not None:
+                        self.native_viewer.set_object_overlay(
+                            triangulate_shape(
+                                source_shape,
+                                owner_id=obj.entity_id,
+                            ),
+                            selected=True,
+                            anchor=self._native_object_origin(obj),
+                        )
+                    return
                 self.native_viewer._set_selected_object(
                     container.entity_id
                     if (
