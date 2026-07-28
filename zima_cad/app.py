@@ -49,6 +49,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QDoubleSpinBox,
@@ -778,6 +779,8 @@ class PointConstraintDialog(QDialog):
     updateRequested = Signal(list, tuple, str, bool, bool)
     referenceActivated = Signal(dict)
     definitionChanged = Signal()
+    applied = Signal()
+    entityAdopted = Signal()
 
     def __init__(
         self,
@@ -806,6 +809,9 @@ class PointConstraintDialog(QDialog):
             str(reference.get("key", ""))
             for reference in self.references
         }
+        self._middle_click_origin: QPointF | None = None
+        self._middle_click_moved = False
+        self._middle_click_chord = False
         self._references_being_removed: set[str] = set()
         self.setModal(False)
         self.resize(460, 520)
@@ -839,7 +845,13 @@ class PointConstraintDialog(QDialog):
         )
         layout.addLayout(general)
         layout.addWidget(QLabel(tr("dialog.point_constraints.instructions")))
-        self.reference_list = QTableWidget(0, 2)
+        self.reference_status_label = QLabel()
+        self.reference_status_label.setStyleSheet(
+            "color: #80AA1A; font-weight: 700;"
+        )
+        self.reference_status_label.setWordWrap(True)
+        layout.addWidget(self.reference_status_label)
+        self.reference_list = QTableWidget(0, 3)
         self.reference_list.setStyleSheet(
             "QTableWidget::item:selected {"
             " background-color: #00d1ff; color: #102027;"
@@ -847,36 +859,30 @@ class PointConstraintDialog(QDialog):
         )
         self.reference_list.setHorizontalHeaderLabels(
             [
+                "",
                 tr("dialog.point_constraints.reference"),
                 tr("dialog.point_constraints.offset"),
             ]
         )
         self.reference_list.horizontalHeader().setSectionResizeMode(
             0,
-            QHeaderView.ResizeMode.Stretch,
+            QHeaderView.ResizeMode.ResizeToContents,
         )
         self.reference_list.horizontalHeader().setSectionResizeMode(
             1,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        self.reference_list.horizontalHeader().setSectionResizeMode(
+            2,
             QHeaderView.ResizeMode.ResizeToContents,
         )
         for reference in self.references:
             self._append_reference_row(reference)
         self._refresh_reference_item_warnings()
-        self.reference_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self.reference_list.customContextMenuRequested.connect(
-            self._show_reference_context_menu
-        )
         self.reference_list.cellClicked.connect(
             self._reference_cell_clicked
         )
         layout.addWidget(self.reference_list, 1)
-        self.remove_reference_button = QPushButton(
-            tr("dialog.point_constraints.remove")
-        )
-        self.remove_reference_button.clicked.connect(self._remove_selected)
-        layout.addWidget(self.remove_reference_button)
         coordinates = QFormLayout()
         self.coordinate_edits: list[QDoubleSpinBox] = []
         for axis in ("X", "Y", "Z"):
@@ -907,7 +913,7 @@ class PointConstraintDialog(QDialog):
         self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         self.ok_button.clicked.connect(self._submit_and_accept)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self._submit
+            self._apply
         )
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -931,11 +937,71 @@ class PointConstraintDialog(QDialog):
         self.container_type_combo.setEnabled(editable)
 
     def eventFilter(self, watched, event) -> bool:
+        spinbox = (
+            watched
+            if isinstance(watched, QAbstractSpinBox)
+            else (
+                watched.parentWidget()
+                if isinstance(watched, QWidget)
+                and isinstance(watched.parentWidget(), QAbstractSpinBox)
+                else None
+            )
+        )
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() in (
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+            )
+            and spinbox is not None
+            and watched.window() is self
+        ):
+            spinbox.interpretText()
+            event.accept()
+            return True
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.MiddleButton
+        ):
+            self._middle_click_origin = event.globalPosition()
+            self._middle_click_moved = False
+            self._middle_click_chord = bool(
+                event.buttons() & Qt.MouseButton.RightButton
+            )
+        elif (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.RightButton
+            and self._middle_click_origin is not None
+        ):
+            self._middle_click_chord = True
+        elif (
+            event.type() == QEvent.Type.MouseMove
+            and self._middle_click_origin is not None
+            and event.buttons() & Qt.MouseButton.MiddleButton
+        ):
+            delta = event.globalPosition() - self._middle_click_origin
+            if abs(delta.x()) + abs(delta.y()) > 3.0:
+                self._middle_click_moved = True
+            if event.buttons() & Qt.MouseButton.RightButton:
+                self._middle_click_chord = True
+        elif (
+            event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.MiddleButton
+            and self._middle_click_origin is not None
+        ):
+            should_apply = (
+                not self._middle_click_moved
+                and not self._middle_click_chord
+            )
+            self._middle_click_origin = None
+            self._middle_click_moved = False
+            self._middle_click_chord = False
+            if should_apply:
+                self._apply()
         if (
             event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.MiddleButton
             and isinstance(watched, QWidget)
-            and not isinstance(watched, ZimaOpenGLViewer)
             and watched.window()
             in (
                 self,
@@ -944,6 +1010,9 @@ class PointConstraintDialog(QDialog):
                 else None,
             )
         ):
+            self._middle_click_origin = None
+            self._middle_click_moved = False
+            self._middle_click_chord = False
             self._submit_and_accept()
             event.accept()
             return True
@@ -962,10 +1031,28 @@ class PointConstraintDialog(QDialog):
     def _append_reference_row(self, reference: dict[str, Any]) -> None:
         row = self.reference_list.rowCount()
         self.reference_list.insertRow(row)
+        remove_button = QPushButton("×")
+        remove_button.setToolTip(
+            tr("dialog.point_constraints.delete_reference")
+        )
+        remove_button.setFixedSize(28, 26)
+        remove_button.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #8b2424;"
+            " border: 1px solid #b94a4a; border-radius: 4px;"
+            " font-size: 18px; font-weight: 700; padding: 0; }"
+            "QPushButton:hover { background: #b83232;"
+            " border-color: #ed7777; }"
+            "QPushButton:pressed { background: #6f1d1d; }"
+        )
+        remove_button.clicked.connect(
+            lambda _checked=False, descriptor=reference:
+                self._remove_reference_descriptor(descriptor)
+        )
+        self.reference_list.setCellWidget(row, 0, remove_button)
         label = reference.get("label", reference.get("key", ""))
         self.reference_list.setItem(
             row,
-            0,
+            1,
             QTableWidgetItem(f"{row + 1}. {label}"),
         )
         offset = QDoubleSpinBox()
@@ -978,7 +1065,7 @@ class PointConstraintDialog(QDialog):
             lambda value, descriptor=reference:
                 self._set_reference_offset(descriptor, value)
         )
-        self.reference_list.setCellWidget(row, 1, offset)
+        self.reference_list.setCellWidget(row, 2, offset)
 
     def _reference_supports_offset(
         self,
@@ -1017,6 +1104,7 @@ class PointConstraintDialog(QDialog):
         self.point_object = point_object
         self.point_entity = point_entity
         self.edit_mode = True
+        self.entityAdopted.emit()
 
     def adopt_created_point(
         self,
@@ -1112,28 +1200,34 @@ class PointConstraintDialog(QDialog):
             for existing in self.references
         ):
             return
+        fallback = tuple(edit.value() for edit in self.coordinate_edits)
+        trial_solution, trial_dof, _status, _constrained = (
+            self.solve_callback(
+                [*self.references, reference],
+                fallback,
+            )
+        )
+        current_dof = getattr(self, "dof", 3)
+        if (
+            current_dof == 0
+            or trial_solution is None
+            or trial_dof >= current_dof
+        ):
+            self.reference_status_label.setStyleSheet(
+                "color: #ed7777; font-weight: 700;"
+            )
+            self.reference_status_label.setText(
+                tr("dialog.point_constraints.rejected_reference")
+            )
+            return
         self.references.append(reference)
         self.highlighted_reference_keys.add(str(reference.get("key", "")))
         self._append_reference_row(reference)
         self._refresh_reference_item_warnings()
         self._update_solution()
 
-    def _remove_selected(self) -> None:
-        row = self.reference_list.currentRow()
-        if row < 0:
-            selected_rows = {
-                index.row()
-                for index in self.reference_list.selectedIndexes()
-            }
-            row = min(selected_rows) if selected_rows else -1
-        if row < 0 and self.reference_list.rowCount() == 1:
-            row = 0
-        if row < 0:
-            return
-        self._remove_reference_at(row)
-
     def _reference_cell_clicked(self, row: int, column: int) -> None:
-        if column != 0 or not 0 <= row < len(self.references):
+        if column != 1 or not 0 <= row < len(self.references):
             return
         key = str(self.references[row].get("key", ""))
         if key in self.highlighted_reference_keys:
@@ -1144,6 +1238,16 @@ class PointConstraintDialog(QDialog):
         self.reference_list.clearSelection()
         self.definitionChanged.emit()
 
+    def _remove_reference_descriptor(
+        self,
+        descriptor: dict[str, Any],
+    ) -> None:
+        try:
+            row = self.references.index(descriptor)
+        except ValueError:
+            return
+        self._remove_reference_at(row)
+
     def _remove_reference_at(self, row: int) -> None:
         if not 0 <= row < len(self.references):
             return
@@ -1153,7 +1257,7 @@ class PointConstraintDialog(QDialog):
         self.references.pop(row)
         self.reference_list.removeRow(row)
         for index, reference in enumerate(self.references):
-            item = self.reference_list.item(index, 0)
+            item = self.reference_list.item(index, 1)
             if item is not None:
                 item.setText(f"{index + 1}. {reference['label']}")
         if not self.references:
@@ -1167,7 +1271,7 @@ class PointConstraintDialog(QDialog):
 
     def _refresh_reference_item_warnings(self) -> None:
         for index, reference in enumerate(self.references):
-            item = self.reference_list.item(index, 0)
+            item = self.reference_list.item(index, 1)
             if item is None:
                 continue
             entity_id = str(reference.get("entity_id", "")).strip()
@@ -1199,23 +1303,6 @@ class PointConstraintDialog(QDialog):
                 )
                 item.setToolTip("")
 
-    def _show_reference_context_menu(self, position: QPoint) -> None:
-        row = self.reference_list.indexAt(position).row()
-        if row < 0:
-            return
-        self.reference_list.setCurrentCell(row, 0)
-        menu = QMenu(self)
-        delete_action = menu.addAction(
-            tr("dialog.point_constraints.delete_reference")
-        )
-        if (
-            menu.exec(
-                self.reference_list.viewport().mapToGlobal(position)
-            )
-            == delete_action
-        ):
-            self._remove_selected()
-
     def _activate_reference(self, row: int) -> None:
         if 0 <= row < len(self.references):
             self.referenceActivated.emit(self.references[row])
@@ -1230,6 +1317,7 @@ class PointConstraintDialog(QDialog):
             self.references,
             fallback,
         )
+        self.dof = dof
         self.solution = solution
         for index, edit in enumerate(self.coordinate_edits):
             edit.setEnabled(not constrained[index])
@@ -1238,6 +1326,14 @@ class PointConstraintDialog(QDialog):
             )
         self.dof_label.setText(
             tr("dialog.point_constraints.dof", count=dof)
+        )
+        self.reference_status_label.setText(
+            tr("dialog.point_constraints.fully_constrained")
+            if dof == 0
+            else ""
+        )
+        self.reference_status_label.setStyleSheet(
+            "color: #80AA1A; font-weight: 700;"
         )
         if solution is None:
             self.result_label.setText(tr(status))
@@ -1286,6 +1382,10 @@ class PointConstraintDialog(QDialog):
         if not self._submit():
             return
         self.accept()
+
+    def _apply(self) -> None:
+        if self._submit():
+            self.applied.emit()
 
 
 class AxisConstraintDialog(PointConstraintDialog):
@@ -1535,10 +1635,10 @@ class PlaneConstraintDialog(AxisConstraintDialog):
 
 class SolidConstraintDialog(AxisConstraintDialog):
     createSolidRequested = Signal(
-        list, tuple, str, bool, bool, tuple, dict
+        list, tuple, str, bool, bool, tuple, dict, str
     )
     updateSolidRequested = Signal(
-        list, tuple, str, bool, bool, tuple, dict
+        list, tuple, str, bool, bool, tuple, dict, str
     )
 
     def __init__(
@@ -1566,6 +1666,60 @@ class SolidConstraintDialog(AxisConstraintDialog):
         self._set_container_type(
             ContainerType(solid_kind.value.upper())
         )
+        operation_form = QFormLayout()
+        operation_widget = QWidget()
+        operation_layout = QHBoxLayout(operation_widget)
+        operation_layout.setContentsMargins(0, 0, 0, 0)
+        operation_layout.setSpacing(8)
+        self.add_operation_button = QPushButton(
+            tr("dialog.operation.add")
+        )
+        self.subtract_operation_button = QPushButton(
+            tr("dialog.operation.subtract")
+        )
+        for button in (
+            self.add_operation_button,
+            self.subtract_operation_button,
+        ):
+            button.setCheckable(True)
+            button.setMinimumHeight(40)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Fixed,
+            )
+        self.add_operation_button.setStyleSheet(
+            "QPushButton { border: 2px solid #54703a; border-radius: 6px;"
+            " font-weight: 700; padding: 7px 14px; }"
+            "QPushButton:checked { background: #80AA1A; color: #101510;"
+            " border-color: #a7d52b; }"
+        )
+        self.subtract_operation_button.setStyleSheet(
+            "QPushButton { border: 2px solid #713d3d; border-radius: 6px;"
+            " font-weight: 700; padding: 7px 14px; }"
+            "QPushButton:checked { background: #c64b4b; color: #ffffff;"
+            " border-color: #ed7777; }"
+        )
+        operation_layout.addWidget(self.add_operation_button)
+        operation_layout.addWidget(self.subtract_operation_button)
+        operation_form.addRow(
+            tr("dialog.properties.operation"),
+            operation_widget,
+        )
+        current_operation = (
+            solid_entity.combine_mode
+            if solid_entity is not None
+            else CombineMode.ADD
+        )
+        self._set_operation(current_operation, emit_change=False)
+        self.add_operation_button.clicked.connect(
+            lambda _checked: self._set_operation(CombineMode.ADD)
+        )
+        self.subtract_operation_button.clicked.connect(
+            lambda _checked: self._set_operation(CombineMode.SUBTRACT)
+        )
+        dialog_layout = self.layout()
+        if isinstance(dialog_layout, QVBoxLayout):
+            dialog_layout.insertLayout(1, operation_form)
         self.direction_combo.setVisible(False)
         self.length_spin.setVisible(False)
         if self.direction_label is not None:
@@ -1619,6 +1773,26 @@ class SolidConstraintDialog(AxisConstraintDialog):
             layout.insertLayout(layout.count() - 1, parameter_form)
         self._update_window_title()
 
+    def _set_operation(
+        self,
+        operation: CombineMode,
+        *,
+        emit_change: bool = True,
+    ) -> None:
+        self.add_operation_button.setChecked(operation == CombineMode.ADD)
+        self.subtract_operation_button.setChecked(
+            operation == CombineMode.SUBTRACT
+        )
+        if emit_change:
+            self.definitionChanged.emit()
+
+    def operation(self) -> CombineMode:
+        return (
+            CombineMode.SUBTRACT
+            if self.subtract_operation_button.isChecked()
+            else CombineMode.ADD
+        )
+
     def _update_window_title(self, _name: str | None = None) -> None:
         self.setWindowTitle(
             tr(
@@ -1642,6 +1816,7 @@ class SolidConstraintDialog(AxisConstraintDialog):
                 key: edit.value()
                 for key, edit in self.parameter_edits.items()
             },
+            self.operation().value,
         )
         if self.edit_mode:
             self.updateSolidRequested.emit(*arguments)
@@ -3453,16 +3628,17 @@ class MainWindow(QMainWindow):
         )
         dialog.createSolidRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, parameters: self._apply_new_constrained_solid(
+            rotation, parameters, operation: self._apply_new_constrained_solid(
                 dialog, kind, references, fallback, name, show_internal,
-                show_auxiliary, rotation, parameters,
+                show_auxiliary, rotation, parameters, operation,
             )
         )
         dialog.updateSolidRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, parameters: self._update_solid_object(
+            rotation, parameters, operation: self._update_solid_object(
                 dialog.point_object, dialog.point_entity, references, fallback,
                 name, show_internal, show_auxiliary, rotation, parameters,
+                operation,
             )
             if dialog.point_object is not None
             and dialog.point_entity is not None
@@ -3678,6 +3854,37 @@ class MainWindow(QMainWindow):
         self,
         dialog: PointConstraintDialog,
     ) -> None:
+        def enable_live_preview() -> None:
+            if (
+                getattr(dialog, "_live_preview_connected", False)
+                or not dialog.edit_mode
+                or dialog.point_object is None
+            ):
+                return
+            dialog._live_preview_connected = True
+            target = dialog.point_object
+            baseline = [copy.deepcopy(target)]
+
+            def preview_changes() -> None:
+                if dialog.isVisible():
+                    dialog._submit()
+
+            def accept_preview_as_baseline() -> None:
+                baseline[0] = copy.deepcopy(target)
+
+            def restore_baseline() -> None:
+                restored = copy.deepcopy(baseline[0].__dict__)
+                target.__dict__.clear()
+                target.__dict__.update(restored)
+                self._populate_tree()
+                self._refresh_object_properties(target)
+
+            dialog.definitionChanged.connect(preview_changes)
+            dialog.applied.connect(accept_preview_as_baseline)
+            dialog.rejected.connect(restore_baseline)
+
+        dialog.entityAdopted.connect(enable_live_preview)
+        enable_live_preview()
         dialog.show()
         position_dialog_top_right_after_show(dialog)
 
@@ -4621,6 +4828,7 @@ class MainWindow(QMainWindow):
         show_auxiliary,
         rotation,
         parameters,
+        operation,
     ) -> None:
         if self.document is None:
             return
@@ -4639,7 +4847,7 @@ class MainWindow(QMainWindow):
             return
         self._set_solid_definition(
             obj, solid, references, fallback, name, show_internal,
-            show_auxiliary, rotation, parameters, solution,
+            show_auxiliary, rotation, parameters, solution, operation,
         )
         dialog.adopt_created_entity(obj, solid)
         self._populate_tree()
@@ -4739,6 +4947,7 @@ class MainWindow(QMainWindow):
         show_auxiliary,
         rotation,
         parameters,
+        operation,
     ) -> None:
         solution, _dof, _status, _constrained = self._solve_point_constraints(
             references, fallback
@@ -4747,7 +4956,7 @@ class MainWindow(QMainWindow):
             return
         self._set_solid_definition(
             obj, solid, references, fallback, name, show_internal,
-            show_auxiliary, rotation, parameters, solution,
+            show_auxiliary, rotation, parameters, solution, operation,
         )
         self._refresh_object_properties(obj)
 
@@ -4763,6 +4972,7 @@ class MainWindow(QMainWindow):
         rotation,
         parameters,
         solution,
+        operation,
     ) -> None:
         obj.name = name
         obj.coordinate_system.origin = solution
@@ -4770,6 +4980,7 @@ class MainWindow(QMainWindow):
         obj.show_internal_entities = show_internal
         obj.show_auxiliary_geometry = show_auxiliary
         solid.name = name
+        solid.combine_mode = CombineMode(operation)
         solid.tree_exposure = TreeExposure.INTERNAL
         solid.parameters.update(
             {
@@ -6897,25 +7108,27 @@ class MainWindow(QMainWindow):
                     create_point_action = menu.addAction(
                         tr("menu.context.create_point")
                     )
-                create_axis_action = menu.addAction(
-                    tr("menu.context.create_axis")
-                )
-                create_axis_action.setEnabled(
-                    obj.can_accept_entity(EntityKind.AXIS)
-                )
-                if is_generic:
+                    create_axis_action = menu.addAction(
+                        tr("menu.context.create_axis")
+                    )
+                    create_axis_action.setEnabled(
+                        obj.can_accept_entity(EntityKind.AXIS)
+                    )
                     create_plane_action = menu.addAction(
                         tr("menu.context.create_plane")
                     )
                     create_plane_action.setEnabled(
                         obj.can_accept_entity(EntityKind.PLANE)
                     )
-                create_sketch_action = menu.addAction(
-                    tr("menu.context.create_sketch")
-                )
-                create_sketch_action.setEnabled(
-                    obj.can_accept_entity(EntityKind.SKETCH, SketchRole.PROFILE)
-                )
+                    create_sketch_action = menu.addAction(
+                        tr("menu.context.create_sketch")
+                    )
+                    create_sketch_action.setEnabled(
+                        obj.can_accept_entity(
+                            EntityKind.SKETCH,
+                            SketchRole.PROFILE,
+                        )
+                    )
                 if not obj.locked:
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
@@ -7077,6 +7290,8 @@ class MainWindow(QMainWindow):
                 self.rebuild_view(fit=False)
 
     def _show_native_viewer_context_menu(self, position: QPoint) -> None:
+        if self.native_viewer.consume_context_menu_suppression():
+            return
         if self.document is None or not self.view_selection_enabled:
             return
         if (
@@ -7402,18 +7617,22 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         else:
             if obj.kind == EntityKind.CONTAINER:
-                create_axis_action = menu.addAction(
-                    tr("menu.context.create_axis")
-                )
-                create_axis_action.setEnabled(
-                    obj.can_accept_entity(EntityKind.AXIS)
-                )
-                create_sketch_action = menu.addAction(
-                    tr("menu.context.create_sketch")
-                )
-                create_sketch_action.setEnabled(
-                    obj.can_accept_entity(EntityKind.SKETCH, SketchRole.PROFILE)
-                )
+                if obj.parameters.get("experimental_container") == "true":
+                    create_axis_action = menu.addAction(
+                        tr("menu.context.create_axis")
+                    )
+                    create_axis_action.setEnabled(
+                        obj.can_accept_entity(EntityKind.AXIS)
+                    )
+                    create_sketch_action = menu.addAction(
+                        tr("menu.context.create_sketch")
+                    )
+                    create_sketch_action.setEnabled(
+                        obj.can_accept_entity(
+                            EntityKind.SKETCH,
+                            SketchRole.PROFILE,
+                        )
+                    )
                 if not obj.locked:
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
@@ -8088,9 +8307,9 @@ class MainWindow(QMainWindow):
         )
         dialog.updateSolidRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, parameters: self._update_solid_object(
+            rotation, parameters, operation: self._update_solid_object(
                 obj, solid, references, fallback, name, show_internal,
-                show_auxiliary, rotation, parameters,
+                show_auxiliary, rotation, parameters, operation,
             )
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
@@ -8821,6 +9040,9 @@ class MainWindow(QMainWindow):
         point_constraints_active = (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
+        )
+        self.native_viewer.set_outline_face_highlights(
+            point_constraints_active
         )
         self.native_viewer.set_interaction_mode(
             "object"

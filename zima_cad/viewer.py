@@ -206,6 +206,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selection_filter = "all"
         self._display_mode = "shaded_with_edges"
         self._selection_enabled = True
+        self._outline_face_highlights = False
         self._object_overlay_mesh: ViewerMesh | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
         self._object_overlay_persistent = False
@@ -221,6 +222,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
         self._dimensions: tuple[LinearDimension, ...] = ()
+        self._suppress_next_context_menu = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -465,6 +467,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._set_hovered_point(None)
             self._set_hovered_plane(None)
 
+    def set_outline_face_highlights(self, enabled: bool) -> None:
+        self._outline_face_highlights = bool(enabled)
+        self.update()
+
     def initializeGL(self) -> None:
         self._gl = QOpenGLFunctions_3_3_Core()
         if not self._gl.initializeOpenGLFunctions():
@@ -552,11 +558,72 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
+        self._paint_face_highlight_outlines()
         self._paint_planes()
         self._paint_points()
         self._paint_dimensions()
         self._paint_object_overlay()
         self._paint_edge_labels()
+
+    def _paint_face_highlight_outlines(self) -> None:
+        mesh = self._mesh
+        if not self._outline_face_highlights or mesh is None:
+            return
+        highlights = (
+            (
+                self._hovered_face,
+                QColor.fromRgbF(1.0, 0.48, 0.0),
+            ),
+            (
+                self._selected_face,
+                QColor.fromRgbF(0.0, 0.82, 1.0),
+            ),
+        )
+        if not any(face is not None for face, _color in highlights):
+            return
+        positions = mesh.triangle_positions
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for highlighted_face, color in highlights:
+            if highlighted_face is None:
+                continue
+            boundary_counts: dict[
+                tuple[Point3, Point3],
+                tuple[int, Point3, Point3],
+            ] = {}
+            for triangle_index, face_index in enumerate(
+                mesh.triangle_face_indices
+            ):
+                owner_id = mesh.triangle_owner_ids[triangle_index]
+                if (owner_id, face_index) != highlighted_face:
+                    continue
+                offset = triangle_index * 9
+                points = tuple(
+                    tuple(
+                        float(positions[offset + vertex * 3 + axis])
+                        for axis in range(3)
+                    )
+                    for vertex in range(3)
+                )
+                for first, second in (
+                    (points[0], points[1]),
+                    (points[1], points[2]),
+                    (points[2], points[0]),
+                ):
+                    key = tuple(sorted((first, second)))
+                    count, _, _ = boundary_counts.get(
+                        key,
+                        (0, first, second),
+                    )
+                    boundary_counts[key] = (count + 1, first, second)
+            painter.setPen(QPen(color, 3.0))
+            for count, first, second in boundary_counts.values():
+                if count == 1:
+                    painter.drawLine(
+                        self._screen_point(self._camera_point(first)),
+                        self._screen_point(self._camera_point(second)),
+                    )
+        painter.end()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if (
@@ -646,9 +713,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._last_mouse_position = event.position().toPoint()
+            if event.buttons() & Qt.MouseButton.RightButton:
+                self._suppress_next_context_menu = True
             self.setFocus()
             event.accept()
             return
+        if event.button() == Qt.MouseButton.RightButton:
+            if event.buttons() & Qt.MouseButton.MiddleButton:
+                self._last_mouse_position = event.position().toPoint()
+                self._suppress_next_context_menu = True
+                event.accept()
+                return
+            self._suppress_next_context_menu = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -665,7 +741,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             position = event.position().toPoint()
             delta = position - self._last_mouse_position
             self._last_mouse_position = position
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if event.buttons() & Qt.MouseButton.RightButton:
+                self._suppress_next_context_menu = True
                 self.camera.pan_x += float(delta.x())
                 self.camera.pan_y += float(delta.y())
             else:
@@ -742,7 +819,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._last_mouse_position = None
             event.accept()
             return
+        if (
+            event.button() == Qt.MouseButton.RightButton
+            and event.buttons() & Qt.MouseButton.MiddleButton
+        ):
+            self._suppress_next_context_menu = True
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
+
+    def consume_context_menu_suppression(self) -> bool:
+        suppressed = self._suppress_next_context_menu
+        self._suppress_next_context_menu = False
+        return suppressed
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -940,18 +1029,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glDisable(GL_POLYGON_OFFSET_FILL)
         if self._interaction_mode == "topology":
             gl.glDisable(GL_DEPTH_TEST)
-        self._draw_highlighted_face(
-            gl,
-            program,
-            self._hovered_face,
-            QVector3D(1.0, 0.48, 0.0),
-        )
-        self._draw_highlighted_face(
-            gl,
-            program,
-            self._selected_face,
-            QVector3D(0.0, 0.82, 1.0),
-        )
+        if not self._outline_face_highlights:
+            self._draw_highlighted_face(
+                gl,
+                program,
+                self._hovered_face,
+                QVector3D(1.0, 0.48, 0.0),
+            )
+            self._draw_highlighted_face(
+                gl,
+                program,
+                self._selected_face,
+                QVector3D(0.0, 0.82, 1.0),
+            )
         if self._interaction_mode == "topology":
             gl.glEnable(GL_DEPTH_TEST)
         program.disableAttributeArray(0)

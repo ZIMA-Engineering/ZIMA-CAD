@@ -48,6 +48,9 @@ The first prototype opens one main window:
 - part files with the `.prtz` extension
 - container tree with Origin, entities, sketches and first test solids
 
+Current mouse controls, reference selection and the Properties workflow are
+described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
+
 ## Container Model
 
 Each `Container` owns a mandatory system `Origin` and at most one user entity:
