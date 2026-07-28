@@ -1,5 +1,23 @@
 # Next Work
 
+## Critical: Axis Editor Native Crash
+
+- Reproduce and fix the repeatable `SIGSEGV` after creating or editing a datum
+  axis and moving the pointer in the 3D view.
+- Core dumps from 2026-07-27 consistently show the crash in:
+  - `StdPrs_WFShape::Add()`;
+  - `StdSelect_BRepOwner::HilightWithColor()`;
+  - `AIS_InteractiveContext::MoveTo()`.
+- The first attempted fix added the safe shaded hover drawer to the selected
+  coordinate-axis path as well as the normal path, but the crash still occurs.
+- Next investigation should identify the exact detected `AIS_InteractiveObject`
+  and selection mode immediately before `MoveTo()`.
+- Test with all coordinate, sketch, model and temporary preview presentations
+  deactivated in isolation. Do not assume the selected datum-axis presentation
+  is the only wireframe object involved.
+- Consider disabling native OCCT dynamic highlighting while the axis constraint
+  dialog is active and drawing a controlled application overlay instead.
+
 ## In-View Dimension and Parameter Representation
 
 - Refine the `Edit` mode so 3D dimensions remain clear and readable for every
