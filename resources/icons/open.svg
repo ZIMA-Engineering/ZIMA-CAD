@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Open</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M3.5 7h6l2-2h4.5a2 2 0 0 1 2 2v2"/>
+    <path d="M4 19l3-9h14l-3 9H4z"/>
+
+  </g>
+</svg>

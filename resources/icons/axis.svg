@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Axis</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M4 18L20 6" stroke-dasharray="3 2"/>
+    <path d="M18 6h2v2M4 16v2h2"/>
+    <circle cx="8" cy="15" r="1.2" fill="#80AA1A" stroke="none"/>
+    <circle cx="16" cy="9" r="1.2" fill="#80AA1A" stroke="none"/>
+
+  </g>
+</svg>

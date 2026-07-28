@@ -60,13 +60,16 @@ from PySide6.QtGui import (
     QBrush,
     QColor,
     QKeySequence,
+    QIcon,
     QPainter,
     QPen,
+    QPixmap,
 )
 from PySide6.QtCore import (
     QEvent,
     QLibraryInfo,
     QPoint,
+    QPointF,
     QTime,
     QTimer,
     QTranslator,
@@ -101,6 +104,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QHBoxLayout,
     QSizeGrip,
+    QSplashScreen,
     QVBoxLayout,
     QWidget,
 )
@@ -139,6 +143,12 @@ from zima_cad.settings import (
     resolve_startup_context,
 )
 from zima_cad.localization import configure_localization, tr
+from zima_cad.viewer import ZimaOpenGLViewer
+from zima_cad.viewer_scene import (
+    DocumentViewerScene,
+    build_document_viewer_scene_data,
+)
+from zima_cad.viewer_mesh import ViewerMesh, triangulate_shape
 from zima_cad.storage import (
     ObjectEntityLimitError,
     load_part_document,
@@ -164,6 +174,10 @@ DIMENSION_COLOR_RGB = (1.0, 0.941, 0.416)
 DIMENSION_COLOR = Quantity_Color(*DIMENSION_COLOR_RGB, Quantity_TOC_RGB)
 CENTERLINE_COLOR_RGB = PLANE_COLOR_RGB
 CENTERLINE_COLOR = Quantity_Color(*CENTERLINE_COLOR_RGB, Quantity_TOC_RGB)
+
+
+def resource_icon(name: str) -> QIcon:
+    return QIcon(str(app_path("resources", "icons", f"{name}.svg")))
 
 
 def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
@@ -2996,6 +3010,31 @@ class ZimaViewer(qtViewer3d):
         event.accept()
 
 
+class LegacyViewerStub(QWidget):
+    """Non-graphical bridge while remaining AIS call sites are rewritten."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.selection_enabled = True
+        self._select_cycled_detection = False
+
+    def occ_position(self, point) -> tuple[int, int]:
+        pixel_ratio = float(self.devicePixelRatioF())
+        return (
+            int(round(point.x() * pixel_ratio)),
+            int(round(point.y() * pixel_ratio)),
+        )
+
+    def clear_endpoint_marker(self) -> None:
+        return
+
+    def set_endpoint_marker(self, _x: float, _y: float) -> None:
+        return
+
+    def clear_parameter_editors(self) -> None:
+        return
+
+
 class MainWindow(QMainWindow):
     def _install_qt_translations(
         self,
@@ -3037,6 +3076,9 @@ class MainWindow(QMainWindow):
             self.settings.language
         )
         self.setWindowTitle(tr("app.title"))
+        self.setWindowIcon(
+            QIcon(str(app_path("resources", "branding", "app-icon.svg")))
+        )
         self.resize(1200, 800)
         self.document_sessions: list[DocumentSession] = []
         self.active_document_index = -1
@@ -3129,7 +3171,31 @@ class MainWindow(QMainWindow):
         self._definition_edit_objects: list[ZimaObject] = []
         self._pending_attachment_plane_id: str | None = None
 
-        self.viewer = ZimaViewer(self)
+        self.viewer = LegacyViewerStub(self)
+        self.native_viewer = ZimaOpenGLViewer(self)
+        self._native_viewer_scene: DocumentViewerScene | None = None
+        self.native_viewer.selectedEdgeChanged.connect(
+            self._on_native_edge_selected
+        )
+        self.native_viewer.selectedFaceChanged.connect(
+            self._on_native_face_selected
+        )
+        self.native_viewer.selectedPointChanged.connect(
+            lambda owner_id, index: self._on_native_coordinate_selected(
+                owner_id, index, "point"
+            )
+        )
+        self.native_viewer.selectedPlaneChanged.connect(
+            lambda owner_id, index: self._on_native_coordinate_selected(
+                owner_id, index, "plane"
+            )
+        )
+        self.native_viewer.selectedObjectChanged.connect(
+            self._on_native_object_selected
+        )
+        self.native_viewer.objectDoubleClicked.connect(
+            self._on_native_object_double_clicked
+        )
         self.regenerate_action = QAction(
             tr("command.regenerate"),
             self,
@@ -3169,6 +3235,7 @@ class MainWindow(QMainWindow):
         self.reset_view_action = self.view_toolbar.addAction(
             tr("toolbar.reset_view")
         )
+        self.reset_view_action.setIcon(resource_icon("view-fit"))
         self.reset_view_action.triggered.connect(self.reset_view)
         self.standard_view_combo = QComboBox()
         for text_key, view_name in (
@@ -3237,21 +3304,26 @@ class MainWindow(QMainWindow):
         self.show_origins_action = self._add_reference_visibility_action(
             tr("toolbar.show_origins"), tr("toolbar.show_origins.tooltip")
         )
+        self.show_origins_action.setIcon(resource_icon("origin"))
         self.show_points_action = self._add_reference_visibility_action(
             tr("toolbar.show_points"), tr("toolbar.show_points.tooltip")
         )
+        self.show_points_action.setIcon(resource_icon("point"))
         self.show_axes_action = self._add_reference_visibility_action(
             tr("toolbar.show_axes"), tr("toolbar.show_axes.tooltip")
         )
+        self.show_axes_action.setIcon(resource_icon("axis"))
         self.show_planes_action = self._add_reference_visibility_action(
             tr("toolbar.show_planes"), tr("toolbar.show_planes.tooltip")
         )
+        self.show_planes_action.setIcon(resource_icon("plane"))
 
         view_layout = QVBoxLayout()
         view_layout.setContentsMargins(0, 0, 0, 0)
         view_layout.setSpacing(0)
         view_layout.addWidget(self.view_toolbar)
-        view_layout.addWidget(self.viewer, 1)
+
+        view_layout.addWidget(self.native_viewer, 1)
 
         self.view_panel = QWidget()
         self.view_panel.setLayout(view_layout)
@@ -3259,7 +3331,9 @@ class MainWindow(QMainWindow):
         self.tools_toolbar = QToolBar(tr("menu.tools"))
         self.tools_toolbar.setMovable(False)
         self.tools_toolbar.setOrientation(Qt.Orientation.Vertical)
-        self.tools_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.tools_toolbar.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
         self.tools_toolbar.setMinimumWidth(170)
         self.tools_toolbar.setStyleSheet(
             """
@@ -3346,6 +3420,12 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         self.viewer.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.viewer.customContextMenuRequested.connect(self._show_viewer_context_menu)
+        self.native_viewer.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.native_viewer.customContextMenuRequested.connect(
+            self._show_native_viewer_context_menu
+        )
         self._update_window_title()
 
     def _add_display_mode_action(
@@ -3379,15 +3459,9 @@ class MainWindow(QMainWindow):
     def set_view_selection_enabled(self, enabled: bool) -> None:
         self.view_selection_enabled = enabled
         self.viewer.selection_enabled = enabled
+        self.native_viewer.set_selection_enabled(enabled)
         self.selection_filter_combo.setEnabled(enabled)
         self.viewer._select_cycled_detection = False
-        if hasattr(self, "_viewer_initialized"):
-            context = self.viewer._display.Context
-            if not enabled:
-                context.ClearDetected(True)
-                self._on_view_hover_changed(None)
-                self._clear_view_selection()
-            self.viewer._display.Repaint()
         self.statusBar().showMessage(
             tr(
                 "selection.status.enabled"
@@ -3427,16 +3501,20 @@ class MainWindow(QMainWindow):
             new_object_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_object")
             )
+            new_object_action.setIcon(resource_icon("part"))
             self._mark_application_command(new_object_action)
             new_object_action.triggered.connect(self.create_new_object)
             self.tools_toolbar.addSeparator()
             point_action = self.tools_toolbar.addAction(tr("primitive.point"))
+            point_action.setIcon(resource_icon("point"))
             self._mark_application_command(point_action)
             point_action.triggered.connect(self._create_point_object)
             axis_action = self.tools_toolbar.addAction(tr("primitive.axis"))
+            axis_action.setIcon(resource_icon("axis"))
             self._mark_application_command(axis_action)
             axis_action.triggered.connect(self._create_axis_object)
             plane_action = self.tools_toolbar.addAction(tr("primitive.plane"))
+            plane_action.setIcon(resource_icon("plane"))
             self._mark_application_command(plane_action)
             plane_action.triggered.connect(self._create_plane_object)
             self.tools_toolbar.addSeparator()
@@ -3449,6 +3527,15 @@ class MainWindow(QMainWindow):
                 (ObjectKind.WEDGE, "primitive.wedge"),
             ):
                 primitive_action = self.tools_toolbar.addAction(tr(text_key))
+                icon_name = {
+                    ObjectKind.BOX: "box",
+                    ObjectKind.SPHERE: "sphere",
+                    ObjectKind.CYLINDER: "cylinder",
+                    ObjectKind.PYRAMID: "pyramid",
+                    ObjectKind.WEDGE: "wedge",
+                }.get(kind)
+                if icon_name is not None:
+                    primitive_action.setIcon(resource_icon(icon_name))
                 self._mark_application_command(primitive_action)
                 primitive_action.triggered.connect(
                     lambda _checked=False, primitive_kind=kind:
@@ -3458,6 +3545,7 @@ class MainWindow(QMainWindow):
             sketch_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_sketch")
             )
+            sketch_action.setIcon(resource_icon("sketch"))
             self._mark_application_command(sketch_action)
             sketch_action.triggered.connect(self._create_sketch_from_selection)
             profile_action = self.tools_toolbar.addAction(
@@ -5003,15 +5091,18 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu(tr("menu.file"))
 
         new_action = file_menu.addAction(tr("menu.file.new"))
+        new_action.setIcon(resource_icon("new"))
         new_action.triggered.connect(self.new_document)
 
         open_action = file_menu.addAction(tr("menu.file.open"))
+        open_action.setIcon(resource_icon("open"))
         open_action.triggered.connect(self.open_document)
 
         close_action = file_menu.addAction(tr("menu.file.close"))
         close_action.triggered.connect(self.close_document)
 
         save_action = file_menu.addAction(tr("menu.file.save"))
+        save_action.setIcon(resource_icon("save"))
         save_action.setShortcuts(
             [
                 QKeySequence.StandardKey.Save,
@@ -5034,6 +5125,7 @@ class MainWindow(QMainWindow):
         self.delete_old_versions_action = self.delete_file_menu.addAction(
             tr("menu.file.delete.old_versions")
         )
+        self.delete_old_versions_action.setIcon(resource_icon("delete"))
         self.delete_old_versions_action.triggered.connect(
             self.delete_old_file_versions
         )
@@ -5123,6 +5215,7 @@ class MainWindow(QMainWindow):
         global_settings_action = tools_menu.addAction(
             tr("menu.tools.global_settings")
         )
+        global_settings_action.setIcon(resource_icon("settings"))
         global_settings_action.triggered.connect(self.show_options_dialog)
 
         self.window_menu = self.menuBar().addMenu(tr("menu.window"))
@@ -5663,11 +5756,23 @@ class MainWindow(QMainWindow):
             )
 
     def show_about_dialog(self) -> None:
-        QMessageBox.information(
-            self,
-            tr("menu.help.about"),
-            tr("dialog.about.text"),
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(tr("menu.help.about"))
+        dialog.setWindowIcon(self.windowIcon())
+        artwork = QPixmap(
+            str(app_path("resources", "branding", "about.svg"))
         )
+        if not artwork.isNull():
+            dialog.setIconPixmap(
+                artwork.scaled(
+                    480,
+                    260,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        dialog.setText(tr("dialog.about.text"))
+        dialog.exec()
 
     def show_user_parameters_dialog(self) -> None:
         if self.document is None:
@@ -5734,10 +5839,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_viewer_initialized") or self.document is None:
             return
 
-        display = self.viewer._display
-        display.View_Iso()
-        display.FitAll()
-        display.Repaint()
+        self.native_viewer.set_standard_view("default")
+        self.native_viewer.fit_all()
 
     def _on_standard_view_changed(self, index: int) -> None:
         view_name = str(self.standard_view_combo.itemData(index) or "")
@@ -5751,18 +5854,7 @@ class MainWindow(QMainWindow):
     def _set_standard_view(self, view_name: str) -> None:
         if not hasattr(self, "_viewer_initialized"):
             return
-        display = self.viewer._display
-        view_method = {
-            "default": display.View_Iso,
-            "front": display.View_Front,
-            "back": display.View_Rear,
-            "left": display.View_Left,
-            "right": display.View_Right,
-            "top": display.View_Top,
-            "bottom": display.View_Bottom,
-        }[view_name]
-        view_method()
-        display.Repaint()
+        self.native_viewer.set_standard_view(view_name)
 
     def set_view_display_mode(self, display_mode: ViewDisplayMode) -> None:
         self.view_display_mode = display_mode
@@ -5771,25 +5863,13 @@ class MainWindow(QMainWindow):
 
     def _ensure_viewer_initialized(self) -> None:
         if hasattr(self, "_viewer_initialized"):
-            self._sync_viewer_size()
             return
 
-        if getattr(self, "_viewer_initializing", False):
-            return
-
-        if not self.viewer.isVisible():
-            return
-
-        self._viewer_initializing = True
-        try:
-            self.viewer.InitDriver()
-            self._configure_view_highlight()
-            self.viewer._display.register_select_callback(self._on_view_selection)
-            self._viewer_initialized = True
-        finally:
-            self._viewer_initializing = False
-
-        self._sync_viewer_size()
+        # The native Viewer is the only graphical context.  OCCT remains
+        # available for geometry calculations, but its AIS/V3d driver must
+        # not be initialized alongside QOpenGLWidget: that combination
+        # crashes inside the native OpenGL drivers after a short delay.
+        self._viewer_initialized = True
 
     def _configure_view_highlight(self) -> None:
         context = self.viewer._display.Context
@@ -6016,6 +6096,218 @@ class MainWindow(QMainWindow):
         )
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _on_native_edge_selected(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> None:
+        if not owner_id or edge_index <= 0:
+            return
+        self.native_viewer.set_object_overlay(None)
+        scene = self._native_viewer_scene
+        if scene is None:
+            return
+        shape = scene.resolve_topology(owner_id, "edge", edge_index)
+        if shape is None:
+            self._on_native_coordinate_selected(
+                owner_id, edge_index, "axis"
+            )
+            return
+        self._apply_native_view_selection(owner_id, shape)
+
+    def _on_native_object_selected(self, owner_id: str) -> None:
+        if self.document is None:
+            return
+        if not owner_id:
+            self.native_viewer.set_object_overlay(None)
+            self.tree.blockSignals(True)
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+            self.tree.blockSignals(False)
+            self.selected_object_id = None
+            self.selected_face = None
+            self.selected_face_object_id = None
+            self._view_selection_confirmed = False
+            self._history_source_cycle_active = False
+            self.statusBar().clearMessage()
+            rollback_item = next(
+                (
+                    self.tree.topLevelItem(index)
+                    for index in range(self.tree.topLevelItemCount())
+                    if self.tree.topLevelItem(index).data(
+                        0, HistoryTreeWidget.ROLLBACK_ROLE
+                    )
+                ),
+                None,
+            )
+            if rollback_item is not None:
+                self.tree.blockSignals(True)
+                self.tree.setCurrentItem(rollback_item)
+                self.tree.blockSignals(False)
+                self.selected_object_id = self.document.root.object_id
+            return
+        if (
+            owner_id == self.document.root.object_id
+            and self._history_source_cycle_active
+            and 0 <= self._history_source_cycle_index
+            < len(self._history_source_cycle_ids)
+        ):
+            token = self._history_source_cycle_ids[
+                self._history_source_cycle_index
+            ]
+            parts = token.split(":", 2)
+            cycled_owner_id = parts[1] if len(parts) == 3 else ""
+            if parts[0] == "object" and cycled_owner_id not in {
+                "",
+                self.document.root.object_id,
+            }:
+                source = self.document.find_object(cycled_owner_id)
+                source_shape = (
+                    self.document.build_standalone_shape(source)
+                    if source is not None
+                    else None
+                )
+                self._select_native_tree_object(cycled_owner_id)
+                self.native_viewer._selected_object_id = None
+                self.native_viewer._hovered_object_id = None
+                self.native_viewer.set_object_overlay(
+                    triangulate_shape(
+                        source_shape,
+                        owner_id=cycled_owner_id,
+                    )
+                    if source_shape is not None
+                    else None,
+                    selected=True,
+                    anchor=self._native_object_origin(source),
+                )
+                self._history_source_cycle_active = False
+                return
+        self.native_viewer.set_object_overlay(None)
+        tree_object_id = owner_id
+        if owner_id == self.document.root.object_id:
+            bodies = self.document.root.body_children()
+            if bodies:
+                tree_object_id = bodies[-1].object_id
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._history_source_cycle_active = False
+        self._select_native_tree_object(tree_object_id)
+
+    def _on_native_object_double_clicked(self) -> None:
+        obj = self._selected_object()
+        if obj is None or not self._view_selection_confirmed:
+            return
+        self._activate_object_for_editing(obj)
+        self.show_properties(self._selected_object() or obj)
+
+    def _on_native_face_selected(
+        self,
+        owner_id: str,
+        face_index: int,
+    ) -> None:
+        if not owner_id or face_index <= 0:
+            return
+        self.native_viewer.set_object_overlay(None)
+        scene = self._native_viewer_scene
+        if scene is None:
+            return
+        shape = scene.resolve_topology(owner_id, "face", face_index)
+        if shape is not None:
+            self._apply_native_view_selection(owner_id, shape)
+
+    def _on_native_coordinate_selected(
+        self,
+        owner_id: str,
+        element_index: int,
+        element_kind: str,
+    ) -> None:
+        if not owner_id or self.document is None:
+            return
+        obj = self.document.find_object(owner_id)
+        if obj is None:
+            return
+        selected_id = obj.object_id
+        if obj.kind == ObjectKind.ORIGIN:
+            values = {
+                "axis": ("x", "y", "z"),
+                "plane": ("xy", "yz", "xz"),
+            }.get(element_kind)
+            if values is not None and 1 <= element_index <= 3:
+                value = values[element_index - 1]
+                child_kind = (
+                    ObjectKind.AXIS
+                    if element_kind == "axis"
+                    else ObjectKind.PLANE
+                )
+                child = next(
+                    (
+                        item
+                        for item in obj.children
+                        if item.kind == child_kind
+                        and item.parameters.get(element_kind) == value
+                    ),
+                    None,
+                )
+                if child is not None:
+                    selected_id = child.object_id
+            elif element_kind == "point":
+                child = next(
+                    (
+                        item
+                        for item in obj.children
+                        if item.kind == ObjectKind.POINT
+                    ),
+                    None,
+                )
+                if child is not None:
+                    selected_id = child.object_id
+        selected_reference = self.document.find_object(selected_id)
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and selected_reference is not None
+        ):
+            self.point_constraint_dialog.add_reference(
+                self._user_axis_entity(selected_reference)
+                or selected_reference
+            )
+        self._select_native_tree_object(selected_id)
+
+    def _apply_native_view_selection(self, owner_id: str, shape) -> None:
+        if self.document is None or not self.view_selection_enabled:
+            return
+        obj = self.document.find_object(owner_id)
+        if obj is None:
+            return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and shape.ShapeType() in (TopAbs_VERTEX, TopAbs_FACE, TopAbs_EDGE)
+        ):
+            self._add_point_shape_constraint(obj, shape)
+        if self.view_selection_mode == ViewSelectionMode.FACE:
+            if shape.ShapeType() != TopAbs_FACE:
+                return
+            self.selected_face = shape
+            self.selected_face_object_id = owner_id
+            self.statusBar().showMessage(
+                tr("selection.status.selected_face", name=obj.name)
+            )
+        self._select_native_tree_object(owner_id)
+
+    def _select_native_tree_object(self, object_id: str) -> None:
+        root = self.tree.invisibleRootItem()
+        item = self._find_tree_item(root, object_id)
+        self.tree.blockSignals(True)
+        if item is not None:
+            self.tree.setCurrentItem(item)
+        else:
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
+        self.selected_object_id = object_id
+        self._view_selection_confirmed = True
 
     def _on_tree_selection_changed(self) -> None:
         self._clear_edit_dimension_overlay()
@@ -7467,6 +7759,7 @@ class MainWindow(QMainWindow):
                     self.viewer.mapToGlobal(position),
                 )
                 return
+
             candidates = self._view_candidates_under_cursor(x, y)
             if candidates:
                 self._cycle_view_candidate(candidates)
@@ -7586,6 +7879,265 @@ class MainWindow(QMainWindow):
 
         if action == create_action:
             self.create_new_object()
+
+    def _show_native_viewer_context_menu(self, position: QPoint) -> None:
+        if self.document is None or not self.view_selection_enabled:
+            return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            candidates = self.native_viewer.topology_candidates_at(
+                QPointF(position)
+            )
+            if not candidates:
+                return
+            cycle_ids = tuple(
+                f"{kind}:{owner_id}:{element_index}"
+                for kind, owner_id, element_index in candidates
+            )
+            if cycle_ids != self._history_source_cycle_ids:
+                self._history_source_cycle_index = 0
+            else:
+                self._history_source_cycle_index = (
+                    self._history_source_cycle_index + 1
+                ) % len(candidates)
+            self._history_source_cycle_ids = cycle_ids
+            self._history_source_cycle_active = True
+            self.native_viewer.preview_topology_candidate(
+                candidates[self._history_source_cycle_index]
+            )
+            self.statusBar().showMessage(
+                tr(
+                    "selection.status.cycled_object",
+                    rank=self._history_source_cycle_index + 1,
+                )
+            )
+            return
+        if self.native_viewer._interaction_mode == "object":
+            selected = self._selected_object()
+            if self._view_selection_confirmed and selected is not None:
+                self._show_selected_view_context_menu(
+                    selected,
+                    self.native_viewer.mapToGlobal(position),
+                )
+                return
+            candidates = list(
+                self.native_viewer.selection_candidates_at(
+                    QPointF(position)
+                )
+            )
+            source_meshes: dict[str, ViewerMesh] = {}
+            if (
+                "object",
+                self.document.root.object_id,
+                0,
+            ) in candidates:
+                insert_at = candidates.index(
+                    ("object", self.document.root.object_id, 0)
+                ) + 1
+                for source in self.document.history_objects_at(
+                    self._definition_history_boundary()
+                ):
+                    source_shape = self.document.build_standalone_shape(source)
+                    if source_shape is None:
+                        continue
+                    source_mesh = triangulate_shape(
+                        source_shape,
+                        owner_id=source.object_id,
+                    )
+                    if self.native_viewer.mesh_is_under_cursor(
+                        source_mesh,
+                        QPointF(position),
+                    ):
+                        candidates.insert(
+                            insert_at,
+                            ("object", source.object_id, 0),
+                        )
+                        source_meshes[source.object_id] = source_mesh
+                        insert_at += 1
+                candidates.remove(
+                    ("object", self.document.root.object_id, 0)
+                )
+                candidates.append(
+                    ("object", self.document.root.object_id, 0)
+                )
+            if not candidates:
+                self._clear_view_selection()
+                return
+            cycle_ids = tuple(
+                f"{kind}:{owner_id}:{element_index}"
+                for kind, owner_id, element_index in candidates
+            )
+            if (
+                not self._history_source_cycle_active
+                or cycle_ids != self._history_source_cycle_ids
+            ):
+                self._history_source_cycle_index = 0
+            else:
+                self._history_source_cycle_index = (
+                    self._history_source_cycle_index + 1
+                ) % len(cycle_ids)
+            self._history_source_cycle_ids = cycle_ids
+            self._history_source_cycle_active = True
+            kind, selected_owner_id, element_index = candidates[
+                self._history_source_cycle_index
+            ]
+            self.native_viewer._clear_topology_hover()
+            self.native_viewer._set_hovered_object(None)
+            self.native_viewer.set_object_overlay(None)
+            if kind == "object":
+                if selected_owner_id == self.document.root.object_id:
+                    bodies = self.document.root.body_children()
+                    tree_object_id = (
+                        bodies[-1].object_id
+                        if bodies
+                        else self.document.root.object_id
+                    )
+                    selected_shape = self.document.build_shape_at(
+                        self._definition_history_boundary()
+                    )
+                    selected_mesh = (
+                        triangulate_shape(
+                            selected_shape,
+                            owner_id=selected_owner_id,
+                        )
+                        if selected_shape is not None
+                        else None
+                    )
+                else:
+                    tree_object_id = selected_owner_id
+                    selected_mesh = source_meshes.get(selected_owner_id)
+                self._select_native_tree_object(tree_object_id)
+                self._view_selection_confirmed = False
+                self.native_viewer._selected_object_id = None
+                self.native_viewer._hovered_object_id = None
+                selected_object = self.document.find_object(
+                    selected_owner_id
+                )
+                self.native_viewer.set_object_overlay(
+                    selected_mesh,
+                    anchor=self._native_object_origin(selected_object),
+                )
+            else:
+                self._select_native_tree_object(selected_owner_id)
+                self._view_selection_confirmed = False
+                {
+                    "point": self.native_viewer._set_hovered_point,
+                    "edge": self.native_viewer._set_hovered_edge,
+                    "plane": self.native_viewer._set_hovered_plane,
+                }[kind](
+                    (selected_owner_id, element_index)
+                )
+            self.statusBar().showMessage(
+                tr(
+                    "selection.status.cycled_object",
+                    rank=self._history_source_cycle_index + 1,
+                )
+            )
+            return
+
+        detected: tuple[str, tuple[str, int]] | None = None
+        for kind, key in (
+            ("point", self.native_viewer._hovered_point),
+            ("edge", self.native_viewer._hovered_edge),
+            ("plane", self.native_viewer._hovered_plane),
+            ("face", self.native_viewer._hovered_face),
+        ):
+            if key is not None:
+                detected = kind, key
+                break
+        if detected is None:
+            self._clear_view_selection()
+            return
+        kind, (owner_id, element_index) = detected
+        if (
+            owner_id == self.document.root.object_id
+            and kind in ("edge", "face")
+        ):
+            source_ids = tuple(
+                obj.object_id
+                for obj in self.document.history_objects_at(
+                    self._definition_history_boundary()
+                )
+            )
+            if not source_ids:
+                return
+            current_id = self.selected_object_id
+            self._history_source_cycle_ids = source_ids
+            self._history_source_cycle_index = (
+                (source_ids.index(current_id) + 1) % len(source_ids)
+                if current_id in source_ids
+                else 0
+            )
+            self.native_viewer._set_selected_edge(None)
+            self.native_viewer._set_selected_face(None)
+            self._select_native_tree_object(
+                source_ids[self._history_source_cycle_index]
+            )
+            source = self.document.find_object(
+                source_ids[self._history_source_cycle_index]
+            )
+            source_shape = (
+                self.document.build_standalone_shape(source)
+                if source is not None
+                else None
+            )
+            self.native_viewer.set_object_overlay(
+                triangulate_shape(
+                    source_shape,
+                    owner_id=source.object_id,
+                )
+                if source_shape is not None
+                else None
+            )
+            self.statusBar().showMessage(
+                tr(
+                    "selection.status.cycled_object",
+                    rank=self._history_source_cycle_index + 1,
+                )
+            )
+            return
+        selected = self._selected_object()
+        if (
+            self._view_selection_confirmed
+            and selected is not None
+            and selected.object_id == owner_id
+            and selected.kind != ObjectKind.PART
+        ):
+            self._show_selected_view_context_menu(
+                selected,
+                self.native_viewer.mapToGlobal(position),
+            )
+            return
+        if kind == "face":
+            self.native_viewer._set_selected_edge(None)
+            self.native_viewer._set_selected_point(None)
+            self.native_viewer._set_selected_plane(None)
+            self.native_viewer._set_selected_face(
+                (owner_id, element_index)
+            )
+        elif kind == "edge":
+            self.native_viewer._set_selected_face(None)
+            self.native_viewer._set_selected_point(None)
+            self.native_viewer._set_selected_plane(None)
+            self.native_viewer._set_selected_edge(
+                (owner_id, element_index)
+            )
+        elif kind == "point":
+            self.native_viewer._set_selected_edge(None)
+            self.native_viewer._set_selected_face(None)
+            self.native_viewer._set_selected_plane(None)
+            self.native_viewer._set_selected_point(
+                (owner_id, element_index)
+            )
+        else:
+            self.native_viewer._set_selected_edge(None)
+            self.native_viewer._set_selected_face(None)
+            self.native_viewer._set_selected_point(None)
+            self.native_viewer._set_selected_plane(
+                (owner_id, element_index)
+            )
 
     def _preview_point_constraint_candidate(
         self,
@@ -8557,13 +9109,11 @@ class MainWindow(QMainWindow):
         self.tree.blockSignals(False)
         if not hasattr(self, "_viewer_initialized"):
             return
-        context = self.viewer._display.Context
-        context.ClearSelected(False)
-        for ais_shape in self._selected_face_overlay_ais:
-            context.Erase(ais_shape, False)
-        self._selected_face_overlay_ais.clear()
-        context.UpdateSelected(True)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        self.native_viewer._set_selected_edge(None)
+        self.native_viewer._set_selected_face(None)
+        self.native_viewer._set_selected_point(None)
+        self.native_viewer._set_selected_plane(None)
+        self.native_viewer.update()
 
     def _begin_plane_attachment(self, plane_id: str) -> None:
         self._pending_attachment_plane_id = plane_id
@@ -9331,6 +9881,8 @@ class MainWindow(QMainWindow):
         obj: ZimaObject,
         _position: QPoint,
     ) -> bool:
+        if not hasattr(self.viewer, "_display"):
+            return False
         solid = self._first_editable_solid(obj)
         if solid is None or self.document is None:
             return False
@@ -9605,7 +10157,10 @@ class MainWindow(QMainWindow):
             self._committing_edit_dimension = was_committing
         ais_shapes = self._edit_dimension_ais
         self._edit_dimension_ais = []
-        if hasattr(self, "_viewer_initialized"):
+        if (
+            hasattr(self, "_viewer_initialized")
+            and hasattr(self.viewer, "_display")
+        ):
             context = self.viewer._display.Context
             for ais_shape in ais_shapes:
                 try:
@@ -9840,6 +10395,11 @@ class MainWindow(QMainWindow):
         ):
             self._populate_tree()
 
+        self._cached_document = self.document
+        self._cached_history_boundary = history_boundary
+        self._rebuild_native_view(history_boundary, fit)
+        return
+
         self._sync_viewer_size()
         display = self.viewer._display
         self._clear_plane_labels()
@@ -10024,6 +10584,152 @@ class MainWindow(QMainWindow):
         self._highlight_selected_in_view()
         self._update_coordinate_label_highlights()
         display.Repaint()
+        self._rebuild_native_view(history_boundary, fit)
+
+    def _rebuild_native_view(
+        self,
+        history_boundary: int,
+        fit: bool,
+    ) -> None:
+        if self.document is None:
+            self._native_viewer_scene = None
+            self.native_viewer.clear_scene()
+            return
+        self._native_viewer_scene = build_document_viewer_scene_data(
+            self.document,
+            history_boundary=history_boundary,
+            # The locked global coordinate system is the document Origin.
+            # Standalone datum points and axes belong to their own toggles.
+            show_document_origin=self.show_origins_action.isChecked(),
+            show_document_planes=self.show_planes_action.isChecked(),
+            show_object_planes=self.show_planes_action.isChecked(),
+            show_object_origins=self.show_origins_action.isChecked(),
+            show_user_points=self.show_points_action.isChecked(),
+            show_user_axes=self.show_axes_action.isChecked(),
+            show_user_planes=self.show_planes_action.isChecked(),
+        )
+        self._selectable_model_shapes = list(
+            (
+                shape,
+                owner_id,
+            )
+            for owner_id, shape
+            in self._native_viewer_scene.shapes_by_owner_id.items()
+        )
+        self._cached_model_shapes = [
+            (shape, owner_id)
+            for owner_id, shape
+            in self._native_viewer_scene.shapes_by_owner_id.items()
+            if owner_id == self.document.root.object_id
+        ]
+        self._cached_source_model_shapes = []
+        for source in self.document.history_objects_at(history_boundary):
+            source_shape = self.document.build_standalone_shape(source)
+            if source_shape is not None:
+                self._cached_source_model_shapes.append(
+                    (source_shape, source.object_id)
+                )
+        self.native_viewer.set_mesh(
+            self._native_viewer_scene.mesh,
+            fit=fit,
+        )
+        self.native_viewer.set_display_mode(
+            {
+                ViewDisplayMode.WIRE: "wire",
+                ViewDisplayMode.SHADED_WITH_EDGES: "shaded_with_edges",
+                ViewDisplayMode.SHADED: "shaded",
+            }[self.view_display_mode]
+        )
+        self.native_viewer.set_selection_filter(
+            {
+                ViewSelectionFilter.ALL: "all",
+                ViewSelectionFilter.FACE: "face",
+                ViewSelectionFilter.POINT: "point",
+                ViewSelectionFilter.AXIS: "axis",
+                ViewSelectionFilter.PLANE: "plane",
+            }[self.view_selection_filter]
+        )
+        point_constraints_active = (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        )
+        self.native_viewer.set_interaction_mode(
+            "object"
+            if (
+                self.view_selection_filter == ViewSelectionFilter.ALL
+                and not point_constraints_active
+            )
+            else "topology"
+        )
+        self._sync_native_tree_selection()
+
+    def _sync_native_tree_selection(self) -> None:
+        if self.document is None:
+            return
+        self.native_viewer._set_selected_object(None)
+        self.native_viewer.set_selected_reference_owner(None)
+        self.native_viewer.set_object_overlay(None)
+        obj = self._selected_object()
+        if obj is None:
+            return
+        if obj.kind == ObjectKind.BODY:
+            self.native_viewer._set_selected_object(
+                self.document.root.object_id
+            )
+            return
+        if obj.kind == ObjectKind.OBJECT or obj.kind in SOLID_KINDS:
+            source_shape = self.document.build_standalone_shape(obj)
+            self.native_viewer.set_object_overlay(
+                triangulate_shape(
+                    source_shape,
+                    owner_id=obj.object_id,
+                )
+                if source_shape is not None
+                else None,
+                selected=True,
+                anchor=self._native_object_origin(obj),
+            )
+            return
+        if obj.kind == ObjectKind.ORIGIN:
+            self.native_viewer.set_selected_reference_owner(obj.object_id)
+            return
+        parent = self.document.find_parent(obj.object_id)
+        if parent is None or parent.kind != ObjectKind.ORIGIN:
+            return
+        if obj.kind == ObjectKind.AXIS:
+            axis_index = {"x": 1, "y": 2, "z": 3}.get(
+                str(obj.parameters.get("axis", ""))
+            )
+            if axis_index is not None:
+                self.native_viewer._set_selected_edge(
+                    (parent.object_id, axis_index)
+                )
+        elif obj.kind == ObjectKind.PLANE:
+            plane_index = {"xy": 1, "yz": 2, "xz": 3}.get(
+                str(obj.parameters.get("plane", ""))
+            )
+            if plane_index is not None:
+                self.native_viewer._set_selected_plane(
+                    (parent.object_id, plane_index)
+                )
+        elif obj.kind == ObjectKind.POINT:
+            self.native_viewer._set_selected_point(
+                (parent.object_id, 1)
+            )
+
+    def _native_object_origin(
+        self,
+        obj: ZimaObject | None,
+    ) -> tuple[float, float, float] | None:
+        if self.document is None or obj is None:
+            return None
+        world_transform = object_world_transform(
+            self.document,
+            obj.object_id,
+        )
+        if world_transform is None:
+            return None
+        return transform_point(world_transform, (0.0, 0.0, 0.0))
 
     def _selection_owner_id(self, obj: ZimaObject) -> str:
         if obj.kind == ObjectKind.BODY:
@@ -11322,8 +12028,23 @@ def main() -> int:
         return 2
 
     app = QApplication([sys.argv[0], *qt_arguments])
+    app_icon = QIcon(
+        str(app_path("resources", "branding", "app-icon.svg"))
+    )
+    app.setWindowIcon(app_icon)
+    splash_pixmap = QPixmap(
+        str(app_path("resources", "branding", "splash.svg"))
+    )
+    splash = None
+    if not splash_pixmap.isNull():
+        splash = QSplashScreen(splash_pixmap)
+        splash.setWindowIcon(app_icon)
+        splash.show()
+        app.processEvents()
     window = MainWindow(startup_context)
     window.showMaximized()
+    if splash is not None:
+        splash.finish(window)
     if startup_context.document_path is not None:
         QTimer.singleShot(
             0,

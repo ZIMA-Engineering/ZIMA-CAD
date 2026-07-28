@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Measure</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M5 17L17 5l2 2L7 19z"/>
+    <path d="M9 13l2 2M12 10l2 2M15 7l2 2"/>
+
+  </g>
+</svg>

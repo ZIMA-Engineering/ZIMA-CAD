@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Fit View</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"/>
+    <circle cx="12" cy="12" r="3.5"/>
+
+  </g>
+</svg>

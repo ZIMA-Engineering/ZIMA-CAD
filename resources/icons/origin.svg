@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Origin</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M12 12V3"/>
+    <path d="M12 12l7 4"/>
+    <path d="M12 12l-7 4"/>
+    <path d="M12 3l-1.4 2.2M12 3l1.4 2.2"/>
+    <path d="M19 16l-2.5.1M19 16l-1.1-2.2"/>
+    <path d="M5 16l2.5.1M5 16l1.1-2.2"/>
+    <circle cx="12" cy="12" r="1.7" fill="#80AA1A" stroke="none"/>
+
+  </g>
+</svg>

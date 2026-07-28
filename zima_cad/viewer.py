@@ -1,0 +1,1937 @@
+from __future__ import annotations
+
+from array import array
+from dataclasses import dataclass
+from math import cos, hypot, radians, sin, sqrt
+import traceback
+
+from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QLinearGradient,
+    QMatrix4x4,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPolygonF,
+    QSurfaceFormat,
+    QVector3D,
+    QWheelEvent,
+)
+from PySide6.QtOpenGL import (
+    QOpenGLBuffer,
+    QOpenGLFunctions_3_3_Core,
+    QOpenGLShader,
+    QOpenGLShaderProgram,
+    QOpenGLVertexArrayObject,
+)
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
+
+from zima_cad.viewer_mesh import Point3, ViewerMesh
+
+TopologyKey = tuple[str, int]
+
+GL_COLOR_BUFFER_BIT = 0x00004000
+GL_DEPTH_BUFFER_BIT = 0x00000100
+GL_DEPTH_TEST = 0x0B71
+GL_LEQUAL = 0x0203
+GL_LINE_STRIP = 0x0003
+GL_MULTISAMPLE = 0x809D
+GL_POLYGON_OFFSET_FILL = 0x8037
+GL_TRIANGLES = 0x0004
+
+BACKGROUND_VERTEX_SHADER = """
+#version 330 core
+out float verticalPosition;
+void main() {
+    const vec2 positions[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2( 3.0, -1.0),
+        vec2(-1.0,  3.0)
+    );
+    vec2 position = positions[gl_VertexID];
+    gl_Position = vec4(position, 0.999, 1.0);
+    verticalPosition = position.y * 0.5 + 0.5;
+}
+"""
+
+BACKGROUND_FRAGMENT_SHADER = """
+#version 330 core
+in float verticalPosition;
+uniform vec3 bottomColor;
+uniform vec3 topColor;
+out vec4 fragmentColor;
+void main() {
+    fragmentColor = vec4(
+        mix(bottomColor, topColor, clamp(verticalPosition, 0.0, 1.0)),
+        1.0
+    );
+}
+"""
+
+SURFACE_VERTEX_SHADER = """
+#version 330 core
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 normal;
+uniform mat4 mvp;
+uniform mat4 modelView;
+out vec3 cameraNormal;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+    cameraNormal = normalize(mat3(modelView) * normal);
+}
+"""
+
+SURFACE_FRAGMENT_SHADER = """
+#version 330 core
+in vec3 cameraNormal;
+uniform vec3 surfaceColor;
+out vec4 fragmentColor;
+void main() {
+    vec3 lightDirection = normalize(vec3(0.25, -0.35, 0.902));
+    float diffuse = max(dot(normalize(cameraNormal), lightDirection), 0.0);
+    float brightness = 0.42 + 0.58 * diffuse;
+    fragmentColor = vec4(surfaceColor * brightness, 1.0);
+}
+"""
+
+EDGE_VERTEX_SHADER = """
+#version 330 core
+layout(location = 0) in vec3 position;
+uniform mat4 mvp;
+void main() {
+    gl_Position = mvp * vec4(position, 1.0);
+}
+"""
+
+EDGE_FRAGMENT_SHADER = """
+#version 330 core
+uniform vec3 edgeColor;
+out vec4 fragmentColor;
+void main() {
+    fragmentColor = vec4(edgeColor, 1.0);
+}
+"""
+
+
+@dataclass
+class CameraState:
+    """Viewer-owned camera state, independent from OCCT presentation classes."""
+
+    yaw_degrees: float = 35.264
+    pitch_degrees: float = -45.0
+    pan_x: float = 0.0
+    pan_y: float = 0.0
+    zoom: float = 1.0
+
+
+class ZimaOpenGLViewer(QOpenGLWidget):
+    """Native ZIMA-CAD viewport.
+
+    Geometry, picking, and overlays will be added to this widget without using
+    AIS_InteractiveContext.  The first stage deliberately owns only the OpenGL
+    surface, background, viewport size, and navigation state.
+    """
+
+    navigationChanged = Signal(CameraState)
+    viewportResized = Signal(int, int, float)
+    hoveredEdgeChanged = Signal(str, int)
+    selectedEdgeChanged = Signal(str, int)
+    hoveredFaceChanged = Signal(str, int)
+    selectedFaceChanged = Signal(str, int)
+    hoveredPointChanged = Signal(str, int)
+    selectedPointChanged = Signal(str, int)
+    hoveredPlaneChanged = Signal(str, int)
+    selectedPlaneChanged = Signal(str, int)
+    hoveredObjectChanged = Signal(str)
+    selectedObjectChanged = Signal(str)
+    objectDoubleClicked = Signal()
+    selectionFilterChanged = Signal(str)
+    displayModeChanged = Signal(str)
+    rotation_degrees_per_pixel = 0.18
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        surface_format = QSurfaceFormat()
+        surface_format.setVersion(3, 3)
+        surface_format.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        surface_format.setDepthBufferSize(24)
+        surface_format.setSamples(4)
+        self.setFormat(surface_format)
+        self.camera = CameraState()
+        self._background_top = QColor("#3B4654")
+        self._background_bottom = QColor("#171B21")
+        self._last_mouse_position: QPoint | None = None
+        self._mesh: ViewerMesh | None = None
+        self._scene_center: Point3 = (0.0, 0.0, 0.0)
+        self._scene_radius = 1.0
+        self._gl: QOpenGLFunctions_3_3_Core | None = None
+        self._background_program: QOpenGLShaderProgram | None = None
+        self._surface_program: QOpenGLShaderProgram | None = None
+        self._edge_program: QOpenGLShaderProgram | None = None
+        self._surface_buffer: QOpenGLBuffer | None = None
+        self._edge_buffer: QOpenGLBuffer | None = None
+        self._surface_vao: QOpenGLVertexArrayObject | None = None
+        self._edge_vao: QOpenGLVertexArrayObject | None = None
+        self._background_vao: QOpenGLVertexArrayObject | None = None
+        self._surface_vertex_count = 0
+        self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
+        self._edge_ranges: tuple[tuple[int, int], ...] = ()
+        self._buffers_dirty = False
+        self._gpu_ready = False
+        self._hovered_edge: TopologyKey | None = None
+        self._selected_edge: TopologyKey | None = None
+        self._hovered_face: TopologyKey | None = None
+        self._selected_face: TopologyKey | None = None
+        self._hovered_point: TopologyKey | None = None
+        self._selected_point: TopologyKey | None = None
+        self._hovered_plane: TopologyKey | None = None
+        self._selected_plane: TopologyKey | None = None
+        self._hovered_object_id: str | None = None
+        self._selected_object_id: str | None = None
+        self._interaction_mode = "object"
+        self._selection_filter = "all"
+        self._display_mode = "shaded_with_edges"
+        self._selection_enabled = True
+        self._object_overlay_mesh: ViewerMesh | None = None
+        self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
+        self._object_overlay_persistent = False
+        self._object_overlay_anchor: Point3 | None = None
+        self._selected_reference_owner_id: str | None = None
+        self._cycled_topology_candidate: tuple[str, str, int] | None = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+
+    def set_background_colors(
+        self,
+        top: QColor | str,
+        bottom: QColor | str,
+    ) -> None:
+        self._background_top = QColor(top)
+        self._background_bottom = QColor(bottom)
+        self.update()
+
+    def reset_camera(self) -> None:
+        self.camera = CameraState()
+        self._buffers_dirty = True
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
+    def set_standard_view(self, view_name: str) -> None:
+        orientations = {
+            "default": (35.264, -45.0),
+            "front": (0.0, -90.0),
+            "back": (0.0, 90.0),
+            "left": (-90.0, -90.0),
+            "right": (90.0, -90.0),
+            "top": (0.0, 0.0),
+            "bottom": (0.0, 180.0),
+        }
+        if view_name not in orientations:
+            raise ValueError(f"Unknown standard view: {view_name}")
+        yaw, pitch = orientations[view_name]
+        self.camera.yaw_degrees = yaw
+        self.camera.pitch_degrees = pitch
+        self.camera.pan_x = 0.0
+        self.camera.pan_y = 0.0
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
+    def fit_all(self) -> None:
+        self.camera.pan_x = 0.0
+        self.camera.pan_y = 0.0
+        self.camera.zoom = 1.0
+        self._buffers_dirty = True
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
+    def set_display_mode(self, display_mode: str) -> None:
+        if display_mode not in {"wire", "shaded_with_edges", "shaded"}:
+            raise ValueError(f"Unknown Viewer display mode: {display_mode}")
+        if display_mode == self._display_mode:
+            return
+        self._display_mode = display_mode
+        self.displayModeChanged.emit(display_mode)
+        self.update()
+
+    @property
+    def display_mode(self) -> str:
+        return self._display_mode
+
+    def set_mesh(self, mesh: ViewerMesh | None, *, fit: bool = True) -> None:
+        self._mesh = mesh
+        self._set_hovered_edge(None)
+        self._set_selected_edge(None)
+        self._set_hovered_face(None)
+        self._set_selected_face(None)
+        self._set_hovered_point(None)
+        self._set_selected_point(None)
+        self._set_hovered_plane(None)
+        self._set_selected_plane(None)
+        self._buffers_dirty = True
+        if mesh is not None and not mesh.is_empty:
+            self._scene_center = tuple(
+                (mesh.bounds_min[axis] + mesh.bounds_max[axis]) * 0.5
+                for axis in range(3)
+            )
+            diagonal = sqrt(
+                sum(
+                    (mesh.bounds_max[axis] - mesh.bounds_min[axis]) ** 2
+                    for axis in range(3)
+                )
+            )
+            self._scene_radius = max(diagonal * 0.5, 1e-6)
+        else:
+            self._scene_center = (0.0, 0.0, 0.0)
+            self._scene_radius = 1.0
+        if fit:
+            self.reset_camera()
+        else:
+            self.update()
+
+    def clear_scene(self) -> None:
+        self.set_mesh(None)
+
+    def set_object_overlay(
+        self,
+        mesh: ViewerMesh | None,
+        *,
+        selected: bool = False,
+        anchor: Point3 | None = None,
+    ) -> None:
+        self._object_overlay_mesh = mesh
+        self._object_overlay_anchor = anchor
+        self._object_overlay_persistent = selected
+        self._object_overlay_color = QColor.fromRgbF(
+            0.0, 0.82, 1.0
+        ) if selected else QColor.fromRgbF(1.0, 0.48, 0.0)
+        self.update()
+
+    def set_selected_reference_owner(self, owner_id: str | None) -> None:
+        self._selected_reference_owner_id = owner_id
+        self.update()
+
+    def mesh_is_under_cursor(
+        self,
+        mesh: ViewerMesh,
+        position: QPointF,
+    ) -> bool:
+        positions = mesh.triangle_positions
+        for triangle_index in range(len(mesh.triangle_face_indices)):
+            offset = triangle_index * 9
+            camera_points = [
+                self._camera_point(
+                    (
+                        positions[offset + vertex * 3],
+                        positions[offset + vertex * 3 + 1],
+                        positions[offset + vertex * 3 + 2],
+                    )
+                )
+                for vertex in range(3)
+            ]
+            if self._triangle_weights(
+                position,
+                *(self._screen_point(point) for point in camera_points),
+            ) is not None:
+                return True
+        return False
+
+    def set_selection_filter(self, selection_filter: str) -> None:
+        if selection_filter not in {"all", "face", "point", "axis", "plane"}:
+            raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
+        if selection_filter == self._selection_filter:
+            return
+        self._selection_filter = selection_filter
+        self._set_hovered_edge(None)
+        self._set_hovered_face(None)
+        self._set_hovered_point(None)
+        self._set_selected_edge(None)
+        self._set_selected_face(None)
+        self._set_selected_point(None)
+        self._set_hovered_plane(None)
+        self._set_selected_plane(None)
+        self.selectionFilterChanged.emit(selection_filter)
+
+    def set_interaction_mode(self, interaction_mode: str) -> None:
+        if interaction_mode not in {"object", "topology"}:
+            raise ValueError(
+                f"Unknown Viewer interaction mode: {interaction_mode}"
+            )
+        if interaction_mode == self._interaction_mode:
+            return
+        self._interaction_mode = interaction_mode
+        self._set_hovered_object(None)
+        self._set_selected_object(None)
+        self._clear_topology_hover()
+        self._clear_topology_selection()
+
+    @property
+    def selection_filter(self) -> str:
+        return self._selection_filter
+
+    def set_selection_enabled(self, enabled: bool) -> None:
+        self._selection_enabled = bool(enabled)
+        if not enabled:
+            self._set_hovered_edge(None)
+            self._set_hovered_face(None)
+            self._set_hovered_point(None)
+            self._set_hovered_plane(None)
+
+    def initializeGL(self) -> None:
+        self._gl = QOpenGLFunctions_3_3_Core()
+        if not self._gl.initializeOpenGLFunctions():
+            raise RuntimeError("OpenGL 3.3 core functions are unavailable")
+        self._background_program = self._create_program(
+            BACKGROUND_VERTEX_SHADER,
+            BACKGROUND_FRAGMENT_SHADER,
+        )
+        self._surface_program = self._create_program(
+            SURFACE_VERTEX_SHADER,
+            SURFACE_FRAGMENT_SHADER,
+        )
+        self._edge_program = self._create_program(
+            EDGE_VERTEX_SHADER,
+            EDGE_FRAGMENT_SHADER,
+        )
+        self._surface_buffer = QOpenGLBuffer(
+            QOpenGLBuffer.Type.VertexBuffer
+        )
+        self._edge_buffer = QOpenGLBuffer(
+            QOpenGLBuffer.Type.VertexBuffer
+        )
+        self._surface_vao = QOpenGLVertexArrayObject()
+        self._edge_vao = QOpenGLVertexArrayObject()
+        self._background_vao = QOpenGLVertexArrayObject()
+        if not self._surface_buffer.create() or not self._edge_buffer.create():
+            raise RuntimeError("Unable to create Viewer OpenGL buffers")
+        if (
+            not self._surface_vao.create()
+            or not self._edge_vao.create()
+            or not self._background_vao.create()
+        ):
+            raise RuntimeError("Unable to create Viewer OpenGL vertex arrays")
+        self._gpu_ready = True
+        self._buffers_dirty = True
+        self.context().aboutToBeDestroyed.connect(
+            self._release_graphics_resources
+        )
+
+    def resizeGL(self, width: int, height: int) -> None:
+        self.viewportResized.emit(
+            width,
+            height,
+            float(self.devicePixelRatioF()),
+        )
+
+    def paintGL(self) -> None:
+        try:
+            self._paint_gl_scene()
+        except Exception:
+            traceback.print_exc()
+            self._gpu_ready = False
+
+    def _paint_gl_scene(self) -> None:
+        if not self._gpu_ready or self._gl is None:
+            return
+        if self._buffers_dirty:
+            self._upload_mesh_buffers()
+        gl = self._gl
+        background = self._background_bottom
+        gl.glClearColor(
+            background.redF(),
+            background.greenF(),
+            background.blueF(),
+            1.0,
+        )
+        gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self._draw_background()
+        mesh = self._mesh
+        if mesh is None or mesh.is_empty:
+            return
+        gl.glEnable(GL_DEPTH_TEST)
+        gl.glDepthFunc(GL_LEQUAL)
+        gl.glEnable(GL_MULTISAMPLE)
+        model_view, mvp = self._camera_matrices()
+        if self._display_mode != "wire":
+            self._draw_surfaces(model_view, mvp)
+        self._draw_edges(
+            mvp,
+            draw_base_edges=self._display_mode != "shaded",
+        )
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        self._paint_centerlines()
+        self._paint_object_highlights()
+        self._paint_reference_highlights()
+        self._paint_object_overlay()
+        self._paint_planes()
+        self._paint_points()
+        self._paint_edge_labels()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._selection_enabled
+        ):
+            if self._interaction_mode == "object":
+                point = self._pick_point(event.position())
+                plane = (
+                    None
+                    if point is not None
+                    else self._pick_plane(event.position())
+                )
+                axis = (
+                    None
+                    if point is not None or plane is not None
+                    else self._pick_axis(event.position())
+                )
+                self._clear_topology_selection()
+                self._set_selected_object(None)
+                if point is not None:
+                    self._set_selected_point(point)
+                elif plane is not None:
+                    self._set_selected_plane(plane)
+                elif axis is not None:
+                    self._set_selected_edge(axis)
+                else:
+                    owner_id = self._pick_object(event.position())
+                    if (
+                        owner_id is None
+                        and self._selected_object_id is None
+                    ):
+                        self.selectedObjectChanged.emit("")
+                    else:
+                        self._set_selected_object(owner_id)
+                event.accept()
+                return
+            if self._cycled_topology_candidate is not None:
+                kind, owner_id, element_index = (
+                    self._cycled_topology_candidate
+                )
+                self._cycled_topology_candidate = None
+                self._clear_topology_selection()
+                {
+                    "point": self._set_selected_point,
+                    "edge": self._set_selected_edge,
+                    "plane": self._set_selected_plane,
+                    "face": self._set_selected_face,
+                }[kind]((owner_id, element_index))
+                event.accept()
+                return
+            point = self._pick_point(event.position())
+            edge = None if point is not None else self._pick_edge(event.position())
+            plane = (
+                None
+                if point is not None or edge is not None
+                else self._pick_plane(event.position())
+            )
+            self._set_selected_point(point)
+            self._set_selected_edge(edge)
+            self._set_selected_plane(plane)
+            self._set_selected_face(
+                None
+                if point is not None or edge is not None or plane is not None
+                else self._pick_face(event.position())
+            )
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._last_mouse_position = event.position().toPoint()
+            self.setFocus()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._object_overlay_mesh is not None
+            and not self._object_overlay_persistent
+        ):
+            self._object_overlay_mesh = None
+            self.update()
+        if (
+            self._last_mouse_position is not None
+            and event.buttons() & Qt.MouseButton.MiddleButton
+        ):
+            position = event.position().toPoint()
+            delta = position - self._last_mouse_position
+            self._last_mouse_position = position
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self.camera.pan_x += float(delta.x())
+                self.camera.pan_y += float(delta.y())
+            else:
+                self.camera.yaw_degrees += (
+                    float(delta.x()) * self.rotation_degrees_per_pixel
+                )
+                self.camera.pitch_degrees += (
+                    float(delta.y()) * self.rotation_degrees_per_pixel
+                )
+            self.navigationChanged.emit(self.camera)
+            self.update()
+            event.accept()
+            return
+        if not self._selection_enabled:
+            self._set_hovered_object(None)
+            self._set_hovered_edge(None)
+            self._set_hovered_face(None)
+            self._set_hovered_point(None)
+            self._set_hovered_plane(None)
+            super().mouseMoveEvent(event)
+            return
+        if self._interaction_mode == "object":
+            point = self._pick_point(event.position())
+            plane = (
+                None
+                if point is not None
+                else self._pick_plane(event.position())
+            )
+            axis = (
+                None
+                if point is not None or plane is not None
+                else self._pick_axis(event.position())
+            )
+            self._clear_topology_hover()
+            self._set_hovered_object(None)
+            if point is not None:
+                self._set_hovered_point(point)
+            elif plane is not None:
+                self._set_hovered_plane(plane)
+            elif axis is not None:
+                self._set_hovered_edge(axis)
+            else:
+                self._set_hovered_object(
+                    self._pick_object(event.position())
+                )
+            super().mouseMoveEvent(event)
+            return
+        point = self._pick_point(event.position())
+        edge = None if point is not None else self._pick_edge(event.position())
+        plane = (
+            None
+            if point is not None or edge is not None
+            else self._pick_plane(event.position())
+        )
+        self._set_hovered_point(point)
+        self._set_hovered_edge(edge)
+        self._set_hovered_plane(plane)
+        self._set_hovered_face(
+            None if point is not None or edge is not None or plane is not None
+            else self._pick_face(event.position())
+        )
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._set_hovered_object(None)
+        self._set_hovered_edge(None)
+        self._set_hovered_face(None)
+        self._set_hovered_point(None)
+        self._set_hovered_plane(None)
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._last_mouse_position = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._interaction_mode == "object"
+        ):
+            self.objectDoubleClicked.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        wheel_steps = event.angleDelta().y() / 120.0
+        if wheel_steps:
+            old_zoom = self.camera.zoom
+            new_zoom = max(
+                1e-4,
+                min(1e4, old_zoom * 1.15 ** wheel_steps),
+            )
+            ratio = new_zoom / old_zoom
+            cursor = event.position()
+            self.camera.pan_x = (
+                cursor.x()
+                - self.width() * 0.5
+                - (
+                    cursor.x()
+                    - self.width() * 0.5
+                    - self.camera.pan_x
+                )
+                * ratio
+            )
+            self.camera.pan_y = (
+                cursor.y()
+                - self.height() * 0.5
+                - (
+                    cursor.y()
+                    - self.height() * 0.5
+                    - self.camera.pan_y
+                )
+                * ratio
+            )
+            self.camera.zoom = new_zoom
+            self._buffers_dirty = True
+            self.navigationChanged.emit(self.camera)
+            self.update()
+        event.accept()
+
+    def _release_graphics_resources(self) -> None:
+        for vao in (
+            self._background_vao,
+            self._surface_vao,
+            self._edge_vao,
+        ):
+            if vao is not None and vao.isCreated():
+                vao.destroy()
+        for buffer in (self._surface_buffer, self._edge_buffer):
+            if buffer is not None and buffer.isCreated():
+                buffer.destroy()
+        self._background_vao = None
+        self._surface_vao = None
+        self._edge_vao = None
+        self._surface_buffer = None
+        self._edge_buffer = None
+        self._background_program = None
+        self._surface_program = None
+        self._edge_program = None
+        self._gpu_ready = False
+
+    def _draw_background(self) -> None:
+        gl = self._gl
+        program = self._background_program
+        vao = self._background_vao
+        if gl is None or program is None or vao is None:
+            return
+        gl.glDisable(GL_DEPTH_TEST)
+        vao.bind()
+        program.bind()
+        program.setUniformValue(
+            "bottomColor",
+            QVector3D(
+                self._background_bottom.redF(),
+                self._background_bottom.greenF(),
+                self._background_bottom.blueF(),
+            ),
+        )
+        program.setUniformValue(
+            "topColor",
+            QVector3D(
+                self._background_top.redF(),
+                self._background_top.greenF(),
+                self._background_top.blueF(),
+            ),
+        )
+        gl.glDrawArrays(GL_TRIANGLES, 0, 3)
+        program.release()
+        vao.release()
+
+    @staticmethod
+    def _create_program(
+        vertex_source: str,
+        fragment_source: str,
+    ) -> QOpenGLShaderProgram:
+        program = QOpenGLShaderProgram()
+        if not program.addShaderFromSourceCode(
+            QOpenGLShader.ShaderTypeBit.Vertex,
+            vertex_source,
+        ):
+            raise RuntimeError(program.log())
+        if not program.addShaderFromSourceCode(
+            QOpenGLShader.ShaderTypeBit.Fragment,
+            fragment_source,
+        ):
+            raise RuntimeError(program.log())
+        if not program.link():
+            raise RuntimeError(program.log())
+        return program
+
+    def _upload_mesh_buffers(self) -> None:
+        surface_buffer = self._surface_buffer
+        edge_buffer = self._edge_buffer
+        if surface_buffer is None or edge_buffer is None:
+            return
+        mesh = self._mesh
+        surface_values = array("f")
+        edge_values = array("f")
+        edge_ranges: list[tuple[int, int]] = []
+        if mesh is not None:
+            for offset in range(0, len(mesh.triangle_positions), 3):
+                surface_values.extend(
+                    mesh.triangle_positions[offset:offset + 3]
+                )
+                surface_values.extend(
+                    mesh.triangle_normals[offset:offset + 3]
+                )
+            edge_vertex_start = 0
+            for edge in mesh.edges:
+                display_points = self._display_edge_points(edge)
+                for point in display_points:
+                    edge_values.extend(point)
+                edge_ranges.append(
+                    (edge_vertex_start, len(display_points))
+                )
+                edge_vertex_start += len(display_points)
+        surface_data = surface_values.tobytes()
+        edge_data = edge_values.tobytes()
+        surface_buffer.bind()
+        surface_buffer.allocate(surface_data, len(surface_data))
+        surface_buffer.release()
+        edge_buffer.bind()
+        edge_buffer.allocate(edge_data, len(edge_data))
+        edge_buffer.release()
+        self._surface_vertex_count = len(surface_values) // 6
+        self._face_ranges = self._build_face_ranges(mesh)
+        self._edge_ranges = tuple(edge_ranges)
+        self._buffers_dirty = False
+
+    def _draw_surfaces(
+        self,
+        model_view: QMatrix4x4,
+        mvp: QMatrix4x4,
+    ) -> None:
+        gl = self._gl
+        program = self._surface_program
+        buffer = self._surface_buffer
+        vao = self._surface_vao
+        if (
+            gl is None
+            or program is None
+            or buffer is None
+            or vao is None
+            or self._surface_vertex_count <= 0
+        ):
+            return
+        vao.bind()
+        program.bind()
+        program.setUniformValue("modelView", model_view)
+        program.setUniformValue("mvp", mvp)
+        program.setUniformValue(
+            "surfaceColor",
+            QVector3D(0.725, 0.761, 0.8),
+        )
+        buffer.bind()
+        program.enableAttributeArray(0)
+        program.setAttributeBuffer(0, 0x1406, 0, 3, 24)
+        program.enableAttributeArray(1)
+        program.setAttributeBuffer(1, 0x1406, 12, 3, 24)
+        gl.glEnable(GL_POLYGON_OFFSET_FILL)
+        gl.glPolygonOffset(1.0, 1.0)
+        gl.glDrawArrays(GL_TRIANGLES, 0, self._surface_vertex_count)
+        gl.glDisable(GL_POLYGON_OFFSET_FILL)
+        if self._interaction_mode == "topology":
+            gl.glDisable(GL_DEPTH_TEST)
+        self._draw_highlighted_face(
+            gl,
+            program,
+            self._hovered_face,
+            QVector3D(1.0, 0.48, 0.0),
+        )
+        self._draw_highlighted_face(
+            gl,
+            program,
+            self._selected_face,
+            QVector3D(0.0, 0.82, 1.0),
+        )
+        if self._interaction_mode == "topology":
+            gl.glEnable(GL_DEPTH_TEST)
+        program.disableAttributeArray(0)
+        program.disableAttributeArray(1)
+        buffer.release()
+        program.release()
+        vao.release()
+
+    @staticmethod
+    def _build_face_ranges(
+        mesh: ViewerMesh | None,
+    ) -> tuple[tuple[str, int, int, int], ...]:
+        if mesh is None or not mesh.triangle_face_indices:
+            return ()
+        ranges: list[tuple[str, int, int, int]] = []
+        first_triangle = 0
+        current_face = mesh.triangle_face_indices[0]
+        current_owner = mesh.triangle_owner_ids[0]
+        for triangle_index, (face_index, owner_id) in enumerate(
+            zip(
+                mesh.triangle_face_indices[1:],
+                mesh.triangle_owner_ids[1:],
+            ),
+            start=1,
+        ):
+            if face_index == current_face and owner_id == current_owner:
+                continue
+            ranges.append(
+                (
+                    current_owner,
+                    current_face,
+                    first_triangle * 3,
+                    (triangle_index - first_triangle) * 3,
+                )
+            )
+            current_face = face_index
+            current_owner = owner_id
+            first_triangle = triangle_index
+        ranges.append(
+            (
+                current_owner,
+                current_face,
+                first_triangle * 3,
+                (len(mesh.triangle_face_indices) - first_triangle) * 3,
+            )
+        )
+        return tuple(ranges)
+
+    def _draw_highlighted_face(
+        self,
+        gl: QOpenGLFunctions_3_3_Core,
+        program: QOpenGLShaderProgram,
+        face: TopologyKey | None,
+        color: QVector3D,
+    ) -> None:
+        if face is None:
+            return
+        for owner_id, face_index, first_vertex, vertex_count in self._face_ranges:
+            if (owner_id, face_index) == face:
+                program.setUniformValue("surfaceColor", color)
+                gl.glDrawArrays(GL_TRIANGLES, first_vertex, vertex_count)
+                return
+
+    def _draw_edges(
+        self,
+        mvp: QMatrix4x4,
+        *,
+        draw_base_edges: bool,
+    ) -> None:
+        gl = self._gl
+        program = self._edge_program
+        buffer = self._edge_buffer
+        vao = self._edge_vao
+        if gl is None or program is None or buffer is None or vao is None:
+            return
+        vao.bind()
+        program.bind()
+        program.setUniformValue("mvp", mvp)
+        buffer.bind()
+        program.enableAttributeArray(0)
+        program.setAttributeBuffer(0, 0x1406, 0, 3, 12)
+        gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
+        mesh = self._mesh
+        for edge, (first_vertex, vertex_count) in zip(
+            mesh.edges if mesh is not None else (),
+            self._edge_ranges,
+        ):
+            if edge.element_kind == "centerline":
+                continue
+            if not draw_base_edges and edge.element_kind == "edge":
+                continue
+            if edge.element_kind in {"axis", "sketch", "dimension"}:
+                gl.glDisable(GL_DEPTH_TEST)
+            program.setUniformValue(
+                "edgeColor",
+                QVector3D(*edge.base_color),
+            )
+            gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
+            if edge.element_kind in {"axis", "sketch", "dimension"}:
+                gl.glEnable(GL_DEPTH_TEST)
+        self._draw_highlighted_edge(
+            gl,
+            program,
+            self._hovered_edge,
+            QVector3D(1.0, 0.48, 0.0),
+            3.0,
+        )
+        self._draw_highlighted_object(
+            gl,
+            program,
+            self._hovered_object_id,
+            QVector3D(1.0, 0.48, 0.0),
+            3.0,
+        )
+        self._draw_highlighted_reference(
+            gl,
+            program,
+            self._selected_reference_owner_id,
+        )
+        self._draw_highlighted_object(
+            gl,
+            program,
+            self._selected_object_id,
+            QVector3D(0.0, 0.82, 1.0),
+            3.0,
+        )
+        self._draw_highlighted_edge(
+            gl,
+            program,
+            self._selected_edge,
+            QVector3D(0.0, 0.82, 1.0),
+            3.0,
+        )
+        program.disableAttributeArray(0)
+        buffer.release()
+        program.release()
+        vao.release()
+
+    def _draw_highlighted_edge(
+        self,
+        gl: QOpenGLFunctions_3_3_Core,
+        program: QOpenGLShaderProgram,
+        edge_key: TopologyKey | None,
+        color: QVector3D,
+        width: float,
+    ) -> None:
+        mesh = self._mesh
+        if mesh is None or edge_key is None:
+            return
+        try:
+            range_index = next(
+                index
+                for index, edge in enumerate(mesh.edges)
+                if (edge.owner_id, edge.edge_index) == edge_key
+            )
+        except StopIteration:
+            return
+        first_vertex, vertex_count = self._edge_ranges[range_index]
+        edge = mesh.edges[range_index]
+        if edge.element_kind == "centerline":
+            return
+        if edge.element_kind in {"axis", "sketch", "dimension"}:
+            gl.glDisable(GL_DEPTH_TEST)
+        program.setUniformValue("edgeColor", color)
+        gl.glLineWidth(
+            max(width, width * float(self.devicePixelRatioF()))
+        )
+        gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
+        if edge.element_kind in {"axis", "sketch", "dimension"}:
+            gl.glEnable(GL_DEPTH_TEST)
+
+    def _draw_highlighted_object(
+        self,
+        gl: QOpenGLFunctions_3_3_Core,
+        program: QOpenGLShaderProgram,
+        owner_id: str | None,
+        color: QVector3D,
+        width: float,
+    ) -> None:
+        mesh = self._mesh
+        if mesh is None or owner_id is None:
+            return
+        program.setUniformValue("edgeColor", color)
+        gl.glLineWidth(max(width, width * float(self.devicePixelRatioF())))
+        for edge, (first_vertex, vertex_count) in zip(
+            mesh.edges,
+            self._edge_ranges,
+        ):
+            if edge.owner_id != owner_id or edge.element_kind != "edge":
+                continue
+            gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
+
+    def _draw_highlighted_reference(
+        self,
+        gl: QOpenGLFunctions_3_3_Core,
+        program: QOpenGLShaderProgram,
+        owner_id: str | None,
+    ) -> None:
+        mesh = self._mesh
+        if mesh is None or owner_id is None:
+            return
+        program.setUniformValue("edgeColor", QVector3D(0.0, 0.82, 1.0))
+        gl.glLineWidth(max(3.0, 3.0 * float(self.devicePixelRatioF())))
+        gl.glDisable(GL_DEPTH_TEST)
+        for edge, (first_vertex, vertex_count) in zip(
+            mesh.edges,
+            self._edge_ranges,
+        ):
+            if edge.owner_id == owner_id and edge.element_kind == "axis":
+                gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
+        gl.glEnable(GL_DEPTH_TEST)
+
+    def _display_edge_points(self, edge) -> tuple[Point3, ...]:
+        if not edge.screen_constant:
+            return edge.points
+        origin = edge.points[0]
+        scale = 1.0 / max(self.camera.zoom, 1e-6)
+        return tuple(
+            tuple(
+                origin[axis] + (point[axis] - origin[axis]) * scale
+                for axis in range(3)
+            )
+            for point in edge.points
+        )
+
+    def _paint_edge_labels(self) -> None:
+        mesh = self._mesh
+        if mesh is None:
+            return
+        labelled_edges = tuple(edge for edge in mesh.edges if edge.label)
+        if not labelled_edges:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSizeF(max(9.0, font.pointSizeF()))
+        painter.setFont(font)
+        for edge in labelled_edges:
+            key = (edge.owner_id, edge.edge_index)
+            color = edge.base_color
+            if key == self._hovered_edge:
+                color = (1.0, 0.48, 0.0)
+            if key == self._selected_edge:
+                color = (0.0, 0.82, 1.0)
+            if edge.owner_id == self._selected_reference_owner_id:
+                color = (0.0, 0.82, 1.0)
+            painter.setPen(
+                QColor.fromRgbF(color[0], color[1], color[2], 1.0)
+            )
+            endpoint = self._screen_point(
+                self._camera_point(self._display_edge_points(edge)[-1])
+            )
+            painter.drawText(
+                QPointF(endpoint.x() + 6.0, endpoint.y() - 5.0),
+                edge.label,
+            )
+        painter.end()
+
+    def _paint_object_overlay(self) -> None:
+        mesh = self._object_overlay_mesh
+        if mesh is None or not mesh.edges:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._object_overlay_color, 3.0))
+        for edge in mesh.edges:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in edge.points
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+        if self._object_overlay_anchor is not None:
+            screen = self._screen_point(
+                self._camera_point(self._object_overlay_anchor)
+            )
+            painter.setPen(QPen(QColor("#101318"), 1.0))
+            painter.setBrush(QBrush(self._object_overlay_color))
+            painter.drawEllipse(screen, 6.0, 6.0)
+        painter.end()
+
+    def _paint_object_highlights(self) -> None:
+        mesh = self._mesh
+        if mesh is None:
+            return
+        highlights = (
+            (self._hovered_object_id, QColor.fromRgbF(1.0, 0.48, 0.0)),
+            (self._selected_object_id, QColor.fromRgbF(0.0, 0.82, 1.0)),
+        )
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for owner_id, color in highlights:
+            if owner_id is None:
+                continue
+            painter.setPen(QPen(color, 3.0))
+            for edge in mesh.edges:
+                if edge.owner_id != owner_id or edge.element_kind != "edge":
+                    continue
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in edge.points
+                ]
+                for index in range(1, len(projected)):
+                    painter.drawLine(
+                        projected[index - 1],
+                        projected[index],
+                    )
+        painter.end()
+
+    def _paint_reference_highlights(self) -> None:
+        mesh = self._mesh
+        if mesh is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for edge in mesh.edges:
+            key = (edge.owner_id, edge.edge_index)
+            color = None
+            if key == self._hovered_edge:
+                color = QColor.fromRgbF(1.0, 0.48, 0.0)
+            if (
+                key == self._selected_edge
+                or edge.owner_id == self._selected_reference_owner_id
+            ):
+                color = QColor.fromRgbF(0.0, 0.82, 1.0)
+            if color is None or edge.element_kind not in {
+                "axis",
+                "centerline",
+                "edge",
+            }:
+                continue
+            painter.setPen(
+                QPen(
+                    color,
+                    3.0,
+                    (
+                        Qt.PenStyle.DashDotLine
+                        if edge.element_kind == "centerline"
+                        else Qt.PenStyle.SolidLine
+                    ),
+                )
+            )
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in self._display_edge_points(edge)
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+        painter.end()
+
+    def _paint_centerlines(self) -> None:
+        mesh = self._mesh
+        if mesh is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for edge in mesh.edges:
+            if edge.element_kind != "centerline":
+                continue
+            painter.setPen(
+                QPen(
+                    QColor.fromRgbF(*edge.base_color, 1.0),
+                    1.5,
+                    Qt.PenStyle.DashDotLine,
+                )
+            )
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in edge.points
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+        painter.end()
+
+    def selection_candidates_at(
+        self,
+        position: QPointF,
+    ) -> tuple[tuple[str, str, int], ...]:
+        mesh = self._mesh
+        if mesh is None:
+            return ()
+        candidates: list[tuple[str, str, int]] = []
+        object_id = self._pick_object(position)
+        if object_id is not None:
+            candidates.append(("object", object_id, 0))
+        threshold = 9.0 * float(self.devicePixelRatioF())
+        for marker in mesh.points:
+            screen = self._screen_point(self._camera_point(marker.position))
+            if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
+                candidates.append(
+                    ("point", marker.owner_id, marker.point_index)
+                )
+        for edge in mesh.edges:
+            if edge.element_kind not in {"axis", "centerline"}:
+                continue
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in self._display_edge_points(edge)
+            ]
+            if any(
+                self._point_segment_distance(
+                    position,
+                    projected[index - 1],
+                    projected[index],
+                )[0] <= threshold
+                for index in range(1, len(projected))
+            ):
+                candidates.append(
+                    ("edge", edge.owner_id, edge.edge_index)
+                )
+        for plane in mesh.planes:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in plane.corners
+            ]
+            if any(
+                self._point_segment_distance(
+                    position,
+                    projected[index],
+                    projected[(index + 1) % len(projected)],
+                )[0] <= threshold
+                for index in range(len(projected))
+            ):
+                candidates.append(
+                    ("plane", plane.owner_id, plane.plane_index)
+                )
+        return tuple(dict.fromkeys(candidates))
+
+    def topology_candidates_at(
+        self,
+        position: QPointF,
+    ) -> tuple[tuple[str, str, int], ...]:
+        mesh = self._mesh
+        if mesh is None:
+            return ()
+        threshold = 9.0 * float(self.devicePixelRatioF())
+        candidates: list[tuple[str, str, int]] = []
+        for marker in mesh.points:
+            screen = self._screen_point(self._camera_point(marker.position))
+            if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
+                candidates.append(("point", marker.owner_id, marker.point_index))
+        for edge in mesh.edges:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in self._display_edge_points(edge)
+            ]
+            if any(
+                self._point_segment_distance(
+                    position,
+                    projected[index - 1],
+                    projected[index],
+                )[0] <= threshold
+                for index in range(1, len(projected))
+            ):
+                candidates.append(("edge", edge.owner_id, edge.edge_index))
+        for plane in mesh.planes:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in plane.corners
+            ]
+            if any(
+                self._point_segment_distance(
+                    position,
+                    projected[index],
+                    projected[(index + 1) % len(projected)],
+                )[0] <= threshold
+                for index in range(len(projected))
+            ):
+                candidates.append(("plane", plane.owner_id, plane.plane_index))
+        positions = mesh.triangle_positions
+        sample_offsets = (
+            (0.0, 0.0),
+            (-4.0, 0.0),
+            (4.0, 0.0),
+            (0.0, -4.0),
+            (0.0, 4.0),
+        )
+        for triangle_index, face_index in enumerate(mesh.triangle_face_indices):
+            offset = triangle_index * 9
+            camera_points = [
+                self._camera_point(
+                    tuple(
+                        positions[offset + vertex * 3 + axis]
+                        for axis in range(3)
+                    )
+                )
+                for vertex in range(3)
+            ]
+            screen_points = tuple(
+                self._screen_point(point) for point in camera_points
+            )
+            if any(
+                self._triangle_weights(
+                    QPointF(
+                        position.x() + offset_x,
+                        position.y() + offset_y,
+                    ),
+                    *screen_points,
+                ) is not None
+                for offset_x, offset_y in sample_offsets
+            ):
+                candidates.append(
+                    (
+                        "face",
+                        mesh.triangle_owner_ids[triangle_index],
+                        face_index,
+                    )
+                )
+        return tuple(dict.fromkeys(candidates))
+
+    def preview_topology_candidate(
+        self,
+        candidate: tuple[str, str, int],
+    ) -> None:
+        self._cycled_topology_candidate = candidate
+        self._clear_topology_hover()
+        kind, owner_id, element_index = candidate
+        {
+            "point": self._set_hovered_point,
+            "edge": self._set_hovered_edge,
+            "plane": self._set_hovered_plane,
+            "face": self._set_hovered_face,
+        }[kind]((owner_id, element_index))
+
+    def _paint_planes(self) -> None:
+        mesh = self._mesh
+        if mesh is None or not mesh.planes:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for plane in mesh.planes:
+            key = (plane.owner_id, plane.plane_index)
+            color = plane.base_color
+            if key == self._hovered_plane:
+                color = (1.0, 0.48, 0.0)
+            if key == self._selected_plane:
+                color = (0.0, 0.82, 1.0)
+            if plane.owner_id == self._selected_reference_owner_id:
+                color = (0.0, 0.82, 1.0)
+            polygon = QPolygonF(
+                [
+                    self._screen_point(self._camera_point(point))
+                    for point in plane.corners
+                ]
+            )
+            outline = QColor.fromRgbF(*color, 1.0)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(
+                QPen(
+                    outline,
+                    3.0
+                    if key in (self._hovered_plane, self._selected_plane)
+                    else 1.5,
+                )
+            )
+            painter.drawPolyline(polygon)
+            painter.drawLine(polygon[-1], polygon[0])
+            if plane.label:
+                label_anchor = polygon[0]
+                painter.drawText(
+                    QPointF(
+                        label_anchor.x() + 6.0,
+                        label_anchor.y() - 5.0,
+                    ),
+                    plane.label,
+                )
+        painter.end()
+
+    def _pick_plane(self, position: QPointF) -> TopologyKey | None:
+        if self._selection_filter not in {"all", "plane"}:
+            return None
+        mesh = self._mesh
+        if mesh is None:
+            return None
+        hits: list[tuple[float, float, str, int]] = []
+        threshold = 8.0 * float(self.devicePixelRatioF())
+        for plane in mesh.planes:
+            camera_points = [
+                self._camera_point(point)
+                for point in plane.corners
+            ]
+            screen_points = [
+                self._screen_point(point)
+                for point in camera_points
+            ]
+            for index in range(4):
+                next_index = (index + 1) % 4
+                distance, fraction = self._point_segment_distance(
+                    position,
+                    screen_points[index],
+                    screen_points[next_index],
+                )
+                if distance > threshold:
+                    continue
+                depth = (
+                    camera_points[index][2] * (1.0 - fraction)
+                    + camera_points[next_index][2] * fraction
+                )
+                hits.append(
+                    (distance, -depth, plane.owner_id, plane.plane_index)
+                )
+        if not hits:
+            return None
+        selected = min(hits)
+        return selected[2], selected[3]
+
+    def _paint_points(self) -> None:
+        mesh = self._mesh
+        if mesh is None or not mesh.points:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for marker in mesh.points:
+            key = (marker.owner_id, marker.point_index)
+            color = marker.base_color
+            if key == self._hovered_point:
+                color = (1.0, 0.48, 0.0)
+            if key == self._selected_point:
+                color = (0.0, 0.82, 1.0)
+            if marker.owner_id == self._selected_reference_owner_id:
+                color = (0.0, 0.82, 1.0)
+            screen = self._screen_point(self._camera_point(marker.position))
+            painter.setPen(QPen(QColor("#101318"), 1.0))
+            painter.setBrush(
+                QBrush(QColor.fromRgbF(*color, 1.0))
+            )
+            radius = (
+                6.0
+                if (
+                    key in (self._hovered_point, self._selected_point)
+                    or marker.owner_id == self._selected_reference_owner_id
+                )
+                else 4.5
+            )
+            painter.drawEllipse(screen, radius, radius)
+            if marker.label:
+                painter.setPen(
+                    QPen(QColor.fromRgbF(*color, 1.0), 1.0)
+                )
+                painter.drawText(
+                    QPointF(
+                        screen.x() + radius + 4.0,
+                        screen.y() - radius - 2.0,
+                    ),
+                    marker.label,
+                )
+        painter.end()
+
+    def _pick_point(self, position: QPointF) -> TopologyKey | None:
+        if self._selection_filter not in {"all", "point"}:
+            return None
+        mesh = self._mesh
+        if mesh is None:
+            return None
+        hits: list[tuple[float, str, int]] = []
+        threshold = 9.0 * float(self.devicePixelRatioF())
+        for marker in mesh.points:
+            screen = self._screen_point(self._camera_point(marker.position))
+            distance = hypot(
+                position.x() - screen.x(),
+                position.y() - screen.y(),
+            )
+            if distance <= threshold:
+                hits.append(
+                    (distance, marker.owner_id, marker.point_index)
+                )
+        if not hits:
+            return None
+        selected = min(hits)
+        return selected[1], selected[2]
+
+    def _point_marker_is_visible(self, point: Point3) -> bool:
+        mesh = self._mesh
+        if mesh is None or not mesh.triangle_face_indices:
+            return True
+        camera_point = self._camera_point(point)
+        screen = self._screen_point(camera_point)
+        positions = mesh.triangle_positions
+        front_depth: float | None = None
+        for triangle_index in range(len(mesh.triangle_face_indices)):
+            offset = triangle_index * 9
+            triangle_points = [
+                self._camera_point(
+                    (
+                        positions[offset + vertex * 3],
+                        positions[offset + vertex * 3 + 1],
+                        positions[offset + vertex * 3 + 2],
+                    )
+                )
+                for vertex in range(3)
+            ]
+            weights = self._triangle_weights(
+                screen,
+                *(self._screen_point(item) for item in triangle_points),
+            )
+            if weights is None:
+                continue
+            depth = sum(
+                weight * item[2]
+                for weight, item in zip(weights, triangle_points)
+            )
+            front_depth = depth if front_depth is None else max(front_depth, depth)
+        if front_depth is None:
+            return True
+        tolerance = self._scene_radius * 1e-5
+        return camera_point[2] >= front_depth - tolerance
+
+    def _pick_edge(self, position: QPointF) -> TopologyKey | None:
+        mesh = self._mesh
+        if mesh is None or mesh.is_empty:
+            return None
+        candidates: list[tuple[float, float, str, int]] = []
+        threshold = 8.0 * float(self.devicePixelRatioF())
+        for edge in mesh.edges:
+            if self._selection_filter == "axis":
+                if edge.element_kind not in {"axis", "centerline"}:
+                    continue
+            elif self._selection_filter != "all":
+                continue
+            camera_points = [
+                self._camera_point(point)
+                for point in self._display_edge_points(edge)
+            ]
+            screen_points = [
+                self._screen_point(point)
+                for point in camera_points
+            ]
+            for index in range(1, len(screen_points)):
+                distance, fraction = self._point_segment_distance(
+                    position,
+                    screen_points[index - 1],
+                    screen_points[index],
+                )
+                if distance <= threshold:
+                    depth = (
+                        camera_points[index - 1][2] * (1.0 - fraction)
+                        + camera_points[index][2] * fraction
+                    )
+                    candidates.append(
+                        (distance, -depth, edge.owner_id, edge.edge_index)
+                    )
+        if not candidates:
+            return None
+        candidates.sort()
+        nearest_distance = candidates[0][0]
+        depth_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate[0] <= nearest_distance + 1.5
+        ]
+        selected = min(depth_candidates, key=lambda candidate: candidate[1])
+        return selected[2], selected[3]
+
+    def _pick_face(self, position: QPointF) -> TopologyKey | None:
+        if self._selection_filter not in {"all", "face"}:
+            return None
+        mesh = self._mesh
+        if mesh is None or not mesh.triangle_face_indices:
+            return None
+        hits: list[tuple[float, str, int]] = []
+        positions = mesh.triangle_positions
+        for triangle_index, face_index in enumerate(
+            mesh.triangle_face_indices
+        ):
+            offset = triangle_index * 9
+            camera_points = [
+                self._camera_point(
+                    (
+                        positions[offset + vertex * 3],
+                        positions[offset + vertex * 3 + 1],
+                        positions[offset + vertex * 3 + 2],
+                    )
+                )
+                for vertex in range(3)
+            ]
+            weights = self._triangle_weights(
+                position,
+                *(self._screen_point(point) for point in camera_points),
+            )
+            if weights is None:
+                continue
+            depth = sum(
+                weight * point[2]
+                for weight, point in zip(weights, camera_points)
+            )
+            hits.append(
+                (depth, mesh.triangle_owner_ids[triangle_index], face_index)
+            )
+        if not hits:
+            return None
+        selected = max(hits)
+        return selected[1], selected[2]
+
+    def _pick_object(self, position: QPointF) -> str | None:
+        face = self._pick_face(position)
+        if face is not None:
+            return face[0]
+        edge = self._pick_edge(position)
+        return edge[0] if edge is not None else None
+
+    def _pick_axis(self, position: QPointF) -> TopologyKey | None:
+        edge = self._pick_edge(position)
+        if edge is None or self._mesh is None:
+            return None
+        return (
+            edge
+            if any(
+                item.owner_id == edge[0]
+                and item.edge_index == edge[1]
+                and item.element_kind in {"axis", "centerline"}
+                for item in self._mesh.edges
+            )
+            else None
+        )
+
+    @staticmethod
+    def _triangle_weights(
+        point: QPointF,
+        first: QPointF,
+        second: QPointF,
+        third: QPointF,
+    ) -> tuple[float, float, float] | None:
+        denominator = (
+            (second.y() - third.y()) * (first.x() - third.x())
+            + (third.x() - second.x()) * (first.y() - third.y())
+        )
+        if abs(denominator) <= 1e-12:
+            return None
+        first_weight = (
+            (second.y() - third.y()) * (point.x() - third.x())
+            + (third.x() - second.x()) * (point.y() - third.y())
+        ) / denominator
+        second_weight = (
+            (third.y() - first.y()) * (point.x() - third.x())
+            + (first.x() - third.x()) * (point.y() - third.y())
+        ) / denominator
+        third_weight = 1.0 - first_weight - second_weight
+        epsilon = -1e-8
+        if (
+            first_weight < epsilon
+            or second_weight < epsilon
+            or third_weight < epsilon
+        ):
+            return None
+        return first_weight, second_weight, third_weight
+
+    @staticmethod
+    def _point_segment_distance(
+        point: QPointF,
+        first: QPointF,
+        second: QPointF,
+    ) -> tuple[float, float]:
+        dx = second.x() - first.x()
+        dy = second.y() - first.y()
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 1e-12:
+            return hypot(point.x() - first.x(), point.y() - first.y()), 0.0
+        fraction = (
+            (point.x() - first.x()) * dx
+            + (point.y() - first.y()) * dy
+        ) / length_squared
+        fraction = max(0.0, min(1.0, fraction))
+        closest_x = first.x() + fraction * dx
+        closest_y = first.y() + fraction * dy
+        return hypot(point.x() - closest_x, point.y() - closest_y), fraction
+
+    def _set_hovered_edge(self, edge: TopologyKey | None) -> None:
+        if edge == self._hovered_edge:
+            return
+        self._hovered_edge = edge
+        self.hoveredEdgeChanged.emit(*(edge or ("", 0)))
+        self.update()
+
+    def _set_selected_edge(self, edge: TopologyKey | None) -> None:
+        if edge == self._selected_edge:
+            return
+        self._selected_edge = edge
+        self.selectedEdgeChanged.emit(*(edge or ("", 0)))
+        self.update()
+
+    def _set_hovered_face(self, face: TopologyKey | None) -> None:
+        if face == self._hovered_face:
+            return
+        self._hovered_face = face
+        self.hoveredFaceChanged.emit(*(face or ("", 0)))
+        self.update()
+
+    def _set_selected_face(self, face: TopologyKey | None) -> None:
+        if face == self._selected_face:
+            return
+        self._selected_face = face
+        self.selectedFaceChanged.emit(*(face or ("", 0)))
+        self.update()
+
+    def _set_hovered_point(self, point: TopologyKey | None) -> None:
+        if point == self._hovered_point:
+            return
+        self._hovered_point = point
+        self.hoveredPointChanged.emit(*(point or ("", 0)))
+        self.update()
+
+    def _set_selected_point(self, point: TopologyKey | None) -> None:
+        if point == self._selected_point:
+            return
+        self._selected_point = point
+        self.selectedPointChanged.emit(*(point or ("", 0)))
+        self.update()
+
+    def _set_hovered_plane(self, plane: TopologyKey | None) -> None:
+        if plane == self._hovered_plane:
+            return
+        self._hovered_plane = plane
+        self.hoveredPlaneChanged.emit(*(plane or ("", 0)))
+        self.update()
+
+    def _set_selected_plane(self, plane: TopologyKey | None) -> None:
+        if plane == self._selected_plane:
+            return
+        self._selected_plane = plane
+        self.selectedPlaneChanged.emit(*(plane or ("", 0)))
+        self.update()
+
+    def _set_hovered_object(self, owner_id: str | None) -> None:
+        if owner_id == self._hovered_object_id:
+            return
+        self._hovered_object_id = owner_id
+        self.hoveredObjectChanged.emit(owner_id or "")
+        self.update()
+
+    def _set_selected_object(self, owner_id: str | None) -> None:
+        if owner_id == self._selected_object_id:
+            return
+        self._selected_object_id = owner_id
+        self.selectedObjectChanged.emit(owner_id or "")
+        self.update()
+
+    def _clear_topology_hover(self) -> None:
+        self._set_hovered_edge(None)
+        self._set_hovered_face(None)
+        self._set_hovered_point(None)
+        self._set_hovered_plane(None)
+
+    def _clear_topology_selection(self) -> None:
+        self._set_selected_edge(None)
+        self._set_selected_face(None)
+        self._set_selected_point(None)
+        self._set_selected_plane(None)
+        self._set_hovered_object(None)
+        self._set_selected_object(None)
+
+    def _camera_matrices(self) -> tuple[QMatrix4x4, QMatrix4x4]:
+        aspect = max(1e-6, float(self.width()) / max(1.0, float(self.height())))
+        half_height = self._scene_radius / max(self.camera.zoom, 1e-6)
+        half_width = half_height * aspect
+        units_per_pixel = (half_height * 2.0) / max(1.0, float(self.height()))
+        model_view = QMatrix4x4()
+        model_view.translate(
+            self.camera.pan_x * units_per_pixel,
+            -self.camera.pan_y * units_per_pixel,
+            0.0,
+        )
+        model_view.rotate(self.camera.pitch_degrees, 1.0, 0.0, 0.0)
+        model_view.rotate(self.camera.yaw_degrees, 0.0, 0.0, 1.0)
+        model_view.translate(
+            -self._scene_center[0],
+            -self._scene_center[1],
+            -self._scene_center[2],
+        )
+        projection = QMatrix4x4()
+        projection.ortho(
+            -half_width,
+            half_width,
+            -half_height,
+            half_height,
+            -self._scene_radius * 10.0,
+            self._scene_radius * 10.0,
+        )
+        return model_view, projection * model_view
+
+    def _paint_mesh(self, painter: QPainter) -> None:
+        mesh = self._mesh
+        if mesh is None or mesh.is_empty or self.width() <= 0 or self.height() <= 0:
+            return
+        # Antialiasing individual filled triangles creates hairline seams
+        # between triangles belonging to the same CAD face.  Surface
+        # antialiasing will be handled by multisampled OpenGL buffers later.
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        triangle_records = []
+        positions = mesh.triangle_positions
+        normals = mesh.triangle_normals
+        for offset in range(0, len(positions), 9):
+            world_points = [
+                (
+                    positions[offset + vertex * 3],
+                    positions[offset + vertex * 3 + 1],
+                    positions[offset + vertex * 3 + 2],
+                )
+                for vertex in range(3)
+            ]
+            camera_points = [
+                self._camera_point(point)
+                for point in world_points
+            ]
+            polygon = QPolygonF(
+                [
+                    self._screen_point(point)
+                    for point in camera_points
+                ]
+            )
+            normal = self._camera_vector(
+                (
+                    normals[offset],
+                    normals[offset + 1],
+                    normals[offset + 2],
+                )
+            )
+            depth = sum(point[2] for point in camera_points) / 3.0
+            triangle_records.append((depth, polygon, normal))
+
+        surface_color = QColor("#B9C2CC")
+        light = (0.25, -0.35, 0.902)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for _depth, polygon, normal in sorted(
+            triangle_records,
+            key=lambda record: record[0],
+        ):
+            intensity = max(
+                0.0,
+                normal[0] * light[0]
+                + normal[1] * light[1]
+                + normal[2] * light[2],
+            )
+            brightness = 0.42 + 0.58 * intensity
+            shaded = QColor(
+                min(255, round(surface_color.red() * brightness)),
+                min(255, round(surface_color.green() * brightness)),
+                min(255, round(surface_color.blue() * brightness)),
+            )
+            painter.setBrush(QBrush(shaded))
+            painter.drawPolygon(polygon)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(
+            QPen(
+                QColor("#16191E"),
+                max(1.0, float(self.devicePixelRatioF())),
+            )
+        )
+        for edge in mesh.edges:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in edge.points
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+
+    def _camera_point(self, point: Point3) -> Point3:
+        relative = tuple(
+            point[axis] - self._scene_center[axis]
+            for axis in range(3)
+        )
+        return self._rotate(relative)
+
+    def _camera_vector(self, vector: Point3) -> Point3:
+        return self._rotate(vector)
+
+    def _rotate(self, vector: Point3) -> Point3:
+        yaw = radians(self.camera.yaw_degrees)
+        pitch = radians(self.camera.pitch_degrees)
+        yaw_x = cos(yaw) * vector[0] - sin(yaw) * vector[1]
+        yaw_y = sin(yaw) * vector[0] + cos(yaw) * vector[1]
+        yaw_z = vector[2]
+        return (
+            yaw_x,
+            cos(pitch) * yaw_y - sin(pitch) * yaw_z,
+            sin(pitch) * yaw_y + cos(pitch) * yaw_z,
+        )
+
+    def _screen_point(self, point: Point3) -> QPointF:
+        scale = (
+            float(self.height())
+            * 0.5
+            / self._scene_radius
+            * self.camera.zoom
+        )
+        return QPointF(
+            self.width() * 0.5 + self.camera.pan_x + point[0] * scale,
+            self.height() * 0.5 + self.camera.pan_y - point[1] * scale,
+        )

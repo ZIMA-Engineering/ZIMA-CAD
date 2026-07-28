@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Cylinder</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <ellipse cx="12" cy="5.5" rx="5.5" ry="2.5"/>
+    <path d="M6.5 5.5v12c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-12"/>
+    <path d="M6.5 17.5c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5"/>
+
+  </g>
+</svg>

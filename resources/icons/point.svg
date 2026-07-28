@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Point</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M12 4v5M12 15v5M4 12h5M15 12h5"/>
+    <circle cx="12" cy="12" r="3.2"/>
+    <circle cx="12" cy="12" r="1.5" fill="#80AA1A" stroke="none"/>
+
+  </g>
+</svg>

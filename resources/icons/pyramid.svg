@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Pyramid</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M12 3L4.5 18h15L12 3z"/>
+    <path d="M12 3v15"/>
+    <path d="M4.5 18l7.5-4 7.5 4"/>
+
+  </g>
+</svg>

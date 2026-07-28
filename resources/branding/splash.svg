@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" width="900" height="600">
+
+
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16191B"/><stop offset="1" stop-color="#252A2D"/></linearGradient></defs>
+<rect width="900" height="600" fill="url(#bg)"/>
+<g opacity=".13" stroke="#FFFFFF" stroke-width="1"><path d="M0 510L900 60M0 570L900 120M250 600L900 275"/><path d="M580 0V600M650 0V600M720 0V600"/></g>
+<g transform="translate(70,122) scale(1.45)">
+  <path d="M16 14 H84 L72 28 H40 L24 48 H60 L50 62 H16 L46 26 H16 Z" fill="#80AA1A"/>
+  <path d="M48 62 H84 L96 48 H60 Z" fill="#1E1E1E"/>
+</g>
+<g font-family="DejaVu Sans, Arial, sans-serif"><text x="235" y="235" font-size="52" font-weight="600" letter-spacing="5"><tspan fill="#80AA1A">ZIMA</tspan><tspan fill="#FFFFFF">-CAD</tspan></text>
+<text x="238" y="269" font-size="14" letter-spacing="3" fill="#D4D6D7">OPEN SOURCE PARAMETRIC CAD</text>
+<text x="74" y="488" font-size="16" fill="#E8E8E8">Initializing ZIMA-CAD…</text>
+<text x="74" y="544" font-size="12" fill="#AEB4B7">ZIMA-Engineering</text></g>
+<rect x="74" y="510" width="360" height="7" rx="3.5" fill="#394044"/><rect x="74" y="510" width="250" height="7" rx="3.5" fill="#80AA1A"/>
+
+<g transform="translate(555,92)" fill="none" stroke="#AEB4B7" stroke-width="1.4" opacity="0.72">
+  <path d="M40 90 L150 28 L270 92 L160 156 Z"/>
+  <path d="M40 90V245L160 310V156M270 92V244L160 310"/>
+  <ellipse cx="155" cy="94" rx="74" ry="42"/>
+  <ellipse cx="155" cy="94" rx="38" ry="22"/>
+  <ellipse cx="155" cy="244" rx="62" ry="35"/>
+  <ellipse cx="155" cy="244" rx="27" ry="15"/>
+  <path d="M81 93V238M229 93V238M117 127V213M193 127V213"/>
+  <circle cx="93" cy="70" r="6"/><circle cx="217" cy="70" r="6"/>
+  <circle cx="93" cy="118" r="6"/><circle cx="217" cy="118" r="6"/>
+  <path d="M18 336H300M44 328V344M274 328V344" stroke-dasharray="7 5" opacity=".55"/>
+  <path d="M7 44L297 300M20 21L310 277" opacity=".18"/>
+</g>
+<rect x="0" y="594" width="900" height="6" fill="#80AA1A"/>
+
+</svg>

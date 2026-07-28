@@ -71,6 +71,8 @@ ZIMA-CAD/
     templates/              starter part, assembly and drawing templates
   resources/
     icons/
+    branding/               app icon, symbol, splash and About artwork
+      source/               source artwork and retained design variants
     templates/
     materials/
   runtime/

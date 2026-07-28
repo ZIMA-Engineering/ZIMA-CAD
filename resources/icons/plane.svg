@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Plane</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M5 15L9 7h10l-4 8H5z"/>
+    <path d="M9 7l-1 2M19 7l-1 2"/>
+    <path d="M5 15l2-4" stroke="#80AA1A"/>
+
+  </g>
+</svg>

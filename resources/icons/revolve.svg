@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Revolve</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M6 18V6h5v5H8v7"/>
+    <path d="M14 7a6 6 0 1 1-1 10" stroke="#80AA1A"/>
+    <path d="M14 4v3h3" stroke="#80AA1A"/>
+
+  </g>
+</svg>
