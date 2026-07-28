@@ -362,7 +362,6 @@ class ViewSelectionMode(str, Enum):
 
 class ViewSelectionFilter(str, Enum):
     ALL = "all"
-    OBJECT = "object"
     FACE = "face"
     POINT = "point"
     AXIS = "axis"
@@ -3204,7 +3203,6 @@ class MainWindow(QMainWindow):
         self.selection_filter_combo.setToolTip(tr("selection.filter.tooltip"))
         for text_key, filter_value in (
             ("selection.filter.all", ViewSelectionFilter.ALL),
-            ("selection.filter.object", ViewSelectionFilter.OBJECT),
             ("selection.filter.face", ViewSelectionFilter.FACE),
             ("selection.filter.point", ViewSelectionFilter.POINT),
             ("selection.filter.axis", ViewSelectionFilter.AXIS),
@@ -6971,7 +6969,6 @@ class MainWindow(QMainWindow):
             or self.view_selection_filter
             not in (
                 ViewSelectionFilter.ALL,
-                ViewSelectionFilter.OBJECT,
                 ViewSelectionFilter.POINT,
             )
         ):
@@ -7085,7 +7082,6 @@ class MainWindow(QMainWindow):
             or self.view_selection_filter
             not in (
                 ViewSelectionFilter.ALL,
-                ViewSelectionFilter.OBJECT,
                 ViewSelectionFilter.POINT,
             )
         ):
@@ -7213,11 +7209,7 @@ class MainWindow(QMainWindow):
                 ):
                     return obj.object_id
                 return owner.object_id
-        if self.view_selection_filter != ViewSelectionFilter.OBJECT:
-            return object_id
-        while obj is not None and obj.kind != ObjectKind.OBJECT:
-            obj = self.document.find_parent(obj.object_id)
-        return obj.object_id if obj is not None else object_id
+        return object_id
 
     def _show_tree_context_menu(self, position: QPoint) -> None:
         if self.document is None:
@@ -8172,7 +8164,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         if (
             self.selected_face is not None
-            and self.view_selection_filter != ViewSelectionFilter.OBJECT
+            and self.view_selection_mode == ViewSelectionMode.FACE
         ):
             empty_action = menu.addAction(" ")
             empty_action.setEnabled(False)
@@ -10949,7 +10941,10 @@ class MainWindow(QMainWindow):
                         ),
                         None,
                     )
-                    return point_entity is not None
+                    return (
+                        point_entity is not None
+                        and self.show_points_action.isChecked()
+                    )
                 return False
         coordinate = (
             self.document.find_object(child_id)
