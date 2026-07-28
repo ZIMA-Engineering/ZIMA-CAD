@@ -638,7 +638,7 @@ class PartDocument:
             parameters={
                 "display_style": "centerline",
                 "axis": "z",
-                "length": "100",
+                "length": "50",
                 "unit": "mm",
             },
             tree_exposure=TreeExposure.INTERNAL,
@@ -1463,7 +1463,7 @@ def make_datum_axis_shape(
 ):
     if axis.kind != EntityKind.AXIS or axis.parameters.get("display_style") != "centerline":
         return None
-    length = max(0.001, float(axis.parameters.get("length", 100.0)))
+    length = max(0.001, float(axis.parameters.get("length", 50.0)))
     direction = {
         "x": (1.0, 0.0, 0.0),
         "y": (0.0, 1.0, 0.0),

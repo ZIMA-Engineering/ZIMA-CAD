@@ -211,6 +211,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_persistent = False
         self._object_overlay_anchor: Point3 | None = None
         self._selected_reference_owner_id: str | None = None
+        self._constraint_reference_owner_ids: frozenset[str] = frozenset()
+        self._constraint_reference_edges: frozenset[TopologyKey] = frozenset()
+        self._constraint_reference_points: frozenset[TopologyKey] = frozenset()
+        self._constraint_reference_planes: frozenset[TopologyKey] = frozenset()
+        self._constraint_reference_positions: tuple[Point3, ...] = ()
         self._selected_container_origin_id: str | None = None
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
@@ -345,6 +350,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_reference_owner_id = owner_id
         self.update()
 
+    def set_constraint_reference_highlights(
+        self,
+        *,
+        owner_ids: set[str],
+        edges: set[TopologyKey],
+        points: set[TopologyKey],
+        planes: set[TopologyKey],
+        positions: set[Point3],
+    ) -> None:
+        self._constraint_reference_owner_ids = frozenset(owner_ids)
+        self._constraint_reference_edges = frozenset(edges)
+        self._constraint_reference_points = frozenset(points)
+        self._constraint_reference_planes = frozenset(planes)
+        self._constraint_reference_positions = tuple(positions)
+        self.update()
+
     def set_selected_container_origin(self, origin_id: str | None) -> None:
         self._selected_container_origin_id = origin_id
         self.update()
@@ -402,7 +423,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return False
 
     def set_selection_filter(self, selection_filter: str) -> None:
-        if selection_filter not in {"all", "face", "point", "axis", "plane"}:
+        if selection_filter not in {
+            "all", "face", "point", "axis", "plane", "normal",
+        }:
             raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
         if selection_filter == self._selection_filter:
             return
@@ -1062,6 +1085,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             QVector3D(0.0, 0.82, 1.0),
             3.0,
         )
+        for edge in self._constraint_reference_edges:
+            self._draw_highlighted_edge(
+                gl,
+                program,
+                edge,
+                QVector3D(0.0, 0.82, 1.0),
+                3.0,
+            )
         program.disableAttributeArray(0)
         buffer.release()
         program.release()
@@ -1430,9 +1461,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
             if (
                 key == self._selected_edge
+                or key in self._constraint_reference_edges
                 or edge.owner_id in {
                     self._selected_reference_owner_id,
                 }
+                or edge.owner_id in self._constraint_reference_owner_ids
                 or edge.owner_id in self._selected_container_content_ids
             ):
                 color = QColor.fromRgbF(0.0, 0.82, 1.0)
@@ -1648,9 +1681,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             color = plane.base_color
             if key == self._hovered_plane:
                 color = (1.0, 0.48, 0.0)
-            if key == self._selected_plane:
+            if (
+                key == self._selected_plane
+                or key in self._constraint_reference_planes
+            ):
                 color = (0.0, 0.82, 1.0)
-            if plane.owner_id == self._selected_reference_owner_id:
+            if (
+                plane.owner_id == self._selected_reference_owner_id
+                or plane.owner_id in self._constraint_reference_owner_ids
+            ):
                 color = (0.0, 0.82, 1.0)
             if plane.owner_id in self._selected_container_content_ids:
                 color = (0.0, 0.82, 1.0)
@@ -1666,7 +1705,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 QPen(
                     outline,
                     3.0
-                    if key in (self._hovered_plane, self._selected_plane)
+                    if (
+                        key in (self._hovered_plane, self._selected_plane)
+                        or key in self._constraint_reference_planes
+                    )
                     else 1.5,
                 )
             )
@@ -1684,7 +1726,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def _pick_plane(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "plane"}:
+        if self._selection_filter not in {"all", "plane", "normal"}:
             return None
         mesh = self._mesh
         if mesh is None:
@@ -1723,7 +1765,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _paint_points(self) -> None:
         mesh = self._mesh
-        if mesh is None or not mesh.points:
+        if mesh is None:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -1734,7 +1776,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = (1.0, 0.48, 0.0)
             if key == self._selected_point:
                 color = (0.0, 0.82, 1.0)
-            if marker.owner_id == self._selected_reference_owner_id:
+            if (
+                key in self._constraint_reference_points
+                or marker.owner_id == self._selected_reference_owner_id
+                or marker.owner_id in self._constraint_reference_owner_ids
+            ):
                 color = (0.0, 0.82, 1.0)
             if marker.owner_id == self._selected_container_origin_id:
                 color = (0.0, 0.82, 1.0)
@@ -1748,7 +1794,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 6.0
                 if (
                     key in (self._hovered_point, self._selected_point)
+                    or key in self._constraint_reference_points
                     or marker.owner_id == self._selected_reference_owner_id
+                    or marker.owner_id in self._constraint_reference_owner_ids
                     or marker.owner_id == self._selected_container_origin_id
                     or marker.owner_id in self._selected_container_content_ids
                 )
@@ -1766,6 +1814,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ),
                     marker.label,
                 )
+        painter.setPen(QPen(QColor.fromRgbF(0.0, 0.82, 1.0), 1.0))
+        painter.setBrush(QBrush(QColor.fromRgbF(0.0, 0.82, 1.0)))
+        for position in self._constraint_reference_positions:
+            screen = self._screen_point(self._camera_point(position))
+            painter.drawEllipse(screen, 6.0, 6.0)
         painter.end()
 
     def _pick_point(self, position: QPointF) -> TopologyKey | None:
@@ -1874,7 +1927,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return selected[2], selected[3]
 
     def _pick_face(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "face"}:
+        if self._selection_filter not in {"all", "face", "normal"}:
             return None
         mesh = self._mesh
         if mesh is None or not mesh.triangle_face_indices:

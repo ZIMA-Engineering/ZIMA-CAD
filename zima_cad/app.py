@@ -501,13 +501,6 @@ class ContainerSummaryDialog(QDialog):
         self.rx_spin = self._create_rotation_spinbox()
         self.ry_spin = self._create_rotation_spinbox()
         self.rz_spin = self._create_rotation_spinbox()
-        self.show_auxiliary_geometry_checkbox = QCheckBox(
-            tr("dialog.properties.show_auxiliary_geometry")
-        )
-        self.show_auxiliary_geometry_checkbox.setChecked(
-            obj.show_auxiliary_geometry
-        )
-
         x, y, z = obj.coordinate_system.origin
         self.x_spin.setValue(float(x))
         self.y_spin.setValue(float(y))
@@ -528,8 +521,6 @@ class ContainerSummaryDialog(QDialog):
         layout.addRow("RX", self.rx_spin)
         layout.addRow("RY", self.ry_spin)
         layout.addRow("RZ", self.rz_spin)
-        layout.addRow(self.show_auxiliary_geometry_checkbox)
-
         attachment = obj.attachment
         if attachment is not None:
             target = document.find_entity(attachment.target_object_id)
@@ -681,9 +672,6 @@ class ContainerSummaryDialog(QDialog):
             self.rz_spin.value(),
         )
         self.object.show_internal_entities = True
-        self.object.show_auxiliary_geometry = (
-            self.show_auxiliary_geometry_checkbox.isChecked()
-        )
         if self.detach_requested:
             self.object.attachment = None
         elif self.object.attachment is not None and self.primary_combo is not None:
@@ -814,6 +802,10 @@ class PointConstraintDialog(QDialog):
         )
         self.edit_mode = point_object is not None and point_entity is not None
         self.references = self._stored_references(point_entity)
+        self.highlighted_reference_keys = {
+            str(reference.get("key", ""))
+            for reference in self.references
+        }
         self._references_being_removed: set[str] = set()
         self.setModal(False)
         self.resize(460, 520)
@@ -845,18 +837,14 @@ class PointConstraintDialog(QDialog):
             tr("dialog.properties.container_type"),
             self.container_type_combo,
         )
-        self.show_auxiliary_geometry_checkbox = QCheckBox(
-            tr("dialog.properties.show_auxiliary_geometry")
-        )
-        self.show_auxiliary_geometry_checkbox.setChecked(
-            point_object.show_auxiliary_geometry
-            if point_object is not None
-            else False
-        )
-        general.addRow(self.show_auxiliary_geometry_checkbox)
         layout.addLayout(general)
         layout.addWidget(QLabel(tr("dialog.point_constraints.instructions")))
         self.reference_list = QTableWidget(0, 2)
+        self.reference_list.setStyleSheet(
+            "QTableWidget::item:selected {"
+            " background-color: #00d1ff; color: #102027;"
+            "}"
+        )
         self.reference_list.setHorizontalHeaderLabels(
             [
                 tr("dialog.point_constraints.reference"),
@@ -881,7 +869,7 @@ class PointConstraintDialog(QDialog):
             self._show_reference_context_menu
         )
         self.reference_list.cellClicked.connect(
-            lambda row, _column: self._activate_reference(row)
+            self._reference_cell_clicked
         )
         layout.addWidget(self.reference_list, 1)
         self.remove_reference_button = QPushButton(
@@ -1125,6 +1113,7 @@ class PointConstraintDialog(QDialog):
         ):
             return
         self.references.append(reference)
+        self.highlighted_reference_keys.add(str(reference.get("key", "")))
         self._append_reference_row(reference)
         self._refresh_reference_item_warnings()
         self._update_solution()
@@ -1141,8 +1130,26 @@ class PointConstraintDialog(QDialog):
             row = 0
         if row < 0:
             return
+        self._remove_reference_at(row)
+
+    def _reference_cell_clicked(self, row: int, column: int) -> None:
+        if column != 0 or not 0 <= row < len(self.references):
+            return
+        key = str(self.references[row].get("key", ""))
+        if key in self.highlighted_reference_keys:
+            self.highlighted_reference_keys.remove(key)
+        else:
+            self.highlighted_reference_keys.add(key)
+        self._refresh_reference_item_warnings()
+        self.reference_list.clearSelection()
+        self.definitionChanged.emit()
+
+    def _remove_reference_at(self, row: int) -> None:
+        if not 0 <= row < len(self.references):
+            return
         removed_key = str(self.references[row].get("key", ""))
         self._references_being_removed.add(removed_key)
+        self.highlighted_reference_keys.discard(removed_key)
         self.references.pop(row)
         self.reference_list.removeRow(row)
         for index, reference in enumerate(self.references):
@@ -1180,8 +1187,16 @@ class PointConstraintDialog(QDialog):
                     )
                 )
             else:
-                item.setBackground(QBrush())
-                item.setForeground(QBrush())
+                highlighted = (
+                    str(reference.get("key", ""))
+                    in self.highlighted_reference_keys
+                )
+                item.setBackground(
+                    QBrush(QColor("#00d1ff")) if highlighted else QBrush()
+                )
+                item.setForeground(
+                    QBrush(QColor("#102027")) if highlighted else QBrush()
+                )
                 item.setToolTip("")
 
     def _show_reference_context_menu(self, position: QPoint) -> None:
@@ -1243,6 +1258,13 @@ class PointConstraintDialog(QDialog):
         self.ok_button.setEnabled(solution is not None)
         self.definitionChanged.emit()
 
+    def _show_auxiliary_geometry(self) -> bool:
+        return (
+            self.point_object.show_auxiliary_geometry
+            if self.point_object is not None
+            else False
+        )
+
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
         if self.solution is None or not name:
@@ -1252,7 +1274,7 @@ class PointConstraintDialog(QDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
         )
         if self.edit_mode:
             self.updateRequested.emit(*arguments)
@@ -1336,9 +1358,9 @@ class AxisConstraintDialog(PointConstraintDialog):
         self.length_spin.setSuffix(" mm")
         self.length_spin.setValue(
             float(
-                axis_entity.parameters.get("length", 100.0)
+                axis_entity.parameters.get("length", 50.0)
                 if axis_entity is not None
-                else 100.0
+                else 50.0
             )
         )
         self.length_spin.valueChanged.connect(
@@ -1376,7 +1398,7 @@ class AxisConstraintDialog(PointConstraintDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
             tuple(edit.value() for edit in self.rotation_edits),
             str(self.direction_combo.currentData()),
             self.length_spin.value(),
@@ -1499,7 +1521,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
             tuple(edit.value() for edit in self.rotation_edits),
             str(self.direction_combo.currentData()),
             self.length_spin.value(),
@@ -1614,7 +1636,7 @@ class SolidConstraintDialog(AxisConstraintDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
             tuple(edit.value() for edit in self.rotation_edits),
             {
                 key: edit.value()
@@ -1686,7 +1708,7 @@ class ContainerPropertiesDialog(AxisConstraintDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
             tuple(edit.value() for edit in self.rotation_edits),
             str(self.container_type_combo.currentData()),
         )
@@ -1765,7 +1787,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             tuple(edit.value() for edit in self.coordinate_edits),
             name,
             True,
-            self.show_auxiliary_geometry_checkbox.isChecked(),
+            self._show_auxiliary_geometry(),
             tuple(edit.value() for edit in self.rotation_edits),
             self.diameter_spin.value(),
         )
@@ -2892,6 +2914,7 @@ class MainWindow(QMainWindow):
         self._definition_dialog_depth = 0
         self._definition_edit_objects: list[ZimaEntity] = []
         self._pending_attachment_plane_id: str | None = None
+        self._normal_view_selection_active = False
 
         self.native_viewer = ZimaOpenGLViewer(self)
         self._native_viewer_scene: DocumentViewerScene | None = None
@@ -2973,6 +2996,27 @@ class MainWindow(QMainWindow):
         )
         self.reset_view_action.setIcon(resource_icon("view-fit"))
         self.reset_view_action.triggered.connect(self.reset_view)
+        self.normal_view_action = self.view_toolbar.addAction(
+            tr("toolbar.view.normal")
+        )
+        self.normal_view_action.setIcon(resource_icon("view-normal"))
+        self.normal_view_action.setCheckable(True)
+        self.normal_view_action.setToolTip(
+            tr("toolbar.view.normal.tooltip")
+        )
+        self.normal_view_action.toggled.connect(
+            self._toggle_normal_view_selection
+        )
+        self.cancel_normal_view_action = QAction(self)
+        self.cancel_normal_view_action.setShortcut("Esc")
+        self.cancel_normal_view_action.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
+        self.cancel_normal_view_action.setEnabled(False)
+        self.cancel_normal_view_action.triggered.connect(
+            self._cancel_normal_view_selection
+        )
+        self.addAction(self.cancel_normal_view_action)
         self.standard_view_combo = QComboBox()
         for text_key, view_name in (
             ("toolbar.standard_views", ""),
@@ -5004,19 +5048,6 @@ class MainWindow(QMainWindow):
         logo_widget = QWidget()
         logo_layout = QHBoxLayout(logo_widget)
         logo_layout.setContentsMargins(8, 2, 12, 2)
-        logo_layout.setSpacing(6)
-        logo_symbol = QLabel()
-        logo_pixmap = QPixmap(
-            str(app_path("resources", "branding", "app-icon.svg"))
-        )
-        logo_symbol.setPixmap(
-            logo_pixmap.scaled(
-                30,
-                30,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
         logo_text = QLabel(
             '<span style="color:#80AA1A">ZIMA</span>-CAD'
         )
@@ -5024,7 +5055,6 @@ class MainWindow(QMainWindow):
         logo_font.setBold(True)
         logo_font.setPointSizeF(max(11.0, logo_font.pointSizeF()))
         logo_text.setFont(logo_font)
-        logo_layout.addWidget(logo_symbol)
         logo_layout.addWidget(logo_text)
         self.main_toolbar.addWidget(logo_widget)
         self.addToolBar(
@@ -5660,7 +5690,7 @@ class MainWindow(QMainWindow):
     def _update_window_title(self) -> None:
         file_label = self._file_label(self.current_file_path, self.document)
         self.setWindowTitle(
-            f"{tr('app.title')} - {file_label} - WD: {self.working_directory}"
+            f"{tr('app.title')} — {file_label}"
         )
         if 0 <= self.active_document_index < self.document_tabs.count():
             self.document_tabs.setTabText(self.active_document_index, file_label)
@@ -6210,6 +6240,15 @@ class MainWindow(QMainWindow):
         if scene is None:
             return
         shape = scene.resolve_topology(owner_id, "face", face_index)
+        if self._normal_view_selection_active and shape is not None:
+            adaptor = BRepAdaptor_Surface(shape)
+            if adaptor.GetType() != GeomAbs_Plane:
+                return
+            self.selected_face = shape
+            self.selected_face_object_id = owner_id
+            self._view_normal_to_selected_face()
+            self.normal_view_action.setChecked(False)
+            return
         if shape is not None:
             self._apply_native_view_selection(owner_id, shape)
 
@@ -6220,6 +6259,18 @@ class MainWindow(QMainWindow):
         element_kind: str,
     ) -> None:
         if not owner_id or self.document is None:
+            return
+        if (
+            self._normal_view_selection_active
+            and element_kind == "plane"
+        ):
+            plane = self._plane_entity_from_view_key(
+                owner_id,
+                element_index,
+            )
+            if plane is not None:
+                self._view_normal_to_reference_plane(plane)
+                self.normal_view_action.setChecked(False)
             return
         self.native_viewer.set_selected_container_contents(set())
         self.native_viewer.set_selected_container_origin(None)
@@ -6566,13 +6617,22 @@ class MainWindow(QMainWindow):
             if candidate_id != entity_id:
                 continue
             index = 0
+            seen: list[Any] = []
             explorer = TopExp_Explorer(
                 model_shape,
                 selected_shape.ShapeType(),
             )
             while explorer.More():
+                candidate = explorer.Current()
+                if (
+                    selected_shape.ShapeType() == TopAbs_EDGE
+                    and any(candidate.IsSame(existing) for existing in seen)
+                ):
+                    explorer.Next()
+                    continue
+                seen.append(candidate)
                 index += 1
-                if selected_shape.IsSame(explorer.Current()):
+                if selected_shape.IsSame(candidate):
                     return index
                 explorer.Next()
         return 0
@@ -6626,11 +6686,20 @@ class MainWindow(QMainWindow):
             if candidate_id != entity_id:
                 continue
             index = 0
+            seen: list[Any] = []
             explorer = TopExp_Explorer(model_shape, shape_type)
             while explorer.More():
+                candidate = explorer.Current()
+                if (
+                    shape_type == TopAbs_EDGE
+                    and any(candidate.IsSame(existing) for existing in seen)
+                ):
+                    explorer.Next()
+                    continue
+                seen.append(candidate)
                 index += 1
                 if index == topology_index:
-                    return explorer.Current()
+                    return candidate
                 explorer.Next()
         return None
 
@@ -6643,11 +6712,20 @@ class MainWindow(QMainWindow):
         if topology_index <= 0:
             return None
         index = 0
+        seen: list[Any] = []
         explorer = TopExp_Explorer(model_shape, shape_type)
         while explorer.More():
+            candidate = explorer.Current()
+            if (
+                shape_type == TopAbs_EDGE
+                and any(candidate.IsSame(existing) for existing in seen)
+            ):
+                explorer.Next()
+                continue
+            seen.append(candidate)
             index += 1
             if index == topology_index:
-                return explorer.Current()
+                return candidate
             explorer.Next()
         return None
 
@@ -6781,11 +6859,11 @@ class MainWindow(QMainWindow):
         edit_values_action = None
         properties_action = None
         delete_action = None
-        normal_view_action = None
         suppress_action = None
         body_suppress_action = None
         add_action = None
         subtract_action = None
+        auxiliary_visibility_action = None
 
         if (
             item is not None
@@ -6800,12 +6878,18 @@ class MainWindow(QMainWindow):
             )
         elif obj is None or obj.kind == EntityKind.PART:
             create_action = menu.addAction(tr("menu.context.create_container"))
+        elif obj.kind == EntityKind.ORIGIN:
+            owner = self.document.find_parent(obj.entity_id)
+            if owner is not None and owner.kind == EntityKind.CONTAINER:
+                auxiliary_visibility_action = menu.addAction(
+                    tr(
+                        "menu.context.hide"
+                        if owner.show_auxiliary_geometry
+                        else "menu.context.unhide"
+                    )
+                )
         elif self._is_system_reference_plane(obj):
-            normal_view_action = menu.addAction(tr("menu.context.view_normal"))
-            if self._is_object_reference_plane(obj):
-                menu.addSeparator()
-                attach_action = menu.addAction(tr("menu.context.attach_to_face"))
-                create_sketch_actions = self._add_sketch_role_menu(menu, obj)
+            return
         else:
             if obj.kind == EntityKind.CONTAINER:
                 is_generic = obj.parameters.get("experimental_container") == "true"
@@ -6903,8 +6987,6 @@ class MainWindow(QMainWindow):
 
         if attach_action is not None and action == attach_action and obj is not None:
             self._begin_plane_attachment(obj.entity_id)
-        elif normal_view_action is not None and action == normal_view_action and obj is not None:
-            self._view_normal_to_reference_plane(obj)
         elif create_action is not None and action == create_action:
             self.create_new_container()
         elif (
@@ -6972,6 +7054,18 @@ class MainWindow(QMainWindow):
             self._set_object_suppressed(obj, not obj.suppressed)
         elif body_suppress_action is not None and action == body_suppress_action:
             self._set_body_suppressed(not self.document.body_is_suppressed())
+        elif (
+            auxiliary_visibility_action is not None
+            and action == auxiliary_visibility_action
+        ):
+            owner = (
+                self.document.find_parent(obj.entity_id)
+                if obj is not None
+                else None
+            )
+            if owner is not None and owner.kind == EntityKind.CONTAINER:
+                owner.show_auxiliary_geometry = not owner.show_auxiliary_geometry
+                self.rebuild_view(fit=False)
         elif obj is not None and action in (add_action, subtract_action):
             target = self._operation_target(obj)
             if target is not None:
@@ -7417,6 +7511,57 @@ class MainWindow(QMainWindow):
             for row in range(3)
         )
         self._set_view_normal(normal)
+
+    def _plane_entity_from_view_key(
+        self,
+        owner_id: str,
+        plane_index: int,
+    ) -> ZimaEntity | None:
+        if self.document is None:
+            return None
+        owner = self.document.find_entity(owner_id)
+        if owner is None:
+            return None
+        if owner.kind == EntityKind.PLANE:
+            return owner
+        if owner.kind != EntityKind.ORIGIN:
+            return None
+        plane_name = {1: "xy", 2: "yz", 3: "xz"}.get(plane_index)
+        return next(
+            (
+                child
+                for child in owner.children
+                if child.kind == EntityKind.PLANE
+                and child.parameters.get("plane") == plane_name
+            ),
+            None,
+        )
+
+    def _toggle_normal_view_selection(self, active: bool) -> None:
+        if active and self.document is None:
+            self.normal_view_action.setChecked(False)
+            return
+        self._normal_view_selection_active = active
+        self.cancel_normal_view_action.setEnabled(active)
+        self.selection_filter_combo.setEnabled(
+            self.view_selection_enabled and not active
+        )
+        if active:
+            self.native_viewer.set_selection_filter("normal")
+            self.native_viewer.set_interaction_mode("topology")
+            self.native_viewer._clear_topology_hover()
+            self.native_viewer._clear_topology_selection()
+            self.statusBar().showMessage(
+                tr("selection.status.normal_view")
+            )
+            self.native_viewer.setFocus()
+        else:
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+            self.statusBar().clearMessage()
+
+    def _cancel_normal_view_selection(self) -> None:
+        if self._normal_view_selection_active:
+            self.normal_view_action.setChecked(False)
 
     def _view_normal_to_selected_face(self) -> None:
         if self.selected_face is None:
@@ -8697,6 +8842,13 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_selected_container_origin(None)
             self.native_viewer.set_selected_container_contents(set())
             self.native_viewer.set_object_overlay(None)
+            if (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            ):
+                self.native_viewer._clear_topology_hover()
+                self.native_viewer._clear_topology_selection()
+            self._sync_constraint_reference_highlights()
             obj = self._selected_object()
             if obj is None:
                 return
@@ -8825,6 +8977,142 @@ class MainWindow(QMainWindow):
                 )
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+
+    def _sync_constraint_reference_highlights(self) -> None:
+        dialog = self.point_constraint_dialog
+        references = (
+            [
+                reference
+                for reference in dialog.references
+                if str(reference.get("key", ""))
+                in dialog.highlighted_reference_keys
+            ]
+            if dialog is not None and dialog.isVisible()
+            else []
+        )
+        owner_ids: set[str] = set()
+        edges: set[tuple[str, int]] = set()
+        points: set[tuple[str, int]] = set()
+        planes: set[tuple[str, int]] = set()
+        positions: set[tuple[float, float, float]] = set()
+        for descriptor in references:
+            entity_id = str(descriptor.get("entity_id", "")).strip()
+            if not entity_id:
+                continue
+            reference_type = str(descriptor.get("type", ""))
+            if reference_type == "entity":
+                reference = (
+                    self.document.find_entity(entity_id)
+                    if self.document is not None
+                    else None
+                )
+                parent = (
+                    self.document.find_parent(entity_id)
+                    if self.document is not None
+                    else None
+                )
+                if (
+                    reference is not None
+                    and parent is not None
+                    and parent.kind == EntityKind.ORIGIN
+                ):
+                    if reference.kind == EntityKind.AXIS:
+                        index = {"x": 1, "y": 2, "z": 3}.get(
+                            str(reference.parameters.get("axis", ""))
+                        )
+                        if index is not None:
+                            edges.add((parent.entity_id, index))
+                            continue
+                    if reference.kind == EntityKind.PLANE:
+                        index = {"xy": 1, "yz": 2, "xz": 3}.get(
+                            str(reference.parameters.get("plane", ""))
+                        )
+                        if index is not None:
+                            planes.add((parent.entity_id, index))
+                            continue
+                    if reference.kind == EntityKind.POINT:
+                        points.add((parent.entity_id, 1))
+                        continue
+                owner_ids.add(entity_id)
+                continue
+            index_key = (
+                "vertex_index"
+                if reference_type == "vertex"
+                else "topology_key"
+            )
+            try:
+                topology_index = int(descriptor.get(index_key, 0))
+            except (TypeError, ValueError):
+                continue
+            if topology_index <= 0:
+                continue
+            key = (entity_id, topology_index)
+            if reference_type == "face":
+                scene = self._native_viewer_scene
+                face = (
+                    scene.resolve_topology(
+                        entity_id,
+                        "face",
+                        topology_index,
+                    )
+                    if scene is not None
+                    else None
+                )
+                owner_shape = (
+                    scene.shapes_by_owner_id.get(entity_id)
+                    if scene is not None
+                    else None
+                )
+                if face is not None and owner_shape is not None:
+                    boundary_edges: list[Any] = []
+                    face_explorer = TopExp_Explorer(face, TopAbs_EDGE)
+                    while face_explorer.More():
+                        boundary_edges.append(face_explorer.Current())
+                        face_explorer.Next()
+                    seen_edges: list[Any] = []
+                    edge_index = 0
+                    shape_explorer = TopExp_Explorer(
+                        owner_shape,
+                        TopAbs_EDGE,
+                    )
+                    while shape_explorer.More():
+                        candidate = shape_explorer.Current()
+                        if any(
+                            candidate.IsSame(existing)
+                            for existing in seen_edges
+                        ):
+                            shape_explorer.Next()
+                            continue
+                        seen_edges.append(candidate)
+                        edge_index += 1
+                        if any(
+                            candidate.IsSame(boundary)
+                            for boundary in boundary_edges
+                        ):
+                            edges.add((entity_id, edge_index))
+                        shape_explorer.Next()
+            elif reference_type == "edge":
+                edges.add(key)
+            elif reference_type == "vertex":
+                points.add(key)
+                equations = descriptor.get("equations", [])
+                try:
+                    positions.add(
+                        (
+                            float(equations[0][3]),
+                            float(equations[1][3]),
+                            float(equations[2][3]),
+                        )
+                    )
+                except (IndexError, TypeError, ValueError):
+                    pass
+        self.native_viewer.set_constraint_reference_highlights(
+            owner_ids=owner_ids,
+            edges=edges,
+            points=points,
+            planes=planes,
+            positions=positions,
+        )
 
     def _native_object_origin(
         self,
