@@ -179,6 +179,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchConfirmCurrentRequested = Signal()
     sketchEntitySelected = Signal(str)
     sketchEntityHovered = Signal(str)
+    sketchConstraintReferenceSelected = Signal(str)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -252,6 +253,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_preview_position: tuple[float, float] | None = None
         self._sketch_preview_constraint: str | None = None
         self._sketch_selection_mode = False
+        self._sketch_constraint_selection_mode = False
         self._sketch_reference_selection_mode = False
         self._sketch_reference_snapping = False
         self._selected_sketch_entity_id: str | None = None
@@ -280,6 +282,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         | tuple[tuple[float, float], ...] = (),
         *,
         selection_mode: bool = False,
+        constraint_selection_mode: bool = False,
         selected_entity_id: str | None = None,
         external_references: tuple[dict[str, Any], ...]
         | list[dict[str, Any]] = (),
@@ -289,6 +292,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_entities = tuple(entities)
         self._sketch_pending_points = tuple(pending_points)
         self._sketch_selection_mode = selection_mode
+        self._sketch_constraint_selection_mode = (
+            constraint_selection_mode
+        )
         self._selected_sketch_entity_id = selected_entity_id
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
@@ -848,7 +854,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             self._suppress_next_context_menu = True
-            if self._sketch_selection_mode:
+            if self._sketch_constraint_selection_mode:
+                self.sketchCancelCurrentRequested.emit()
+            elif self._sketch_selection_mode:
                 self._cycle_sketch_entity(event.position())
             else:
                 self.sketchCancelCurrentRequested.emit()
@@ -869,9 +877,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                     else (candidates[0] if candidates else "")
                 )
-                self.sketchEntitySelected.emit(
-                    selected
-                )
+                if selected:
+                    self.sketchEntitySelected.emit(selected)
+                else:
+                    reference = self._sketch_external_reference_candidate(
+                        event.position()
+                    )
+                    self.sketchConstraintReferenceSelected.emit(
+                        reference[0] if reference is not None else ""
+                    )
                 self._preview_sketch_entity_id = None
                 self._sketch_cycle_ids = ()
                 self._sketch_cycle_index = -1
@@ -1047,7 +1061,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._preview_sketch_entity_id = (
                     candidates[0] if candidates else None
                 )
-                self.update()
+            reference = (
+                None
+                if candidates
+                else self._sketch_external_reference_candidate(
+                    event.position()
+                )
+            )
+            reference_id = reference[0] if reference is not None else None
+            if reference_id != self._hovered_sketch_external_reference_id:
+                self._hovered_sketch_external_reference_id = reference_id
+                self.sketchReferenceHovered.emit(reference_id or "")
+            self.update()
             super().mouseMoveEvent(event)
             return
         if (
@@ -2259,6 +2284,272 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             elif len(points) >= 2:
                 painter.setPen(QPen(yellow, 2.0))
                 painter.drawPolyline(QPolygonF(points))
+
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in self._sketch_entities
+            if entity.get("type") in ("segment", "construction")
+            and str(entity.get("id", ""))
+        }
+
+        def geometry_screen_line(
+            geometry: dict[str, Any],
+        ) -> tuple[QPointF, QPointF] | None:
+            point_ids = geometry.get("point_ids", ())
+            if not isinstance(point_ids, list) or len(point_ids) < 2:
+                return None
+            local_points = [
+                point_positions.get(str(point_id))
+                for point_id in point_ids[:2]
+            ]
+            if any(point is None for point in local_points):
+                return None
+            return tuple(
+                self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(point)
+                    )
+                )
+                for point in local_points
+            )
+
+        def normalized_screen_direction(
+            first: QPointF,
+            second: QPointF,
+        ) -> tuple[float, float] | None:
+            dx = second.x() - first.x()
+            dy = second.y() - first.y()
+            length = hypot(dx, dy)
+            if length <= 1.0e-9:
+                return None
+            return dx / length, dy / length
+
+        def draw_perpendicular_symbol(
+            constrained_line: tuple[QPointF, QPointF],
+            reference_line: tuple[QPointF, QPointF],
+        ) -> None:
+            constrained_first, constrained_second = constrained_line
+            reference_first, reference_second = reference_line
+            cx = constrained_second.x() - constrained_first.x()
+            cy = constrained_second.y() - constrained_first.y()
+            rx = reference_second.x() - reference_first.x()
+            ry = reference_second.y() - reference_first.y()
+            denominator = cx * ry - cy * rx
+            if abs(denominator) <= 1.0e-9:
+                return
+            offset_x = reference_first.x() - constrained_first.x()
+            offset_y = reference_first.y() - constrained_first.y()
+            fraction = (offset_x * ry - offset_y * rx) / denominator
+            intersection = QPointF(
+                constrained_first.x() + fraction * cx,
+                constrained_first.y() + fraction * cy,
+            )
+            constrained_distance, _ = self._point_segment_distance(
+                intersection,
+                constrained_first,
+                constrained_second,
+            )
+            reference_distance, _ = self._point_segment_distance(
+                intersection,
+                reference_first,
+                reference_second,
+            )
+            use_intersection = (
+                constrained_distance <= 18.0
+                and reference_distance <= 18.0
+            )
+            anchor = (
+                intersection
+                if use_intersection
+                else QPointF(
+                    (
+                        constrained_first.x()
+                        + constrained_second.x()
+                    )
+                    * 0.5,
+                    (
+                        constrained_first.y()
+                        + constrained_second.y()
+                    )
+                    * 0.5,
+                )
+            )
+            constrained_direction = normalized_screen_direction(
+                anchor,
+                QPointF(
+                    (
+                        constrained_first.x()
+                        + constrained_second.x()
+                    )
+                    * 0.5,
+                    (
+                        constrained_first.y()
+                        + constrained_second.y()
+                    )
+                    * 0.5,
+                ),
+            )
+            if constrained_direction is None:
+                constrained_direction = normalized_screen_direction(
+                    constrained_first,
+                    constrained_second,
+                )
+            reference_direction = normalized_screen_direction(
+                anchor,
+                QPointF(
+                    (reference_first.x() + reference_second.x()) * 0.5,
+                    (reference_first.y() + reference_second.y()) * 0.5,
+                ),
+            )
+            if reference_direction is None:
+                reference_direction = normalized_screen_direction(
+                    reference_first,
+                    reference_second,
+                )
+            if constrained_direction is None or reference_direction is None:
+                return
+            ux, uy = constrained_direction
+            vx, vy = reference_direction
+            if not use_intersection:
+                # At the fallback midpoint choose the side with the clearest
+                # conventional right-angle mark.
+                vx, vy = -uy, ux
+            size = 10.0
+            first_corner = QPointF(
+                anchor.x() + ux * size,
+                anchor.y() + uy * size,
+            )
+            square_corner = QPointF(
+                first_corner.x() + vx * size,
+                first_corner.y() + vy * size,
+            )
+            second_corner = QPointF(
+                anchor.x() + vx * size,
+                anchor.y() + vy * size,
+            )
+            painter.drawPolyline(
+                QPolygonF((first_corner, square_corner, second_corner))
+            )
+
+        constraint_color = QColor("#7CFF6B")
+        constraint_font = painter.font()
+        constraint_font.setBold(True)
+        painter.setFont(constraint_font)
+        painter.setPen(QPen(constraint_color, 2.0))
+        for geometry in geometry_by_id.values():
+            constraints = geometry.get("constraints", ())
+            if not isinstance(constraints, list):
+                continue
+            direction_constraint = next(
+                (
+                    str(constraint.get("type"))
+                    for constraint in constraints
+                    if isinstance(constraint, dict)
+                    and constraint.get("type") in ("horizontal", "vertical")
+                ),
+                None,
+            )
+            if direction_constraint is None:
+                continue
+            line = geometry_screen_line(geometry)
+            if line is None:
+                continue
+            first, second = line
+            direction = normalized_screen_direction(first, second)
+            if direction is None:
+                continue
+            dx, dy = direction
+            label = "H" if direction_constraint == "horizontal" else "V"
+            metrics = painter.fontMetrics()
+            label_width = metrics.horizontalAdvance(label)
+            label_position = QPointF(
+                (first.x() + second.x()) * 0.5
+                - label_width * 0.5
+                - dy * 11.0,
+                (first.y() + second.y()) * 0.5
+                + metrics.ascent() * 0.5
+                + dx * 11.0,
+            )
+            painter.drawText(label_position, label)
+
+        for geometry in geometry_by_id.values():
+            constraints = geometry.get("constraints", ())
+            if not isinstance(constraints, list) or not any(
+                isinstance(constraint, dict)
+                and constraint.get("type") == "parallel"
+                for constraint in constraints
+            ):
+                continue
+            line = geometry_screen_line(geometry)
+            if line is None:
+                continue
+            first, second = line
+            direction = normalized_screen_direction(first, second)
+            if direction is None:
+                continue
+            dx, dy = direction
+            label = "∥"
+            label_width = painter.fontMetrics().horizontalAdvance(label)
+            painter.drawText(
+                QPointF(
+                    (first.x() + second.x()) * 0.5
+                    - label_width * 0.5
+                    - dy * 11.0,
+                    (first.y() + second.y()) * 0.5
+                    + painter.fontMetrics().ascent() * 0.5
+                    + dx * 11.0,
+                ),
+                label,
+            )
+
+        painter.setPen(QPen(constraint_color, 2.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for geometry in geometry_by_id.values():
+            constraints = geometry.get("constraints", ())
+            if not isinstance(constraints, list):
+                continue
+            constrained_line = geometry_screen_line(geometry)
+            if constrained_line is None:
+                continue
+            for constraint in constraints:
+                if (
+                    not isinstance(constraint, dict)
+                    or constraint.get("type") != "perpendicular"
+                ):
+                    continue
+                reference_id = str(
+                    constraint.get("reference_id", "")
+                )
+                if reference_id in ("sketch_axis:x", "sketch_axis:y"):
+                    axis_end = (
+                        (1.0, 0.0)
+                        if reference_id == "sketch_axis:x"
+                        else (0.0, 1.0)
+                    )
+                    reference_line = tuple(
+                        self._screen_point(
+                            self._camera_point(
+                                self._sketch_world_point(point)
+                            )
+                        )
+                        for point in ((0.0, 0.0), axis_end)
+                    )
+                    draw_perpendicular_symbol(
+                        constrained_line,
+                        reference_line,
+                    )
+                    continue
+                reference = geometry_by_id.get(
+                    str(constraint.get("geometry_id", ""))
+                )
+                if reference is None:
+                    continue
+                reference_line = geometry_screen_line(reference)
+                if reference_line is not None:
+                    draw_perpendicular_symbol(
+                        constrained_line,
+                        reference_line,
+                    )
 
         if self._sketch_pending_points:
             pending = [

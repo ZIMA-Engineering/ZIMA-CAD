@@ -83,10 +83,42 @@ alespoň dvou bodů dokončí.
 Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
 prostředním tlačítkem nadále pouze otáčí pohled a zadání nepotvrdí.
 
-Každý bod skici je řízený kótami X/Y od lokálního počátku. Zachycení k ose X,
-ose Y nebo počátku pouze nastaví příslušnou kótu přesně na nulu. Konstrukční
-čára i další geometrie odkazují na své řídicí body; kliknutí do volného místa
-bod vytvoří a kliknutí poblíž existujícího bodu jej znovu použije.
+Každý bod má interní souřadnice X/Y, ty ale bez explicitní uživatelské kóty
+nejsou podmínkou a nezobrazují se. Solver je používá jako aktuální polohu a smí
+je měnit při řešení vazeb. Konstrukční čára i další geometrie odkazují na své
+řídicí body; kliknutí do volného místa bod vytvoří a kliknutí poblíž
+existujícího bodu jej znovu použije.
+
+Řídicí souřadnicová kóta se vytvoří příkazem **Kóty → Vodorovná vzdálenost**
+nebo **Kóty → Svislá vzdálenost** a následným výběrem bodu. Teprve takto
+vytvořená kóta se zobrazí a její hodnota vstupuje do solveru.
+
+Příkaz **Kóty → Vzdálenost** vytvoří po výběru dvou bodů šikmou řídicí kótu.
+Její hodnota je skutečná eukleidovská vzdálenost bodů. Při změně hodnoty se
+zachová dosavadní směr spojnice, pokud jej jiné vazby neurčují jinak.
+Explicitní kóty jsou ve skicáři zobrazené vždy; samostatný přepínač jejich
+viditelnosti se nepoužívá.
+
+V nabídce **Vazby → Kolmá** vyberte postupně dvě úsečky nebo konstrukční
+čáry. První určuje směr. U druhé zůstane zachovaný první bod a délka; její
+druhý bod se dopočítá tak, aby byly čáry kolmé. Pravé tlačítko zruší první
+výběr. Po výběru úsečky lze jako druhou referenci zvolit také čárkovanou
+lokální osu X nebo Y skici. Vazbu lze odstranit z kontextové nabídky ve
+stromu skici.
+
+Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
+úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
+druhého bodu se dopočítá. Vodorovné a svislé vazby jsou uprostřed geometrie
+označené zeleným písmenem **H** nebo **V**.
+
+V nabídce **Vazby → Rovnoběžná** vyberte referenční a potom řízenou úsečku.
+Solver zachová délku řízené úsečky a natočí ji rovnoběžně; vazbu označuje
+zelený symbol **∥**.
+
+Zobrazené explicitní kóty lze pravým tlačítkem **Zamknout** nebo
+**Odemknout**. Zamknutá kóta je řídicí: solver zachová její hodnotu.
+Odemknutím přestane být podmínkou a z pohledu zmizí. Stav se ukládá společně
+se skicou.
 
 Tlačítko **Pohled kolmo** s ikonou normálového pohledu kdykoliv znovu narovná
 a vystředí kameru podle aktivní skici.
