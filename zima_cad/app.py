@@ -185,6 +185,112 @@ def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
         apply_button.setText(tr("button.apply"))
 
 
+class DialogMiddleButtonFilter(QObject):
+    """Provide the shared middle-click Apply/OK convention to dialogs."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._dialog: QDialog | None = None
+        self._origin: QPointF | None = None
+        self._moved = False
+        self._chord = False
+        self._suppress_release = False
+
+    @staticmethod
+    def _event_dialog(watched) -> QDialog | None:
+        if not isinstance(watched, QWidget):
+            return None
+        window = watched.window()
+        if (
+            not isinstance(window, QDialog)
+            or getattr(window, "_handles_middle_confirmation", False)
+        ):
+            return None
+        return window
+
+    @staticmethod
+    def _click_standard_button(
+        dialog: QDialog,
+        standard_button: QDialogButtonBox.StandardButton,
+    ) -> bool:
+        for button_box in dialog.findChildren(QDialogButtonBox):
+            button = button_box.button(standard_button)
+            if (
+                button is not None
+                and button.isVisible()
+                and button.isEnabled()
+            ):
+                button.click()
+                return True
+        return False
+
+    def eventFilter(self, watched, event) -> bool:
+        dialog = self._event_dialog(watched)
+        if dialog is None:
+            return False
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.MiddleButton
+        ):
+            self._dialog = dialog
+            self._origin = event.globalPosition()
+            self._moved = False
+            self._chord = bool(
+                event.buttons() & Qt.MouseButton.RightButton
+            )
+            self._suppress_release = False
+        elif (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.RightButton
+            and self._origin is not None
+        ):
+            self._chord = True
+        elif (
+            event.type() == QEvent.Type.MouseMove
+            and self._origin is not None
+            and event.buttons() & Qt.MouseButton.MiddleButton
+        ):
+            delta = event.globalPosition() - self._origin
+            if abs(delta.x()) + abs(delta.y()) > 3.0:
+                self._moved = True
+            if event.buttons() & Qt.MouseButton.RightButton:
+                self._chord = True
+        elif (
+            event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.MiddleButton
+        ):
+            self._suppress_release = True
+            self._origin = None
+            self._click_standard_button(
+                dialog,
+                QDialogButtonBox.StandardButton.Ok,
+            )
+            event.accept()
+            return True
+        elif (
+            event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.MiddleButton
+        ):
+            apply = (
+                self._dialog is dialog
+                and self._origin is not None
+                and not self._moved
+                and not self._chord
+                and not self._suppress_release
+            )
+            self._dialog = None
+            self._origin = None
+            self._moved = False
+            self._chord = False
+            self._suppress_release = False
+            if apply:
+                self._click_standard_button(
+                    dialog,
+                    QDialogButtonBox.StandardButton.Apply,
+                )
+        return False
+
+
 def position_dialog_top_right(dialog: QDialog) -> None:
     parent = dialog.parentWidget()
     if (
@@ -814,6 +920,7 @@ class PointConstraintDialog(QDialog):
         reference_kind_callback: Callable[[str], EntityKind | None] | None = None,
     ) -> None:
         super().__init__(parent)
+        self._handles_middle_confirmation = True
         if isinstance(parent, QWidget):
             self.setWindowFlags(
                 Qt.WindowType.SubWindow
@@ -1320,6 +1427,32 @@ class PointConstraintDialog(QDialog):
             for existing in self.references
         ):
             return
+        is_surface_reference = (
+            reference.get("type") == "face"
+            or (
+                reference.get("type") == "entity"
+                and self.reference_kind_callback(
+                    str(reference.get("entity_id", ""))
+                )
+                == EntityKind.PLANE
+            )
+        )
+        is_first_surface_reference = (
+            is_surface_reference
+            and not any(
+                existing.get("type") == "face"
+                or (
+                    existing.get("type") == "entity"
+                    and self.reference_kind_callback(
+                        str(existing.get("entity_id", ""))
+                    )
+                    == EntityKind.PLANE
+                )
+                for existing in self.references
+            )
+        )
+        if is_first_surface_reference:
+            reference["plane_role"] = "orientation"
         fallback = tuple(edit.value() for edit in self.coordinate_edits)
         trial_solution, trial_dof, _status, _constrained = (
             self.solve_callback(
@@ -1333,6 +1466,17 @@ class PointConstraintDialog(QDialog):
             or trial_solution is None
             or trial_dof >= current_dof
         ):
+            if is_first_surface_reference:
+                reference["position_role"] = "orientation_only"
+                self.references.append(reference)
+                self.highlighted_reference_keys.add(
+                    str(reference.get("key", ""))
+                )
+                self._append_reference_row(reference)
+                self._refresh_reference_item_warnings()
+                self._update_solution()
+                return
+            reference.pop("plane_role", None)
             self.reference_status_label.setStyleSheet(
                 "color: #ed7777; font-weight: 700;"
             )
@@ -1539,10 +1683,26 @@ class AxisConstraintDialog(PointConstraintDialog):
         self._set_container_type(ContainerType.AXIS)
         axis_form = QFormLayout()
         self.rotation_edits: list[QDoubleSpinBox] = []
+        has_rotation_offsets = (
+            axis_entity is not None
+            and all(
+                f"rotation_offset_{axis}" in axis_entity.parameters
+                for axis in ("x", "y", "z")
+            )
+        )
         rotation = (
-            axis_object.coordinate_system.rotation
-            if axis_object is not None
-            else (0.0, 0.0, 0.0)
+            tuple(
+                float(
+                    axis_entity.parameters[f"rotation_offset_{axis}"]
+                )
+                for axis in ("x", "y", "z")
+            )
+            if has_rotation_offsets
+            else (
+                axis_object.coordinate_system.rotation
+                if axis_object is not None
+                else (0.0, 0.0, 0.0)
+            )
         )
         for label, value in zip(("RX", "RY", "RZ"), rotation):
             spinbox = QDoubleSpinBox()
@@ -1691,7 +1851,92 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                 else 50.0
             )
         )
+        if type(self) is PlaneConstraintDialog:
+            self._normalize_orientation_reference()
         self._update_window_title()
+
+    def _is_orientation_reference(
+        self,
+        reference: dict[str, Any],
+    ) -> bool:
+        if reference.get("type") == "face":
+            return True
+        return (
+            reference.get("type") == "entity"
+            and self.reference_kind_callback(
+                str(reference.get("entity_id", ""))
+            )
+            == EntityKind.PLANE
+        )
+
+    def _normalize_orientation_reference(self) -> None:
+        orientation = next(
+            (
+                reference
+                for reference in self.references
+                if reference.get("plane_role") == "orientation"
+                and self._is_orientation_reference(reference)
+            ),
+            None,
+        )
+        if orientation is None:
+            orientation = next(
+                (
+                    reference
+                    for reference in self.references
+                    if self._is_orientation_reference(reference)
+                ),
+                None,
+            )
+        for reference in self.references:
+            reference.pop("plane_role", None)
+        if orientation is not None:
+            orientation["plane_role"] = "orientation"
+
+    def _add_reference(self, reference: dict[str, Any]) -> None:
+        if type(self) is not PlaneConstraintDialog:
+            super()._add_reference(reference)
+            return
+        is_first_orientation = (
+            self._is_orientation_reference(reference)
+            and not any(
+                existing.get("plane_role") == "orientation"
+                for existing in self.references
+            )
+        )
+        if is_first_orientation:
+            reference["plane_role"] = "orientation"
+        previous_count = len(self.references)
+        super()._add_reference(reference)
+        if len(self.references) != previous_count:
+            return
+        if not is_first_orientation:
+            reference.pop("plane_role", None)
+            return
+
+        # A plane's first surface reference also carries orientation.  If its
+        # origin is already fully located (for example by a point), retain the
+        # surface as an orientation-only reference instead of rejecting it as
+        # a redundant or conflicting positional equation.
+        reference["position_role"] = "orientation_only"
+        self.references.append(reference)
+        self.highlighted_reference_keys.add(str(reference.get("key", "")))
+        self._append_reference_row(reference)
+        self._refresh_reference_item_warnings()
+        self._update_solution()
+
+    def _remove_reference_at(self, row: int) -> None:
+        if type(self) is not PlaneConstraintDialog:
+            super()._remove_reference_at(row)
+            return
+        removed_orientation = (
+            0 <= row < len(self.references)
+            and self.references[row].get("plane_role") == "orientation"
+        )
+        super()._remove_reference_at(row)
+        if removed_orientation:
+            self._normalize_orientation_reference()
+            self.definitionChanged.emit()
 
     def add_reference(self, reference: ZimaEntity) -> None:
         if reference.kind == EntityKind.ORIGIN:
@@ -3114,6 +3359,18 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
 
+        application = QApplication.instance()
+        if (
+            application is not None
+            and not hasattr(application, "_dialog_middle_button_filter")
+        ):
+            application._dialog_middle_button_filter = (
+                DialogMiddleButtonFilter(application)
+            )
+            application.installEventFilter(
+                application._dialog_middle_button_filter
+            )
+
         self.workspace = workspace or ApplicationWorkspace()
         self.workspace.windows.append(self)
         self.workspace.sessionsChanged.connect(
@@ -3312,6 +3569,13 @@ class MainWindow(QMainWindow):
             self._cancel_normal_view_selection
         )
         self.addAction(self.cancel_normal_view_action)
+        self.close_active_tab_action = QAction(self)
+        self.close_active_tab_action.setShortcut(QKeySequence("F2"))
+        self.close_active_tab_action.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
+        self.close_active_tab_action.triggered.connect(self.close_document)
+        self.addAction(self.close_active_tab_action)
         self.standard_view_combo = QComboBox()
         for text_key, view_name in (
             ("toolbar.standard_views", ""),
@@ -3881,6 +4145,9 @@ class MainWindow(QMainWindow):
         )
         obj.name = name
         obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = self._plane_reference_rotation(
+            constraint_references
+        )
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
         origin = next(
@@ -3912,6 +4179,7 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
             }
         )
         self._populate_tree()
@@ -4106,6 +4374,9 @@ class MainWindow(QMainWindow):
             return
         obj.name = name
         obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = self._plane_reference_rotation(
+            constraint_references
+        )
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
         if not point.locked:
@@ -4120,6 +4391,7 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
             }
         )
         self._refresh_object_properties(obj)
@@ -4136,6 +4408,8 @@ class MainWindow(QMainWindow):
     ]:
         equations: list[list[float]] = []
         for descriptor in references:
+            if descriptor.get("position_role") == "orientation_only":
+                continue
             if descriptor.get("type") != "entity":
                 resolved = self._resolved_shape_reference_equations(descriptor)
                 rows = (
@@ -4764,8 +5038,8 @@ class MainWindow(QMainWindow):
         )
         self._refresh_object_properties(obj)
 
-    @staticmethod
     def _set_axis_definition(
+        self,
         obj: ZimaEntity,
         axis: ZimaEntity,
         references: list[dict[str, Any]],
@@ -4778,9 +5052,13 @@ class MainWindow(QMainWindow):
         length: float,
         solution: tuple[float, float, float],
     ) -> None:
+        base_rotation = self._plane_reference_rotation(references)
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = rotation
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index]
+            for index in range(3)
+        )
         obj.show_internal_entities = show_internal
         obj.show_auxiliary_geometry = show_auxiliary
         axis.name = name
@@ -4799,6 +5077,10 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
             }
         )
 
@@ -4909,9 +5191,21 @@ class MainWindow(QMainWindow):
         references: list[dict[str, Any]],
     ) -> tuple[float, float, float]:
         normal = None
-        for descriptor in references:
+        ordered_references = sorted(
+            enumerate(references),
+            key=lambda item: (
+                item[1].get("plane_role") != "orientation",
+                item[0],
+            ),
+        )
+        for _index, descriptor in ordered_references:
             if descriptor.get("type") == "face":
                 rows = self._resolved_shape_reference_equations(descriptor)
+                if rows is None:
+                    rows = [
+                        list(row)
+                        for row in descriptor.get("equations", ())
+                    ]
                 if rows:
                     normal = tuple(rows[0][:3])
                     break
@@ -4920,21 +5214,38 @@ class MainWindow(QMainWindow):
             reference = self.document.find_entity(
                 str(descriptor.get("entity_id", ""))
             )
-            if reference is None or reference.kind != EntityKind.PLANE:
+            if reference is None:
                 continue
-            local_normal = {
-                "xy": (0.0, 0.0, 1.0),
-                "yz": (1.0, 0.0, 0.0),
-                "xz": (0.0, 1.0, 0.0),
-            }.get(str(reference.parameters.get("plane", "xy")))
+            if reference.kind == EntityKind.PLANE:
+                local_normal = {
+                    "xy": (0.0, 0.0, 1.0),
+                    "yz": (1.0, 0.0, 0.0),
+                    "xz": (0.0, 1.0, 0.0),
+                }.get(str(reference.parameters.get("plane", "xy")))
+            elif reference.kind in (EntityKind.POINT, EntityKind.ORIGIN):
+                # A point has no visible direction, but its owning container
+                # carries the local frame inherited from its surface.
+                local_normal = (0.0, 0.0, 1.0)
+            else:
+                local_normal = None
             if local_normal is not None:
                 normal = self._reference_direction(reference, local_normal)
                 break
         if normal is None:
             return (0.0, 0.0, 0.0)
         nx, ny, nz = self._normalized_vector(normal)
-        rx = math.degrees(math.atan2(-ny, nz))
-        ry = math.degrees(math.atan2(nx, math.hypot(ny, nz)))
+        # The datum plane is locally XY, therefore its normal is local +Z.
+        # With our Rz * Ry * Rx transform and Rz fixed to zero, transformed
+        # +Z is (sin(ry) cos(rx), -sin(rx), cos(ry) cos(rx)).
+        # Solve those equations directly; the previous atan2-based RX formula
+        # failed for vertical planes whose normal has nz == 0 (notably the
+        # sloped face of a wedge).
+        rx = math.degrees(math.asin(max(-1.0, min(1.0, -ny))))
+        ry = (
+            0.0
+            if math.hypot(nx, nz) <= 1e-12
+            else math.degrees(math.atan2(nx, nz))
+        )
         return (rx, ry, 0.0)
 
     def _apply_new_constrained_solid(
@@ -5027,8 +5338,8 @@ class MainWindow(QMainWindow):
         )
         self._refresh_object_properties(obj)
 
-    @staticmethod
     def _set_experimental_container_definition(
+        self,
         obj,
         references,
         fallback,
@@ -5039,9 +5350,13 @@ class MainWindow(QMainWindow):
         solution,
         container_type,
     ) -> None:
+        base_rotation = self._plane_reference_rotation(references)
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = rotation
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index]
+            for index in range(3)
+        )
         obj.show_internal_entities = show_internal
         obj.show_auxiliary_geometry = show_auxiliary
         obj.parameters.update(
@@ -5053,6 +5368,10 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
             }
         )
 
@@ -5080,8 +5399,8 @@ class MainWindow(QMainWindow):
         )
         self._refresh_object_properties(obj)
 
-    @staticmethod
     def _set_solid_definition(
+        self,
         obj,
         solid,
         references,
@@ -5094,9 +5413,13 @@ class MainWindow(QMainWindow):
         solution,
         operation,
     ) -> None:
+        base_rotation = self._plane_reference_rotation(references)
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = rotation
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index]
+            for index in range(3)
+        )
         obj.show_internal_entities = show_internal
         obj.show_auxiliary_geometry = show_auxiliary
         solid.name = name
@@ -5114,6 +5437,10 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
             }
         )
 
@@ -9026,7 +9353,16 @@ class MainWindow(QMainWindow):
                 unresolved_entities += 1
                 continue
             obj.coordinate_system.origin = solution
-            if entity.kind in (EntityKind.PLANE, EntityKind.SKETCH):
+            if (
+                entity.kind in (EntityKind.PLANE, EntityKind.SKETCH)
+                or str(
+                    entity.parameters.get(
+                        "reference_orientation",
+                        "false",
+                    )
+                ).lower()
+                == "true"
+            ):
                 base_rotation = self._plane_reference_rotation(references)
                 offsets = tuple(
                     float(

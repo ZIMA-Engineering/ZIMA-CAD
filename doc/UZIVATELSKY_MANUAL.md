@@ -7,8 +7,9 @@
 | Prostřední tlačítko + pohyb myši | Otáčení pohledu |
 | Prostřední + pravé tlačítko + pohyb myši | Posun pohledu |
 | Kolečko myši | Přiblížení a oddálení |
-| Jeden klik prostředním tlačítkem | Použít změny v aktivním okně Vlastnosti |
-| Dvojklik prostředním tlačítkem | Potvrzení aktivního okna Vlastnosti |
+| Jeden klik prostředním tlačítkem | Použít změny v aktivním dialogu, pokud nabízí tlačítko Použít |
+| Dvojklik prostředním tlačítkem | Potvrzení aktivního dialogu tlačítkem OK |
+| F2 | Zavřít aktivní dokumentový tab |
 
 Po posunu kombinací prostředního a pravého tlačítka se kontextové menu
 neotevře.
@@ -47,11 +48,12 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   ve 3D pohledu.
 - `Enter` v číselném poli dokončí zadání hodnoty, ale okno nezavře.
 - **Použít** potvrdí aktuální stav a ponechá okno otevřené.
-- Jeden klik prostředním tlačítkem odpovídá tlačítku **Použít**.
+- Jeden klik prostředním tlačítkem odpovídá tlačítku **Použít**. Pravidlo
+  platí globálně také v dialozích nového souboru, materiálu a nastavení.
 - **OK** potvrdí změny a zavře okno.
 - **Zrušit** obnoví stav při otevření okna nebo stav naposledy potvrzený
   tlačítkem **Použít**.
-- Dvojklik prostředním tlačítkem ve view odpovídá tlačítku **OK**.
+- Dvojklik prostředním tlačítkem odpovídá tlačítku **OK** v aktivním dialogu.
 
 ### Operace solidu
 
