@@ -168,6 +168,7 @@ TREE_ICON_NAMES = {
     EntityKind.BOX: "box",
     EntityKind.SPHERE: "sphere",
     EntityKind.CYLINDER: "cylinder",
+    EntityKind.CONE: "cone",
     EntityKind.PYRAMID: "pyramid",
     EntityKind.WEDGE: "wedge",
 }
@@ -3472,6 +3473,7 @@ class MainWindow(QMainWindow):
         self._native_viewer_scene: DocumentViewerScene | None = None
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
+        self._dimension_bindings: dict[str, tuple[str, str | int]] = {}
         self.native_viewer.navigationChanged.connect(
             lambda _camera: self._position_dimension_overlays()
         )
@@ -3832,6 +3834,17 @@ class MainWindow(QMainWindow):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-weight: 600; padding: 6px;")
         self.tools_toolbar.addWidget(heading)
+        heading_separator = QWidget()
+        heading_separator.setObjectName("applicationHeadingSeparator")
+        heading_separator.setFixedHeight(2)
+        heading_separator.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        heading_separator.setStyleSheet(
+            "background-color: #4DD811;"
+        )
+        self.tools_toolbar.addWidget(heading_separator)
 
         if self.active_application == ApplicationMode.MODELING:
             new_container_action = self.tools_toolbar.addAction(
@@ -3873,6 +3886,7 @@ class MainWindow(QMainWindow):
                     EntityKind.BOX: "box",
                     EntityKind.SPHERE: "sphere",
                     EntityKind.CYLINDER: "cylinder",
+                    EntityKind.CONE: "cone",
                     EntityKind.PYRAMID: "pyramid",
                     EntityKind.WEDGE: "wedge",
                 }.get(kind)
@@ -8999,20 +9013,41 @@ class MainWindow(QMainWindow):
         obj: ZimaEntity,
         _position: QPoint,
     ) -> bool:
-        primitive = self._first_editable_solid(obj)
-        if primitive is None:
+        entity = self._first_editable_dimension_entity(obj)
+        if entity is None:
             return False
-        dimensions = self._primitive_dimensions(primitive)
+        dimensions = (
+            self._primitive_dimensions(entity)
+            if entity.kind in SOLID_KINDS
+            else self._construction_entity_dimensions(entity)
+        )
+        dimensions = (*dimensions, *self._reference_dimensions(entity))
         if not dimensions:
             return False
         self._clear_dimension_overlays()
-        self._dimension_object_id = primitive.entity_id
+        self._dimension_object_id = entity.entity_id
         self.native_viewer.set_dimensions(dimensions)
-        unit = str(primitive.parameters.get("unit", "mm"))
+        unit = str(entity.parameters.get("unit", "mm"))
         for dimension in dimensions:
             overlay = ParameterEditOverlay(self.native_viewer)
+            if dimension.key.startswith("reference_offset:"):
+                reference_index = int(dimension.key.rsplit(":", 1)[1])
+                references = self._constraint_references(entity)
+                value = str(
+                    references[reference_index].get("offset", 0.0)
+                )
+                self._dimension_bindings[dimension.key] = (
+                    "reference_offset",
+                    reference_index,
+                )
+            else:
+                value = str(entity.parameters.get(dimension.key, "0"))
+                self._dimension_bindings[dimension.key] = (
+                    "parameter",
+                    dimension.key,
+                )
             overlay.show_value(
-                str(primitive.parameters.get(dimension.key, "0")),
+                value,
                 unit,
             )
             overlay.valueCommitted.connect(
@@ -9029,6 +9064,7 @@ class MainWindow(QMainWindow):
             overlay.deleteLater()
         self._dimension_overlays.clear()
         self._dimension_object_id = None
+        self._dimension_bindings.clear()
         self.native_viewer.set_dimensions(())
 
     def _position_dimension_overlays(self) -> None:
@@ -9040,11 +9076,14 @@ class MainWindow(QMainWindow):
     def _commit_dimension_value(self, key: str, raw_value: str) -> None:
         if self.document is None or self._dimension_object_id is None:
             return
-        primitive = self.document.find_entity(self._dimension_object_id)
-        if primitive is None:
+        entity = self.document.find_entity(self._dimension_object_id)
+        if entity is None:
             self._clear_dimension_overlays()
             return
-        unit = str(primitive.parameters.get("unit", "mm")).strip()
+        binding = self._dimension_bindings.get(key)
+        if binding is None:
+            return
+        unit = str(entity.parameters.get("unit", "mm")).strip()
         value_text = raw_value.strip()
         if unit and value_text.lower().endswith(unit.lower()):
             value_text = value_text[:-len(unit)].strip()
@@ -9055,16 +9094,43 @@ class MainWindow(QMainWindow):
                 tr("dimension.invalid_value", value=raw_value)
             )
             return
-        if not math.isfinite(value) or value < 0.0:
+        if (
+            not math.isfinite(value)
+            or (binding[0] == "parameter" and value < 0.0)
+        ):
             self.statusBar().showMessage(
                 tr("dimension.invalid_value", value=raw_value)
             )
             return
-        primitive.parameters[key] = f"{value:.12g}"
+        if binding[0] == "reference_offset":
+            references = self._constraint_references(entity)
+            reference_index = int(binding[1])
+            if not 0 <= reference_index < len(references):
+                self._clear_dimension_overlays()
+                return
+            references[reference_index]["offset"] = value
+            entity.parameters["constraint_refs"] = json.dumps(
+                references,
+                ensure_ascii=False,
+            )
+            owner = self.document.find_owning_object(entity.entity_id)
+            fallback = self._constraint_fallback(entity, owner)
+            solution, _dof, _status, _constrained = (
+                self._solve_point_constraints(references, fallback)
+            )
+            if solution is None:
+                self.statusBar().showMessage(
+                    tr("dimension.invalid_value", value=raw_value)
+                )
+                return
+            if owner is not None:
+                owner.coordinate_system.origin = solution
+        else:
+            entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
         self._show_edit_overlays(
-            primitive,
+            entity,
             QPoint(
                 self.native_viewer.width() // 2,
                 self.native_viewer.height() // 2,
@@ -9073,6 +9139,242 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("dimension.value_updated", value=f"{value:.12g}", unit=unit)
         )
+
+    @staticmethod
+    def _constraint_references(
+        entity: ZimaEntity,
+    ) -> list[dict[str, Any]]:
+        try:
+            references = json.loads(
+                str(entity.parameters.get("constraint_refs", "[]"))
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        return references if isinstance(references, list) else []
+
+    @staticmethod
+    def _constraint_fallback(
+        entity: ZimaEntity,
+        owner: ZimaEntity | None,
+    ) -> tuple[float, float, float]:
+        current = (
+            owner.coordinate_system.origin
+            if owner is not None
+            else (0.0, 0.0, 0.0)
+        )
+        try:
+            return tuple(
+                float(
+                    entity.parameters.get(
+                        f"fallback_{axis}",
+                        current[index],
+                    )
+                )
+                for index, axis in enumerate(("x", "y", "z"))
+            )
+        except (TypeError, ValueError):
+            return current
+
+    def _construction_entity_dimensions(
+        self,
+        entity: ZimaEntity,
+    ) -> tuple[LinearDimension, ...]:
+        if (
+            self.document is None
+            or entity.kind not in (EntityKind.AXIS, EntityKind.PLANE)
+        ):
+            return ()
+        transform = entity_world_transform(
+            self.document,
+            entity.entity_id,
+        )
+        if transform is None:
+            return ()
+
+        def world(point):
+            return transform_point(transform, point)
+
+        if entity.kind == EntityKind.AXIS:
+            length = max(
+                0.0,
+                float(entity.parameters.get("length", 50.0)),
+            )
+            direction = {
+                "x": (1.0, 0.0, 0.0),
+                "y": (0.0, 1.0, 0.0),
+                "z": (0.0, 0.0, 1.0),
+            }.get(
+                str(entity.parameters.get("axis", "z")),
+                (0.0, 0.0, 1.0),
+            )
+            helper = (
+                (0.0, 1.0, 0.0)
+                if abs(direction[1]) < 0.9
+                else (1.0, 0.0, 0.0)
+            )
+            margin = max(5.0, length * 0.16)
+            first = tuple(-length * 0.5 * value for value in direction)
+            second = tuple(length * 0.5 * value for value in direction)
+            first_dimension = tuple(
+                first[index] + margin * helper[index]
+                for index in range(3)
+            )
+            second_dimension = tuple(
+                second[index] + margin * helper[index]
+                for index in range(3)
+            )
+            world_origin = world((0.0, 0.0, 0.0))
+            world_direction_end = world(direction)
+            world_direction = tuple(
+                world_direction_end[index] - world_origin[index]
+                for index in range(3)
+            )
+            return (
+                LinearDimension(
+                    key="length",
+                    first_point=world(first),
+                    second_point=world(second),
+                    first_dimension_point=world(first_dimension),
+                    second_dimension_point=world(second_dimension),
+                    direction=world_direction,
+                ),
+            )
+
+        size = max(0.0, float(entity.parameters.get("size", 50.0)))
+        half = size * 0.5
+        margin = max(5.0, size * 0.16)
+        plane = str(entity.parameters.get("plane", "xy"))
+        if plane == "yz":
+            first, second = (0.0, -half, -half), (0.0, half, -half)
+            offset, direction = (0.0, 0.0, -margin), (0.0, 1.0, 0.0)
+        elif plane == "xz":
+            first, second = (-half, 0.0, -half), (half, 0.0, -half)
+            offset, direction = (0.0, 0.0, -margin), (1.0, 0.0, 0.0)
+        else:
+            first, second = (-half, -half, 0.0), (half, -half, 0.0)
+            offset, direction = (0.0, -margin, 0.0), (1.0, 0.0, 0.0)
+        first_dimension = tuple(
+            first[index] + offset[index] for index in range(3)
+        )
+        second_dimension = tuple(
+            second[index] + offset[index] for index in range(3)
+        )
+        world_origin = world((0.0, 0.0, 0.0))
+        world_direction_end = world(direction)
+        return (
+            LinearDimension(
+                key="size",
+                first_point=world(first),
+                second_point=world(second),
+                first_dimension_point=world(first_dimension),
+                second_dimension_point=world(second_dimension),
+                direction=tuple(
+                    world_direction_end[index] - world_origin[index]
+                    for index in range(3)
+                ),
+            ),
+        )
+
+    def _reference_dimensions(
+        self,
+        entity: ZimaEntity,
+    ) -> tuple[LinearDimension, ...]:
+        if self.document is None or entity.kind == EntityKind.SKETCH:
+            return ()
+        references = self._constraint_references(entity)
+        if not references:
+            return ()
+        owner = self.document.find_owning_object(entity.entity_id)
+        anchor = (
+            owner.coordinate_system.origin
+            if owner is not None
+            else self._reference_origin(entity)
+        )
+        dimensions = []
+        for index, descriptor in enumerate(references):
+            rows = None
+            if descriptor.get("type") == "face":
+                rows = self._resolved_shape_reference_equations(descriptor)
+                if rows is None:
+                    rows = descriptor.get("equations", ())
+            elif descriptor.get("type") == "entity":
+                reference = self.document.find_entity(
+                    str(descriptor.get("entity_id", ""))
+                )
+                if reference is not None and reference.kind == EntityKind.PLANE:
+                    point = self._reference_origin(reference)
+                    local_normal = {
+                        "xy": (0.0, 0.0, 1.0),
+                        "yz": (1.0, 0.0, 0.0),
+                        "xz": (0.0, 1.0, 0.0),
+                    }.get(
+                        str(reference.parameters.get("plane", "xy")),
+                        (0.0, 0.0, 1.0),
+                    )
+                    normal = self._reference_direction(
+                        reference,
+                        local_normal,
+                    )
+                    rows = [
+                        [
+                            *normal,
+                            sum(
+                                normal[axis] * point[axis]
+                                for axis in range(3)
+                            ),
+                        ]
+                    ]
+            if not rows:
+                continue
+            normal = self._normalized_vector(tuple(rows[0][:3]))
+            if normal == (0.0, 0.0, 0.0):
+                continue
+            distance = float(rows[0][3])
+            offset = float(descriptor.get("offset", 0.0))
+            base = tuple(
+                anchor[axis]
+                - normal[axis]
+                * (
+                    sum(
+                        normal[item] * anchor[item]
+                        for item in range(3)
+                    )
+                    - distance
+                )
+                for axis in range(3)
+            )
+            offset_point = tuple(
+                base[axis] + normal[axis] * offset
+                for axis in range(3)
+            )
+            helper = (
+                (1.0, 0.0, 0.0)
+                if abs(normal[0]) < 0.9
+                else (0.0, 1.0, 0.0)
+            )
+            tangent = self._normalized_vector(
+                self._cross_product(normal, helper)
+            )
+            margin = 8.0
+            first_dimension = tuple(
+                base[axis] + tangent[axis] * margin
+                for axis in range(3)
+            )
+            second_dimension = tuple(
+                offset_point[axis] + tangent[axis] * margin
+                for axis in range(3)
+            )
+            dimensions.append(
+                LinearDimension(
+                    key=f"reference_offset:{index}",
+                    first_point=base,
+                    second_point=offset_point,
+                    first_dimension_point=first_dimension,
+                    second_dimension_point=second_dimension,
+                    direction=normal,
+                )
+            )
+        return tuple(dimensions)
 
     def _primitive_dimensions(
         self,
@@ -9284,6 +9586,31 @@ class MainWindow(QMainWindow):
             solid = self._first_editable_solid(child)
             if solid is not None:
                 return solid
+        return None
+
+    def _first_editable_dimension_entity(
+        self,
+        obj: ZimaEntity,
+    ) -> ZimaEntity | None:
+        if obj.kind == EntityKind.SKETCH:
+            return None
+        if (
+            obj.kind in (
+                EntityKind.POINT,
+                EntityKind.AXIS,
+                EntityKind.PLANE,
+                *SOLID_KINDS,
+            )
+            and (
+                obj.kind in SOLID_KINDS
+                or "constraint_refs" in obj.parameters
+            )
+        ):
+            return obj
+        for child in obj.children:
+            entity = self._first_editable_dimension_entity(child)
+            if entity is not None:
+                return entity
         return None
 
     def _editable_selected_object(self) -> ZimaEntity | None:

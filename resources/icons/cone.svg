@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Cone</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+
+    <path d="M12 3L5.5 18"/>
+    <path d="M12 3l6.5 15"/>
+    <ellipse cx="12" cy="18" rx="6.5" ry="2.75"/>
+    <path d="M5.5 18c0 1.5 2.9 2.75 6.5 2.75s6.5-1.25 6.5-2.75"/>
+
+  </g>
+</svg>
