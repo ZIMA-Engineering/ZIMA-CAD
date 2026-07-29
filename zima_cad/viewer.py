@@ -2256,6 +2256,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.setPen(QPen(QColor("#FF7A00"), 3.0))
                 painter.drawPolyline(QPolygonF(points))
                 painter.setPen(QPen(yellow, 2.0))
+            elif len(points) >= 2:
+                painter.setPen(QPen(yellow, 2.0))
+                painter.drawPolyline(QPolygonF(points))
 
         if self._sketch_pending_points:
             pending = [
