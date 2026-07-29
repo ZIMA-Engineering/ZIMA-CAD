@@ -66,6 +66,40 @@ Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostup
 také v kontextovém menu objektu v tree. Obě místa pracují se společným
 nastavením solidu.
 
+## Režim skici
+
+Ve Vlastnostech skici tlačítko **SKETCH** potvrdí její umístění a otevře
+samostatný režim kreslení. Tlačítko je dostupné po výběru roviny nebo rovinné
+plochy, která určuje orientaci skici.
+
+Po vstupu se pohled nastaví kolmo ke skice. Lokální osy X/Y jsou zobrazené
+hnědou tenkou čárkovanou čarou přes celé view. Profilová geometrie je modrá,
+body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
+
+Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**, **Oblouk**
+a **Spline**. Pravé tlačítko zruší rozpracovaný prvek; u spline ji po zadání
+alespoň dvou bodů dokončí.
+
+Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
+prostředním tlačítkem nadále pouze otáčí pohled a zadání nepotvrdí.
+
+Každý bod skici je řízený kótami X/Y od lokálního počátku. Zachycení k ose X,
+ose Y nebo počátku pouze nastaví příslušnou kótu přesně na nulu. Konstrukční
+čára i další geometrie odkazují na své řídicí body; kliknutí do volného místa
+bod vytvoří a kliknutí poblíž existujícího bodu jej znovu použije.
+
+Tlačítko **Pohled kolmo** s ikonou normálového pohledu kdykoliv znovu narovná
+a vystředí kameru podle aktivní skici.
+
+Nástroj **Výběr** s ikonou šipky ukončí rozpracovaný kreslicí příkaz. Kliknutím
+lze označit bod nebo geometrii oranžově a odstranit ji tlačítkem
+**Vymazat vybrané** nebo klávesou `Delete`. Odstranění řídicího bodu odstraní
+také geometrii, která je na něj navázaná.
+
+- **Dokončit skicu** uloží změny a obnoví předchozí 3D pohled.
+- **Zrušit úpravy** zahodí změny od vstupu do režimu a vrátí se do Vlastností
+  skici.
+
 ## Pomocná geometrie kontejneru
 
 Viditelnost pomocných bodů, os a rovin se ovládá v tree pravým tlačítkem nad

@@ -28,7 +28,7 @@ from zima_cad.viewer_mesh import (
 )
 
 
-SKETCH_COLOR = (0.898, 0.722, 0.18)
+SKETCH_COLOR = (0.231, 0.510, 0.965)
 
 
 @dataclass(frozen=True)

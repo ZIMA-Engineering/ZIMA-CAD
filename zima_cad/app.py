@@ -2267,6 +2267,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
     updateSketchRequested = Signal(
         list, tuple, str, bool, bool, tuple, float
     )
+    enterSketchRequested = Signal()
 
     def __init__(
         self,
@@ -2304,12 +2305,37 @@ class SketchConstraintDialog(PlaneConstraintDialog):
         self.diameter_spin.valueChanged.connect(
             lambda _value: self.definitionChanged.emit()
         )
-        layout = self.layout()
-        if isinstance(layout, QVBoxLayout):
-            form = QFormLayout()
-            form.addRow(tr("primitive.parameter.diameter"), self.diameter_spin)
-            layout.insertLayout(layout.count() - 1, form)
+        self.diameter_spin.setVisible(False)
+        buttons = self.findChild(QDialogButtonBox)
+        if buttons is not None:
+            self.sketch_button = buttons.addButton(
+                "SKETCH",
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            self.sketch_button.setStyleSheet(
+                "QPushButton { background: #4DD811; color: #102027;"
+                " font-weight: 700; padding: 6px 18px;"
+                " border-radius: 4px; }"
+                "QPushButton:hover { background: #65ec2c; }"
+            )
+            self.sketch_button.clicked.connect(self._submit_and_enter_sketch)
+            self._update_solution()
         self._update_window_title()
+
+    def _update_solution(self, _value: float | None = None) -> None:
+        super()._update_solution(_value)
+        button = getattr(self, "sketch_button", None)
+        if button is not None:
+            button.setEnabled(
+                self.solution is not None
+                and self.has_orientation_reference()
+            )
+
+    def _submit_and_enter_sketch(self) -> None:
+        if not self._submit():
+            return
+        self.enterSketchRequested.emit()
+        self.accept()
 
     def _update_window_title(self, _name: str | None = None) -> None:
         self.setWindowTitle(
@@ -3468,12 +3494,20 @@ class MainWindow(QMainWindow):
         self._definition_edit_objects: list[ZimaEntity] = []
         self._pending_attachment_plane_id: str | None = None
         self._normal_view_selection_active = False
+        self._sketch_edit_entity_id: str | None = None
+        self._sketch_previous_camera = None
+        self._sketch_baseline_parameters: dict[str, str] | None = None
+        self._sketch_tool: str | None = None
+        self._sketch_pending_points: list[tuple[float, float]] = []
+        self._sketch_pending_point_ids: list[str] = []
+        self._sketch_pending_new_point_ids: set[str] = set()
+        self._sketch_selected_entity_id: str | None = None
 
         self.native_viewer = ZimaOpenGLViewer(self)
         self._native_viewer_scene: DocumentViewerScene | None = None
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
-        self._dimension_bindings: dict[str, tuple[str, str | int]] = {}
+        self._dimension_bindings: dict[str, tuple[Any, ...]] = {}
         self.native_viewer.navigationChanged.connect(
             lambda _camera: self._position_dimension_overlays()
         )
@@ -3508,6 +3542,18 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.selectionPreviewConfirmed.connect(
             self._on_view_selection_preview_confirmed
+        )
+        self.native_viewer.sketchPositionClicked.connect(
+            self._on_sketch_position_clicked
+        )
+        self.native_viewer.sketchCancelCurrentRequested.connect(
+            self._cancel_current_sketch_entity
+        )
+        self.native_viewer.sketchConfirmCurrentRequested.connect(
+            self._confirm_current_sketch_entity
+        )
+        self.native_viewer.sketchEntitySelected.connect(
+            self._select_sketch_entity
         )
         self.regenerate_action = QAction(
             tr("command.regenerate"),
@@ -3830,7 +3876,11 @@ class MainWindow(QMainWindow):
             return
         self.tools_toolbar.clear()
 
-        heading = QLabel(tr(f"application.{self.active_application.value}"))
+        heading = QLabel(
+            tr("application.sketch")
+            if self._sketch_edit_entity_id is not None
+            else tr(f"application.{self.active_application.value}")
+        )
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-weight: 600; padding: 6px;")
         self.tools_toolbar.addWidget(heading)
@@ -3846,7 +3896,84 @@ class MainWindow(QMainWindow):
         )
         self.tools_toolbar.addWidget(heading_separator)
 
-        if self.active_application == ApplicationMode.MODELING:
+        if self._sketch_edit_entity_id is not None:
+            normal_view_action = self.tools_toolbar.addAction(
+                tr("sketch.command.normal_view")
+            )
+            normal_view_action.setIcon(resource_icon("view-normal"))
+            normal_view_action.setToolTip(
+                tr("sketch.command.normal_view.tooltip")
+            )
+            normal_view_action.triggered.connect(
+                self._align_view_to_active_sketch
+            )
+            self._mark_application_command(normal_view_action)
+            self.tools_toolbar.addSeparator()
+            select_action = self.tools_toolbar.addAction(
+                tr("sketch.tool.select")
+            )
+            select_action.setIcon(resource_icon("select"))
+            select_action.setCheckable(True)
+            select_action.setChecked(self._sketch_tool == "select")
+            select_action.triggered.connect(
+                lambda: self._set_sketch_tool("select")
+            )
+            self._mark_application_command(select_action)
+            delete_action = self.tools_toolbar.addAction(
+                tr("sketch.command.delete")
+            )
+            delete_action.setIcon(resource_icon("delete"))
+            delete_action.setShortcut(QKeySequence("Delete"))
+            delete_action.setShortcutContext(
+                Qt.ShortcutContext.ApplicationShortcut
+            )
+            delete_action.setEnabled(
+                self._sketch_selected_entity_id is not None
+            )
+            delete_action.triggered.connect(
+                self._delete_selected_sketch_entity
+            )
+            self._mark_application_command(delete_action)
+            self.tools_toolbar.addSeparator()
+            for tool, text_key in (
+                ("construction", "sketch.tool.construction"),
+                ("point", "sketch.tool.point"),
+                ("segment", "sketch.tool.segment"),
+                ("arc", "sketch.tool.arc"),
+                ("spline", "sketch.tool.spline"),
+            ):
+                action = self.tools_toolbar.addAction(tr(text_key))
+                action.setCheckable(True)
+                action.setChecked(tool == self._sketch_tool)
+                action.triggered.connect(
+                    lambda _checked=False, selected_tool=tool:
+                    self._set_sketch_tool(selected_tool)
+                )
+                self._mark_application_command(action)
+            self.tools_toolbar.addSeparator()
+            finish_action = self.tools_toolbar.addAction(
+                tr("sketch.command.finish")
+            )
+            finish_action.triggered.connect(self._finish_sketch_edit)
+            self._mark_application_command(finish_action)
+            finish_button = self.tools_toolbar.widgetForAction(finish_action)
+            if finish_button is not None:
+                finish_button.setStyleSheet(
+                    "background: rgba(77, 216, 17, 150);"
+                    "color: white; font-weight: 700;"
+                )
+            cancel_action = self.tools_toolbar.addAction(
+                tr("sketch.command.cancel")
+            )
+            cancel_action.triggered.connect(self._cancel_sketch_edit)
+            self._mark_application_command(cancel_action)
+            cancel_button = self.tools_toolbar.widgetForAction(cancel_action)
+            if cancel_button is not None:
+                cancel_button.setStyleSheet(
+                    "background: rgba(184, 50, 50, 170);"
+                    "color: white; font-weight: 700;"
+                )
+        elif self.active_application == ApplicationMode.MODELING:
             new_container_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_container")
             )
@@ -3981,6 +4108,9 @@ class MainWindow(QMainWindow):
             if dialog.point_object is not None
             and dialog.point_entity is not None
             else None
+        )
+        dialog.enterSketchRequested.connect(
+            lambda: self._queue_sketch_edit(dialog)
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
@@ -5547,8 +5677,12 @@ class MainWindow(QMainWindow):
         sketch.parameters.update(
             {
                 "plane": "xy",
-                "profile": "circle",
-                "diameter": f"{diameter:.12g}",
+                "profile": str(
+                    sketch.parameters.get("profile", "entities")
+                ),
+                "sketch_entities": str(
+                    sketch.parameters.get("sketch_entities", "[]")
+                ),
                 "unit": "mm",
                 "role": SketchRole.PROFILE.value,
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
@@ -8812,6 +8946,9 @@ class MainWindow(QMainWindow):
                 show_auxiliary, rotation, diameter,
             )
         )
+        dialog.enterSketchRequested.connect(
+            lambda: self._queue_sketch_edit(dialog)
+        )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
             lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
@@ -8820,6 +8957,574 @@ class MainWindow(QMainWindow):
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _queue_sketch_edit(self, dialog: SketchConstraintDialog) -> None:
+        sketch = dialog.point_entity
+        if sketch is None or sketch.kind != EntityKind.SKETCH:
+            return
+        sketch_id = sketch.entity_id
+        QTimer.singleShot(
+            0,
+            lambda: self._enter_sketch_edit(sketch_id),
+        )
+
+    @staticmethod
+    def _stored_sketch_entities(
+        sketch: ZimaEntity,
+    ) -> list[dict[str, Any]]:
+        try:
+            entities = json.loads(
+                str(sketch.parameters.get("sketch_entities", "[]"))
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        return (
+            [entity for entity in entities if isinstance(entity, dict)]
+            if isinstance(entities, list)
+            else []
+        )
+
+    @staticmethod
+    def _sketch_point_position(
+        point: dict[str, Any],
+    ) -> tuple[float, float]:
+        if "x" in point or "y" in point:
+            return (
+                float(point.get("x", 0.0)),
+                float(point.get("y", 0.0)),
+            )
+        legacy = point.get("points", [[0.0, 0.0]])
+        if isinstance(legacy, list) and legacy and len(legacy[0]) >= 2:
+            return float(legacy[0][0]), float(legacy[0][1])
+        return 0.0, 0.0
+
+    @staticmethod
+    def _next_sketch_point_id(
+        entities: list[dict[str, Any]],
+    ) -> str:
+        used = {
+            str(entity.get("id", ""))
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        index = 1
+        while f"p{index}" in used:
+            index += 1
+        return f"p{index}"
+
+    @staticmethod
+    def _next_sketch_geometry_id(
+        entities: list[dict[str, Any]],
+    ) -> str:
+        used = {
+            str(entity.get("id", ""))
+            for entity in entities
+            if entity.get("type") != "point"
+        }
+        index = 1
+        while f"g{index}" in used:
+            index += 1
+        return f"g{index}"
+
+    def _ensure_sketch_entity_ids(self, sketch: ZimaEntity) -> None:
+        entities = self._stored_sketch_entities(sketch)
+        changed = False
+        for entity in entities:
+            if str(entity.get("id", "")):
+                continue
+            entity["id"] = (
+                self._next_sketch_point_id(entities)
+                if entity.get("type") == "point"
+                else self._next_sketch_geometry_id(entities)
+            )
+            changed = True
+        if changed:
+            sketch.parameters["sketch_entities"] = json.dumps(
+                entities,
+                ensure_ascii=False,
+            )
+
+    def _snap_sketch_position(
+        self,
+        entities: list[dict[str, Any]],
+        position: tuple[float, float],
+    ) -> tuple[tuple[float, float], dict[str, Any] | None]:
+        tolerance = self.native_viewer.sketch_snap_tolerance()
+        nearest = None
+        nearest_distance = tolerance
+        for entity in entities:
+            if entity.get("type") != "point":
+                continue
+            point_position = self._sketch_point_position(entity)
+            distance = math.hypot(
+                position[0] - point_position[0],
+                position[1] - point_position[1],
+            )
+            if distance <= nearest_distance:
+                nearest = entity
+                nearest_distance = distance
+        if nearest is not None:
+            return self._sketch_point_position(nearest), nearest
+        x, y = position
+        if abs(x) <= tolerance:
+            x = 0.0
+        if abs(y) <= tolerance:
+            y = 0.0
+        return (x, y), None
+
+    def _ensure_sketch_point(
+        self,
+        sketch: ZimaEntity,
+        position: tuple[float, float],
+    ) -> tuple[dict[str, Any], tuple[float, float], bool]:
+        entities = self._stored_sketch_entities(sketch)
+        snapped, existing = self._snap_sketch_position(
+            entities,
+            position,
+        )
+        if existing is not None:
+            return existing, snapped, False
+        point = {
+            "type": "point",
+            "id": self._next_sketch_point_id(entities),
+            "x": snapped[0],
+            "y": snapped[1],
+        }
+        entities.append(point)
+        sketch.parameters["profile"] = "entities"
+        sketch.parameters["sketch_entities"] = json.dumps(
+            entities,
+            ensure_ascii=False,
+        )
+        return point, snapped, True
+
+    def _sketch_frame(
+        self,
+        sketch: ZimaEntity,
+    ) -> tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ] | None:
+        if self.document is None:
+            return None
+        owner = self.document.find_owning_object(sketch.entity_id)
+        if owner is None:
+            return None
+        transform = coordinate_system_transform(owner.coordinate_system)
+        origin = transform_point(transform, (0.0, 0.0, 0.0))
+        x_axis = tuple(transform[row][0] for row in range(3))
+        y_axis = tuple(transform[row][1] for row in range(3))
+        return origin, x_axis, y_axis
+
+    def _enter_sketch_edit(self, sketch_id: str) -> None:
+        if self.document is None or self._sketch_edit_entity_id is not None:
+            return
+        sketch = self.document.find_entity(sketch_id)
+        if sketch is None or sketch.kind != EntityKind.SKETCH:
+            return
+        frame = self._sketch_frame(sketch)
+        if frame is None:
+            return
+        self._clear_dimension_overlays()
+        self._ensure_sketch_entity_ids(sketch)
+        self._sketch_edit_entity_id = sketch.entity_id
+        self._sketch_previous_camera = copy.deepcopy(self.native_viewer.camera)
+        self._sketch_baseline_parameters = copy.deepcopy(sketch.parameters)
+        self._sketch_tool = "segment"
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._sketch_selected_entity_id = None
+        self._align_view_to_active_sketch()
+        self.native_viewer.set_selection_enabled(False)
+        self.native_viewer.set_sketch_overlay(
+            frame,
+            self._stored_sketch_entities(sketch),
+            selection_mode=False,
+        )
+        self._rebuild_application_toolbar()
+        self.statusBar().showMessage(tr("sketch.status.editing"))
+
+    def _align_view_to_active_sketch(self) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        frame = self._sketch_frame(sketch)
+        if frame is None:
+            return
+        normal = self._normalized_vector(
+            self._cross_product(frame[1], frame[2])
+        )
+        self.native_viewer.set_view_normal(normal)
+        self.native_viewer.center_on_world_point(frame[0])
+
+    def _set_sketch_tool(self, tool: str) -> None:
+        if self._sketch_edit_entity_id is None:
+            return
+        if tool == "select":
+            self._remove_pending_sketch_points()
+        elif (
+            self._sketch_tool == "spline"
+            and len(self._sketch_pending_points) >= 2
+        ):
+            self._commit_pending_sketch_entity()
+        self._sketch_tool = tool
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        if tool != "select":
+            self._sketch_selected_entity_id = None
+        self._refresh_sketch_overlay()
+        self._rebuild_application_toolbar()
+
+    def _on_sketch_position_clicked(self, x: float, y: float) -> None:
+        if self._sketch_edit_entity_id is None or self.document is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        if self._sketch_tool == "point" and self._sketch_pending_point_ids:
+            self._confirm_current_sketch_entity()
+        point, snapped, created = self._ensure_sketch_point(
+            sketch,
+            (x, y),
+        )
+        point_id = str(point.get("id", ""))
+        if created and point_id:
+            self._sketch_pending_new_point_ids.add(point_id)
+        if self._sketch_tool == "point":
+            self._sketch_pending_points[:] = [snapped]
+            self._sketch_pending_point_ids[:] = [point_id]
+            self._mark_model_for_regeneration()
+            self.rebuild_view(fit=False)
+            self._refresh_sketch_overlay()
+            self._show_sketch_point_dimensions(sketch, point)
+            return
+        if (
+            point_id
+            and self._sketch_pending_point_ids
+            and point_id == self._sketch_pending_point_ids[-1]
+        ):
+            return
+        self._sketch_pending_points.append(snapped)
+        self._sketch_pending_point_ids.append(point_id)
+        required = {
+            "point": 1,
+            "segment": 2,
+            "construction": 2,
+            "arc": 3,
+        }.get(self._sketch_tool)
+        if required is not None and len(self._sketch_pending_points) >= required:
+            self._commit_pending_sketch_entity()
+        else:
+            self._refresh_sketch_overlay()
+
+    def _cancel_current_sketch_entity(self) -> None:
+        if self._sketch_edit_entity_id is None:
+            return
+        if (
+            self._sketch_tool == "spline"
+            and len(self._sketch_pending_points) >= 2
+        ):
+            self._commit_pending_sketch_entity()
+            return
+        self._remove_pending_sketch_points()
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._refresh_sketch_overlay()
+
+    def _confirm_current_sketch_entity(self) -> None:
+        if self._sketch_edit_entity_id is None:
+            return
+        if (
+            self._sketch_tool == "spline"
+            and len(self._sketch_pending_points) >= 2
+        ):
+            self._commit_pending_sketch_entity()
+            return
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._refresh_sketch_overlay()
+
+    def _remove_pending_sketch_points(self) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or not self._sketch_pending_new_point_ids
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        referenced = {
+            str(point_id)
+            for entity in entities
+            if entity.get("type") != "point"
+            for point_id in entity.get("point_ids", ())
+        }
+        entities = [
+            entity
+            for entity in entities
+            if not (
+                entity.get("type") == "point"
+                and str(entity.get("id", ""))
+                in self._sketch_pending_new_point_ids
+                and str(entity.get("id", "")) not in referenced
+            )
+        ]
+        sketch.parameters["sketch_entities"] = json.dumps(
+            entities,
+            ensure_ascii=False,
+        )
+        self.rebuild_view(fit=False)
+
+    def _select_sketch_entity(self, entity_id: str) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_tool != "select"
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        selected = next(
+            (
+                entity
+                for entity in self._stored_sketch_entities(sketch)
+                if str(entity.get("id", "")) == entity_id
+            ),
+            None,
+        )
+        self._sketch_selected_entity_id = (
+            entity_id if selected is not None else None
+        )
+        if selected is not None and selected.get("type") == "point":
+            self._show_sketch_point_dimensions(sketch, selected)
+        else:
+            self._clear_dimension_overlays()
+        self._refresh_sketch_overlay()
+        self._rebuild_application_toolbar()
+
+    def _delete_selected_sketch_entity(self) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_selected_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        selected_id = self._sketch_selected_entity_id
+        entities = self._stored_sketch_entities(sketch)
+        selected = next(
+            (
+                entity
+                for entity in entities
+                if str(entity.get("id", "")) == selected_id
+            ),
+            None,
+        )
+        if selected is None:
+            return
+        if selected.get("type") == "point":
+            entities = [
+                entity
+                for entity in entities
+                if str(entity.get("id", "")) != selected_id
+                and selected_id
+                not in {
+                    str(point_id)
+                    for point_id in entity.get("point_ids", ())
+                }
+            ]
+        else:
+            entities = [
+                entity
+                for entity in entities
+                if str(entity.get("id", "")) != selected_id
+            ]
+        sketch.parameters["sketch_entities"] = json.dumps(
+            entities,
+            ensure_ascii=False,
+        )
+        self._sketch_selected_entity_id = None
+        self._clear_dimension_overlays()
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self._rebuild_application_toolbar()
+
+    def _commit_pending_sketch_entity(self) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None or not self._sketch_pending_points:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        entities.append(
+            {
+                "id": self._next_sketch_geometry_id(entities),
+                "type": self._sketch_tool or "segment",
+                "point_ids": list(self._sketch_pending_point_ids),
+            }
+        )
+        sketch.parameters["profile"] = "entities"
+        sketch.parameters["sketch_entities"] = json.dumps(
+            entities,
+            ensure_ascii=False,
+        )
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+
+    def _refresh_sketch_overlay(self) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            self.native_viewer.set_sketch_overlay(None)
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            self.native_viewer.set_sketch_overlay(None)
+            return
+        frame = self._sketch_frame(sketch)
+        self.native_viewer.set_sketch_overlay(
+            frame,
+            self._stored_sketch_entities(sketch),
+            self._sketch_pending_points,
+            selection_mode=self._sketch_tool == "select",
+            selected_entity_id=self._sketch_selected_entity_id,
+        )
+
+    def _show_sketch_point_dimensions(
+        self,
+        sketch: ZimaEntity,
+        point: dict[str, Any],
+    ) -> None:
+        frame = self._sketch_frame(sketch)
+        point_id = str(point.get("id", ""))
+        if frame is None or not point_id:
+            return
+        x, y = self._sketch_point_position(point)
+        origin, x_axis, y_axis = frame
+
+        def world(local_x: float, local_y: float):
+            return tuple(
+                origin[index]
+                + local_x * x_axis[index]
+                + local_y * y_axis[index]
+                for index in range(3)
+            )
+
+        margin = max(
+            self.native_viewer.sketch_snap_tolerance(18.0),
+            2.0,
+        )
+        dimensions = (
+            LinearDimension(
+                key=f"sketch_point:{point_id}:x",
+                first_point=world(0.0, 0.0),
+                second_point=world(x, 0.0),
+                first_dimension_point=world(0.0, -margin),
+                second_dimension_point=world(x, -margin),
+                direction=x_axis,
+            ),
+            LinearDimension(
+                key=f"sketch_point:{point_id}:y",
+                first_point=world(x, 0.0),
+                second_point=world(x, y),
+                first_dimension_point=world(x + margin, 0.0),
+                second_dimension_point=world(x + margin, y),
+                direction=y_axis,
+            ),
+        )
+        self._clear_dimension_overlays()
+        self._dimension_object_id = sketch.entity_id
+        self.native_viewer.set_dimensions(dimensions)
+        for dimension, coordinate, value in zip(
+            dimensions,
+            ("x", "y"),
+            (x, y),
+        ):
+            overlay = ParameterEditOverlay(self.native_viewer)
+            overlay.show_value(f"{value:.12g}", "mm")
+            overlay.valueCommitted.connect(
+                lambda raw_value, key=dimension.key:
+                self._commit_dimension_value(key, raw_value)
+            )
+            self._dimension_overlays[dimension.key] = overlay
+            self._dimension_bindings[dimension.key] = (
+                "sketch_point",
+                point_id,
+                coordinate,
+            )
+        QTimer.singleShot(0, self._position_dimension_overlays)
+
+    def _finish_sketch_edit(self) -> None:
+        if self._sketch_tool == "spline" and len(self._sketch_pending_points) >= 2:
+            self._commit_pending_sketch_entity()
+        self._leave_sketch_edit(restore=False)
+
+    def _cancel_sketch_edit(self) -> None:
+        self._leave_sketch_edit(restore=True)
+
+    def _leave_sketch_edit(self, *, restore: bool) -> None:
+        if self._sketch_edit_entity_id is None:
+            return
+        sketch_id = self._sketch_edit_entity_id
+        if self.document is not None and restore:
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None and self._sketch_baseline_parameters is not None:
+                sketch.parameters = copy.deepcopy(
+                    self._sketch_baseline_parameters
+                )
+        self._clear_dimension_overlays()
+        self.native_viewer.set_sketch_overlay(None)
+        self.native_viewer.set_selection_enabled(self.view_selection_enabled)
+        if self._sketch_previous_camera is not None:
+            self.native_viewer.camera = self._sketch_previous_camera
+            self.native_viewer.navigationChanged.emit(
+                self.native_viewer.camera
+            )
+            self.native_viewer.update()
+        self._sketch_edit_entity_id = None
+        self._sketch_previous_camera = None
+        self._sketch_baseline_parameters = None
+        self._sketch_tool = None
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._sketch_selected_entity_id = None
+        self._rebuild_application_toolbar()
+        self.rebuild_view(fit=False)
+        self.statusBar().showMessage(
+            tr(
+                "sketch.status.cancelled"
+                if restore
+                else "sketch.status.finished"
+            )
+        )
+        if restore:
+            QTimer.singleShot(
+                0,
+                lambda: self._reopen_sketch_properties(sketch_id),
+            )
+
+    def _reopen_sketch_properties(self, sketch_id: str) -> None:
+        if self.document is None:
+            return
+        sketch = self.document.find_entity(sketch_id)
+        if sketch is not None and sketch.kind == EntityKind.SKETCH:
+            self.show_properties(sketch)
 
     def _begin_definition_edit(self, obj: ZimaEntity) -> None:
         self._definition_dialog_depth += 1
@@ -9102,7 +9807,28 @@ class MainWindow(QMainWindow):
                 tr("dimension.invalid_value", value=raw_value)
             )
             return
-        if binding[0] == "reference_offset":
+        if binding[0] == "sketch_point":
+            point_id = str(binding[1])
+            coordinate = str(binding[2])
+            entities = self._stored_sketch_entities(entity)
+            point = next(
+                (
+                    item
+                    for item in entities
+                    if item.get("type") == "point"
+                    and str(item.get("id", "")) == point_id
+                ),
+                None,
+            )
+            if point is None or coordinate not in ("x", "y"):
+                self._clear_dimension_overlays()
+                return
+            point[coordinate] = value
+            entity.parameters["sketch_entities"] = json.dumps(
+                entities,
+                ensure_ascii=False,
+            )
+        elif binding[0] == "reference_offset":
             references = self._constraint_references(entity)
             reference_index = int(binding[1])
             if not 0 <= reference_index < len(references):
@@ -9129,13 +9855,27 @@ class MainWindow(QMainWindow):
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
-        self._show_edit_overlays(
-            entity,
-            QPoint(
-                self.native_viewer.width() // 2,
-                self.native_viewer.height() // 2,
-            ),
-        )
+        if binding[0] == "sketch_point":
+            point = next(
+                (
+                    item
+                    for item in self._stored_sketch_entities(entity)
+                    if item.get("type") == "point"
+                    and str(item.get("id", "")) == str(binding[1])
+                ),
+                None,
+            )
+            if point is not None:
+                self._show_sketch_point_dimensions(entity, point)
+            self._refresh_sketch_overlay()
+        else:
+            self._show_edit_overlays(
+                entity,
+                QPoint(
+                    self.native_viewer.width() // 2,
+                    self.native_viewer.height() // 2,
+                ),
+            )
         self.statusBar().showMessage(
             tr("dimension.value_updated", value=f"{value:.12g}", unit=unit)
         )

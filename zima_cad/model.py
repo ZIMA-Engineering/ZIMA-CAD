@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -13,6 +14,9 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeVertex,
     BRepBuilderAPI_Transform,
 )
+from OCC.Core.BRep import BRep_Builder
+from OCC.Core.GC import GC_MakeArcOfCircle
+from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
@@ -22,6 +26,8 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeWedge,
 )
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.TColgp import TColgp_HArray1OfPnt
+from OCC.Core.TopoDS import TopoDS_Compound
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -619,8 +625,8 @@ class PartDocument:
             combine_mode=CombineMode.NONE,
             parameters={
                 "plane": plane,
-                "profile": "circle",
-                "diameter": "10",
+                "profile": "entities",
+                "sketch_entities": "[]",
                 "unit": "mm",
                 "role": role.value,
             },
@@ -1440,6 +1446,101 @@ def make_sketch_shape(
 ):
     if sketch.kind != EntityKind.SKETCH:
         return None
+    if sketch.parameters.get("profile") == "entities":
+        try:
+            entities = json.loads(
+                str(sketch.parameters.get("sketch_entities", "[]"))
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(entities, list):
+            return None
+        compound = TopoDS_Compound()
+        builder = BRep_Builder()
+        builder.MakeCompound(compound)
+        edge_count = 0
+        point_positions = {
+            str(entity.get("id", "")): [
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            ]
+            for entity in entities
+            if isinstance(entity, dict)
+            and entity.get("type") == "point"
+            and str(entity.get("id", ""))
+        }
+        for entity in entities:
+            if (
+                not isinstance(entity, dict)
+                or entity.get("type") in ("point", "construction")
+            ):
+                continue
+            points = entity.get("points", ())
+            if isinstance(entity.get("point_ids"), list):
+                points = [
+                    point_positions[point_id]
+                    for point_id in map(str, entity["point_ids"])
+                    if point_id in point_positions
+                ]
+            if not isinstance(points, list):
+                continue
+            curve = None
+            try:
+                if entity.get("type") == "arc" and len(points) >= 3:
+                    curve = GC_MakeArcOfCircle(
+                        gp_Pnt(float(points[0][0]), float(points[0][1]), 0.0),
+                        gp_Pnt(float(points[1][0]), float(points[1][1]), 0.0),
+                        gp_Pnt(float(points[2][0]), float(points[2][1]), 0.0),
+                    ).Value()
+                elif entity.get("type") == "spline" and len(points) >= 2:
+                    poles = TColgp_HArray1OfPnt(1, len(points))
+                    for point_index, point in enumerate(points, 1):
+                        poles.SetValue(
+                            point_index,
+                            gp_Pnt(
+                                float(point[0]),
+                                float(point[1]),
+                                0.0,
+                            ),
+                        )
+                    interpolation = GeomAPI_Interpolate(
+                        poles,
+                        False,
+                        1.0e-7,
+                    )
+                    interpolation.Perform()
+                    if interpolation.IsDone():
+                        curve = interpolation.Curve()
+            except (RuntimeError, ValueError, TypeError):
+                curve = None
+            if curve is not None:
+                builder.Add(
+                    compound,
+                    BRepBuilderAPI_MakeEdge(curve).Edge(),
+                )
+                edge_count += 1
+                continue
+            for first, second in zip(points, points[1:]):
+                if (
+                    not isinstance(first, list)
+                    or not isinstance(second, list)
+                    or len(first) < 2
+                    or len(second) < 2
+                ):
+                    continue
+                edge = BRepBuilderAPI_MakeEdge(
+                    gp_Pnt(float(first[0]), float(first[1]), 0.0),
+                    gp_Pnt(float(second[0]), float(second[1]), 0.0),
+                ).Edge()
+                builder.Add(compound, edge)
+                edge_count += 1
+        if edge_count == 0:
+            return None
+        transform = (
+            parent_transform
+            or coordinate_system_transform(parent.coordinate_system)
+        )
+        return transform_shape(compound, transform)
     if sketch.parameters.get("profile") != "circle":
         return None
 

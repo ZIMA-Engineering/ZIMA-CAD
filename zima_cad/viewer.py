@@ -161,6 +161,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     selectionPreviewConfirmed = Signal()
     selectionFilterChanged = Signal(str)
     displayModeChanged = Signal(str)
+    sketchPositionClicked = Signal(float, float)
+    sketchCancelCurrentRequested = Signal()
+    sketchConfirmCurrentRequested = Signal()
+    sketchEntitySelected = Signal(str)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -175,6 +179,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_top = QColor("#3B4654")
         self._background_bottom = QColor("#171B21")
         self._last_mouse_position: QPoint | None = None
+        self._middle_press_position: QPoint | None = None
+        self._middle_dragged = False
+        self._middle_chorded = False
         self._mesh: ViewerMesh | None = None
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
@@ -223,6 +230,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selection_preview_pending = False
         self._dimensions: tuple[LinearDimension, ...] = ()
         self._suppress_next_context_menu = False
+        self._sketch_frame: tuple[Point3, Point3, Point3] | None = None
+        self._sketch_entities: tuple[dict[str, Any], ...] = ()
+        self._sketch_pending_points: tuple[tuple[float, float], ...] = ()
+        self._sketch_selection_mode = False
+        self._selected_sketch_entity_id: str | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -234,6 +246,45 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_top = QColor(top)
         self._background_bottom = QColor(bottom)
         self.update()
+
+    def set_sketch_overlay(
+        self,
+        frame: tuple[Point3, Point3, Point3] | None,
+        entities: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+        pending_points: list[tuple[float, float]]
+        | tuple[tuple[float, float], ...] = (),
+        *,
+        selection_mode: bool = False,
+        selected_entity_id: str | None = None,
+    ) -> None:
+        self._sketch_frame = frame
+        self._sketch_entities = tuple(entities)
+        self._sketch_pending_points = tuple(pending_points)
+        self._sketch_selection_mode = selection_mode
+        self._selected_sketch_entity_id = selected_entity_id
+        self.update()
+
+    def center_on_world_point(self, point: Point3) -> None:
+        camera_point = self._camera_point(point)
+        scale = (
+            float(self.height())
+            * 0.5
+            / max(self._scene_radius, 1e-9)
+            * self.camera.zoom
+        )
+        self.camera.pan_x = -camera_point[0] * scale
+        self.camera.pan_y = camera_point[1] * scale
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
+    def sketch_snap_tolerance(self, pixels: float = 10.0) -> float:
+        units_per_pixel = (
+            self._scene_radius
+            * 2.0
+            / max(1.0, float(self.height()))
+            / max(self.camera.zoom, 1e-9)
+        )
+        return max(1.0e-9, float(pixels) * units_per_pixel)
 
     def reset_camera(self) -> None:
         self.camera = CameraState()
@@ -562,6 +613,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_planes()
         self._paint_points()
         self._paint_dimensions()
+        self._paint_sketch_overlay()
         self._paint_object_overlay()
         self._paint_edge_labels()
 
@@ -626,6 +678,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.RightButton
+            and self._sketch_frame is not None
+        ):
+            self.sketchCancelCurrentRequested.emit()
+            event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_frame is not None
+        ):
+            if self._sketch_selection_mode:
+                self.sketchEntitySelected.emit(
+                    self._pick_sketch_entity(event.position()) or ""
+                )
+                event.accept()
+                return
+            local = self._sketch_local_position(event.position())
+            if local is not None:
+                self.sketchPositionClicked.emit(*local)
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._selection_enabled
@@ -713,6 +787,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._last_mouse_position = event.position().toPoint()
+            self._middle_press_position = self._last_mouse_position
+            self._middle_dragged = False
+            self._middle_chorded = bool(
+                event.buttons() & Qt.MouseButton.RightButton
+            )
             if event.buttons() & Qt.MouseButton.RightButton:
                 self._suppress_next_context_menu = True
             self.setFocus()
@@ -721,6 +800,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if event.button() == Qt.MouseButton.RightButton:
             if event.buttons() & Qt.MouseButton.MiddleButton:
                 self._last_mouse_position = event.position().toPoint()
+                self._middle_chorded = True
                 self._suppress_next_context_menu = True
                 event.accept()
                 return
@@ -741,7 +821,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             position = event.position().toPoint()
             delta = position - self._last_mouse_position
             self._last_mouse_position = position
+            if (
+                self._middle_press_position is not None
+                and (
+                    position - self._middle_press_position
+                ).manhattanLength()
+                > 3
+            ):
+                self._middle_dragged = True
             if event.buttons() & Qt.MouseButton.RightButton:
+                self._middle_chorded = True
                 self._suppress_next_context_menu = True
                 self.camera.pan_x += float(delta.x())
                 self.camera.pan_y += float(delta.y())
@@ -816,7 +905,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
+            confirm_sketch = (
+                self._sketch_frame is not None
+                and not self._middle_dragged
+                and not self._middle_chorded
+            )
             self._last_mouse_position = None
+            self._middle_press_position = None
+            self._middle_dragged = False
+            self._middle_chorded = False
+            if confirm_sketch:
+                self.sketchConfirmCurrentRequested.emit()
             event.accept()
             return
         if (
@@ -1507,6 +1606,254 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 geometry["leader_end"],
             )
         painter.end()
+
+    def _sketch_world_point(self, point: tuple[float, float]) -> Point3:
+        if self._sketch_frame is None:
+            return (0.0, 0.0, 0.0)
+        origin, x_axis, y_axis = self._sketch_frame
+        return tuple(
+            origin[index]
+            + point[0] * x_axis[index]
+            + point[1] * y_axis[index]
+            for index in range(3)
+        )
+
+    def _sketch_local_position(
+        self,
+        position: QPointF,
+    ) -> tuple[float, float] | None:
+        if self._sketch_frame is None:
+            return None
+        origin, x_axis, y_axis = self._sketch_frame
+        screen_origin = self._screen_point(self._camera_point(origin))
+        screen_x = self._screen_point(
+            self._camera_point(
+                tuple(origin[index] + x_axis[index] for index in range(3))
+            )
+        )
+        screen_y = self._screen_point(
+            self._camera_point(
+                tuple(origin[index] + y_axis[index] for index in range(3))
+            )
+        )
+        ax = screen_x.x() - screen_origin.x()
+        ay = screen_x.y() - screen_origin.y()
+        bx = screen_y.x() - screen_origin.x()
+        by = screen_y.y() - screen_origin.y()
+        px = position.x() - screen_origin.x()
+        py = position.y() - screen_origin.y()
+        determinant = ax * by - ay * bx
+        if abs(determinant) <= 1e-12:
+            return None
+        return (
+            (px * by - py * bx) / determinant,
+            (ax * py - ay * px) / determinant,
+        )
+
+    def _paint_sketch_overlay(self) -> None:
+        if self._sketch_frame is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        brown = QColor("#9A6A3A")
+        yellow = QColor("#FFD740")
+        blue = QColor("#3B82F6")
+        dashed = QPen(brown, 1.2, Qt.PenStyle.DashLine)
+        dashed.setDashPattern([6.0, 5.0])
+        centerline = QPen(yellow, 1.2, Qt.PenStyle.CustomDashLine)
+        centerline.setDashPattern([9.0, 4.0, 2.0, 4.0])
+        painter.setPen(dashed)
+
+        origin = self._screen_point(
+            self._camera_point(self._sketch_frame[0])
+        )
+        extent = float(max(self.width(), self.height()) * 2)
+
+        def infinite_line(first: QPointF, second: QPointF) -> None:
+            dx = second.x() - first.x()
+            dy = second.y() - first.y()
+            length = hypot(dx, dy)
+            if length <= 1e-9:
+                return
+            dx /= length
+            dy /= length
+            painter.drawLine(
+                QPointF(first.x() - dx * extent, first.y() - dy * extent),
+                QPointF(first.x() + dx * extent, first.y() + dy * extent),
+            )
+
+        for axis in self._sketch_frame[1:]:
+            end = self._screen_point(
+                self._camera_point(
+                    tuple(
+                        self._sketch_frame[0][index] + axis[index]
+                        for index in range(3)
+                    )
+                )
+            )
+            infinite_line(origin, end)
+
+        painter.setPen(QPen(blue, 2.0))
+        painter.setBrush(QBrush(yellow))
+        point_positions = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+            and str(entity.get("id", ""))
+        }
+        for entity in self._sketch_entities:
+            entity_type = str(entity.get("type", ""))
+            selected = (
+                str(entity.get("id", ""))
+                == self._selected_sketch_entity_id
+            )
+            raw_points = entity.get("points", ())
+            if entity_type == "point" and "id" in entity:
+                raw_points = (
+                    point_positions.get(str(entity.get("id")), (0.0, 0.0)),
+                )
+            elif isinstance(entity.get("point_ids"), list):
+                raw_points = [
+                    point_positions[point_id]
+                    for point_id in map(str, entity["point_ids"])
+                    if point_id in point_positions
+                ]
+            points = [
+                self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(
+                            (float(point[0]), float(point[1]))
+                        )
+                    )
+                )
+                for point in raw_points
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
+            if entity_type == "construction" and len(points) >= 2:
+                painter.setPen(
+                    QPen(QColor("#FF7A00"), 3.0)
+                    if selected
+                    else centerline
+                )
+                infinite_line(points[0], points[1])
+                painter.setPen(QPen(blue, 2.0))
+            elif entity_type == "point" and points:
+                point_color = QColor("#FF7A00") if selected else yellow
+                painter.setPen(QPen(point_color, 2.0))
+                painter.setBrush(QBrush(point_color))
+                painter.drawEllipse(points[0], 4.0, 4.0)
+                painter.setPen(QPen(blue, 2.0))
+                painter.setBrush(QBrush(yellow))
+            elif selected and len(points) >= 2:
+                painter.setPen(QPen(QColor("#FF7A00"), 3.0))
+                painter.drawPolyline(QPolygonF(points))
+                painter.setPen(QPen(blue, 2.0))
+
+        if self._sketch_pending_points:
+            pending = [
+                self._screen_point(
+                    self._camera_point(self._sketch_world_point(point))
+                )
+                for point in self._sketch_pending_points
+            ]
+            painter.setPen(QPen(QColor("#FF7A00"), 1.5))
+            painter.setBrush(QBrush(QColor("#FF7A00")))
+            for point in pending:
+                painter.drawEllipse(point, 3.5, 3.5)
+            if len(pending) >= 2:
+                painter.drawPolyline(QPolygonF(pending))
+        painter.end()
+
+    def _pick_sketch_entity(self, position: QPointF) -> str | None:
+        point_positions = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+            and str(entity.get("id", ""))
+        }
+        candidates: list[tuple[float, str]] = []
+        for entity in self._sketch_entities:
+            entity_id = str(entity.get("id", ""))
+            if not entity_id:
+                continue
+            entity_type = str(entity.get("type", ""))
+            if entity_type == "point":
+                raw_points = (
+                    point_positions.get(entity_id, (0.0, 0.0)),
+                )
+            elif isinstance(entity.get("point_ids"), list):
+                raw_points = [
+                    point_positions[point_id]
+                    for point_id in map(str, entity["point_ids"])
+                    if point_id in point_positions
+                ]
+            else:
+                raw_points = entity.get("points", ())
+            screen_points = [
+                self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(
+                            (float(point[0]), float(point[1]))
+                        )
+                    )
+                )
+                for point in raw_points
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
+            if entity_type == "construction" and len(screen_points) >= 2:
+                dx = screen_points[1].x() - screen_points[0].x()
+                dy = screen_points[1].y() - screen_points[0].y()
+                length = hypot(dx, dy)
+                if length > 1e-9:
+                    extent = float(
+                        max(self.width(), self.height()) * 4 + length
+                    )
+                    dx /= length
+                    dy /= length
+                    center = QPointF(
+                        (screen_points[0].x() + screen_points[1].x())
+                        * 0.5,
+                        (screen_points[0].y() + screen_points[1].y())
+                        * 0.5,
+                    )
+                    screen_points = [
+                        QPointF(
+                            center.x() - dx * extent,
+                            center.y() - dy * extent,
+                        ),
+                        QPointF(
+                            center.x() + dx * extent,
+                            center.y() + dy * extent,
+                        ),
+                    ]
+            if entity_type == "point" and screen_points:
+                candidates.append(
+                    (
+                        hypot(
+                            position.x() - screen_points[0].x(),
+                            position.y() - screen_points[0].y(),
+                        ),
+                        entity_id,
+                    )
+                )
+                continue
+            for first, second in zip(screen_points, screen_points[1:]):
+                distance, _fraction = self._point_segment_distance(
+                    position,
+                    first,
+                    second,
+                )
+                candidates.append((distance, entity_id))
+        if not candidates:
+            return None
+        distance, entity_id = min(candidates)
+        return entity_id if distance <= 9.0 else None
 
     def _paint_object_highlights(self) -> None:
         mesh = self._mesh
