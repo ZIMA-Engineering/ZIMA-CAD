@@ -3681,6 +3681,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids: set[str] = set()
         self._sketch_selected_entity_id: str | None = None
         self._sketch_selected_reference: tuple[str, str, int] | None = None
+        self._sketch_show_all_dimensions = False
         self._sketch_delete_action = QAction(
             tr("sketch.command.delete"),
             self,
@@ -3730,7 +3731,7 @@ class MainWindow(QMainWindow):
             self._on_native_object_double_clicked
         )
         self.native_viewer.dimensionsDismissRequested.connect(
-            self._clear_dimension_overlays
+            self._dismiss_dimension_overlays
         )
         self.native_viewer.selectionPreviewConfirmed.connect(
             self._on_view_selection_preview_confirmed
@@ -4116,15 +4117,37 @@ class MainWindow(QMainWindow):
                 lambda: self._set_sketch_tool("select")
             )
             self._mark_application_command(select_action)
+            dimensions_visibility_action = self.tools_toolbar.addAction(
+                tr("sketch.command.show_dimensions")
+            )
+            dimensions_visibility_action.setIcon(
+                resource_icon("sketch-dimensions")
+            )
+            dimensions_visibility_action.setToolTip(
+                tr("sketch.command.show_dimensions.tooltip")
+            )
+            dimensions_visibility_action.setCheckable(True)
+            dimensions_visibility_action.setChecked(
+                self._sketch_show_all_dimensions
+            )
+            dimensions_visibility_action.triggered.connect(
+                self._toggle_all_sketch_dimensions
+            )
+            self._mark_application_command(dimensions_visibility_action)
             self.tools_toolbar.addSeparator()
-            for tool, text_key in (
-                ("construction", "sketch.tool.construction"),
-                ("point", "sketch.tool.point"),
-                ("segment", "sketch.tool.segment"),
-                ("arc", "sketch.tool.arc"),
-                ("spline", "sketch.tool.spline"),
+            for tool, text_key, icon_name in (
+                (
+                    "construction",
+                    "sketch.tool.construction",
+                    "sketch-construction",
+                ),
+                ("point", "sketch.tool.point", "point"),
+                ("segment", "sketch.tool.segment", "sketch-segment"),
+                ("arc", "sketch.tool.arc", "sketch-arc"),
+                ("spline", "sketch.tool.spline", "sketch-spline"),
             ):
                 action = self.tools_toolbar.addAction(tr(text_key))
+                action.setIcon(resource_icon(icon_name))
                 action.setCheckable(True)
                 action.setChecked(tool == self._sketch_tool)
                 action.triggered.connect(
@@ -4135,6 +4158,7 @@ class MainWindow(QMainWindow):
             self.tools_toolbar.addSeparator()
             self._add_sketch_command_menu(
                 "sketch.constraints",
+                "sketch-constraints",
                 (
                     "sketch.constraint.horizontal",
                     "sketch.constraint.vertical",
@@ -4147,6 +4171,7 @@ class MainWindow(QMainWindow):
             )
             self._add_sketch_command_menu(
                 "sketch.dimensions",
+                "sketch-dimensions",
                 (
                     "sketch.dimension.length",
                     "sketch.dimension.distance",
@@ -4161,6 +4186,7 @@ class MainWindow(QMainWindow):
             finish_action = self.tools_toolbar.addAction(
                 tr("sketch.command.finish")
             )
+            finish_action.setIcon(resource_icon("sketch"))
             finish_action.triggered.connect(self._finish_sketch_edit)
             self._mark_application_command(finish_action)
             finish_button = self.tools_toolbar.widgetForAction(finish_action)
@@ -4172,6 +4198,7 @@ class MainWindow(QMainWindow):
             cancel_action = self.tools_toolbar.addAction(
                 tr("sketch.command.cancel")
             )
+            cancel_action.setIcon(resource_icon("settings"))
             cancel_action.setToolTip(
                 tr("sketch.command.cancel.tooltip")
             )
@@ -4271,15 +4298,20 @@ class MainWindow(QMainWindow):
     def _add_sketch_command_menu(
         self,
         title_key: str,
+        icon_name: str,
         command_keys: tuple[str, ...],
     ) -> None:
         menu = QMenu(self.tools_toolbar)
         for command_key in command_keys:
-            action = menu.addAction(tr(command_key))
+            action = menu.addAction(
+                resource_icon(icon_name),
+                tr(command_key),
+            )
             action.setEnabled(False)
         button = QToolButton(self.tools_toolbar)
         button.setObjectName("applicationCommandButton")
         button.setText(tr(title_key))
+        button.setIcon(resource_icon(icon_name))
         button.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
@@ -9759,6 +9791,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids.clear()
         self._sketch_selected_entity_id = None
         self._sketch_selected_reference = None
+        self._sketch_show_all_dimensions = False
         self._populate_tree()
         signals_were_blocked = self.native_viewer.blockSignals(True)
         try:
@@ -9842,7 +9875,8 @@ class MainWindow(QMainWindow):
             return
         if tool == "select":
             self._remove_pending_sketch_points()
-            self._clear_dimension_overlays()
+            if not self._sketch_show_all_dimensions:
+                self._clear_dimension_overlays()
         elif (
             self._sketch_tool == "spline"
             and len(self._sketch_pending_points) >= 2
@@ -9882,7 +9916,10 @@ class MainWindow(QMainWindow):
             self._sketch_pending_point_ids.clear()
             self._sketch_pending_new_point_ids.clear()
             self._refresh_sketch_overlay()
-            self._show_sketch_point_dimensions(sketch, point)
+            if self._sketch_show_all_dimensions:
+                self._show_all_sketch_dimensions(sketch)
+            else:
+                self._show_sketch_point_dimensions(sketch, point)
             return
         if (
             point_id
@@ -9930,7 +9967,10 @@ class MainWindow(QMainWindow):
             self._commit_pending_sketch_entity()
             self._set_sketch_tool("select")
             return
-        if self._sketch_tool == "point":
+        if (
+            self._sketch_tool == "point"
+            and not self._sketch_show_all_dimensions
+        ):
             self._clear_dimension_overlays()
         else:
             # An unfinished multi-point entity cannot be committed. Remove
@@ -10002,7 +10042,9 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_selection()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
-        if selected is not None and selected.get("type") == "point":
+        if self._sketch_show_all_dimensions:
+            self._show_all_sketch_dimensions(sketch)
+        elif selected is not None and selected.get("type") == "point":
             self._show_sketch_point_dimensions(sketch, selected)
         else:
             self._clear_dimension_overlays()
@@ -10030,7 +10072,8 @@ class MainWindow(QMainWindow):
             }[kind]((owner_id, element_index))
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
-        self._clear_dimension_overlays()
+        if not self._sketch_show_all_dimensions:
+            self._clear_dimension_overlays()
         self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
 
@@ -10081,6 +10124,8 @@ class MainWindow(QMainWindow):
         self._clear_dimension_overlays()
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
+        if self._sketch_show_all_dimensions:
+            self._show_all_sketch_dimensions(sketch)
         self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
 
@@ -10133,11 +10178,26 @@ class MainWindow(QMainWindow):
         sketch: ZimaEntity,
         point: dict[str, Any],
     ) -> None:
+        self._show_sketch_points_dimensions(sketch, (point,))
+
+    def _show_all_sketch_dimensions(self, sketch: ZimaEntity) -> None:
+        self._show_sketch_points_dimensions(
+            sketch,
+            tuple(
+                entity
+                for entity in self._stored_sketch_entities(sketch)
+                if entity.get("type") == "point"
+            ),
+        )
+
+    def _show_sketch_points_dimensions(
+        self,
+        sketch: ZimaEntity,
+        points: tuple[dict[str, Any], ...],
+    ) -> None:
         frame = self._sketch_frame(sketch)
-        point_id = str(point.get("id", ""))
-        if frame is None or not point_id:
+        if frame is None:
             return
-        x, y = self._sketch_point_position(point)
         origin, x_axis, y_axis = frame
 
         def world(local_x: float, local_y: float):
@@ -10148,37 +10208,50 @@ class MainWindow(QMainWindow):
                 for index in range(3)
             )
 
-        margin = max(
+        base_margin = max(
             self.native_viewer.sketch_snap_tolerance(18.0),
             2.0,
         )
-        dimensions = (
-            LinearDimension(
-                key=f"sketch_point:{point_id}:x",
-                first_point=world(0.0, 0.0),
-                second_point=world(x, 0.0),
-                first_dimension_point=world(0.0, -margin),
-                second_dimension_point=world(x, -margin),
-                direction=x_axis,
-            ),
-            LinearDimension(
-                key=f"sketch_point:{point_id}:y",
-                first_point=world(x, 0.0),
-                second_point=world(x, y),
-                first_dimension_point=world(x + margin, 0.0),
-                second_dimension_point=world(x + margin, y),
-                direction=y_axis,
-                leader_anchor="second",
-            ),
-        )
+        dimensions: list[LinearDimension] = []
+        values: list[tuple[LinearDimension, str, str, float]] = []
+        for point_index, point in enumerate(points):
+            point_id = str(point.get("id", ""))
+            if not point_id:
+                continue
+            x, y = self._sketch_point_position(point)
+            margin = base_margin * (1.0 + 0.35 * point_index)
+            point_dimensions = (
+                LinearDimension(
+                    key=f"sketch_point:{point_id}:x",
+                    first_point=world(0.0, 0.0),
+                    second_point=world(x, 0.0),
+                    first_dimension_point=world(0.0, -margin),
+                    second_dimension_point=world(x, -margin),
+                    direction=x_axis,
+                ),
+                LinearDimension(
+                    key=f"sketch_point:{point_id}:y",
+                    first_point=world(x, 0.0),
+                    second_point=world(x, y),
+                    first_dimension_point=world(x + margin, 0.0),
+                    second_dimension_point=world(x + margin, y),
+                    direction=y_axis,
+                    leader_anchor="second",
+                ),
+            )
+            dimensions.extend(point_dimensions)
+            values.extend(
+                (
+                    (point_dimensions[0], point_id, "x", x),
+                    (point_dimensions[1], point_id, "y", y),
+                )
+            )
         self._clear_dimension_overlays()
+        if not dimensions:
+            return
         self._dimension_object_id = sketch.entity_id
-        self.native_viewer.set_dimensions(dimensions)
-        for dimension, coordinate, value in zip(
-            dimensions,
-            ("x", "y"),
-            (x, y),
-        ):
+        self.native_viewer.set_dimensions(tuple(dimensions))
+        for dimension, point_id, coordinate, value in values:
             overlay = ParameterEditOverlay(self.native_viewer)
             overlay.show_value(f"{value:.12g}", "mm")
             overlay.valueCommitted.connect(
@@ -10192,6 +10265,31 @@ class MainWindow(QMainWindow):
                 coordinate,
             )
         QTimer.singleShot(0, self._position_dimension_overlays)
+
+    def _toggle_all_sketch_dimensions(self, checked: bool) -> None:
+        self._sketch_show_all_dimensions = checked
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        if checked:
+            self._show_all_sketch_dimensions(sketch)
+            return
+        selected = next(
+            (
+                entity
+                for entity in self._stored_sketch_entities(sketch)
+                if entity.get("type") == "point"
+                and str(entity.get("id", ""))
+                == self._sketch_selected_entity_id
+            ),
+            None,
+        )
+        if selected is not None:
+            self._show_sketch_point_dimensions(sketch, selected)
+        else:
+            self._clear_dimension_overlays()
 
     def _finish_sketch_edit(self) -> None:
         if self._sketch_tool == "spline" and len(self._sketch_pending_points) >= 2:
@@ -10236,6 +10334,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids.clear()
         self._sketch_selected_entity_id = None
         self._sketch_selected_reference = None
+        self._sketch_show_all_dimensions = False
         self._populate_tree()
         self._rebuild_application_toolbar()
         self.rebuild_view(fit=False)
@@ -10505,6 +10604,14 @@ class MainWindow(QMainWindow):
         self._dimension_bindings.clear()
         self.native_viewer.set_dimensions(())
 
+    def _dismiss_dimension_overlays(self) -> None:
+        if (
+            self._sketch_edit_entity_id is not None
+            and self._sketch_show_all_dimensions
+        ):
+            return
+        self._clear_dimension_overlays()
+
     def _position_dimension_overlays(self) -> None:
         for key, overlay in self._dimension_overlays.items():
             position = self.native_viewer.dimension_value_position(key)
@@ -10599,7 +10706,10 @@ class MainWindow(QMainWindow):
                 None,
             )
             if point is not None:
-                self._show_sketch_point_dimensions(entity, point)
+                if self._sketch_show_all_dimensions:
+                    self._show_all_sketch_dimensions(entity)
+                else:
+                    self._show_sketch_point_dimensions(entity, point)
             self._refresh_sketch_overlay()
         else:
             self._show_edit_overlays(
