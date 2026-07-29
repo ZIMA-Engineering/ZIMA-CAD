@@ -612,6 +612,7 @@ class PartDocument:
         parent_id: str,
         plane: str = "xy",
         role: SketchRole = SketchRole.PROFILE,
+        name_prefix: str = "Sketch",
     ) -> ZimaEntity | None:
         parent = self.find_entity(parent_id)
         if parent is None or not parent.can_accept_entity(EntityKind.SKETCH, role):
@@ -620,13 +621,14 @@ class PartDocument:
             return None
 
         sketch = ZimaEntity(
-            name=next_child_name(parent, "Sketch"),
+            name=next_child_name(parent, name_prefix),
             kind=EntityKind.SKETCH,
             combine_mode=CombineMode.NONE,
             parameters={
                 "plane": plane,
                 "profile": "entities",
                 "sketch_entities": "[]",
+                "external_references": "[]",
                 "unit": "mm",
                 "role": role.value,
             },

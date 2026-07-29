@@ -195,6 +195,53 @@ def reconnect_history_result_references(document: PartDocument) -> None:
                 ensure_ascii=False,
             )
 
+    for obj in walk_entities(document.root):
+        raw_external_references = obj.parameters.get("external_references")
+        if raw_external_references is None:
+            continue
+        try:
+            external_references = json.loads(str(raw_external_references))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(external_references, list):
+            continue
+        external_changed = False
+        for reference in external_references:
+            if not isinstance(reference, dict):
+                continue
+            owner_id = str(reference.get("owner_id", ""))
+            is_history_result = (
+                reference.get("reference_scope") == "history_result"
+            )
+            # Early external-reference builds stored the transient Part result
+            # ID without a scope marker. It is the only referenced owner absent
+            # immediately after loading; retain compatibility with those files.
+            if (
+                not is_history_result
+                and owner_id
+                and document.find_entity(owner_id) is None
+                and reference.get("source_kind") in ("face", "edge", "point")
+            ):
+                reference["reference_scope"] = "history_result"
+                is_history_result = True
+            if not is_history_result:
+                continue
+            reference["owner_id"] = document.root.entity_id
+            source_kind = str(reference.get("source_kind", "reference"))
+            try:
+                element_index = int(reference.get("element_index", 0))
+            except (TypeError, ValueError):
+                element_index = 0
+            reference["id"] = (
+                f"{source_kind}:{document.root.entity_id}:{element_index}"
+            )
+            external_changed = True
+        if external_changed:
+            obj.parameters["external_references"] = json.dumps(
+                external_references,
+                ensure_ascii=False,
+            )
+
 
 def migrate_missing_system_references(document: PartDocument) -> None:
     """Reconnect legacy references to randomly identified system geometry."""

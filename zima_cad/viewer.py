@@ -49,6 +49,8 @@ class LinearDimension:
     second_dimension_point: Point3
     direction: Point3
     leader_anchor: str = "rightmost"
+    value_prefix: str = ""
+    value_suffix: str = ""
 
 
 GL_COLOR_BUFFER_BIT = 0x00004000
@@ -170,6 +172,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     selectionFilterChanged = Signal(str)
     displayModeChanged = Signal(str)
     sketchPositionClicked = Signal(float, float)
+    sketchReferencePositionClicked = Signal(str, float, float)
+    sketchPlacementClicked = Signal(float, float, str, str)
+    sketchReferenceHovered = Signal(str)
     sketchCancelCurrentRequested = Signal()
     sketchConfirmCurrentRequested = Signal()
     sketchEntitySelected = Signal(str)
@@ -237,13 +242,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
         self._dimensions: tuple[LinearDimension, ...] = ()
+        self._selected_dimension_key: str | None = None
         self._suppress_next_context_menu = False
         self._sketch_frame: tuple[Point3, Point3, Point3] | None = None
         self._sketch_entities: tuple[dict[str, Any], ...] = ()
+        self._sketch_external_references: tuple[dict[str, Any], ...] = ()
         self._sketch_pending_points: tuple[tuple[float, float], ...] = ()
+        self._sketch_preview_position: tuple[float, float] | None = None
+        self._sketch_preview_constraint: str | None = None
         self._sketch_selection_mode = False
+        self._sketch_reference_selection_mode = False
+        self._sketch_reference_snapping = False
         self._selected_sketch_entity_id: str | None = None
         self._preview_sketch_entity_id: str | None = None
+        self._hovered_sketch_external_reference_id: str | None = None
         self._sketch_cycle_ids: tuple[str, ...] = ()
         self._sketch_cycle_index = -1
         self._camera_animation: QVariantAnimation | None = None
@@ -268,13 +280,41 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         selection_mode: bool = False,
         selected_entity_id: str | None = None,
+        external_references: tuple[dict[str, Any], ...]
+        | list[dict[str, Any]] = (),
+        snap_to_external_references: bool = False,
     ) -> None:
         self._sketch_frame = frame
         self._sketch_entities = tuple(entities)
         self._sketch_pending_points = tuple(pending_points)
         self._sketch_selection_mode = selection_mode
         self._selected_sketch_entity_id = selected_entity_id
+        self._sketch_external_references = tuple(external_references)
+        self._sketch_reference_snapping = snap_to_external_references
+        if (
+            not snap_to_external_references
+            and self._hovered_sketch_external_reference_id is not None
+        ):
+            self._hovered_sketch_external_reference_id = None
+            self.sketchReferenceHovered.emit("")
+        reference_ids = {
+            str(reference.get("id", ""))
+            for reference in self._sketch_external_references
+        }
+        if self._hovered_sketch_external_reference_id not in reference_ids:
+            self._hovered_sketch_external_reference_id = None
         if not selection_mode or frame is None:
+            self._preview_sketch_entity_id = None
+            self._sketch_cycle_ids = ()
+            self._sketch_cycle_index = -1
+        if selection_mode or frame is None or not pending_points:
+            self._sketch_preview_position = None
+            self._sketch_preview_constraint = None
+        self.update()
+
+    def set_sketch_reference_selection_mode(self, enabled: bool) -> None:
+        self._sketch_reference_selection_mode = enabled
+        if enabled:
             self._preview_sketch_entity_id = None
             self._sketch_cycle_ids = ()
             self._sketch_cycle_index = -1
@@ -548,6 +588,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         dimensions: tuple[LinearDimension, ...],
     ) -> None:
         self._dimensions = dimensions
+        if self._selected_dimension_key not in {
+            dimension.key for dimension in dimensions
+        }:
+            self._selected_dimension_key = None
+        self.update()
+
+    def set_selected_dimension(self, key: str | None) -> None:
+        self._selected_dimension_key = (
+            key
+            if any(dimension.key == key for dimension in self._dimensions)
+            else None
+        )
         self.update()
 
     def dimension_value_position(self, key: str) -> QPointF | None:
@@ -792,6 +844,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             event.button() == Qt.MouseButton.RightButton
             and self._sketch_frame is not None
+            and not self._sketch_reference_selection_mode
         ):
             self._suppress_next_context_menu = True
             if self._sketch_selection_mode:
@@ -803,6 +856,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._sketch_frame is not None
+            and not self._sketch_reference_selection_mode
         ):
             if self._sketch_selection_mode:
                 candidates = self._sketch_entity_candidates(event.position())
@@ -825,7 +879,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 return
             local = self._sketch_local_position(event.position())
             if local is not None:
-                self.sketchPositionClicked.emit(*local)
+                snapped, reference_id, constraint = (
+                    self._sketch_placement_candidate(event.position())
+                )
+                self.sketchPlacementClicked.emit(
+                    *snapped,
+                    reference_id or "",
+                    constraint or "",
+                )
             event.accept()
             return
         if (
@@ -976,6 +1037,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             self._sketch_frame is not None
             and self._sketch_selection_mode
+            and not self._sketch_reference_selection_mode
         ):
             candidates = self._sketch_entity_candidates(event.position())
             if candidates != self._sketch_cycle_ids:
@@ -985,6 +1047,36 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     candidates[0] if candidates else None
                 )
                 self.update()
+            super().mouseMoveEvent(event)
+            return
+        if (
+            self._sketch_frame is not None
+            and not self._sketch_selection_mode
+            and not self._sketch_reference_selection_mode
+        ):
+            point_candidate = self._sketch_point_candidate(
+                event.position()
+            )
+            point_id = (
+                point_candidate[1]
+                if point_candidate is not None
+                else None
+            )
+            if point_id != self._preview_sketch_entity_id:
+                self._preview_sketch_entity_id = point_id
+            snapped, reference_id, constraint = (
+                self._sketch_placement_candidate(event.position())
+            )
+            if reference_id != self._hovered_sketch_external_reference_id:
+                self._hovered_sketch_external_reference_id = reference_id
+                self.sketchReferenceHovered.emit(reference_id or "")
+            if (
+                snapped != self._sketch_preview_position
+                or constraint != self._sketch_preview_constraint
+            ):
+                self._sketch_preview_position = snapped
+                self._sketch_preview_constraint = constraint
+            self.update()
             super().mouseMoveEvent(event)
             return
         if not self._selection_enabled:
@@ -1038,7 +1130,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
-        if self._sketch_selection_mode:
+        if self._hovered_sketch_external_reference_id is not None:
+            self._hovered_sketch_external_reference_id = None
+            self.sketchReferenceHovered.emit("")
+            self.update()
+        if self._preview_sketch_entity_id is not None:
             self._preview_sketch_entity_id = None
             self._sketch_cycle_ids = ()
             self._sketch_cycle_index = -1
@@ -1748,7 +1844,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             "leader_start": leader_start,
             "leader_end": leader_end,
             "value_position": QPointF(
-                leader_end.x() + 48.0,
+                leader_end.x() + 4.0,
                 leader_end.y(),
             ),
         }
@@ -1758,10 +1854,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        color = QColor("#FFF06A")
-        painter.setPen(QPen(color, 1.5))
-        painter.setBrush(QBrush(color))
         for dimension in self._dimensions:
+            color = (
+                QColor("#00D1FF")
+                if dimension.key == self._selected_dimension_key
+                else QColor("#FFF06A")
+            )
+            painter.setPen(QPen(color, 1.5))
+            painter.setBrush(QBrush(color))
             geometry = self._dimension_screen_geometry(dimension)
             painter.drawLine(
                 geometry["first"],
@@ -1890,7 +1990,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 QPointF(first.x() + dx * extent, first.y() + dy * extent),
             )
 
-        for axis in self._sketch_frame[1:]:
+        for axis_index, axis in enumerate(self._sketch_frame[1:]):
             end = self._screen_point(
                 self._camera_point(
                     tuple(
@@ -1899,7 +1999,185 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 )
             )
+            axis_reference_id = (
+                "sketch_axis:x" if axis_index == 0 else "sketch_axis:y"
+            )
+            painter.setPen(
+                highlighted_centerline(QColor("#FF7A00"))
+                if (
+                    axis_reference_id
+                    == self._hovered_sketch_external_reference_id
+                )
+                else dashed
+            )
             infinite_line(origin, end)
+        origin_hovered = (
+            self._hovered_sketch_external_reference_id == "sketch_origin"
+        )
+        origin_color = QColor("#FF7A00") if origin_hovered else yellow
+        painter.setPen(QPen(origin_color, 2.5 if origin_hovered else 2.0))
+        painter.setBrush(QBrush(origin_color))
+        painter.drawEllipse(
+            origin,
+            5.0 if origin_hovered else 3.5,
+            5.0 if origin_hovered else 3.5,
+        )
+
+        for reference in self._sketch_external_references:
+            geometry = reference.get("geometry", {})
+            if not isinstance(geometry, dict):
+                continue
+            reference_color = (
+                QColor("#FF7A00")
+                if (
+                    str(reference.get("id", ""))
+                    == self._hovered_sketch_external_reference_id
+                )
+                else (
+                    cyan
+                    if reference.get("selected")
+                    else (
+                        QColor("#B34A3C")
+                        if reference.get("broken")
+                        else brown
+                    )
+                )
+            )
+            reference_pen = QPen(
+                reference_color,
+                1.4,
+                Qt.PenStyle.CustomDashLine,
+            )
+            reference_pen.setDashPattern([12.0, 10.0])
+            painter.setPen(reference_pen)
+            painter.setBrush(QBrush(reference_color))
+            geometry_type = geometry.get("type")
+            if geometry_type == "line":
+                point = geometry.get("point", (0.0, 0.0))
+                direction = geometry.get("direction", (1.0, 0.0))
+                if (
+                    isinstance(point, (list, tuple))
+                    and isinstance(direction, (list, tuple))
+                    and len(point) >= 2
+                    and len(direction) >= 2
+                ):
+                    first = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(
+                                (float(point[0]), float(point[1]))
+                            )
+                        )
+                    )
+                    second = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(
+                                (
+                                    float(point[0]) + float(direction[0]),
+                                    float(point[1]) + float(direction[1]),
+                                )
+                            )
+                        )
+                    )
+                    infinite_line(first, second)
+            elif geometry_type == "lines":
+                raw_lines = geometry.get("lines", ())
+                if isinstance(raw_lines, (list, tuple)):
+                    for raw_line in raw_lines:
+                        if not isinstance(raw_line, dict):
+                            continue
+                        point = raw_line.get("point", (0.0, 0.0))
+                        direction = raw_line.get(
+                            "direction",
+                            (1.0, 0.0),
+                        )
+                        if (
+                            not isinstance(point, (list, tuple))
+                            or not isinstance(
+                                direction,
+                                (list, tuple),
+                            )
+                            or len(point) < 2
+                            or len(direction) < 2
+                        ):
+                            continue
+                        first = self._screen_point(
+                            self._camera_point(
+                                self._sketch_world_point(
+                                    (
+                                        float(point[0]),
+                                        float(point[1]),
+                                    )
+                                )
+                            )
+                        )
+                        second = self._screen_point(
+                            self._camera_point(
+                                self._sketch_world_point(
+                                    (
+                                        float(point[0])
+                                        + float(direction[0]),
+                                        float(point[1])
+                                        + float(direction[1]),
+                                    )
+                                )
+                            )
+                        )
+                        infinite_line(first, second)
+            elif geometry_type == "point":
+                point = geometry.get("point", (0.0, 0.0))
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    screen = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(
+                                (float(point[0]), float(point[1]))
+                            )
+                        )
+                    )
+                    painter.drawEllipse(screen, 4.0, 4.0)
+            elif geometry_type == "polyline":
+                raw_points = geometry.get("points", ())
+                if isinstance(raw_points, (list, tuple)):
+                    projected = QPolygonF(
+                        [
+                            self._screen_point(
+                                self._camera_point(
+                                    self._sketch_world_point(
+                                        (float(point[0]), float(point[1]))
+                                    )
+                                )
+                            )
+                            for point in raw_points
+                            if isinstance(point, (list, tuple))
+                            and len(point) >= 2
+                        ]
+                    )
+                    if len(projected) >= 2:
+                        painter.drawPolyline(projected)
+            elif geometry_type == "polylines":
+                raw_polylines = geometry.get("polylines", ())
+                if isinstance(raw_polylines, (list, tuple)):
+                    for raw_points in raw_polylines:
+                        if not isinstance(raw_points, (list, tuple)):
+                            continue
+                        projected = QPolygonF(
+                            [
+                                self._screen_point(
+                                    self._camera_point(
+                                        self._sketch_world_point(
+                                            (
+                                                float(point[0]),
+                                                float(point[1]),
+                                            )
+                                        )
+                                    )
+                                )
+                                for point in raw_points
+                                if isinstance(point, (list, tuple))
+                                and len(point) >= 2
+                            ]
+                        )
+                        if len(projected) >= 2:
+                            painter.drawPolyline(projected)
 
         painter.setPen(QPen(yellow, 2.0))
         painter.setBrush(QBrush(yellow))
@@ -1989,6 +2267,30 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawEllipse(point, 3.5, 3.5)
             if len(pending) >= 2:
                 painter.drawPolyline(QPolygonF(pending))
+            if self._sketch_preview_position is not None:
+                preview = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(
+                            self._sketch_preview_position
+                        )
+                    )
+                )
+                painter.drawLine(pending[-1], preview)
+                painter.drawEllipse(preview, 3.5, 3.5)
+                if self._sketch_preview_constraint is not None:
+                    center = QPointF(
+                        (pending[-1].x() + preview.x()) * 0.5 + 6.0,
+                        (pending[-1].y() + preview.y()) * 0.5 - 6.0,
+                    )
+                    painter.drawText(
+                        center,
+                        (
+                            "H"
+                            if self._sketch_preview_constraint
+                            == "horizontal"
+                            else "V"
+                        ),
+                    )
         painter.end()
 
     def _sketch_entity_candidates(self, position: QPointF) -> tuple[str, ...]:
@@ -2087,6 +2389,336 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def _pick_sketch_entity(self, position: QPointF) -> str | None:
         candidates = self._sketch_entity_candidates(position)
         return candidates[0] if candidates else None
+
+    def _sketch_placement_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[tuple[float, float], str | None, str | None]:
+        local = self._sketch_local_position(position) or (0.0, 0.0)
+        nearest_point = self._sketch_point_candidate(position)
+        if nearest_point is not None:
+            return nearest_point[2], None, None
+        if self._sketch_reference_snapping:
+            reference = self._sketch_external_reference_candidate(
+                position
+            )
+            if reference is not None:
+                reference_id, snapped = reference
+                constraint = (
+                    self._sketch_inferred_direction_constraint(snapped)
+                )
+                if constraint is not None:
+                    combined = self._sketch_reference_direction_snap(
+                        reference_id,
+                        constraint,
+                        snapped,
+                    )
+                    if combined is None:
+                        constraint = None
+                    else:
+                        snapped = combined
+                return (
+                    snapped,
+                    reference_id,
+                    constraint,
+                )
+
+        if self._sketch_pending_points:
+            constraint = self._sketch_inferred_direction_constraint(
+                local
+            )
+            if constraint == "horizontal":
+                first = self._sketch_pending_points[-1]
+                return (local[0], first[1]), None, constraint
+            if constraint == "vertical":
+                first = self._sketch_pending_points[-1]
+                return (first[0], local[1]), None, constraint
+        return local, None, None
+
+    def _sketch_inferred_direction_constraint(
+        self,
+        candidate: tuple[float, float],
+    ) -> str | None:
+        if not self._sketch_pending_points:
+            return None
+        first = self._sketch_pending_points[-1]
+        candidate_screen = self._screen_point(
+            self._camera_point(self._sketch_world_point(candidate))
+        )
+        horizontal_screen = self._screen_point(
+            self._camera_point(
+                self._sketch_world_point((candidate[0], first[1]))
+            )
+        )
+        vertical_screen = self._screen_point(
+            self._camera_point(
+                self._sketch_world_point((first[0], candidate[1]))
+            )
+        )
+        horizontal_distance = hypot(
+            candidate_screen.x() - horizontal_screen.x(),
+            candidate_screen.y() - horizontal_screen.y(),
+        )
+        vertical_distance = hypot(
+            candidate_screen.x() - vertical_screen.x(),
+            candidate_screen.y() - vertical_screen.y(),
+        )
+        if (
+            horizontal_distance <= 10.0
+            and horizontal_distance <= vertical_distance
+        ):
+            return "horizontal"
+        if vertical_distance <= 10.0:
+            return "vertical"
+        return None
+
+    def _sketch_reference_direction_snap(
+        self,
+        reference_id: str,
+        constraint: str,
+        snapped: tuple[float, float],
+    ) -> tuple[float, float] | None:
+        if not self._sketch_pending_points:
+            return None
+        first = self._sketch_pending_points[-1]
+        if reference_id == "sketch_origin":
+            return (
+                (0.0, 0.0)
+                if (
+                    (constraint == "horizontal" and abs(first[1]) <= 1e-9)
+                    or (
+                        constraint == "vertical"
+                        and abs(first[0]) <= 1e-9
+                    )
+                )
+                else None
+            )
+        if reference_id == "sketch_axis:x":
+            geometry = {
+                "type": "line",
+                "point": (0.0, 0.0),
+                "direction": (1.0, 0.0),
+            }
+        elif reference_id == "sketch_axis:y":
+            geometry = {
+                "type": "line",
+                "point": (0.0, 0.0),
+                "direction": (0.0, 1.0),
+            }
+        else:
+            reference = next(
+                (
+                    item
+                    for item in self._sketch_external_references
+                    if str(item.get("id", "")) == reference_id
+                ),
+                None,
+            )
+            geometry = (
+                reference.get("geometry")
+                if isinstance(reference, dict)
+                else None
+            )
+        if not isinstance(geometry, dict):
+            return None
+        raw_lines = (
+            (geometry,)
+            if geometry.get("type") == "line"
+            else geometry.get("lines", ())
+            if geometry.get("type") == "lines"
+            else ()
+        )
+        candidates: list[tuple[float, float]] = []
+        for line in raw_lines:
+            if not isinstance(line, dict):
+                continue
+            point = line.get("point", ())
+            direction = line.get("direction", ())
+            if (
+                not isinstance(point, (list, tuple))
+                or not isinstance(direction, (list, tuple))
+                or len(point) < 2
+                or len(direction) < 2
+            ):
+                continue
+            px, py = float(point[0]), float(point[1])
+            dx, dy = float(direction[0]), float(direction[1])
+            if constraint == "horizontal":
+                if abs(dy) > 1.0e-12:
+                    factor = (first[1] - py) / dy
+                    candidates.append((px + factor * dx, first[1]))
+                elif abs(py - first[1]) <= 1.0e-9:
+                    candidates.append((snapped[0], first[1]))
+            elif constraint == "vertical":
+                if abs(dx) > 1.0e-12:
+                    factor = (first[0] - px) / dx
+                    candidates.append((first[0], py + factor * dy))
+                elif abs(px - first[0]) <= 1.0e-9:
+                    candidates.append((first[0], snapped[1]))
+        return (
+            min(
+                candidates,
+                key=lambda candidate: (
+                    (candidate[0] - snapped[0]) ** 2
+                    + (candidate[1] - snapped[1]) ** 2
+                ),
+            )
+            if candidates
+            else None
+        )
+
+    def _sketch_point_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[float, str, tuple[float, float]] | None:
+        nearest_point: (
+            tuple[float, str, tuple[float, float]] | None
+        ) = None
+        for entity in self._sketch_entities:
+            if entity.get("type") != "point":
+                continue
+            point_id = str(entity.get("id", ""))
+            if not point_id:
+                continue
+            point = (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(point))
+            )
+            distance = hypot(
+                position.x() - screen.x(),
+                position.y() - screen.y(),
+            )
+            if (
+                distance <= 12.0
+                and (
+                    nearest_point is None
+                    or distance < nearest_point[0]
+                )
+            ):
+                nearest_point = (distance, point_id, point)
+        return nearest_point
+
+    def _sketch_external_reference_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[str, tuple[float, float]] | None:
+        tolerance = 12.0
+        nearest: tuple[float, str, tuple[float, float]] | None = None
+
+        def consider_line(reference_id: str, raw_line) -> None:
+            nonlocal nearest
+            if not isinstance(raw_line, dict):
+                return
+            point = raw_line.get("point")
+            direction = raw_line.get("direction")
+            if (
+                not isinstance(point, (list, tuple))
+                or not isinstance(direction, (list, tuple))
+                or len(point) < 2
+                or len(direction) < 2
+            ):
+                return
+            px, py = float(point[0]), float(point[1])
+            dx, dy = float(direction[0]), float(direction[1])
+            squared_length = dx * dx + dy * dy
+            if squared_length <= 1.0e-18:
+                return
+            screen_point = self._screen_point(
+                self._camera_point(self._sketch_world_point((px, py)))
+            )
+            screen_direction_end = self._screen_point(
+                self._camera_point(
+                    self._sketch_world_point((px + dx, py + dy))
+                )
+            )
+            screen_dx = screen_direction_end.x() - screen_point.x()
+            screen_dy = screen_direction_end.y() - screen_point.y()
+            screen_squared_length = (
+                screen_dx * screen_dx + screen_dy * screen_dy
+            )
+            if screen_squared_length <= 1.0e-18:
+                return
+            factor = (
+                (position.x() - screen_point.x()) * screen_dx
+                + (position.y() - screen_point.y()) * screen_dy
+            ) / screen_squared_length
+            snapped = (px + factor * dx, py + factor * dy)
+            distance = hypot(
+                position.x() - (screen_point.x() + factor * screen_dx),
+                position.y() - (screen_point.y() + factor * screen_dy),
+            )
+            if (
+                distance <= tolerance
+                and (nearest is None or distance < nearest[0])
+            ):
+                nearest = (distance, reference_id, snapped)
+
+        origin_screen = self._screen_point(
+            self._camera_point(self._sketch_world_point((0.0, 0.0)))
+        )
+        origin_distance = hypot(
+            position.x() - origin_screen.x(),
+            position.y() - origin_screen.y(),
+        )
+        if origin_distance <= tolerance:
+            return ("sketch_origin", (0.0, 0.0))
+        consider_line(
+            "sketch_axis:x",
+            {
+                "point": (0.0, 0.0),
+                "direction": (1.0, 0.0),
+            },
+        )
+        consider_line(
+            "sketch_axis:y",
+            {
+                "point": (0.0, 0.0),
+                "direction": (0.0, 1.0),
+            },
+        )
+        for reference in self._sketch_external_references:
+            reference_id = str(reference.get("id", ""))
+            geometry = reference.get("geometry")
+            if not reference_id or not isinstance(geometry, dict):
+                continue
+            geometry_type = geometry.get("type")
+            if geometry_type == "line":
+                consider_line(reference_id, geometry)
+            elif geometry_type == "lines":
+                raw_lines = geometry.get("lines", ())
+                if isinstance(raw_lines, (list, tuple)):
+                    for raw_line in raw_lines:
+                        consider_line(reference_id, raw_line)
+            elif geometry_type == "point":
+                point = geometry.get("point")
+                if (
+                    not isinstance(point, (list, tuple))
+                    or len(point) < 2
+                ):
+                    continue
+                snapped = (float(point[0]), float(point[1]))
+                screen = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(snapped)
+                    )
+                )
+                distance = hypot(
+                    position.x() - screen.x(),
+                    position.y() - screen.y(),
+                )
+                if (
+                    distance <= tolerance
+                    and (nearest is None or distance < nearest[0])
+                ):
+                    nearest = (distance, reference_id, snapped)
+        return (
+            (nearest[1], nearest[2])
+            if nearest is not None
+            else None
+        )
 
     def _cycle_sketch_entity(self, position: QPointF) -> None:
         candidates = self._sketch_entity_candidates(position)
