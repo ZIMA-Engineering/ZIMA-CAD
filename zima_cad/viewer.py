@@ -178,6 +178,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchCancelCurrentRequested = Signal()
     sketchConfirmCurrentRequested = Signal()
     sketchEntitySelected = Signal(str)
+    sketchEntityHovered = Signal(str)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -1064,6 +1065,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             if point_id != self._preview_sketch_entity_id:
                 self._preview_sketch_entity_id = point_id
+                self.sketchEntityHovered.emit(point_id or "")
             snapped, reference_id, constraint = (
                 self._sketch_placement_candidate(event.position())
             )
@@ -1138,6 +1140,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._preview_sketch_entity_id = None
             self._sketch_cycle_ids = ()
             self._sketch_cycle_index = -1
+            self.sketchEntityHovered.emit("")
             self.update()
         self._set_hovered_object(None)
         self._set_hovered_edge(None)

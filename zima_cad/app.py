@@ -216,6 +216,47 @@ class DialogMiddleButtonFilter(QObject):
     def _event_dialog(watched) -> QDialog | None:
         if not isinstance(watched, QWidget):
             return None
+        widget: QWidget | None = watched
+        while widget is not None:
+            if isinstance(widget, QDialog):
+                return (
+                    None
+                    if getattr(
+                        widget,
+                        "_handles_middle_confirmation",
+                        False,
+                    )
+                    else widget
+                )
+            widget = widget.parentWidget()
+        application = QApplication.instance()
+        target = (
+            getattr(
+                application,
+                "_middle_confirmation_target",
+                None,
+            )
+            if application is not None
+            else None
+        )
+        if (
+            isinstance(target, QDialog)
+            and target.isVisible()
+            and not getattr(
+                target,
+                "_handles_middle_confirmation",
+                False,
+            )
+        ):
+            parent = target.parentWidget()
+            if (
+                watched.window() is target
+                or (
+                    parent is not None
+                    and watched.window() is parent.window()
+                )
+            ):
+                return target
         window = watched.window()
         if (
             not isinstance(window, QDialog)
@@ -3499,6 +3540,42 @@ def parse_material_file(
     return properties, descriptions, units
 
 
+class DimensionTextLabel(QLabel):
+    """Dimension text with optical alignment for technical glyphs."""
+
+    OPTICALLY_CENTERED_SYMBOLS = frozenset(
+        "⌀○●□⌴⌵↧⌒∠"
+    )
+
+    def paintEvent(self, event) -> None:
+        text = self.text()
+        painter = QPainter(self)
+        painter.setFont(self.font())
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText))
+        metrics = painter.fontMetrics()
+        baseline = (
+            (self.height() - metrics.height()) // 2 + metrics.ascent()
+        )
+        reference_center = metrics.boundingRect("0").center().y()
+        x = 0
+        for character in text:
+            vertical_offset = 0
+            if character in self.OPTICALLY_CENTERED_SYMBOLS:
+                glyph_center = metrics.boundingRect(
+                    character
+                ).center().y()
+                vertical_offset = max(
+                    -2,
+                    min(2, reference_center - glyph_center),
+                )
+            painter.drawText(
+                x,
+                baseline + vertical_offset,
+                character,
+            )
+            x += metrics.horizontalAdvance(character)
+
+
 class ParameterEditOverlay(QWidget):
     """Small in-view prototype for editing one geometric dimension."""
 
@@ -3522,22 +3599,31 @@ class ParameterEditOverlay(QWidget):
         self._content_layout = layout
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self.prefix_label = QLabel(self)
+        self.prefix_label = DimensionTextLabel(self)
+        self.value_label = DimensionTextLabel(self)
         self.value_edit = QLineEdit(self)
         self.value_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.value_edit.setFrame(False)
         self.value_edit.setTextMargins(0, 0, 0, 0)
         self.value_edit.setReadOnly(True)
         self.value_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.suffix_label = QLabel(self)
+        self.value_edit.hide()
+        self.suffix_label = DimensionTextLabel(self)
+        self.tolerance_label = QLabel(self)
+        self.tolerance_label.setObjectName("stackedTolerance")
+        self.tolerance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.prefix_label)
+        layout.addWidget(self.value_label)
         layout.addWidget(self.value_edit)
         layout.addWidget(self.suffix_label)
+        layout.addWidget(self.tolerance_label)
         for widget in (
             self,
             self.prefix_label,
+            self.value_label,
             self.value_edit,
             self.suffix_label,
+            self.tolerance_label,
         ):
             widget.installEventFilter(self)
         self._update_style(selected=False)
@@ -3550,7 +3636,7 @@ class ParameterEditOverlay(QWidget):
             "#00d1ff" if selected else "#fff06a"
         )
         background = "#ffffff" if self._editing else "transparent"
-        border = "2px solid #ff9800" if self._editing else "none"
+        border = "2px solid #00d1ff" if self._editing else "none"
         self._content_layout.setContentsMargins(
             4 if self._editing else 0,
             1 if self._editing else 0,
@@ -3569,6 +3655,9 @@ class ParameterEditOverlay(QWidget):
             "font-weight: bold;"
             "border: none;"
             "}"
+            "QLabel#stackedTolerance {"
+            "line-height: 1em;"
+            "}"
             "QLineEdit {"
             "background: transparent;"
             f"color: {text_color};"
@@ -3585,6 +3674,10 @@ class ParameterEditOverlay(QWidget):
         prefix: str = "",
         *,
         display_value: str | None = None,
+        tolerance_mode: str = "",
+        tolerance_value: str = "",
+        upper_deviation: str = "",
+        lower_deviation: str = "",
     ) -> None:
         self._editing = False
         self._selected = False
@@ -3594,26 +3687,97 @@ class ParameterEditOverlay(QWidget):
         )
         self._original_value = self._edit_value
         self.prefix_label.setText(prefix)
+        self.value_label.setText(self._display_value)
+        self.value_label.show()
         self.value_edit.setText(self._display_value)
+        self.value_edit.hide()
         self.value_edit.setReadOnly(True)
         self.value_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.suffix_label.setText(suffix)
+        inline_tolerance = (
+            f"±{tolerance_value}"
+            if tolerance_mode == "symmetric" and tolerance_value
+            else tolerance_value
+            if tolerance_mode == "single_deviation"
+            else ""
+        )
+        self.suffix_label.setText(f"{suffix}{inline_tolerance}")
+        stacked_tolerance = ""
+        if tolerance_mode == "deviations":
+            stacked_tolerance = "\n".join(
+                value
+                for value in (upper_deviation, lower_deviation)
+                if value
+            )
+        self.tolerance_label.setText(stacked_tolerance)
+        self.tolerance_label.setVisible(bool(stacked_tolerance))
+        self.tolerance_label.adjustSize()
+        self.setFixedHeight(
+            max(34, self.tolerance_label.sizeHint().height())
+            if stacked_tolerance
+            else 24
+        )
+        for widget in (
+            self.prefix_label,
+            self.value_label,
+            self.value_edit,
+            self.suffix_label,
+        ):
+            self._content_layout.setAlignment(
+                widget,
+                (
+                    Qt.AlignmentFlag.AlignBottom
+                    if stacked_tolerance
+                    else Qt.AlignmentFlag.AlignBaseline
+                ),
+            )
+        self._content_layout.setAlignment(
+            self.tolerance_label,
+            (
+                Qt.AlignmentFlag.AlignBottom
+                if stacked_tolerance
+                else Qt.AlignmentFlag.AlignBaseline
+            ),
+        )
         self.setToolTip(
             " ".join(
                 part
-                for part in (prefix, self._display_value, suffix)
+                for part in (
+                    prefix,
+                    self._display_value,
+                    suffix,
+                    inline_tolerance,
+                    stacked_tolerance.replace("\n", " / "),
+                )
                 if part
             )
         )
         metrics = self.fontMetrics()
-        content_width = sum(
-            metrics.horizontalAdvance(part)
-            for part in (prefix, self._display_value, suffix)
-            if part
+        value_width = max(
+            1,
+            metrics.horizontalAdvance(self._display_value) + 2,
         )
-        self.value_edit.setFixedWidth(
-            max(1, metrics.horizontalAdvance(self._display_value) + 2)
+        self.value_label.setFixedWidth(value_width)
+        self.prefix_label.adjustSize()
+        self.suffix_label.adjustSize()
+        prefix_width = (
+            self.prefix_label.sizeHint().width() if prefix else 0
         )
+        suffix_width = (
+            self.suffix_label.sizeHint().width()
+            if self.suffix_label.text()
+            else 0
+        )
+        self.prefix_label.setFixedWidth(prefix_width)
+        self.suffix_label.setFixedWidth(suffix_width)
+        content_width = prefix_width + value_width + suffix_width
+        if stacked_tolerance:
+            self.tolerance_label.adjustSize()
+            tolerance_width = max(
+                self.tolerance_label.fontMetrics().horizontalAdvance(value)
+                for value in self.tolerance_label.text().splitlines()
+            )
+            self.tolerance_label.setFixedWidth(tolerance_width + 2)
+            content_width += tolerance_width + 2
         self._passive_width = max(1, content_width + 4)
         self.setFixedWidth(self._passive_width)
         self._update_style(selected=False)
@@ -3631,6 +3795,8 @@ class ParameterEditOverlay(QWidget):
         self._select_dimension()
         self._editing = True
         self._original_value = self._edit_value
+        self.value_label.hide()
+        self.value_edit.show()
         self.value_edit.setText(self._edit_value)
         self.value_edit.setFixedWidth(
             max(
@@ -3645,6 +3811,7 @@ class ParameterEditOverlay(QWidget):
                 self.prefix_label.sizeHint().width()
                 + self.value_edit.width()
                 + self.suffix_label.sizeHint().width()
+                + self.tolerance_label.sizeHint().width()
                 + 12,
             )
         )
@@ -3658,6 +3825,8 @@ class ParameterEditOverlay(QWidget):
         if not self._editing:
             return
         self._editing = False
+        self.value_edit.hide()
+        self.value_label.show()
         self.value_edit.setReadOnly(True)
         self.value_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedWidth(self._passive_width)
@@ -3666,6 +3835,8 @@ class ParameterEditOverlay(QWidget):
 
     def _cancel_edit(self) -> None:
         self._editing = False
+        self.value_edit.hide()
+        self.value_label.show()
         self.value_edit.setText(self._display_value)
         self.value_edit.setFixedWidth(
             max(
@@ -3692,7 +3863,9 @@ class ParameterEditOverlay(QWidget):
         y = max(
             0,
             min(
-                position.y() - self.height() // 2,
+                position.y()
+                - 12
+                - max(0, self.height() - 24),
                 self.parent().height() - self.height(),
             ),
         )
@@ -3754,6 +3927,27 @@ class ParameterEditOverlay(QWidget):
 
 
 class DimensionPropertiesDialog(QDialog):
+    applied = Signal(dict)
+
+    DIMENSION_SYMBOLS = (
+        ("⌀", "dialog.dimension_properties.symbol.diameter"),
+        ("○", "dialog.dimension_properties.symbol.circle"),
+        ("●", "dialog.dimension_properties.symbol.filled_circle"),
+        ("R", "dialog.dimension_properties.symbol.radius"),
+        ("SR", "dialog.dimension_properties.symbol.spherical_radius"),
+        ("S⌀", "dialog.dimension_properties.symbol.spherical_diameter"),
+        ("□", "dialog.dimension_properties.symbol.square"),
+        ("⌴", "dialog.dimension_properties.symbol.counterbore"),
+        ("⌵", "dialog.dimension_properties.symbol.countersink"),
+        ("↧", "dialog.dimension_properties.symbol.depth"),
+        ("⌒", "dialog.dimension_properties.symbol.arc_length"),
+        ("∠", "dialog.dimension_properties.symbol.angle"),
+        ("°", "dialog.dimension_properties.symbol.degrees"),
+        ("±", "dialog.dimension_properties.symbol.plus_minus"),
+        ("×", "dialog.dimension_properties.symbol.multiplication"),
+        ("≈", "dialog.dimension_properties.symbol.approximately"),
+    )
+
     def __init__(
         self,
         style: dict[str, Any],
@@ -3762,7 +3956,61 @@ class DimensionPropertiesDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.dimension_properties.title"))
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+        self.setMinimumSize(460, 300)
+        self.resize(540, 360)
         layout = QVBoxLayout(self)
+        if self.windowFlags() & Qt.WindowType.SubWindow:
+            self.setObjectName("dimensionPropertiesSubWindow")
+            self.setStyleSheet(
+                "QDialog#dimensionPropertiesSubWindow {"
+                " background: palette(window);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 5px;"
+                "}"
+            )
+            layout.setContentsMargins(8, 6, 8, 8)
+            self._internal_title_bar = QWidget(self)
+            self._internal_title_bar.setObjectName("propertiesTitleBar")
+            self._internal_title_bar.setFixedHeight(34)
+            self._internal_title_bar.setCursor(
+                Qt.CursorShape.SizeAllCursor
+            )
+            self._internal_title_bar.setStyleSheet(
+                "QWidget#propertiesTitleBar {"
+                " background: palette(midlight);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 4px;"
+                "}"
+            )
+            title_layout = QHBoxLayout(self._internal_title_bar)
+            title_layout.setContentsMargins(10, 2, 4, 2)
+            title_label = QLabel(self.windowTitle())
+            title_font = title_label.font()
+            title_font.setBold(True)
+            title_label.setFont(title_font)
+            title_layout.addWidget(title_label, 1)
+            close_button = QPushButton("×")
+            close_button.setFixedSize(27, 26)
+            close_button.setToolTip(tr("button.cancel"))
+            close_button.setStyleSheet(
+                "QPushButton { border: none; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; }"
+                "QPushButton:hover { background: #b83232; color: white; }"
+            )
+            close_button.clicked.connect(self.reject)
+            title_layout.addWidget(close_button)
+            self._internal_title_bar.installEventFilter(self)
+            layout.addWidget(self._internal_title_bar)
         form = QFormLayout()
         self.prefix_edit = QLineEdit(str(style.get("prefix", "")))
         self.suffix_edit = QLineEdit(str(style.get("suffix", "")))
@@ -3772,6 +4020,37 @@ class DimensionPropertiesDialog(QDialog):
         self.lower_tolerance_edit = QLineEdit(
             str(style.get("lower_tolerance", ""))
         )
+        self.symmetric_tolerance_edit = QLineEdit(
+            str(style.get("symmetric_tolerance", ""))
+        )
+        self.single_tolerance_edit = QLineEdit(
+            str(style.get("single_tolerance", ""))
+        )
+        self.tolerance_mode_combo = QComboBox()
+        for mode, key in (
+            ("", "dialog.dimension_properties.tolerance.none"),
+            ("symmetric", "dialog.dimension_properties.tolerance.symmetric"),
+            (
+                "single_deviation",
+                "dialog.dimension_properties.tolerance.single",
+            ),
+            (
+                "deviations",
+                "dialog.dimension_properties.tolerance.deviations",
+            ),
+        ):
+            self.tolerance_mode_combo.addItem(tr(key), mode)
+        tolerance_mode = str(style.get("tolerance_mode", ""))
+        if not tolerance_mode:
+            upper = self.upper_tolerance_edit.text().strip()
+            lower = self.lower_tolerance_edit.text().strip()
+            if upper and lower:
+                tolerance_mode = "deviations"
+            elif upper or lower:
+                tolerance_mode = "single_deviation"
+                self.single_tolerance_edit.setText(upper or lower)
+        mode_index = self.tolerance_mode_combo.findData(tolerance_mode)
+        self.tolerance_mode_combo.setCurrentIndex(max(0, mode_index))
         self.decimal_places_spin = QSpinBox()
         self.decimal_places_spin.setRange(0, 12)
         try:
@@ -3783,18 +4062,30 @@ class DimensionPropertiesDialog(QDialog):
         self.decimal_places_spin.setValue(decimal_places)
         form.addRow(
             tr("dialog.dimension_properties.prefix"),
-            self.prefix_edit,
+            self._symbol_edit_row(self.prefix_edit),
         )
         form.addRow(
             tr("dialog.dimension_properties.suffix"),
-            self.suffix_edit,
+            self._symbol_edit_row(self.suffix_edit),
         )
         form.addRow(
-            tr("dialog.dimension_properties.upper_tolerance"),
+            tr("dialog.dimension_properties.tolerance_mode"),
+            self.tolerance_mode_combo,
+        )
+        form.addRow(
+            tr("dialog.dimension_properties.symmetric_tolerance"),
+            self.symmetric_tolerance_edit,
+        )
+        form.addRow(
+            tr("dialog.dimension_properties.single_tolerance"),
+            self.single_tolerance_edit,
+        )
+        form.addRow(
+            tr("dialog.dimension_properties.upper_deviation"),
             self.upper_tolerance_edit,
         )
         form.addRow(
-            tr("dialog.dimension_properties.lower_tolerance"),
+            tr("dialog.dimension_properties.lower_deviation"),
             self.lower_tolerance_edit,
         )
         form.addRow(
@@ -3802,18 +4093,178 @@ class DimensionPropertiesDialog(QDialog):
             self.decimal_places_spin,
         )
         layout.addLayout(form)
+        self._tolerance_form = form
+        self.tolerance_mode_combo.currentIndexChanged.connect(
+            self._update_tolerance_fields
+        )
+        self._update_tolerance_fields()
+        layout.addStretch(1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
+        localize_dialog_buttons(buttons)
+        buttons.button(
+            QDialogButtonBox.StandardButton.Apply
+        ).clicked.connect(self._apply_without_closing)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        button_row = QHBoxLayout()
+        button_row.addWidget(buttons, 1)
+        if self.windowFlags() & Qt.WindowType.SubWindow:
+            size_grip = QSizeGrip(self)
+            size_grip.setToolTip(
+                tr("dialog.dimension_properties.resize")
+            )
+            button_row.addWidget(
+                size_grip,
+                0,
+                Qt.AlignmentFlag.AlignRight
+                | Qt.AlignmentFlag.AlignBottom,
+            )
+        layout.addLayout(button_row)
+
+    def _apply_without_closing(self) -> None:
+        self.applied.emit(self.dimension_style())
+
+    def _symbol_edit_row(self, edit: QLineEdit) -> QWidget:
+        row = QWidget(self)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(edit)
+
+        button = QToolButton(row)
+        button.setText("⌀")
+        button.setToolTip(
+            tr("dialog.dimension_properties.insert_symbol")
+        )
+        button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        menu = QMenu(button)
+        for symbol, translation_key in self.DIMENSION_SYMBOLS:
+            action = menu.addAction(f"{symbol}   {tr(translation_key)}")
+            action.triggered.connect(
+                lambda _checked=False, value=symbol, target=edit:
+                self._insert_symbol(target, value)
+            )
+        button.setMenu(menu)
+        layout.addWidget(button)
+        return row
+
+    @staticmethod
+    def _insert_symbol(edit: QLineEdit, symbol: str) -> None:
+        edit.insert(symbol)
+        edit.setFocus()
+
+    def _update_tolerance_fields(self) -> None:
+        mode = str(self.tolerance_mode_combo.currentData() or "")
+        visibility = (
+            (self.symmetric_tolerance_edit, mode == "symmetric"),
+            (self.single_tolerance_edit, mode == "single_deviation"),
+            (self.upper_tolerance_edit, mode == "deviations"),
+            (self.lower_tolerance_edit, mode == "deviations"),
+        )
+        for field, visible in visibility:
+            field.setVisible(visible)
+            label = self._tolerance_form.labelForField(field)
+            if label is not None:
+                label.setVisible(visible)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is getattr(self, "_internal_title_bar", None):
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                target = self._title_drag_window_origin + QPoint(
+                    int(delta.x()),
+                    int(delta.y()),
+                )
+                parent = self.parentWidget()
+                if parent is not None:
+                    target.setX(max(
+                        0,
+                        min(target.x(), parent.width() - self.width()),
+                    ))
+                    target.setY(max(
+                        0,
+                        min(target.y(), parent.height() - 34),
+                    ))
+                self.move(target)
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        parent = self.parentWidget()
+        if (
+            parent is not None
+            and self.windowFlags() & Qt.WindowType.SubWindow
+        ):
+            self.setMaximumSize(parent.size())
+        application = QApplication.instance()
+        if application is not None:
+            application._middle_confirmation_target = self
+        position_dialog_top_right_after_show(self)
+
+    def done(self, result: int) -> None:
+        application = QApplication.instance()
+        if (
+            application is not None
+            and getattr(
+                application,
+                "_middle_confirmation_target",
+                None,
+            ) is self
+        ):
+            application._middle_confirmation_target = None
+        super().done(result)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        parent = self.parentWidget()
+        if (
+            parent is None
+            or not self.windowFlags() & Qt.WindowType.SubWindow
+        ):
+            return
+        self.move(
+            max(0, min(self.x(), parent.width() - self.width())),
+            max(0, min(self.y(), parent.height() - self.height())),
+        )
 
     def dimension_style(self) -> dict[str, Any]:
         return {
             "prefix": self.prefix_edit.text(),
             "suffix": self.suffix_edit.text(),
+            "tolerance_mode": str(
+                self.tolerance_mode_combo.currentData() or ""
+            ),
+            "symmetric_tolerance": self.symmetric_tolerance_edit.text(),
+            "single_tolerance": self.single_tolerance_edit.text(),
             "upper_tolerance": self.upper_tolerance_edit.text(),
             "lower_tolerance": self.lower_tolerance_edit.text(),
             "decimal_places": self.decimal_places_spin.value(),
@@ -3961,6 +4412,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids: list[str] = []
         self._sketch_pending_new_point_ids: set[str] = set()
         self._sketch_pending_constraint: str | None = None
+        self._sketch_coincident_first_point_id: str | None = None
         self._sketch_selected_entity_id: str | None = None
         self._sketch_selected_reference: tuple[str, str, int] | None = None
         self._sketch_show_all_dimensions = False
@@ -4040,6 +4492,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchEntitySelected.connect(
             self._select_sketch_entity
+        )
+        self.native_viewer.sketchEntityHovered.connect(
+            self._on_sketch_entity_hovered
         )
         self.regenerate_action = QAction(
             tr("command.regenerate"),
@@ -4616,7 +5071,14 @@ class MainWindow(QMainWindow):
                 resource_icon(icon_name),
                 tr(command_key),
             )
-            action.setEnabled(False)
+            if command_key == "sketch.constraint.coincident":
+                action.setEnabled(True)
+                action.triggered.connect(
+                    lambda _checked=False:
+                    self._set_sketch_constraint_tool("coincident")
+                )
+            else:
+                action.setEnabled(False)
         button = QToolButton(self.tools_toolbar)
         button.setObjectName("applicationCommandButton")
         button.setText(tr(title_key))
@@ -6866,9 +7328,20 @@ class MainWindow(QMainWindow):
                         reference_id = str(
                             constraint.get("reference_id", "")
                         )
-                        if constraint_type != "point_on_reference":
+                        if constraint_type == "coincident":
+                            target_point_id = str(
+                                constraint.get("point_id", "")
+                            )
+                            constraint_label = tr(
+                                "sketch.constraint.coincident_with",
+                                point=point_labels.get(
+                                    target_point_id,
+                                    target_point_id,
+                                ),
+                            )
+                        elif constraint_type != "point_on_reference":
                             continue
-                        if reference_id == "sketch_origin":
+                        elif reference_id == "sketch_origin":
                             constraint_label = tr(
                                 "sketch.constraint.point_at_origin"
                             )
@@ -10898,6 +11371,12 @@ class MainWindow(QMainWindow):
             constraints = []
         for constraint in constraints:
             if (
+                isinstance(constraint, dict)
+                and constraint.get("type") == "coincident"
+            ):
+                locked.update(("x", "y"))
+                continue
+            if (
                 not isinstance(constraint, dict)
                 or constraint.get("type") != "point_on_reference"
             ):
@@ -10997,6 +11476,47 @@ class MainWindow(QMainWindow):
                     second["y"] = float(first.get("y", 0.0))
                 elif constraint.get("type") == "vertical":
                     second["x"] = float(first.get("x", 0.0))
+
+    @staticmethod
+    def _apply_sketch_coincident_constraints(
+        entities: list[dict[str, Any]],
+    ) -> None:
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        # Resolve chains such as p3 → p2 → p1 without merging point IDs.
+        for _pass in range(max(1, len(points))):
+            changed = False
+            for point in points.values():
+                constraints = point.get("constraints", ())
+                if not isinstance(constraints, list):
+                    continue
+                for constraint in constraints:
+                    if (
+                        not isinstance(constraint, dict)
+                        or constraint.get("type") != "coincident"
+                    ):
+                        continue
+                    target = points.get(
+                        str(constraint.get("point_id", ""))
+                    )
+                    if target is None:
+                        continue
+                    target_x, target_y = (
+                        float(target.get("x", 0.0)),
+                        float(target.get("y", 0.0)),
+                    )
+                    if (
+                        float(point.get("x", 0.0)) != target_x
+                        or float(point.get("y", 0.0)) != target_y
+                    ):
+                        point["x"] = target_x
+                        point["y"] = target_y
+                        changed = True
+            if not changed:
+                break
 
     @staticmethod
     def _sketch_reference_constraint_line(
@@ -11281,6 +11801,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_coincident_first_point_id = None
         self._sketch_selected_entity_id = None
         self._sketch_selected_reference = None
         self._sketch_show_all_dimensions = False
@@ -11386,10 +11907,22 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_coincident_first_point_id = None
         if tool != "select":
             self._sketch_selected_entity_id = None
         self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
+
+    def _set_sketch_constraint_tool(self, constraint: str) -> None:
+        if (
+            self._sketch_edit_entity_id is None
+            or constraint != "coincident"
+        ):
+            return
+        self._set_sketch_tool("coincident")
+        self.statusBar().showMessage(
+            tr("sketch.status.coincident.select_first")
+        )
 
     def _on_sketch_reference_position_clicked(
         self,
@@ -11424,10 +11957,32 @@ class MainWindow(QMainWindow):
             or self._sketch_edit_entity_id is None
         ):
             if self._sketch_edit_entity_id is not None:
-                self.statusBar().showMessage(tr("sketch.status.editing"))
+                self.statusBar().showMessage(
+                    tr(
+                        "sketch.status.coincident.select_second"
+                        if (
+                            self._sketch_tool == "coincident"
+                            and self._sketch_coincident_first_point_id
+                        )
+                        else "sketch.status.coincident.select_first"
+                        if self._sketch_tool == "coincident"
+                        else "sketch.status.editing"
+                    )
+                )
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
+            return
+        if self._sketch_tool == "coincident":
+            self.statusBar().showMessage(
+                tr(
+                    "sketch.status.coincident.hover_reference",
+                    reference=self._sketch_reference_display_name(
+                        sketch,
+                        reference_id,
+                    ),
+                )
+            )
             return
         self.statusBar().showMessage(
             tr(
@@ -11436,6 +11991,25 @@ class MainWindow(QMainWindow):
                     sketch,
                     reference_id,
                 ),
+            )
+        )
+
+    def _on_sketch_entity_hovered(self, entity_id: str) -> None:
+        if self._sketch_tool != "coincident":
+            return
+        if entity_id:
+            self.statusBar().showMessage(
+                tr(
+                    "sketch.status.coincident.hover_point",
+                    point=entity_id,
+                )
+            )
+            return
+        self.statusBar().showMessage(
+            tr(
+                "sketch.status.coincident.select_second"
+                if self._sketch_coincident_first_point_id
+                else "sketch.status.coincident.select_first"
             )
         )
 
@@ -11498,6 +12072,13 @@ class MainWindow(QMainWindow):
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
             return
+        if self._sketch_tool == "coincident":
+            self._handle_sketch_coincident_click(
+                sketch,
+                (x, y),
+                reference_id,
+            )
+            return
         point, snapped, created = self._ensure_sketch_point(
             sketch,
             (x, y),
@@ -11556,6 +12137,176 @@ class MainWindow(QMainWindow):
             self._commit_pending_sketch_entity()
         else:
             self._refresh_sketch_overlay()
+
+    def _handle_sketch_coincident_click(
+        self,
+        sketch: ZimaEntity,
+        position: tuple[float, float],
+        reference_id: str | None,
+    ) -> None:
+        entities = self._stored_sketch_entities(sketch)
+        _snapped, candidate = self._snap_sketch_position(
+            entities,
+            position,
+        )
+        candidate_id = (
+            str(candidate.get("id", ""))
+            if candidate is not None
+            else ""
+        )
+        first_id = self._sketch_coincident_first_point_id
+        if first_id is None:
+            if not candidate_id:
+                self.statusBar().showMessage(
+                    tr("sketch.status.coincident.point_required")
+                )
+                return
+            self._sketch_coincident_first_point_id = candidate_id
+            self._sketch_selected_entity_id = candidate_id
+            self._clear_dimension_overlays()
+            self._refresh_sketch_overlay()
+            self.statusBar().showMessage(
+                tr("sketch.status.coincident.select_second")
+            )
+            return
+
+        completed = False
+        if candidate_id and candidate_id != first_id:
+            completed = self._add_sketch_coincident_constraint(
+                sketch,
+                first_id,
+                candidate_id,
+            )
+        elif reference_id:
+            first_point = next(
+                (
+                    entity
+                    for entity in entities
+                    if entity.get("type") == "point"
+                    and str(entity.get("id", "")) == first_id
+                ),
+                None,
+            )
+            constraints = (
+                first_point.get("constraints", ())
+                if first_point is not None
+                else ()
+            )
+            already_constrained = (
+                isinstance(constraints, list)
+                and any(
+                    isinstance(constraint, dict)
+                    and constraint.get("type") == "point_on_reference"
+                    and str(constraint.get("reference_id", ""))
+                    == reference_id
+                    for constraint in constraints
+                )
+            )
+            point = (
+                None
+                if already_constrained
+                else self._add_sketch_point_reference_constraint(
+                    sketch,
+                    first_id,
+                    reference_id,
+                )
+            )
+            if point is not None:
+                entities = self._stored_sketch_entities(sketch)
+                point = next(
+                    (
+                        entity
+                        for entity in entities
+                        if entity.get("type") == "point"
+                        and str(entity.get("id", "")) == first_id
+                    ),
+                    None,
+                )
+                if point is not None:
+                    self._apply_sketch_point_reference_constraints(
+                        sketch,
+                        point,
+                    )
+                    self._apply_sketch_coincident_constraints(entities)
+                    sketch.parameters["sketch_entities"] = json.dumps(
+                        entities,
+                        ensure_ascii=False,
+                    )
+                    completed = True
+        if not completed:
+            self.statusBar().showMessage(
+                tr("sketch.status.coincident.invalid_second")
+            )
+            return
+
+        self._sketch_coincident_first_point_id = None
+        self._sketch_selected_entity_id = None
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self.statusBar().showMessage(
+            tr("sketch.status.coincident.created")
+        )
+
+    def _add_sketch_coincident_constraint(
+        self,
+        sketch: ZimaEntity,
+        target_point_id: str,
+        constrained_point_id: str,
+    ) -> bool:
+        entities = self._stored_sketch_entities(sketch)
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        target = points.get(target_point_id)
+        constrained = points.get(constrained_point_id)
+        if target is None or constrained is None:
+            return False
+
+        connected: dict[str, set[str]] = {
+            point_id: set() for point_id in points
+        }
+        for point_id, point in points.items():
+            constraints = point.get("constraints", ())
+            if not isinstance(constraints, list):
+                continue
+            for constraint in constraints:
+                if (
+                    not isinstance(constraint, dict)
+                    or constraint.get("type") != "coincident"
+                ):
+                    continue
+                other_id = str(constraint.get("point_id", ""))
+                if other_id in points:
+                    connected[point_id].add(other_id)
+                    connected[other_id].add(point_id)
+        pending = [target_point_id]
+        visited: set[str] = set()
+        while pending:
+            point_id = pending.pop()
+            if point_id == constrained_point_id:
+                return False
+            if point_id in visited:
+                continue
+            visited.add(point_id)
+            pending.extend(connected.get(point_id, ()))
+
+        constraints = constrained.get("constraints", [])
+        if not isinstance(constraints, list):
+            constraints = []
+        constraints.append({
+            "type": "coincident",
+            "point_id": target_point_id,
+        })
+        constrained["constraints"] = constraints
+        self._apply_sketch_coincident_constraints(entities)
+        sketch.parameters["sketch_entities"] = json.dumps(
+            entities,
+            ensure_ascii=False,
+        )
+        return True
 
     def _add_sketch_point_reference_constraint(
         self,
@@ -11636,6 +12387,14 @@ class MainWindow(QMainWindow):
 
     def _cancel_current_sketch_entity(self) -> None:
         if self._sketch_edit_entity_id is None:
+            return
+        if self._sketch_tool == "coincident":
+            self._sketch_coincident_first_point_id = None
+            self._sketch_selected_entity_id = None
+            self._refresh_sketch_overlay()
+            self.statusBar().showMessage(
+                tr("sketch.status.coincident.select_first")
+            )
             return
         if (
             self._sketch_tool == "spline"
@@ -11989,6 +12748,24 @@ class MainWindow(QMainWindow):
                     for point_id in entity.get("point_ids", ())
                 }
             ]
+            for entity in entities:
+                constraints = entity.get("constraints", ())
+                if not isinstance(constraints, list):
+                    continue
+                remaining_constraints = [
+                    constraint
+                    for constraint in constraints
+                    if not (
+                        isinstance(constraint, dict)
+                        and constraint.get("type") == "coincident"
+                        and str(constraint.get("point_id", ""))
+                        == selected_id
+                    )
+                ]
+                if remaining_constraints:
+                    entity["constraints"] = remaining_constraints
+                else:
+                    entity.pop("constraints", None)
         else:
             entities = [
                 entity
@@ -12061,7 +12838,7 @@ class MainWindow(QMainWindow):
                 sketch
             ),
             snap_to_external_references=self._sketch_tool
-            in ("point", "segment", "construction"),
+            in ("point", "segment", "construction", "coincident"),
         )
         if populate_tree:
             self._populate_tree()
@@ -12283,6 +13060,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_coincident_first_point_id = None
         self._sketch_selected_entity_id = None
         self._sketch_selected_reference = None
         self._sketch_show_all_dimensions = False
@@ -12590,6 +13368,9 @@ class MainWindow(QMainWindow):
             "prefix": dimension.value_prefix,
             "suffix": dimension.value_suffix,
             "decimal_places": display_decimal_places(self),
+            "tolerance_mode": "",
+            "symmetric_tolerance": "",
+            "single_tolerance": "",
             "upper_tolerance": "",
             "lower_tolerance": "",
         }
@@ -12631,13 +13412,26 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             decimal_places = display_decimal_places(self)
         suffix = str(style.get("suffix", ""))
+        tolerance_mode = str(style.get("tolerance_mode", ""))
         upper = str(style.get("upper_tolerance", "")).strip()
         lower = str(style.get("lower_tolerance", "")).strip()
-        if upper or lower:
-            tolerance = "/".join(
-                item for item in (upper, lower) if item
+        if not tolerance_mode and (upper or lower):
+            tolerance_mode = (
+                "deviations" if upper and lower else "single_deviation"
             )
-            suffix += tolerance
+        symmetric_tolerance = str(
+            style.get("symmetric_tolerance", "")
+        ).strip()
+        if symmetric_tolerance.startswith("±"):
+            symmetric_tolerance = symmetric_tolerance[1:]
+        single_tolerance = str(
+            style.get("single_tolerance", "")
+        ).strip()
+        if (
+            tolerance_mode == "single_deviation"
+            and not single_tolerance
+        ):
+            single_tolerance = upper or lower
         overlay.show_value(
             self._format_display_value(value),
             suffix,
@@ -12646,6 +13440,14 @@ class MainWindow(QMainWindow):
                 value,
                 decimal_places,
             ),
+            tolerance_mode=tolerance_mode,
+            tolerance_value=(
+                symmetric_tolerance
+                if tolerance_mode == "symmetric"
+                else single_tolerance
+            ),
+            upper_deviation=upper,
+            lower_deviation=lower,
         )
         overlay.contextMenuRequested.connect(
             lambda position, key=dimension.key:
@@ -12691,20 +13493,22 @@ class MainWindow(QMainWindow):
             display_decimal_places(self),
             self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        styles[key] = dialog.dimension_style()
-        entity.parameters["dimension_styles"] = json.dumps(
-            styles,
-            ensure_ascii=False,
-        )
-        self._mark_model_for_regeneration()
-        if entity.kind == EntityKind.SKETCH:
-            if self._sketch_show_all_dimensions:
-                self._show_all_sketch_dimensions(entity)
-            else:
+        def apply_style(style: dict[str, Any]) -> None:
+            styles[key] = style
+            entity.parameters["dimension_styles"] = json.dumps(
+                styles,
+                ensure_ascii=False,
+            )
+            self._mark_model_for_regeneration()
+            if entity.kind == EntityKind.SKETCH:
+                if self._sketch_show_all_dimensions:
+                    self._show_all_sketch_dimensions(entity)
+                    return
                 point_id = str(
-                    self._dimension_bindings.get(key, ("", "", ""))[1]
+                    self._dimension_bindings.get(
+                        key,
+                        ("", "", ""),
+                    )[1]
                 )
                 point = next(
                     (
@@ -12718,14 +13522,18 @@ class MainWindow(QMainWindow):
                 )
                 if point is not None:
                     self._show_sketch_point_dimensions(entity, point)
-        else:
-            self._show_edit_overlays(
-                entity,
-                QPoint(
-                    self.native_viewer.width() // 2,
-                    self.native_viewer.height() // 2,
-                ),
-            )
+            else:
+                self._show_edit_overlays(
+                    entity,
+                    QPoint(
+                        self.native_viewer.width() // 2,
+                        self.native_viewer.height() // 2,
+                    ),
+                )
+
+        dialog.applied.connect(apply_style)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            apply_style(dialog.dimension_style())
 
     def _select_dimension_overlay(self, key: str) -> None:
         self.native_viewer.set_selected_dimension(key)
@@ -12818,6 +13626,7 @@ class MainWindow(QMainWindow):
                 point,
             )
             self._apply_sketch_geometry_constraints(entities)
+            self._apply_sketch_coincident_constraints(entities)
             entity.parameters["sketch_entities"] = json.dumps(
                 entities,
                 ensure_ascii=False,
