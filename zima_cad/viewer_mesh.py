@@ -49,6 +49,7 @@ class PlanePatch:
     owner_id: str = ""
     base_color: Point3 = BROWN
     label: str = ""
+    screen_constant: bool = False
 
 
 @dataclass(frozen=True)
@@ -370,6 +371,7 @@ def transform_viewer_mesh(mesh: ViewerMesh, transform) -> ViewerMesh:
             owner_id=plane.owner_id,
             base_color=plane.base_color,
             label=plane.label,
+            screen_constant=plane.screen_constant,
         )
         for plane in mesh.planes
     )
@@ -429,6 +431,7 @@ def datum_plane_mesh(
     center: Point3 = (0.0, 0.0, 0.0),
     plane: str = "xy",
     label: str = "",
+    screen_constant: bool = False,
 ) -> ViewerMesh:
     """Create one square datum plane owned by the native Viewer."""
     half = max(float(size), 1e-6) * 0.5
@@ -468,6 +471,7 @@ def datum_plane_mesh(
                 corners=corners,
                 owner_id=owner_id,
                 label=label,
+                screen_constant=screen_constant,
             ),
         ),
         bounds_min=tuple(

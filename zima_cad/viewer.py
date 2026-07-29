@@ -6,7 +6,14 @@ from math import atan2, cos, degrees, hypot, radians, sin, sqrt, tan
 import traceback
 from typing import Any
 
-from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    Qt,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -41,6 +48,7 @@ class LinearDimension:
     first_dimension_point: Point3
     second_dimension_point: Point3
     direction: Point3
+    leader_anchor: str = "rightmost"
 
 
 GL_COLOR_BUFFER_BIT = 0x00004000
@@ -235,6 +243,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_pending_points: tuple[tuple[float, float], ...] = ()
         self._sketch_selection_mode = False
         self._selected_sketch_entity_id: str | None = None
+        self._preview_sketch_entity_id: str | None = None
+        self._sketch_cycle_ids: tuple[str, ...] = ()
+        self._sketch_cycle_index = -1
+        self._camera_animation: QVariantAnimation | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -262,6 +274,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_pending_points = tuple(pending_points)
         self._sketch_selection_mode = selection_mode
         self._selected_sketch_entity_id = selected_entity_id
+        if not selection_mode or frame is None:
+            self._preview_sketch_entity_id = None
+            self._sketch_cycle_ids = ()
+            self._sketch_cycle_index = -1
         self.update()
 
     def center_on_world_point(self, point: Point3) -> None:
@@ -328,6 +344,100 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.camera.zoom = 1.0
         self.navigationChanged.emit(self.camera)
         self.update()
+
+    def animate_view_normal(
+        self,
+        normal: Point3,
+        center_point: Point3 | None = None,
+        *,
+        duration_ms: int = 1000,
+    ) -> None:
+        nx, ny, nz = normal
+        length = sqrt(nx * nx + ny * ny + nz * nz)
+        if length <= 1e-12:
+            return
+        nx, ny, nz = nx / length, ny / length, nz / length
+        horizontal = hypot(nx, ny)
+        target_yaw = (
+            degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
+        )
+        target_pitch = -degrees(atan2(horizontal, nz))
+        target_zoom = 1.0
+
+        target_center = (
+            self._scene_center
+            if center_point is None
+            else center_point
+        )
+        relative = tuple(
+            target_center[axis] - self._scene_center[axis]
+            for axis in range(3)
+        )
+        yaw = radians(target_yaw)
+        pitch = radians(target_pitch)
+        yaw_x = cos(yaw) * relative[0] - sin(yaw) * relative[1]
+        yaw_y = sin(yaw) * relative[0] + cos(yaw) * relative[1]
+        rotated_x = yaw_x
+        rotated_y = cos(pitch) * yaw_y - sin(pitch) * relative[2]
+        scale = (
+            float(self.height())
+            * 0.5
+            / max(self._scene_radius, 1e-9)
+            * target_zoom
+        )
+        target_pan_x = -rotated_x * scale
+        target_pan_y = rotated_y * scale
+
+        self._stop_camera_animation()
+        start_yaw = self.camera.yaw_degrees
+        yaw_delta = (
+            (target_yaw - start_yaw + 180.0) % 360.0
+        ) - 180.0
+        start_pitch = self.camera.pitch_degrees
+        start_pan_x = self.camera.pan_x
+        start_pan_y = self.camera.pan_y
+        start_zoom = self.camera.zoom
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(max(1, int(duration_ms)))
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        def apply_progress(raw_progress) -> None:
+            progress = float(raw_progress)
+            self.camera.yaw_degrees = start_yaw + yaw_delta * progress
+            self.camera.pitch_degrees = (
+                start_pitch
+                + (target_pitch - start_pitch) * progress
+            )
+            self.camera.pan_x = (
+                start_pan_x
+                + (target_pan_x - start_pan_x) * progress
+            )
+            self.camera.pan_y = (
+                start_pan_y
+                + (target_pan_y - start_pan_y) * progress
+            )
+            self.camera.zoom = (
+                start_zoom + (target_zoom - start_zoom) * progress
+            )
+            self.navigationChanged.emit(self.camera)
+            self.update()
+
+        def finish_animation() -> None:
+            if self._camera_animation is animation:
+                self._camera_animation = None
+
+        animation.valueChanged.connect(apply_progress)
+        animation.finished.connect(finish_animation)
+        self._camera_animation = animation
+        animation.start()
+
+    def _stop_camera_animation(self) -> None:
+        animation = self._camera_animation
+        self._camera_animation = None
+        if animation is not None:
+            animation.stop()
 
     def fit_all(self) -> None:
         self.camera.pan_x = 0.0
@@ -678,11 +788,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._stop_camera_animation()
         if (
             event.button() == Qt.MouseButton.RightButton
             and self._sketch_frame is not None
         ):
-            self.sketchCancelCurrentRequested.emit()
+            self._suppress_next_context_menu = True
+            if self._sketch_selection_mode:
+                self._cycle_sketch_entity(event.position())
+            else:
+                self.sketchCancelCurrentRequested.emit()
             event.accept()
             return
         if (
@@ -690,9 +805,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_frame is not None
         ):
             if self._sketch_selection_mode:
-                self.sketchEntitySelected.emit(
-                    self._pick_sketch_entity(event.position()) or ""
+                candidates = self._sketch_entity_candidates(event.position())
+                selected = (
+                    self._preview_sketch_entity_id
+                    if (
+                        self._preview_sketch_entity_id is not None
+                        and tuple(candidates) == self._sketch_cycle_ids
+                    )
+                    else (candidates[0] if candidates else "")
                 )
+                self.sketchEntitySelected.emit(
+                    selected
+                )
+                self._preview_sketch_entity_id = None
+                self._sketch_cycle_ids = ()
+                self._sketch_cycle_index = -1
+                self.update()
                 event.accept()
                 return
             local = self._sketch_local_position(event.position())
@@ -845,6 +973,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self.update()
             event.accept()
             return
+        if (
+            self._sketch_frame is not None
+            and self._sketch_selection_mode
+        ):
+            candidates = self._sketch_entity_candidates(event.position())
+            if candidates != self._sketch_cycle_ids:
+                self._sketch_cycle_ids = candidates
+                self._sketch_cycle_index = 0 if candidates else -1
+                self._preview_sketch_entity_id = (
+                    candidates[0] if candidates else None
+                )
+                self.update()
+            super().mouseMoveEvent(event)
+            return
         if not self._selection_enabled:
             self._set_hovered_object(None)
             self._set_hovered_edge(None)
@@ -896,6 +1038,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
+        if self._sketch_selection_mode:
+            self._preview_sketch_entity_id = None
+            self._sketch_cycle_ids = ()
+            self._sketch_cycle_index = -1
+            self.update()
         self._set_hovered_object(None)
         self._set_hovered_edge(None)
         self._set_hovered_face(None)
@@ -916,6 +1063,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._middle_chorded = False
             if confirm_sketch:
                 self.sketchConfirmCurrentRequested.emit()
+                # The confirmation handler can switch the sketcher into
+                # selection mode while the pointer is still over the newly
+                # created entity. Do not retain that entity as an orange
+                # preview; it becomes hoverable again on the next mouse move.
+                self._preview_sketch_entity_id = None
+                self._sketch_cycle_ids = ()
+                self._sketch_cycle_index = -1
+                self.update()
             event.accept()
             return
         if (
@@ -948,6 +1103,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
+        self._stop_camera_animation()
         wheel_steps = event.angleDelta().y() / 120.0
         if wheel_steps:
             old_zoom = self.camera.zoom
@@ -1337,9 +1493,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             mesh.edges,
             self._edge_ranges,
         ):
-            if edge.owner_id != owner_id or edge.element_kind != "edge":
+            if (
+                edge.owner_id != owner_id
+                or edge.element_kind not in {"edge", "sketch"}
+            ):
                 continue
+            if edge.element_kind == "sketch":
+                gl.glDisable(GL_DEPTH_TEST)
             gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
+            if edge.element_kind == "sketch":
+                gl.glEnable(GL_DEPTH_TEST)
 
     def _draw_highlighted_reference(
         self,
@@ -1372,6 +1535,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 for axis in range(3)
             )
             for point in edge.points
+        )
+
+    def _display_plane_corners(self, plane) -> tuple[Point3, ...]:
+        if not plane.screen_constant:
+            return plane.corners
+        center = tuple(
+            sum(point[axis] for point in plane.corners)
+            / len(plane.corners)
+            for axis in range(3)
+        )
+        scale = 1.0 / max(self.camera.zoom, 1e-6)
+        return tuple(
+            tuple(
+                center[axis] + (point[axis] - center[axis]) * scale
+                for axis in range(3)
+            )
+            for point in plane.corners
         )
 
     def _paint_edge_labels(self) -> None:
@@ -1544,11 +1724,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             second_dimension,
             1.0,
         )
-        rightmost_tail = max(
-            (first_tail, second_tail),
-            key=lambda point: point.x(),
+        leader_tail = (
+            second_tail
+            if dimension.leader_anchor == "second"
+            else max(
+                (first_tail, second_tail),
+                key=lambda point: point.x(),
+            )
         )
-        leader_start = QPointF(rightmost_tail)
+        leader_start = QPointF(leader_tail)
         leader_end = QPointF(leader_start.x() + 30.0, leader_start.y())
         return {
             "first": first,
@@ -1657,11 +1841,35 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         brown = QColor("#9A6A3A")
         yellow = QColor("#FFD740")
-        blue = QColor("#3B82F6")
+        cyan = QColor("#00D1FF")
         dashed = QPen(brown, 1.2, Qt.PenStyle.DashLine)
-        dashed.setDashPattern([6.0, 5.0])
-        centerline = QPen(yellow, 1.2, Qt.PenStyle.CustomDashLine)
-        centerline.setDashPattern([9.0, 4.0, 2.0, 4.0])
+        dashed.setDashPattern([12.0, 10.0])
+        base_centerline_width = 1.2
+        highlight_centerline_width = 3.0
+        highlight_dash_pattern = (9.0, 4.0, 2.0, 4.0)
+        centerline = QPen(
+            yellow,
+            base_centerline_width,
+            Qt.PenStyle.CustomDashLine,
+        )
+        centerline.setDashPattern(
+            [
+                value
+                * highlight_centerline_width
+                / base_centerline_width
+                for value in highlight_dash_pattern
+            ]
+        )
+
+        def highlighted_centerline(color: QColor) -> QPen:
+            pen = QPen(
+                color,
+                highlight_centerline_width,
+                Qt.PenStyle.CustomDashLine,
+            )
+            pen.setDashPattern(highlight_dash_pattern)
+            return pen
+
         painter.setPen(dashed)
 
         origin = self._screen_point(
@@ -1693,7 +1901,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             infinite_line(origin, end)
 
-        painter.setPen(QPen(blue, 2.0))
+        painter.setPen(QPen(yellow, 2.0))
         painter.setBrush(QBrush(yellow))
         point_positions = {
             str(entity.get("id", "")): (
@@ -1709,6 +1917,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             selected = (
                 str(entity.get("id", ""))
                 == self._selected_sketch_entity_id
+            )
+            previewed = (
+                str(entity.get("id", ""))
+                == self._preview_sketch_entity_id
             )
             raw_points = entity.get("points", ())
             if entity_type == "point" and "id" in entity:
@@ -1734,23 +1946,35 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ]
             if entity_type == "construction" and len(points) >= 2:
                 painter.setPen(
-                    QPen(QColor("#FF7A00"), 3.0)
+                    highlighted_centerline(cyan)
                     if selected
-                    else centerline
+                    else (
+                        highlighted_centerline(QColor("#FF7A00"))
+                        if previewed
+                        else centerline
+                    )
                 )
                 infinite_line(points[0], points[1])
-                painter.setPen(QPen(blue, 2.0))
+                painter.setPen(QPen(yellow, 2.0))
             elif entity_type == "point" and points:
-                point_color = QColor("#FF7A00") if selected else yellow
+                point_color = (
+                    cyan
+                    if selected
+                    else QColor("#FF7A00") if previewed else yellow
+                )
                 painter.setPen(QPen(point_color, 2.0))
                 painter.setBrush(QBrush(point_color))
                 painter.drawEllipse(points[0], 4.0, 4.0)
-                painter.setPen(QPen(blue, 2.0))
+                painter.setPen(QPen(yellow, 2.0))
                 painter.setBrush(QBrush(yellow))
             elif selected and len(points) >= 2:
+                painter.setPen(QPen(cyan, 3.0))
+                painter.drawPolyline(QPolygonF(points))
+                painter.setPen(QPen(yellow, 2.0))
+            elif previewed and len(points) >= 2:
                 painter.setPen(QPen(QColor("#FF7A00"), 3.0))
                 painter.drawPolyline(QPolygonF(points))
-                painter.setPen(QPen(blue, 2.0))
+                painter.setPen(QPen(yellow, 2.0))
 
         if self._sketch_pending_points:
             pending = [
@@ -1767,7 +1991,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawPolyline(QPolygonF(pending))
         painter.end()
 
-    def _pick_sketch_entity(self, position: QPointF) -> str | None:
+    def _sketch_entity_candidates(self, position: QPointF) -> tuple[str, ...]:
         point_positions = {
             str(entity.get("id", "")): (
                 float(entity.get("x", 0.0)),
@@ -1777,8 +2001,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if entity.get("type") == "point"
             and str(entity.get("id", ""))
         }
-        candidates: list[tuple[float, str]] = []
-        for entity in self._sketch_entities:
+        candidates: list[tuple[int, float, int, str]] = []
+        for order, entity in enumerate(self._sketch_entities):
             entity_id = str(entity.get("id", ""))
             if not entity_id:
                 continue
@@ -1833,27 +2057,56 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ),
                     ]
             if entity_type == "point" and screen_points:
-                candidates.append(
-                    (
-                        hypot(
-                            position.x() - screen_points[0].x(),
-                            position.y() - screen_points[0].y(),
-                        ),
-                        entity_id,
-                    )
+                distance = hypot(
+                    position.x() - screen_points[0].x(),
+                    position.y() - screen_points[0].y(),
                 )
+                if distance <= 9.0:
+                    candidates.append((0, distance, order, entity_id))
                 continue
+            entity_distances: list[float] = []
             for first, second in zip(screen_points, screen_points[1:]):
                 distance, _fraction = self._point_segment_distance(
                     position,
                     first,
                     second,
                 )
-                candidates.append((distance, entity_id))
+                entity_distances.append(distance)
+            if entity_distances and min(entity_distances) <= 9.0:
+                candidates.append(
+                    (
+                        2 if entity_type == "construction" else 1,
+                        min(entity_distances),
+                        order,
+                        entity_id,
+                    )
+                )
+        candidates.sort()
+        return tuple(candidate[3] for candidate in candidates)
+
+    def _pick_sketch_entity(self, position: QPointF) -> str | None:
+        candidates = self._sketch_entity_candidates(position)
+        return candidates[0] if candidates else None
+
+    def _cycle_sketch_entity(self, position: QPointF) -> None:
+        candidates = self._sketch_entity_candidates(position)
         if not candidates:
-            return None
-        distance, entity_id = min(candidates)
-        return entity_id if distance <= 9.0 else None
+            self._preview_sketch_entity_id = None
+            self._sketch_cycle_ids = ()
+            self._sketch_cycle_index = -1
+            self.update()
+            return
+        if candidates != self._sketch_cycle_ids:
+            self._sketch_cycle_ids = candidates
+            self._sketch_cycle_index = 0
+        else:
+            self._sketch_cycle_index = (
+                self._sketch_cycle_index + 1
+            ) % len(candidates)
+        self._preview_sketch_entity_id = candidates[
+            self._sketch_cycle_index
+        ]
+        self.update()
 
     def _paint_object_highlights(self) -> None:
         mesh = self._mesh
@@ -1871,7 +2124,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             painter.setPen(QPen(color, 3.0))
             for edge in mesh.edges:
-                if edge.owner_id != owner_id or edge.element_kind != "edge":
+                if (
+                    edge.owner_id != owner_id
+                    or edge.element_kind not in {"edge", "sketch"}
+                ):
                     continue
                 projected = [
                     self._screen_point(self._camera_point(point))
@@ -1914,15 +2170,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             }:
                 continue
             painter.setPen(
-                QPen(
-                    color,
-                    3.0,
-                    (
-                        Qt.PenStyle.DashDotLine
-                        if edge.element_kind == "centerline"
-                        else Qt.PenStyle.SolidLine
-                    ),
-                )
+                self._datum_centerline_pen(color, 3.0)
+                if edge.element_kind == "centerline"
+                else QPen(color, 3.0, Qt.PenStyle.SolidLine)
             )
             projected = [
                 self._screen_point(self._camera_point(point))
@@ -1943,10 +2193,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if edge.element_kind != "centerline":
                 continue
             painter.setPen(
-                QPen(
+                self._datum_centerline_pen(
                     QColor.fromRgbF(*edge.base_color, 1.0),
                     1.5,
-                    Qt.PenStyle.DashDotLine,
                 )
             )
             projected = [
@@ -1956,6 +2205,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             for index in range(1, len(projected)):
                 painter.drawLine(projected[index - 1], projected[index])
         painter.end()
+
+    @staticmethod
+    def _datum_centerline_pen(color: QColor, width: float) -> QPen:
+        highlight_width = 3.0
+        highlight_pattern = (9.0, 4.0, 2.0, 4.0)
+        pen = QPen(color, width, Qt.PenStyle.CustomDashLine)
+        pen.setDashPattern(
+            [
+                value * highlight_width / width
+                for value in highlight_pattern
+            ]
+        )
+        return pen
 
     def selection_candidates_at(
         self,
@@ -1976,7 +2238,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ("point", marker.owner_id, marker.point_index)
                 )
         for edge in mesh.edges:
-            if edge.element_kind not in {"axis", "centerline"}:
+            if edge.element_kind == "sketch":
+                candidate_kind = "object"
+            elif edge.element_kind in {"axis", "centerline"}:
+                candidate_kind = "edge"
+            else:
                 continue
             projected = [
                 self._screen_point(self._camera_point(point))
@@ -1991,12 +2257,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 for index in range(1, len(projected))
             ):
                 candidates.append(
-                    ("edge", edge.owner_id, edge.edge_index)
+                    (
+                        candidate_kind,
+                        edge.owner_id,
+                        0 if candidate_kind == "object" else edge.edge_index,
+                    )
                 )
         for plane in mesh.planes:
             projected = [
                 self._screen_point(self._camera_point(point))
-                for point in plane.corners
+                for point in self._display_plane_corners(plane)
             ]
             if any(
                 self._point_segment_distance(
@@ -2041,7 +2311,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for plane in mesh.planes:
             projected = [
                 self._screen_point(self._camera_point(point))
-                for point in plane.corners
+                for point in self._display_plane_corners(plane)
             ]
             if any(
                 self._point_segment_distance(
@@ -2133,7 +2403,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             polygon = QPolygonF(
                 [
                     self._screen_point(self._camera_point(point))
-                    for point in plane.corners
+                    for point in self._display_plane_corners(plane)
                 ]
             )
             outline = QColor.fromRgbF(*color, 1.0)
@@ -2173,7 +2443,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for plane in mesh.planes:
             camera_points = [
                 self._camera_point(point)
-                for point in plane.corners
+                for point in self._display_plane_corners(plane)
             ]
             screen_points = [
                 self._screen_point(point)

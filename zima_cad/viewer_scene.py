@@ -28,7 +28,7 @@ from zima_cad.viewer_mesh import (
 )
 
 
-SKETCH_COLOR = (0.231, 0.510, 0.965)
+SKETCH_COLOR = (1.0, 0.843, 0.251)
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,7 @@ def build_document_viewer_scene_data(
                 )
             )
 
+    reference_scene_size = _scene_diagonal(layers)
     for obj in document.visible_objects():
         _append_object_sketches(
             document,
@@ -129,20 +130,19 @@ def build_document_viewer_scene_data(
             show_object_origins,
             show_user_points,
             editing_object_id,
+            reference_scene_size,
         )
 
     if show_document_origin:
-        scene_size = _scene_diagonal(layers)
         origin_id = _document_origin_id(document)
         layers.append(
             origin_axes_mesh(
                 owner_id=origin_id,
-                length=max(scene_size * 0.12, 4.0),
+                length=max(reference_scene_size * 0.12, 4.0),
                 point_label=f"{document.root.name} · Origin",
             )
         )
     if show_document_planes:
-        scene_size = _scene_diagonal(layers)
         origin_id = _document_origin_id(document)
         for plane_index, plane_name in enumerate(
             ("xy", "yz", "xz"),
@@ -152,9 +152,10 @@ def build_document_viewer_scene_data(
                 datum_plane_mesh(
                     owner_id=origin_id,
                     plane_index=plane_index,
-                    size=max(scene_size * 0.24, 8.0),
+                    size=max(reference_scene_size * 0.24, 8.0),
                     plane=plane_name,
                     label=plane_name.upper(),
+                    screen_constant=True,
                 )
             )
     return DocumentViewerScene(
@@ -269,6 +270,7 @@ def _append_object_origins(
     show_object_origins: bool,
     show_user_points: bool,
     editing_object_id: str | None,
+    reference_scene_size: float,
 ) -> None:
     if not document.is_effectively_visible(obj.entity_id):
         return
@@ -284,6 +286,7 @@ def _append_object_origins(
         origin is not None
         and obj.container_type == ContainerType.POINT
         and show_user_points
+        and obj.entity_id != editing_object_id
     ):
         layers.append(
             transform_viewer_mesh(
@@ -299,8 +302,7 @@ def _append_object_origins(
         and obj.show_auxiliary_geometry
         and show_object_origins
     ):
-        scene_size = _scene_diagonal(layers)
-        reference_size = max(scene_size * 0.075, 2.5)
+        reference_size = max(reference_scene_size * 0.075, 2.5)
         layers.append(
             transform_viewer_mesh(
                 origin_axes_mesh(
@@ -311,7 +313,7 @@ def _append_object_origins(
                 world_transform,
             )
         )
-        if show_object_planes:
+        if show_object_planes or obj.entity_id == editing_object_id:
             for plane_index, plane_name in enumerate(
                 ("xy", "yz", "xz"),
                 start=1,
@@ -321,9 +323,10 @@ def _append_object_origins(
                         datum_plane_mesh(
                             owner_id=origin.entity_id,
                             plane_index=plane_index,
-                            size=reference_size * 2.0,
+                            size=max(reference_scene_size * 0.12, 4.0),
                             plane=plane_name,
                             label=plane_name.upper(),
+                            screen_constant=True,
                         ),
                         world_transform,
                     )
@@ -331,17 +334,35 @@ def _append_object_origins(
     elif (
         origin is not None
         and obj.entity_id == editing_object_id
-        and obj.container_type != ContainerType.POINT
     ):
+        reference_size = max(reference_scene_size * 0.075, 2.5)
         layers.append(
             transform_viewer_mesh(
-                point_marker_mesh(
+                origin_axes_mesh(
                     owner_id=origin.entity_id,
-                    label=f"{obj.name} · Origin",
+                    length=reference_size,
+                    point_label=f"{obj.name} · Origin",
                 ),
                 world_transform,
             )
         )
+        for plane_index, plane_name in enumerate(
+            ("xy", "yz", "xz"),
+            start=1,
+        ):
+            layers.append(
+                transform_viewer_mesh(
+                    datum_plane_mesh(
+                        owner_id=origin.entity_id,
+                        plane_index=plane_index,
+                        size=max(reference_scene_size * 0.12, 4.0),
+                        plane=plane_name,
+                        label=plane_name.upper(),
+                        screen_constant=True,
+                    ),
+                    world_transform,
+                )
+            )
     for child in obj.children:
         if not child.locked:
             _append_object_origins(
@@ -353,6 +374,7 @@ def _append_object_origins(
                 show_object_origins,
                 show_user_points,
                 editing_object_id,
+                reference_scene_size,
             )
 
 
