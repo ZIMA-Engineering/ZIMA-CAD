@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from math import atan2, cos, degrees, hypot, radians, sin, sqrt, tan
+from math import atan2, cos, degrees, hypot, pi, radians, sin, sqrt, tan
 import traceback
 from typing import Any
 
@@ -51,6 +51,18 @@ class LinearDimension:
     leader_anchor: str = "rightmost"
     value_prefix: str = ""
     value_suffix: str = ""
+
+
+@dataclass(frozen=True)
+class AngularDimension:
+    key: str
+    vertex: Point3
+    first_direction_point: Point3
+    second_direction_point: Point3
+    arc_point: Point3
+    sweep_degrees: float | None = None
+    value_prefix: str = ""
+    value_suffix: str = "°"
 
 
 GL_COLOR_BUFFER_BIT = 0x00004000
@@ -176,6 +188,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchPlacementClicked = Signal(float, float, str, str)
     sketchReferenceHovered = Signal(str)
     sketchCancelCurrentRequested = Signal()
+    sketchAlternateCurrentRequested = Signal()
     sketchConfirmCurrentRequested = Signal()
     sketchFinishCurrentRequested = Signal()
     sketchViewClicked = Signal()
@@ -247,7 +260,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
-        self._dimensions: tuple[LinearDimension, ...] = ()
+        self._dimensions: tuple[LinearDimension | AngularDimension, ...] = ()
         self._selected_dimension_key: str | None = None
         self._suppress_next_context_menu = False
         self._sketch_frame: tuple[Point3, Point3, Point3] | None = None
@@ -596,7 +609,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_dimensions(
         self,
-        dimensions: tuple[LinearDimension, ...],
+        dimensions: tuple[LinearDimension | AngularDimension, ...],
     ) -> None:
         self._dimensions = dimensions
         if self._selected_dimension_key not in {
@@ -864,7 +877,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ):
             self._suppress_next_context_menu = True
             if self._sketch_constraint_selection_mode:
-                self.sketchCancelCurrentRequested.emit()
+                self.sketchAlternateCurrentRequested.emit()
             elif self._sketch_selection_mode:
                 self._cycle_sketch_entity(event.position())
             else:
@@ -1100,12 +1113,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if point_candidate is not None
                 else None
             )
-            if point_id != self._preview_sketch_entity_id:
-                self._preview_sketch_entity_id = point_id
-                self.sketchEntityHovered.emit(point_id or "")
             snapped, reference_id, constraint = (
                 self._sketch_placement_candidate(event.position())
             )
+            construction_id = (
+                reference_id.split(":", 1)[1]
+                if reference_id is not None
+                and reference_id.startswith("sketch_geometry:")
+                else None
+            )
+            preview_id = point_id or construction_id
+            if preview_id != self._preview_sketch_entity_id:
+                self._preview_sketch_entity_id = preview_id
+                # Construction highlighting is visual only. Do not report
+                # its ID through the point-hover signal used by Coincident.
+                self.sketchEntityHovered.emit(point_id or "")
             if reference_id != self._hovered_sketch_external_reference_id:
                 self._hovered_sketch_external_reference_id = reference_id
                 self.sketchReferenceHovered.emit(reference_id or "")
@@ -1800,8 +1822,59 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _dimension_screen_geometry(
         self,
-        dimension: LinearDimension,
+        dimension: LinearDimension | AngularDimension,
     ) -> dict[str, Any]:
+        if isinstance(dimension, AngularDimension):
+            vertex = self._screen_point(
+                self._camera_point(dimension.vertex)
+            )
+            first = self._screen_point(
+                self._camera_point(dimension.first_direction_point)
+            )
+            second = self._screen_point(
+                self._camera_point(dimension.second_direction_point)
+            )
+            arc_hint = self._screen_point(
+                self._camera_point(dimension.arc_point)
+            )
+            first_angle = atan2(
+                first.y() - vertex.y(),
+                first.x() - vertex.x(),
+            )
+            second_angle = atan2(
+                second.y() - vertex.y(),
+                second.x() - vertex.x(),
+            )
+            sweep = (second_angle - first_angle + pi) % (2.0 * pi) - pi
+            if dimension.sweep_degrees is not None:
+                sweep = radians(dimension.sweep_degrees)
+            radius = max(
+                22.0,
+                hypot(
+                    arc_hint.x() - vertex.x(),
+                    arc_hint.y() - vertex.y(),
+                ),
+            )
+            steps = max(12, int(abs(sweep) * 18.0))
+            arc = QPolygonF([
+                QPointF(
+                    vertex.x() + radius * cos(first_angle + sweep * i / steps),
+                    vertex.y() + radius * sin(first_angle + sweep * i / steps),
+                )
+                for i in range(steps + 1)
+            ])
+            middle_angle = first_angle + sweep * 0.5
+            return {
+                "angular": True,
+                "vertex": vertex,
+                "first_dimension": arc[0],
+                "second_dimension": arc[-1],
+                "arc": arc,
+                "value_position": QPointF(
+                    vertex.x() + (radius + 10.0) * cos(middle_angle),
+                    vertex.y() + (radius + 10.0) * sin(middle_angle),
+                ),
+            }
         first = self._screen_point(self._camera_point(dimension.first_point))
         second = self._screen_point(self._camera_point(dimension.second_point))
         first_dimension = self._screen_point(
@@ -1915,6 +1988,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(QPen(color, 1.5))
             painter.setBrush(QBrush(color))
             geometry = self._dimension_screen_geometry(dimension)
+            if geometry.get("angular"):
+                painter.drawLine(
+                    geometry["vertex"],
+                    geometry["first_dimension"],
+                )
+                painter.drawLine(
+                    geometry["vertex"],
+                    geometry["second_dimension"],
+                )
+                painter.drawPolyline(geometry["arc"])
+                continue
             painter.drawLine(
                 geometry["first"],
                 geometry["first_dimension"],
@@ -2460,51 +2544,42 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         constraint_font.setBold(True)
         painter.setFont(constraint_font)
         painter.setPen(QPen(constraint_color, 2.0))
-        for geometry in geometry_by_id.values():
+        markers_by_geometry: dict[str, list[str]] = {
+            geometry_id: [] for geometry_id in geometry_by_id
+        }
+
+        def add_marker(geometry_id: str, marker: str) -> None:
+            markers = markers_by_geometry.get(geometry_id)
+            if markers is not None and marker not in markers:
+                markers.append(marker)
+
+        for geometry_id, geometry in geometry_by_id.items():
             constraints = geometry.get("constraints", ())
             if not isinstance(constraints, list):
                 continue
-            direction_constraint = next(
-                (
-                    str(constraint.get("type"))
-                    for constraint in constraints
-                    if isinstance(constraint, dict)
-                    and constraint.get("type") in ("horizontal", "vertical")
-                ),
-                None,
-            )
-            if direction_constraint is None:
-                continue
-            line = geometry_screen_line(geometry)
-            if line is None:
-                continue
-            first, second = line
-            direction = normalized_screen_direction(first, second)
-            if direction is None:
-                continue
-            dx, dy = direction
-            label = "H" if direction_constraint == "horizontal" else "V"
-            metrics = painter.fontMetrics()
-            label_width = metrics.horizontalAdvance(label)
-            label_position = QPointF(
-                (first.x() + second.x()) * 0.5
-                - label_width * 0.5
-                - dy * 11.0,
-                (first.y() + second.y()) * 0.5
-                + metrics.ascent() * 0.5
-                + dx * 11.0,
-            )
-            painter.drawText(label_position, label)
+            for constraint in constraints:
+                if not isinstance(constraint, dict):
+                    continue
+                constraint_type = str(constraint.get("type", ""))
+                if constraint_type == "horizontal":
+                    add_marker(geometry_id, "H")
+                elif constraint_type == "vertical":
+                    add_marker(geometry_id, "V")
+                elif constraint_type == "parallel":
+                    add_marker(geometry_id, "∥")
+                elif constraint_type == "equal_length":
+                    add_marker(geometry_id, "=")
+                    add_marker(
+                        str(constraint.get("geometry_id", "")),
+                        "=",
+                    )
 
-        for geometry in geometry_by_id.values():
-            constraints = geometry.get("constraints", ())
-            if not isinstance(constraints, list) or not any(
-                isinstance(constraint, dict)
-                and constraint.get("type") == "parallel"
-                for constraint in constraints
-            ):
+        metrics = painter.fontMetrics()
+        marker_spacing = 16.0
+        for geometry_id, markers in markers_by_geometry.items():
+            if not markers:
                 continue
-            line = geometry_screen_line(geometry)
+            line = geometry_screen_line(geometry_by_id[geometry_id])
             if line is None:
                 continue
             first, second = line
@@ -2512,19 +2587,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if direction is None:
                 continue
             dx, dy = direction
-            label = "∥"
-            label_width = painter.fontMetrics().horizontalAdvance(label)
-            painter.drawText(
-                QPointF(
-                    (first.x() + second.x()) * 0.5
-                    - label_width * 0.5
+            center_x = (first.x() + second.x()) * 0.5
+            center_y = (first.y() + second.y()) * 0.5
+            for marker_index, label in enumerate(markers):
+                along = (
+                    marker_index - (len(markers) - 1) * 0.5
+                ) * marker_spacing
+                painter.drawText(
+                    QPointF(
+                    center_x
+                    + dx * along
+                    - metrics.horizontalAdvance(label) * 0.5
                     - dy * 11.0,
-                    (first.y() + second.y()) * 0.5
-                    + painter.fontMetrics().ascent() * 0.5
+                    center_y
+                    + dy * along
+                    + metrics.ascent() * 0.5
                     + dx * 11.0,
-                ),
-                label,
-            )
+                    ),
+                    label,
+                )
 
         painter.setPen(QPen(constraint_color, 2.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -2720,6 +2801,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if nearest_point is not None:
             return nearest_point[2], None, None
         if self._sketch_reference_snapping:
+            construction = self._sketch_construction_line_candidate(position)
+            if construction is not None:
+                geometry_id, snapped = construction
+                return snapped, f"sketch_geometry:{geometry_id}", None
             reference = self._sketch_external_reference_candidate(
                 position
             )
@@ -2755,6 +2840,71 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 first = self._sketch_pending_points[-1]
                 return (first[0], local[1]), None, constraint
         return local, None, None
+
+    def _sketch_construction_line_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[str, tuple[float, float]] | None:
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        nearest = None
+        for geometry in self._sketch_entities:
+            if geometry.get("type") != "construction":
+                continue
+            point_ids = geometry.get("point_ids", ())
+            if not isinstance(point_ids, list) or len(point_ids) < 2:
+                continue
+            first = points.get(str(point_ids[0]))
+            second = points.get(str(point_ids[1]))
+            if first is None or second is None:
+                continue
+            first_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(first))
+            )
+            second_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(second))
+            )
+            dx = second_screen.x() - first_screen.x()
+            dy = second_screen.y() - first_screen.y()
+            squared_length = dx * dx + dy * dy
+            if squared_length <= 1.0e-12:
+                continue
+            factor = (
+                (position.x() - first_screen.x()) * dx
+                + (position.y() - first_screen.y()) * dy
+            ) / squared_length
+            projected_screen = QPointF(
+                first_screen.x() + factor * dx,
+                first_screen.y() + factor * dy,
+            )
+            distance = hypot(
+                position.x() - projected_screen.x(),
+                position.y() - projected_screen.y(),
+            )
+            if distance > 12.0:
+                continue
+            snapped = (
+                first[0] + factor * (second[0] - first[0]),
+                first[1] + factor * (second[1] - first[1]),
+            )
+            candidate = (
+                distance,
+                str(geometry.get("id", "")),
+                snapped,
+            )
+            if nearest is None or candidate[0] < nearest[0]:
+                nearest = candidate
+        return (
+            (nearest[1], nearest[2])
+            if nearest is not None and nearest[1]
+            else None
+        )
 
     def _sketch_inferred_direction_constraint(
         self,

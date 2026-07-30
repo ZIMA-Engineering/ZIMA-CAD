@@ -293,6 +293,160 @@ class SketchModelTests(unittest.TestCase):
         self.assertAlmostEqual(sketch.points["p2"].x, 15.0, places=6)
         self.assertEqual(sketch.violated_equations(), ())
 
+    def test_three_point_angle_dimension_is_solved(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("first", 1.0, 0.0))
+        sketch.add_point(SketchPoint("vertex", 0.0, 0.0))
+        sketch.add_point(SketchPoint("second", 1.0, 1.0))
+        sketch.add_dimension(
+            SketchDimension(
+                "angle",
+                "angle",
+                90.0,
+                ("first", "vertex", "second"),
+                True,
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertEqual(sketch.violated_equations(), ())
+
+    def test_line_to_axis_angle_round_trip(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("p1", 0.0, 0.0))
+        sketch.add_point(SketchPoint("p2", 2.0, 1.0))
+        sketch.add_dimension(
+            SketchDimension(
+                "angle",
+                "angle",
+                math.degrees(math.atan2(1.0, 2.0)),
+                ("p1", "p2"),
+                True,
+                {"reference_id": "sketch_axis:x"},
+            )
+        )
+
+        restored = SketchModel.from_dict(sketch.to_dict())
+        dimension = restored.dimensions["angle"]
+        self.assertEqual(
+            dimension.attributes["reference_id"],
+            "sketch_axis:x",
+        )
+        self.assertEqual(restored.violated_equations(), ())
+
+    def test_reflex_and_negative_angles_share_geometric_equation(self):
+        for target in (270.0, -90.0, -270.0):
+            sketch = SketchModel()
+            sketch.add_point(SketchPoint("first", 1.0, 0.0))
+            sketch.add_point(SketchPoint("vertex", 0.0, 0.0))
+            sketch.add_point(SketchPoint("second", 0.0, 1.0))
+            sketch.add_dimension(
+                SketchDimension(
+                    "angle",
+                    "angle",
+                    target,
+                    ("first", "vertex", "second"),
+                    True,
+                )
+            )
+            self.assertEqual(sketch.violated_equations(), ())
+
+    def test_point_on_construction_line_is_point_based_and_solved(self):
+        sketch = SketchModel.from_editor_data([
+            {
+                "id": "p1",
+                "type": "point",
+                "x": 0.0,
+                "y": 0.0,
+                "dimension_locks": ["x", "y"],
+            },
+            {
+                "id": "p2",
+                "type": "point",
+                "x": 10.0,
+                "y": 0.0,
+                "dimension_locks": ["x", "y"],
+            },
+            {
+                "id": "p3",
+                "type": "point",
+                "x": 4.0,
+                "y": 3.0,
+                "constraints": [{
+                    "type": "point_on_line",
+                    "point_ids": ["p1", "p2"],
+                }],
+            },
+            {
+                "id": "g1",
+                "type": "construction",
+                "point_ids": ["p1", "p2"],
+            },
+        ])
+
+        constraint = next(iter(sketch.constraints.values()))
+        self.assertEqual(
+            constraint.point_ids,
+            ("p3", "p1", "p2"),
+        )
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(sketch.points["p3"].y, 0.0, places=6)
+        entities, _dimensions = sketch.to_editor_data()
+        restored_point = next(
+            entity for entity in entities if entity["id"] == "p3"
+        )
+        self.assertEqual(
+            restored_point["constraints"][0]["point_ids"],
+            ["p1", "p2"],
+        )
+
+    def test_equal_length_is_distance_between_two_point_pairs(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("p1", 0.0, 0.0),
+            SketchPoint("p2", 10.0, 0.0),
+            SketchPoint("p3", 0.0, 5.0),
+            SketchPoint("p4", 4.0, 5.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry(
+                "g1", GeometryType.SEGMENT, ("p1", "p2")
+            )
+        )
+        sketch.add_geometry(
+            SketchGeometry(
+                "g2", GeometryType.SEGMENT, ("p3", "p4")
+            )
+        )
+        sketch.add_dimension(
+            SketchDimension(
+                "fixed_length",
+                "distance",
+                10.0,
+                ("p1", "p2"),
+                True,
+            )
+        )
+        sketch.add_constraint(
+            SketchConstraint(
+                "equal",
+                "equal_length",
+                ("p1", "p2", "p3", "p4"),
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(
+            math.dist(
+                sketch.points["p3"].position(),
+                sketch.points["p4"].position(),
+            ),
+            10.0,
+            places=6,
+        )
+        self.assertEqual(sketch.violated_equations(), ())
+
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):
             SketchModel.from_dict(

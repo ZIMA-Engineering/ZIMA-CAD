@@ -45,7 +45,9 @@ _CONSTRAINT_POINT_COUNTS = {
     "coincident": 2,
     "perpendicular": 3,
     "parallel": 4,
+    "equal_length": 4,
     "point_on_reference": 1,
+    "point_on_line": 3,
 }
 
 
@@ -362,6 +364,21 @@ class SketchModel:
                     )
                 owner_id = owner_geometry.geometry_id
                 raw["geometry_id"] = reference.geometry_id
+            elif constraint.constraint_type == "equal_length":
+                if len(points) != 4:
+                    raise SketchModelError(
+                        f"equal_length constraint "
+                        f"{constraint.constraint_id!r} requires 4 points"
+                    )
+                reference = geometry_for_points(points[0], points[1])
+                owner_geometry = geometry_for_points(points[2], points[3])
+                if reference is None or owner_geometry is None:
+                    raise SketchModelError(
+                        f"equal_length constraint "
+                        f"{constraint.constraint_id!r} has unresolved points"
+                    )
+                owner_id = owner_geometry.geometry_id
+                raw["geometry_id"] = reference.geometry_id
             elif constraint.constraint_type in {"horizontal", "vertical"}:
                 if len(points) != 2:
                     raise SketchModelError(
@@ -375,6 +392,14 @@ class SketchModel:
                         f"{constraint.constraint_id!r} has no connector"
                     )
                 owner_id = owner_geometry.geometry_id
+            elif constraint.constraint_type == "point_on_line":
+                if len(points) != 3:
+                    raise SketchModelError(
+                        f"point_on_line constraint "
+                        f"{constraint.constraint_id!r} requires 3 points"
+                    )
+                owner_id = points[0]
+                raw["point_ids"] = list(points[1:])
             else:
                 owner_id = points[0]
                 if len(points) > 1:
@@ -525,6 +550,20 @@ class SketchModel:
                 (second[0] - first[0]) * (fourth[1] - third[1])
                 - (second[1] - first[1]) * (fourth[0] - third[0]),
             )
+        if constraint.constraint_type == "equal_length":
+            first, second, third, fourth = positions
+            return (
+                (second[0] - first[0]) ** 2
+                + (second[1] - first[1]) ** 2
+                - (fourth[0] - third[0]) ** 2
+                - (fourth[1] - third[1]) ** 2,
+            )
+        if constraint.constraint_type == "point_on_line":
+            point, first, second = positions
+            return (
+                (point[0] - first[0]) * (second[1] - first[1])
+                - (point[1] - first[1]) * (second[0] - first[0]),
+            )
         raise SketchModelError(
             f"constraint {constraint.constraint_type!r} has no residual"
         )
@@ -551,6 +590,61 @@ class SketchModel:
         candidate.add_dimension(copy.deepcopy(dimension))
         after = candidate.dof_analysis().degrees_of_freedom
         return max(0, before - after)
+
+    def _dimension_angle(self, dimension: SketchDimension) -> float | None:
+        positions = [
+            self.points[point_id].position()
+            for point_id in dimension.point_ids
+        ]
+        if len(positions) == 3:
+            first = (
+                positions[0][0] - positions[1][0],
+                positions[0][1] - positions[1][1],
+            )
+            second = (
+                positions[2][0] - positions[1][0],
+                positions[2][1] - positions[1][1],
+            )
+        elif len(positions) >= 4:
+            first = (
+                positions[1][0] - positions[0][0],
+                positions[1][1] - positions[0][1],
+            )
+            second = (
+                positions[3][0] - positions[2][0],
+                positions[3][1] - positions[2][1],
+            )
+        elif len(positions) == 2:
+            first = (
+                positions[1][0] - positions[0][0],
+                positions[1][1] - positions[0][1],
+            )
+            reference = str(
+                dimension.attributes.get("reference_id", "")
+            )
+            second = (
+                (1.0, 0.0)
+                if reference == "sketch_axis:x"
+                else (0.0, 1.0)
+                if reference == "sketch_axis:y"
+                else (0.0, 0.0)
+            )
+        else:
+            return None
+        first_length = math.hypot(*first)
+        second_length = math.hypot(*second)
+        if first_length <= 1.0e-12 or second_length <= 1.0e-12:
+            return None
+        cosine = max(
+            -1.0,
+            min(
+                1.0,
+                (
+                    first[0] * second[0] + first[1] * second[1]
+                ) / (first_length * second_length),
+            ),
+        )
+        return math.degrees(math.acos(cosine))
 
     def violated_equations(
         self,
@@ -585,10 +679,21 @@ class SketchModel:
                 "horizontal",
                 "vertical",
                 "coincident",
+                "point_on_line",
             }:
                 errors = self.constraint_residuals(constraint_id)
-            elif constraint_type in {"perpendicular", "parallel"}:
+            elif constraint_type in {
+                "perpendicular",
+                "parallel",
+                "equal_length",
+            }:
                 raw = self.constraint_residuals(constraint_id)[0]
+                if constraint_type == "equal_length":
+                    errors = (raw,)
+                    tolerance = linear_tolerance
+                    if any(abs(error) > tolerance for error in errors):
+                        violated.append(constraint_id)
+                    continue
                 if constraint_type == "perpendicular":
                     first, vertex, third = positions
                     first_length = math.dist(first, vertex)
@@ -612,7 +717,9 @@ class SketchModel:
                 for point_id in dimension.point_ids
             ]
             actual: float | None = None
-            if dimension.dimension_type == "coordinate_x" and positions:
+            if dimension.dimension_type == "angle":
+                actual = self._dimension_angle(dimension)
+            elif dimension.dimension_type == "coordinate_x" and positions:
                 actual = positions[0][0]
             elif dimension.dimension_type == "coordinate_y" and positions:
                 actual = positions[0][1]
@@ -625,11 +732,17 @@ class SketchModel:
                     actual = abs(dy)
                 elif dimension.dimension_type == "distance":
                     actual = math.hypot(dx, dy)
-            if (
-                actual is not None
-                and abs(actual - dimension.value) > linear_tolerance
-            ):
-                violated.append(dimension_id)
+            if actual is not None:
+                error = (
+                    abs(
+                        math.cos(math.radians(actual))
+                        - math.cos(math.radians(dimension.value))
+                    )
+                    if dimension.dimension_type == "angle"
+                    else abs(actual - dimension.value)
+                )
+                if error > linear_tolerance:
+                    violated.append(dimension_id)
         return tuple(violated)
 
     def solve(self, max_iterations: int = 50) -> bool:
@@ -789,6 +902,8 @@ class SketchModel:
                 "coincident",
                 "perpendicular",
                 "parallel",
+                "equal_length",
+                "point_on_line",
             }:
                 values.extend(
                     self.constraint_residuals(constraint.constraint_id)
@@ -802,7 +917,17 @@ class SketchModel:
             ]
             dimension_type = dimension.dimension_type
             target = dimension.value
-            if dimension_type == "coordinate_x" and positions:
+            if dimension_type == "angle":
+                actual = self._dimension_angle(dimension)
+                values.append(
+                    (
+                        math.cos(math.radians(actual))
+                        - math.cos(math.radians(target))
+                    )
+                    if actual is not None
+                    else math.inf
+                )
+            elif dimension_type == "coordinate_x" and positions:
                 values.append(positions[0][0] - target)
             elif dimension_type == "coordinate_y" and positions:
                 values.append(positions[0][1] - target)
@@ -1103,12 +1228,15 @@ class SketchModel:
                     constraint_index += 1
                 constraint_type = str(constraint.pop("type", ""))
                 target_point = constraint.pop("point_id", None)
+                target_points = constraint.pop("point_ids", ())
                 target_geometry = constraint.pop("geometry_id", None)
                 target_reference = constraint.pop("reference_id", None)
                 if owner_kind == "point":
                     point_ids = [owner_id]
                     if target_point is not None:
                         point_ids.append(str(target_point))
+                    if isinstance(target_points, (list, tuple)):
+                        point_ids.extend(map(str, target_points))
                 else:
                     owner_geometry = model.geometry[owner_id]
                     owner_points = list(owner_geometry.point_ids)
@@ -1148,6 +1276,17 @@ class SketchModel:
                             raise SketchModelError(
                                 "a parallel constraint requires two "
                                 "point pairs"
+                            )
+                        reference = model.geometry[str(target_geometry)]
+                        point_ids = [
+                            *reference.point_ids,
+                            *owner_points,
+                        ]
+                    elif constraint_type == "equal_length":
+                        if target_geometry is None:
+                            raise SketchModelError(
+                                "an equal-length constraint requires "
+                                "two point pairs"
                             )
                         reference = model.geometry[str(target_geometry)]
                         point_ids = [
