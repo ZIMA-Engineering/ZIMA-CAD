@@ -10,6 +10,7 @@ from zima_cad.model import (
     CombineMode,
     ContainerType,
     CoordinateSystem,
+    DOCUMENT_FORMAT_VERSION,
     EntityKind,
     OriginScope,
     PlaneOnFaceAttachment,
@@ -20,6 +21,7 @@ from zima_cad.model import (
     create_empty_part,
     default_user_parameter_labels,
 )
+from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.versioned_io import write_text_versioned
 
 
@@ -35,6 +37,7 @@ class ContainerEntityLimitError(ValueError):
 
 def save_part_document(document: PartDocument, file_path: Path) -> None:
     validate_container_entities(document)
+    validate_sketch_data(document)
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
 
@@ -80,8 +83,14 @@ def load_part_document(file_path: Path) -> PartDocument:
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
     config.read(file_path, encoding="utf-8")
-    if config.get("Document", "format_version", fallback="") != "7":
-        raise ValueError("Unsupported document format; expected format 7.")
+    if (
+        config.get("Document", "format_version", fallback="")
+        != DOCUMENT_FORMAT_VERSION
+    ):
+        raise ValueError(
+            "Unsupported document format; expected format "
+            f"{DOCUMENT_FORMAT_VERSION}."
+        )
 
     document = create_empty_part()
     if config.has_section("Document"):
@@ -108,7 +117,7 @@ def load_part_document(file_path: Path) -> PartDocument:
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
         document.document_precision.update(dict(config["DocumentPrecision"]))
-    document.document_settings["format_version"] = "7"
+    document.document_settings["format_version"] = DOCUMENT_FORMAT_VERSION
     if config.has_section("Material") or config.has_section("MaterialProperties"):
         material_parameters = {
             "MATERIAL_NAME": config.get("Material", "Name", fallback="")
@@ -160,6 +169,7 @@ def load_part_document(file_path: Path) -> PartDocument:
     reconnect_history_result_references(document)
     migrate_missing_system_references(document)
     validate_container_entities(document)
+    validate_sketch_data(document)
     return document
 
 
@@ -357,6 +367,29 @@ def validate_container_entities(document: PartDocument) -> None:
         entities = obj.entity_children()
         if not obj.has_valid_entity_combination():
             raise ContainerEntityLimitError(obj.name, [entity.name for entity in entities])
+
+
+def validate_sketch_data(document: PartDocument) -> None:
+    for sketch in walk_entities(document.root):
+        if sketch.kind != EntityKind.SKETCH:
+            continue
+        raw_data = sketch.parameters.get("sketch_data")
+        if raw_data is None:
+            raise SketchModelError(
+                f"sketch {sketch.name!r} has no versioned sketch data"
+            )
+        try:
+            data = json.loads(str(raw_data))
+            SketchModel.from_dict(data)
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            SketchModelError,
+        ) as error:
+            raise SketchModelError(
+                f"sketch {sketch.name!r} contains invalid data"
+            ) from error
 
 
 def walk_entities(obj: ZimaEntity):

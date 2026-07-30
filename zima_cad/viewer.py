@@ -177,8 +177,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchReferenceHovered = Signal(str)
     sketchCancelCurrentRequested = Signal()
     sketchConfirmCurrentRequested = Signal()
+    sketchFinishCurrentRequested = Signal()
+    sketchViewClicked = Signal()
     sketchEntitySelected = Signal(str)
     sketchEntityHovered = Signal(str)
+    sketchCursorMoved = Signal(float, float)
     sketchConstraintReferenceSelected = Signal(str)
     rotation_degrees_per_pixel = 0.18
 
@@ -197,6 +200,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_press_position: QPoint | None = None
         self._middle_dragged = False
         self._middle_chorded = False
+        self._middle_double_clicked = False
         self._mesh: ViewerMesh | None = None
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
@@ -849,6 +853,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._stop_camera_animation()
         if (
+            self._sketch_frame is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.sketchViewClicked.emit()
+        if (
             event.button() == Qt.MouseButton.RightButton
             and self._sketch_frame is not None
             and not self._sketch_reference_selection_mode
@@ -1054,6 +1063,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_selection_mode
             and not self._sketch_reference_selection_mode
         ):
+            local = self._sketch_local_position(event.position())
+            if local is not None:
+                self.sketchCursorMoved.emit(*local)
             candidates = self._sketch_entity_candidates(event.position())
             if candidates != self._sketch_cycle_ids:
                 self._sketch_cycle_ids = candidates
@@ -1176,6 +1188,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
+            if self._middle_double_clicked:
+                self._middle_double_clicked = False
+                self._last_mouse_position = None
+                self._middle_press_position = None
+                self._middle_dragged = False
+                self._middle_chorded = False
+                event.accept()
+                return
             confirm_sketch = (
                 self._sketch_frame is not None
                 and not self._middle_dragged
@@ -1213,7 +1233,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
-            self.dimensionsDismissRequested.emit()
+            self._middle_double_clicked = True
+            if self._sketch_frame is not None:
+                self.sketchFinishCurrentRequested.emit()
+            else:
+                self.dimensionsDismissRequested.emit()
             self._last_mouse_position = None
             event.accept()
             return

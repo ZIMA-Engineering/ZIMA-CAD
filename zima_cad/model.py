@@ -29,14 +29,17 @@ from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 
+from zima_cad.sketch_model import SketchModel, SketchModelError
+
 
 ORIGIN_WIDGET_SIZE = 320.0
+DOCUMENT_FORMAT_VERSION = "8"
 
 
 def default_document_settings() -> dict[str, str]:
     return {
         "type": "part",
-        "format_version": "7",
+        "format_version": DOCUMENT_FORMAT_VERSION,
         "body_visible": "true",
         "body_suppressed": "false",
     }
@@ -627,7 +630,7 @@ class PartDocument:
             parameters={
                 "plane": plane,
                 "profile": "entities",
-                "sketch_entities": "[]",
+                "sketch_data": json.dumps(SketchModel().to_dict()),
                 "external_references": "[]",
                 "unit": "mm",
                 "role": role.value,
@@ -1450,12 +1453,16 @@ def make_sketch_shape(
         return None
     if sketch.parameters.get("profile") == "entities":
         try:
-            entities = json.loads(
-                str(sketch.parameters.get("sketch_entities", "[]"))
+            sketch_model = SketchModel.from_dict(
+                json.loads(str(sketch.parameters.get("sketch_data", "{}")))
             )
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-        if not isinstance(entities, list):
+            entities, _dimensions = sketch_model.to_editor_data()
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            SketchModelError,
+        ):
             return None
         compound = TopoDS_Compound()
         builder = BRep_Builder()
@@ -1488,7 +1495,32 @@ def make_sketch_shape(
                 continue
             curve = None
             try:
-                if entity.get("type") == "arc" and len(points) >= 3:
+                if entity.get("type") == "circle" and len(points) == 2:
+                    center = points[0]
+                    circumference = points[1]
+                    radius = math.hypot(
+                        float(circumference[0]) - float(center[0]),
+                        float(circumference[1]) - float(center[1]),
+                    )
+                    if radius > 1.0e-12:
+                        circle = gp_Circ(
+                            gp_Ax2(
+                                gp_Pnt(
+                                    float(center[0]),
+                                    float(center[1]),
+                                    0.0,
+                                ),
+                                gp_Dir(0.0, 0.0, 1.0),
+                            ),
+                            radius,
+                        )
+                        builder.Add(
+                            compound,
+                            BRepBuilderAPI_MakeEdge(circle).Edge(),
+                        )
+                        edge_count += 1
+                        continue
+                elif entity.get("type") == "arc" and len(points) >= 3:
                     curve = GC_MakeArcOfCircle(
                         gp_Pnt(float(points[0][0]), float(points[0][1]), 0.0),
                         gp_Pnt(float(points[1][0]), float(points[1][1]), 0.0),
