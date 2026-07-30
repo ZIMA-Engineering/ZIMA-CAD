@@ -111,7 +111,10 @@ from zima_cad.sketch_model import (
     SketchPoint,
     classify_linear_dimension,
 )
-from zima_cad.sketch_geometry import corner_radius_from_drag
+from zima_cad.sketch_geometry import (
+    corner_radius_from_drag,
+    evaluate_corner_radius,
+)
 from zima_cad.paths import app_path, application_root, ensure_application_directories
 from zima_cad.settings import (
     ApplicationSettings,
@@ -4793,6 +4796,7 @@ class MainWindow(QMainWindow):
         self._sketch_perpendicular_first_geometry_id: str | None = None
         self._sketch_parallel_first_geometry_id: str | None = None
         self._sketch_equal_first_geometry_id: str | None = None
+        self._sketch_equal_first_radius_id: str | None = None
         self._sketch_tangent_first_geometry_id: str | None = None
         self._sketch_distance_first_point_id: str | None = None
         self._sketch_dimension_point_ids: list[str] = []
@@ -5337,6 +5341,7 @@ class MainWindow(QMainWindow):
                     "sketch.constraint.vertical",
                     "sketch.constraint.parallel",
                     "sketch.constraint.equal_length",
+                    "sketch.constraint.equal_radius",
                     "sketch.constraint.perpendicular",
                     "sketch.constraint.coincident",
                     "sketch.constraint.midpoint",
@@ -5510,6 +5515,12 @@ class MainWindow(QMainWindow):
                 action.triggered.connect(
                     lambda _checked=False:
                     self._set_sketch_constraint_tool("equal_length")
+                )
+            elif command_key == "sketch.constraint.equal_radius":
+                action.setEnabled(True)
+                action.triggered.connect(
+                    lambda _checked=False:
+                    self._set_sketch_constraint_tool("equal_radius")
                 )
             elif command_key == "sketch.constraint.tangent":
                 action.setEnabled(True)
@@ -13899,13 +13910,27 @@ class MainWindow(QMainWindow):
         changed = False
         for entity in entities:
             if str(entity.get("id", "")):
+                entity_id = str(entity.get("id", ""))
+            else:
+                entity_id = (
+                    self._next_sketch_point_id(entities)
+                    if entity.get("type") == "point"
+                    else self._next_sketch_geometry_id(entities)
+                )
+                entity["id"] = entity_id
+                changed = True
+            records = entity.get("corner_radii", ())
+            if not isinstance(records, list):
                 continue
-            entity["id"] = (
-                self._next_sketch_point_id(entities)
-                if entity.get("type") == "point"
-                else self._next_sketch_geometry_id(entities)
-            )
-            changed = True
+            for record in records:
+                if not isinstance(record, dict) or record.get("id"):
+                    continue
+                record["id"] = (
+                    f"radius:{entity_id}:"
+                    f"{record.get('other_geometry_id', '')}:"
+                    f"{record.get('vertex_id', '')}"
+                )
+                changed = True
         if changed:
             self._store_sketch_entities(sketch, entities)
 
@@ -14015,6 +14040,7 @@ class MainWindow(QMainWindow):
         self._sketch_perpendicular_first_geometry_id = None
         self._sketch_parallel_first_geometry_id = None
         self._sketch_equal_first_geometry_id = None
+        self._sketch_equal_first_radius_id = None
         self._sketch_tangent_first_geometry_id = None
         self._sketch_distance_first_point_id = None
         self._sketch_dimension_point_ids.clear()
@@ -14139,6 +14165,7 @@ class MainWindow(QMainWindow):
         self._sketch_perpendicular_first_geometry_id = None
         self._sketch_parallel_first_geometry_id = None
         self._sketch_equal_first_geometry_id = None
+        self._sketch_equal_first_radius_id = None
         self._sketch_tangent_first_geometry_id = None
         self._sketch_distance_first_point_id = None
         self._sketch_dimension_point_ids.clear()
@@ -14153,6 +14180,7 @@ class MainWindow(QMainWindow):
                 "vertical",
                 "parallel",
                 "equal_length",
+                "equal_radius",
                 "perpendicular",
                 "coincident",
                 "midpoint",
@@ -14177,6 +14205,7 @@ class MainWindow(QMainWindow):
                 "perpendicular",
                 "parallel",
                 "equal_length",
+                "equal_radius",
                 "midpoint",
                 "tangent",
             )
@@ -15048,12 +15077,17 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.parallel.select_first")
             )
             return
-        if self._sketch_tool == "equal_length":
+        if self._sketch_tool in ("equal_length", "equal_radius"):
             self._sketch_equal_first_geometry_id = None
+            self._sketch_equal_first_radius_id = None
             self._sketch_selected_entity_id = None
             self._refresh_sketch_overlay()
             self.statusBar().showMessage(
-                tr("sketch.status.equal_length.select_first")
+                tr(
+                    "sketch.status.equal_radius.select_first"
+                    if self._sketch_tool == "equal_radius"
+                    else "sketch.status.equal_length.select_first"
+                )
             )
             return
         if self._sketch_tool == "tangent":
@@ -15391,6 +15425,13 @@ class MainWindow(QMainWindow):
         second_id: str,
         vertex_id: str,
     ) -> None:
+        if self._sketch_tool in ("equal_length", "equal_radius"):
+            self._handle_sketch_equal_radius_selection(
+                first_id,
+                second_id,
+                vertex_id,
+            )
+            return
         self._sketch_selected_corner_radius = (
             first_id,
             second_id,
@@ -15398,10 +15439,164 @@ class MainWindow(QMainWindow):
         )
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
-        self._sketch_selected_corner_radius = None
         self._sketch_selected_dimension_id = None
         self._refresh_sketch_overlay(populate_tree=False)
         self._rebuild_application_toolbar()
+
+    def _handle_sketch_equal_radius_selection(
+        self,
+        first_id: str,
+        second_id: str,
+        vertex_id: str,
+    ) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        first = next(
+            (
+                entity for entity in entities
+                if str(entity.get("id", "")) == first_id
+            ),
+            None,
+        )
+        records = first.get("corner_radii", ()) if first is not None else ()
+        record = next(
+            (
+                item for item in records
+                if isinstance(item, dict)
+                and str(item.get("other_geometry_id", "")) == second_id
+                and str(item.get("vertex_id", "")) == vertex_id
+            ),
+            None,
+        ) if isinstance(records, list) else None
+        if record is None:
+            return
+        radius_id = str(
+            record.setdefault(
+                "id",
+                f"radius:{first_id}:{second_id}:{vertex_id}",
+            )
+        )
+        if self._sketch_equal_first_radius_id is None:
+            self._sketch_equal_first_radius_id = radius_id
+            self._sketch_selected_corner_radius = (
+                first_id,
+                second_id,
+                vertex_id,
+            )
+            self._store_sketch_entities(sketch, entities)
+            self._refresh_sketch_overlay(populate_tree=False)
+            self.statusBar().showMessage(
+                tr(
+                    "sketch.status.equal_radius.select_second"
+                    if self._sketch_tool == "equal_radius"
+                    else "sketch.status.equal_length.select_second"
+                )
+            )
+            return
+        if radius_id == self._sketch_equal_first_radius_id:
+            return
+        first_record = next(
+            (
+                item
+                for entity in entities
+                for item in (
+                    entity.get("corner_radii", ())
+                    if isinstance(entity.get("corner_radii", ()), list)
+                    else ()
+                )
+                if isinstance(item, dict)
+                and str(item.get("id", ""))
+                == self._sketch_equal_first_radius_id
+            ),
+            None,
+        )
+        if first_record is None:
+            self._sketch_equal_first_radius_id = None
+            return
+        group = str(
+            first_record.get("equal_radius_group")
+            or record.get("equal_radius_group")
+            or f"equal-radius:{self._sketch_equal_first_radius_id}"
+        )
+        radius = float(first_record.get("radius", 0.0))
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "segment"
+        }
+        points = {
+            str(entity.get("id", "")): self._sketch_point_position(entity)
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        target_first_id = next(
+            (
+                str(entity.get("id", ""))
+                for entity in entities
+                if isinstance(entity.get("corner_radii", ()), list)
+                and record in entity.get("corner_radii", ())
+            ),
+            "",
+        )
+        target_first_ids = tuple(
+            map(
+                str,
+                geometry_by_id.get(target_first_id, {}).get(
+                    "point_ids",
+                    (),
+                ),
+            )
+        )
+        target_second_ids = tuple(
+            map(
+                str,
+                geometry_by_id.get(
+                    str(record.get("other_geometry_id", "")),
+                    {},
+                ).get("point_ids", ()),
+            )
+        )
+        target_vertex_id = str(record.get("vertex_id", ""))
+        if (
+            len(target_first_ids) != 2
+            or len(target_second_ids) != 2
+            or target_vertex_id not in target_first_ids
+            or target_vertex_id not in target_second_ids
+            or evaluate_corner_radius(
+                points[target_vertex_id],
+                points[next(
+                    item for item in target_first_ids
+                    if item != target_vertex_id
+                )],
+                points[next(
+                    item for item in target_second_ids
+                    if item != target_vertex_id
+                )],
+                radius,
+            )
+            is None
+        ):
+            self.statusBar().showMessage(
+                tr("dimension.invalid_value", value=radius)
+            )
+            return
+        first_record["equal_radius_group"] = group
+        record["equal_radius_group"] = group
+        record["radius"] = radius
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_equal_first_radius_id = None
+        self._sketch_selected_corner_radius = None
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self._show_all_sketch_dimensions(sketch)
+        self.statusBar().showMessage(
+            tr("sketch.status.equal_length.created")
+        )
 
     def _remove_sketch_corner_radius(
         self,
@@ -15512,6 +15707,17 @@ class MainWindow(QMainWindow):
         records = first.get("corner_radii", [])
         if not isinstance(records, list):
             records = []
+        previous_record = next(
+            (
+                record
+                for record in records
+                if isinstance(record, dict)
+                and str(record.get("other_geometry_id", ""))
+                == selected_ids[1]
+                and str(record.get("vertex_id", "")) == vertex_id
+            ),
+            None,
+        )
         records = [
             record
             for record in records
@@ -15523,17 +15729,100 @@ class MainWindow(QMainWindow):
             )
         ]
         if radius > 1.0e-9:
-            records.append({
+            updated_record = {
                 "other_geometry_id": selected_ids[1],
                 "vertex_id": vertex_id,
                 "radius": radius,
-            })
+                "id": (
+                    str(previous_record.get("id"))
+                    if previous_record is not None
+                    and previous_record.get("id")
+                    else f"radius:{selected_ids[0]}:"
+                    f"{selected_ids[1]}:{vertex_id}"
+                ),
+            }
+            if (
+                previous_record is not None
+                and previous_record.get("equal_radius_group")
+            ):
+                updated_record["equal_radius_group"] = (
+                    previous_record["equal_radius_group"]
+                )
+            records.append(updated_record)
+            group = str(updated_record.get("equal_radius_group", ""))
+            if group:
+                grouped_records = [
+                    (geometry_id, record)
+                    for geometry_id, geometry in geometry_by_id.items()
+                    for record in (
+                        geometry.get("corner_radii", ())
+                        if isinstance(geometry.get("corner_radii", ()), list)
+                        else ()
+                    )
+                    if isinstance(record, dict)
+                    and str(record.get("equal_radius_group", "")) == group
+                ]
+                for geometry_id, grouped_record in grouped_records:
+                    grouped_second_id = str(
+                        grouped_record.get("other_geometry_id", "")
+                    )
+                    grouped_vertex_id = str(
+                        grouped_record.get("vertex_id", "")
+                    )
+                    grouped_first_ids = tuple(
+                        map(
+                            str,
+                            geometry_by_id[geometry_id].get(
+                                "point_ids",
+                                (),
+                            ),
+                        )
+                    )
+                    grouped_second_ids = tuple(
+                        map(
+                            str,
+                            geometry_by_id.get(grouped_second_id, {}).get(
+                                "point_ids",
+                                (),
+                            ),
+                        )
+                    )
+                    if (
+                        len(grouped_first_ids) != 2
+                        or len(grouped_second_ids) != 2
+                        or grouped_vertex_id not in grouped_first_ids
+                        or grouped_vertex_id not in grouped_second_ids
+                        or evaluate_corner_radius(
+                            self._sketch_point_position(
+                                points[grouped_vertex_id]
+                            ),
+                            self._sketch_point_position(
+                                points[next(
+                                    item for item in grouped_first_ids
+                                    if item != grouped_vertex_id
+                                )]
+                            ),
+                            self._sketch_point_position(
+                                points[next(
+                                    item for item in grouped_second_ids
+                                    if item != grouped_vertex_id
+                                )]
+                            ),
+                            radius,
+                        )
+                        is None
+                    ):
+                        return
+                for _geometry_id, grouped_record in grouped_records:
+                    grouped_record["radius"] = radius
         if records:
             first["corner_radii"] = records
         else:
             first.pop("corner_radii", None)
         self._store_sketch_entities(sketch, entities)
         self._refresh_sketch_overlay(populate_tree=False)
+        if self._sketch_show_all_dimensions:
+            self._show_all_sketch_dimensions(sketch)
         if finished:
             self._mark_model_for_regeneration()
             self.rebuild_view(fit=False)
@@ -15760,13 +16049,39 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
             return
-        prefix = "sketch_distance:"
-        if not dimension_key.startswith(prefix):
+        distance_prefix = "sketch_distance:"
+        radius_prefix = "sketch_radius:"
+        if not dimension_key.startswith((distance_prefix, radius_prefix)):
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
             return
-        dimension_id = dimension_key.removeprefix(prefix)
+        if dimension_key.startswith(radius_prefix):
+            radius_id = dimension_key.removeprefix(radius_prefix)
+            entities = self._stored_sketch_entities(sketch)
+            record = next(
+                (
+                    item
+                    for entity in entities
+                    for item in (
+                        entity.get("corner_radii", ())
+                        if isinstance(entity.get("corner_radii", ()), list)
+                        else ()
+                    )
+                    if isinstance(item, dict)
+                    and str(item.get("id", "")) == radius_id
+                ),
+                None,
+            )
+            if record is None:
+                return
+            record["placement"] = [float(x), float(y)]
+            self._store_sketch_entities(sketch, entities)
+            self._show_all_sketch_dimensions(sketch)
+            if finished:
+                self._refresh_sketch_overlay(populate_tree=False)
+            return
+        dimension_id = dimension_key.removeprefix(distance_prefix)
         dimensions = self._stored_sketch_dimensions(sketch)
         dimension = next(
             (
@@ -18372,6 +18687,7 @@ class MainWindow(QMainWindow):
                 "perpendicular",
                 "parallel",
                 "equal_length",
+                "equal_radius",
                 "midpoint",
                 "tangent",
                 "dimension_x",
@@ -18385,6 +18701,7 @@ class MainWindow(QMainWindow):
                 "perpendicular",
                 "parallel",
                 "equal_length",
+                "equal_radius",
                 "midpoint",
                 "tangent",
                 "dimension_x",
@@ -18512,6 +18829,7 @@ class MainWindow(QMainWindow):
         distance_values: list[
             tuple[LinearDimension | AngularDimension, str, float]
         ] = []
+        radius_values: list[tuple[LinearDimension, str, float]] = []
         dimension_styles = self._dimension_styles(sketch)
         all_entities = self._stored_sketch_entities(sketch)
         points_by_id = {
@@ -18793,6 +19111,96 @@ class MainWindow(QMainWindow):
                     ),
                 )
             )
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in all_entities
+            if entity.get("type") == "segment"
+        }
+        for first_id, first_geometry in geometry_by_id.items():
+            first_ids = tuple(
+                map(str, first_geometry.get("point_ids", ()))
+            )
+            records = first_geometry.get("corner_radii", ())
+            if len(first_ids) != 2 or not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second_geometry = geometry_by_id.get(second_id)
+                second_ids = tuple(
+                    map(str, second_geometry.get("point_ids", ()))
+                ) if second_geometry is not None else ()
+                if (
+                    len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                ):
+                    continue
+                vertex = points_by_id.get(vertex_id)
+                first_outer = points_by_id.get(
+                    next(item for item in first_ids if item != vertex_id)
+                )
+                second_outer = points_by_id.get(
+                    next(item for item in second_ids if item != vertex_id)
+                )
+                if (
+                    vertex is None
+                    or first_outer is None
+                    or second_outer is None
+                ):
+                    continue
+                evaluated = evaluate_corner_radius(
+                    self._sketch_point_position(vertex),
+                    self._sketch_point_position(first_outer),
+                    self._sketch_point_position(second_outer),
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                radius_id = str(
+                    record.get("id")
+                    or f"radius:{first_id}:{second_id}:{vertex_id}"
+                )
+                midpoint = evaluated.arc_points[
+                    len(evaluated.arc_points) // 2
+                ]
+                placement = record.get("placement", ())
+                label_point = (
+                    (
+                        float(placement[0]),
+                        float(placement[1]),
+                    )
+                    if isinstance(placement, list) and len(placement) >= 2
+                    else midpoint
+                )
+                center = evaluated.center
+                dx = label_point[0] - center[0]
+                dy = label_point[1] - center[1]
+                length = math.hypot(dx, dy)
+                if length <= 1.0e-12:
+                    continue
+                dimension = LinearDimension(
+                    key=f"sketch_radius:{radius_id}",
+                    first_point=world(*center),
+                    second_point=world(*midpoint),
+                    first_dimension_point=world(*center),
+                    second_dimension_point=world(*label_point),
+                    direction=tuple(
+                        (dx / length) * x_axis[index]
+                        + (dy / length) * y_axis[index]
+                        for index in range(3)
+                    ),
+                    leader_anchor="second",
+                    value_prefix="R",
+                )
+                dimensions.append(dimension)
+                radius_values.append((
+                    dimension,
+                    radius_id,
+                    float(record.get("radius", 0.0)),
+                ))
         self._clear_dimension_overlays()
         if not dimensions:
             return
@@ -18859,6 +19267,27 @@ class MainWindow(QMainWindow):
             self._dimension_bindings[dimension.key] = (
                 "sketch_distance",
                 dimension_id,
+            )
+        for dimension, radius_id, value in radius_values:
+            overlay = ParameterEditOverlay(self.native_viewer)
+            self._configure_dimension_overlay(
+                overlay,
+                sketch,
+                dimension,
+                value,
+            )
+            overlay.valueCommitted.connect(
+                lambda raw_value, key=dimension.key:
+                self._commit_dimension_value(key, raw_value)
+            )
+            overlay.selected.connect(
+                lambda key=dimension.key:
+                self._select_dimension_overlay(key)
+            )
+            self._dimension_overlays[dimension.key] = overlay
+            self._dimension_bindings[dimension.key] = (
+                "sketch_radius",
+                radius_id,
             )
         QTimer.singleShot(0, self._position_dimension_overlays)
 
@@ -19821,7 +20250,7 @@ class MainWindow(QMainWindow):
             not math.isfinite(value)
             or (binding[0] == "parameter" and value < 0.0)
             or (
-                binding[0] == "sketch_distance"
+                binding[0] in ("sketch_distance", "sketch_radius")
                 and (
                     (
                         edited_sketch_dimension is not None
@@ -19931,6 +20360,96 @@ class MainWindow(QMainWindow):
                         solved_point.pop("dimension_locks", None)
             self._store_sketch_dimensions(entity, solved_dimensions)
             self._store_sketch_entities(entity, solved_entities)
+        elif binding[0] == "sketch_radius":
+            radius_id = str(binding[1])
+            entities = self._stored_sketch_entities(entity)
+            geometry_by_id = {
+                str(item.get("id", "")): item
+                for item in entities
+                if item.get("type") == "segment"
+            }
+            points = {
+                str(item.get("id", "")): self._sketch_point_position(item)
+                for item in entities
+                if item.get("type") == "point"
+            }
+            radius_records = [
+                (first_id, record)
+                for first_id, geometry in geometry_by_id.items()
+                for record in (
+                    geometry.get("corner_radii", ())
+                    if isinstance(geometry.get("corner_radii", ()), list)
+                    else ()
+                )
+                if isinstance(record, dict)
+            ]
+            selected_record = next(
+                (
+                    record
+                    for _first_id, record in radius_records
+                    if str(record.get("id", "")) == radius_id
+                ),
+                None,
+            )
+            if selected_record is None:
+                return
+            group = str(selected_record.get("equal_radius_group", ""))
+            affected = [
+                (first_id, record)
+                for first_id, record in radius_records
+                if record is selected_record
+                or (
+                    group
+                    and str(record.get("equal_radius_group", "")) == group
+                )
+            ]
+            for first_id, record in affected:
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                first_ids = tuple(
+                    map(
+                        str,
+                        geometry_by_id.get(first_id, {}).get(
+                            "point_ids",
+                            (),
+                        ),
+                    )
+                )
+                second_ids = tuple(
+                    map(
+                        str,
+                        geometry_by_id.get(second_id, {}).get(
+                            "point_ids",
+                            (),
+                        ),
+                    )
+                )
+                if (
+                    len(first_ids) != 2
+                    or len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                    or evaluate_corner_radius(
+                        points[vertex_id],
+                        points[next(
+                            item for item in first_ids
+                            if item != vertex_id
+                        )],
+                        points[next(
+                            item for item in second_ids
+                            if item != vertex_id
+                        )],
+                        value,
+                    )
+                    is None
+                ):
+                    self.statusBar().showMessage(
+                        tr("dimension.invalid_value", value=raw_value)
+                    )
+                    return
+            for _first_id, record in affected:
+                record["radius"] = value
+            self._store_sketch_entities(entity, entities)
         elif binding[0] == "sketch_distance":
             dimension_id = str(binding[1])
             dimensions = self._stored_sketch_dimensions(entity)
@@ -20096,7 +20615,7 @@ class MainWindow(QMainWindow):
                 else:
                     self._show_sketch_point_dimensions(entity, point)
             self._refresh_sketch_overlay()
-        elif binding[0] == "sketch_distance":
+        elif binding[0] in ("sketch_distance", "sketch_radius"):
             if protrusion_preview:
                 self._show_protrusion_profile_overlay(preview_owner)
             else:

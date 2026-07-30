@@ -1019,6 +1019,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             if self._sketch_selection_mode:
+                if (
+                    not self._sketch_constraint_selection_mode
+                    or self._sketch_tool in ("equal_length", "equal_radius")
+                ):
+                    corner_radius = self._corner_radius_candidate(
+                        event.position()
+                    )
+                    if corner_radius is not None:
+                        self.sketchCornerRadiusSelected.emit(*corner_radius)
+                        event.accept()
+                        return
                 if not self._sketch_constraint_selection_mode:
                     drag_vertex = self._corner_radius_drag_candidate(
                         event.position()
@@ -1028,17 +1039,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self._sketch_corner_drag_moved = False
                         event.accept()
                         return
-                    corner_radius = self._corner_radius_candidate(
-                        event.position()
-                    )
-                    if corner_radius is not None:
-                        self.sketchCornerRadiusSelected.emit(*corner_radius)
-                        event.accept()
-                        return
                     dimension_key = self.dimension_key_at(event.position())
                     if (
                         dimension_key is not None
-                        and dimension_key.startswith("sketch_distance:")
+                        and dimension_key.startswith(
+                            ("sketch_distance:", "sketch_radius:")
+                        )
                         and not self._sketch_selection_candidates(
                             event.position()
                         )

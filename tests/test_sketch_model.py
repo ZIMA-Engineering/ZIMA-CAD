@@ -66,9 +66,11 @@ class SketchModelTests(unittest.TestCase):
                 ("a", "vertex"),
                 {
                     "corner_radii": [{
+                        "id": "radius:first:second:vertex",
                         "other_geometry_id": "second",
                         "vertex_id": "vertex",
                         "radius": 2.0,
+                        "equal_radius_group": "equal-radius:1",
                     }],
                 },
             )
@@ -89,6 +91,16 @@ class SketchModelTests(unittest.TestCase):
                 "radius"
             ],
             2.0,
+        )
+        self.assertEqual(
+            restored.geometry["first"].attributes["corner_radii"][0]["id"],
+            "radius:first:second:vertex",
+        )
+        self.assertEqual(
+            restored.geometry["first"].attributes["corner_radii"][0][
+                "equal_radius_group"
+            ],
+            "equal-radius:1",
         )
 
     def test_corner_radius_does_not_change_rectangle_dimension_dof(self):
@@ -880,6 +892,83 @@ class SketchModelTests(unittest.TestCase):
         self.assertEqual(sketch.violated_equations(), ())
         sketch.points["point"].y = 4.0
         self.assertEqual(sketch.violated_equations(), ("point_line",))
+
+    def test_point_line_dimension_does_not_collapse_reference_line(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("origin", 0.0, 0.0),
+            SketchPoint("measured", 0.0, 5.7735026919),
+            SketchPoint("corner", -2.5, 4.3301270189),
+            SketchPoint("line_start", 0.0, 10.3923048454),
+            SketchPoint("line_end", -3.0, 8.65),
+        ):
+            sketch.add_point(point)
+        for constraint in (
+            SketchConstraint(
+                "origin_lock",
+                "point_on_reference",
+                ("origin",),
+                ("sketch_origin",),
+            ),
+            SketchConstraint(
+                "measured_on_y",
+                "point_on_reference",
+                ("measured",),
+                ("sketch_axis:y",),
+            ),
+            SketchConstraint(
+                "line_start_on_y",
+                "point_on_reference",
+                ("line_start",),
+                ("sketch_axis:y",),
+            ),
+            SketchConstraint(
+                "perpendicular",
+                "perpendicular",
+                ("origin", "corner", "measured"),
+            ),
+            SketchConstraint(
+                "parallel",
+                "parallel",
+                ("measured", "corner", "line_start", "line_end"),
+            ),
+        ):
+            sketch.add_constraint(constraint)
+        for dimension in (
+            SketchDimension(
+                "angle",
+                "angle",
+                120.0,
+                ("origin", "corner"),
+                True,
+                {"reference_id": "sketch_axis:x"},
+            ),
+            SketchDimension(
+                "base_length",
+                "distance",
+                5.0,
+                ("origin", "corner"),
+                True,
+            ),
+            SketchDimension(
+                "point_line",
+                "distance_line",
+                20.0,
+                ("measured", "line_start", "line_end"),
+                True,
+            ),
+        ):
+            sketch.add_dimension(dimension)
+
+        self.assertTrue(sketch.solve())
+        self.assertEqual(sketch.violated_equations(), ())
+        self.assertGreater(
+            math.dist(
+                sketch.points["line_start"].position(),
+                sketch.points["line_end"].position(),
+            ),
+            1.0,
+        )
 
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):

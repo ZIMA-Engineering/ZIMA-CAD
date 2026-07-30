@@ -921,6 +921,26 @@ class SketchModel:
         if not self.points:
             return True
         solver_variables = self._solver_variables()
+        distance_line_minimum_lengths = tuple(
+            (
+                dimension.point_ids[1],
+                dimension.point_ids[2],
+                max(
+                    math.dist(
+                        self.points[dimension.point_ids[1]].position(),
+                        self.points[dimension.point_ids[2]].position(),
+                    )
+                    * 1.0e-3,
+                    1.0e-6,
+                ),
+            )
+            for dimension in self.dimensions.values()
+            if (
+                dimension.driving
+                and dimension.dimension_type == "distance_line"
+                and len(dimension.point_ids) >= 3
+            )
+        )
         damping = 1.0e-10
         for _iteration in range(max_iterations):
             residuals = list(self._equation_values())
@@ -983,6 +1003,14 @@ class SketchModel:
                     self._solver_value(variable) <= 1.0e-12
                     for variable in solver_variables
                     if variable[0] == "circle_radius"
+                ) or any(
+                    math.dist(
+                        self.points[first_id].position(),
+                        self.points[second_id].position(),
+                    )
+                    <= minimum_length
+                    for first_id, second_id, minimum_length
+                    in distance_line_minimum_lengths
                 ):
                     factor *= 0.5
                     continue
@@ -1124,8 +1152,9 @@ class SketchModel:
                         - line_dy * (positions[0][0] - positions[1][0])
                     )
                     values.append(
-                        cross * cross
-                        - target * target * line_length_squared
+                        abs(cross)
+                        / max(math.sqrt(line_length_squared), 1.0e-12)
+                        - target
                     )
         return tuple(values)
 
