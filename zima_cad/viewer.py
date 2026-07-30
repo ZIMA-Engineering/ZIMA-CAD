@@ -36,6 +36,7 @@ from PySide6.QtOpenGL import (
 )
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from zima_cad.sketch_geometry import evaluate_corner_radius
 from zima_cad.viewer_mesh import Point3, ViewerMesh
 
 TopologyKey = tuple[str, int]
@@ -194,7 +195,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchFinishCurrentRequested = Signal()
     sketchViewClicked = Signal()
     sketchEntitySelected = Signal(str)
+    sketchEntityAdditiveSelected = Signal(str)
     sketchEntitiesSelected = Signal(object)
+    sketchCornerRadiusSelected = Signal(str, str, str)
+    sketchCornerRadiusDragged = Signal(str, float, float, bool)
     sketchEntityHovered = Signal(str)
     sketchCursorMoved = Signal(float, float)
     sketchConstraintReferenceSelected = Signal(str)
@@ -279,8 +283,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_reference_snapping = False
         self._selected_sketch_entity_id: str | None = None
         self._selected_sketch_entity_ids: frozenset[str] = frozenset()
+        self._selected_sketch_corner_radius: tuple[str, str, str] | None = None
         self._sketch_box_start: QPointF | None = None
         self._sketch_box_end: QPointF | None = None
+        self._sketch_corner_drag_vertex_id: str | None = None
+        self._sketch_corner_drag_moved = False
         self._preview_sketch_entity_id: str | None = None
         self._hovered_sketch_external_reference_id: str | None = None
         self._sketch_cycle_ids: tuple[str, ...] = ()
@@ -309,6 +316,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         constraint_selection_mode: bool = False,
         selected_entity_id: str | None = None,
         selected_entity_ids: set[str] | frozenset[str] = frozenset(),
+        selected_corner_radius: tuple[str, str, str] | None = None,
         external_references: tuple[dict[str, Any], ...]
         | list[dict[str, Any]] = (),
         snap_to_external_references: bool = False,
@@ -323,6 +331,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
         self._selected_sketch_entity_id = selected_entity_id
         self._selected_sketch_entity_ids = frozenset(selected_entity_ids)
+        self._selected_sketch_corner_radius = selected_corner_radius
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
         self._sketch_tool = sketch_tool
@@ -978,7 +987,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if self._sketch_constraint_selection_mode:
                 self.sketchAlternateCurrentRequested.emit()
             elif self._sketch_selection_mode:
-                if self._selected_sketch_entity_id is not None:
+                if (
+                    self._selected_sketch_entity_id is not None
+                    or self._selected_sketch_corner_radius is not None
+                ):
                     self._suppress_next_context_menu = False
                     super().mousePressEvent(event)
                     return
@@ -993,6 +1005,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             if self._sketch_selection_mode:
+                if not self._sketch_constraint_selection_mode:
+                    drag_vertex = self._corner_radius_drag_candidate(
+                        event.position()
+                    )
+                    if drag_vertex is not None:
+                        self._sketch_corner_drag_vertex_id = drag_vertex
+                        self._sketch_corner_drag_moved = False
+                        event.accept()
+                        return
+                    corner_radius = self._corner_radius_candidate(
+                        event.position()
+                    )
+                    if corner_radius is not None:
+                        self.sketchCornerRadiusSelected.emit(*corner_radius)
+                        event.accept()
+                        return
                 candidates = self._sketch_entity_candidates(event.position())
                 selected = (
                     self._preview_sketch_entity_id
@@ -1003,7 +1031,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     else (candidates[0] if candidates else "")
                 )
                 if selected:
-                    self.sketchEntitySelected.emit(selected)
+                    if (
+                        event.modifiers()
+                        & Qt.KeyboardModifier.ControlModifier
+                    ):
+                        self.sketchEntityAdditiveSelected.emit(selected)
+                    else:
+                        self.sketchEntitySelected.emit(selected)
                 else:
                     reference = self._sketch_external_reference_candidate(
                         event.position()
@@ -1184,6 +1218,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             if (
+                self._sketch_corner_drag_vertex_id is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                local = self._sketch_local_position(event.position())
+                if local is not None:
+                    self._sketch_corner_drag_moved = True
+                    self.sketchCornerRadiusDragged.emit(
+                        self._sketch_corner_drag_vertex_id,
+                        local[0],
+                        local[1],
+                        False,
+                    )
+                event.accept()
+                return
+            if (
                 self._sketch_box_start is not None
                 and event.buttons() & Qt.MouseButton.LeftButton
             ):
@@ -1324,6 +1373,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_corner_drag_vertex_id is not None
+        ):
+            local = self._sketch_local_position(event.position())
+            if local is not None and self._sketch_corner_drag_moved:
+                self.sketchCornerRadiusDragged.emit(
+                    self._sketch_corner_drag_vertex_id,
+                    local[0],
+                    local[1],
+                    True,
+                )
+            self._sketch_corner_drag_vertex_id = None
+            self._sketch_corner_drag_moved = False
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._sketch_box_start is not None
@@ -2597,6 +2662,83 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if entity.get("type") == "point"
             and str(entity.get("id", ""))
         }
+        sketch_geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in self._sketch_entities
+            if entity.get("type") == "segment"
+            and str(entity.get("id", ""))
+        }
+        corner_trim_points: dict[tuple[str, str], tuple[float, float]] = {}
+        corner_arcs: list[
+            tuple[tuple[tuple[float, float], ...], str, str, str]
+        ] = []
+        for first_id, first_geometry in sketch_geometry_by_id.items():
+            records = first_geometry.get("corner_radii", ())
+            if not isinstance(records, list):
+                continue
+            first_ids = tuple(map(str, first_geometry.get("point_ids", ())))
+            if len(first_ids) != 2:
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second_geometry = sketch_geometry_by_id.get(second_id)
+                second_ids = (
+                    tuple(map(str, second_geometry.get("point_ids", ())))
+                    if second_geometry is not None
+                    else ()
+                )
+                if (
+                    len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                ):
+                    continue
+                vertex = point_positions.get(vertex_id)
+                first_outer = point_positions.get(
+                    next(
+                        point_id
+                        for point_id in first_ids
+                        if point_id != vertex_id
+                    )
+                )
+                second_outer = point_positions.get(
+                    next(
+                        point_id
+                        for point_id in second_ids
+                        if point_id != vertex_id
+                    )
+                )
+                if (
+                    vertex is None
+                    or first_outer is None
+                    or second_outer is None
+                ):
+                    continue
+                evaluated = evaluate_corner_radius(
+                    vertex,
+                    first_outer,
+                    second_outer,
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                corner_trim_points[(first_id, vertex_id)] = (
+                    evaluated.first_tangent
+                )
+                corner_trim_points[(second_id, vertex_id)] = (
+                    evaluated.second_tangent
+                )
+                corner_arcs.append(
+                    (
+                        evaluated.arc_points,
+                        first_id,
+                        second_id,
+                        vertex_id,
+                    )
+                )
         for entity in self._sketch_entities:
             entity_type = str(entity.get("type", ""))
             selected = (
@@ -2616,7 +2758,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             elif isinstance(entity.get("point_ids"), list):
                 raw_points = [
-                    point_positions[point_id]
+                    corner_trim_points.get(
+                        (
+                            str(entity.get("id", "")),
+                            point_id,
+                        ),
+                        point_positions[point_id],
+                    )
                     for point_id in map(str, entity["point_ids"])
                     if point_id in point_positions
                 ]
@@ -2631,12 +2779,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 for point in raw_points
                 if isinstance(point, (list, tuple)) and len(point) >= 2
             ]
-            if entity_type == "circle" and len(points) == 2:
-                center, rim = points
-                radius = hypot(
-                    rim.x() - center.x(),
-                    rim.y() - center.y(),
+            if entity_type == "circle" and len(points) == 1:
+                center = points[0]
+                local_radius = float(entity.get("radius", 0.0))
+                local_center = raw_points[0]
+                local_rim = (
+                    float(local_center[0]) + local_radius,
+                    float(local_center[1]),
                 )
+                rim = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(local_rim)
+                    )
+                )
+                radius = hypot(rim.x() - center.x(), rim.y() - center.y())
                 circle_pen = QPen(
                     cyan if selected else
                     QColor("#FF7A00") if previewed else yellow,
@@ -2702,6 +2858,51 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             elif len(points) >= 2:
                 painter.setPen(QPen(yellow, 2.0))
                 painter.drawPolyline(QPolygonF(points))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for raw_arc, first_id, second_id, vertex_id in corner_arcs:
+            selected = (
+                first_id in self._selected_sketch_entity_ids
+                and second_id in self._selected_sketch_entity_ids
+            ) or self._selected_sketch_corner_radius == (
+                first_id,
+                second_id,
+                vertex_id,
+            )
+            painter.setPen(
+                QPen(
+                    cyan if selected else yellow,
+                    3.0 if selected else 2.0,
+                )
+            )
+            arc = QPolygonF(
+                [
+                    self._screen_point(
+                        self._camera_point(self._sketch_world_point(point))
+                    )
+                    for point in raw_arc
+                ]
+            )
+            painter.drawPolyline(arc)
+            if selected:
+                vertex = point_positions.get(vertex_id)
+                if vertex is not None:
+                    screen_vertex = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(vertex)
+                        )
+                    )
+                    painter.setPen(QPen(cyan, 1.0, Qt.PenStyle.DashLine))
+                    painter.drawLine(arc[0], screen_vertex)
+                    painter.drawLine(arc[-1], screen_vertex)
+                    painter.drawEllipse(screen_vertex, 3.5, 3.5)
+                    painter.setPen(QPen(cyan, 2.0))
+                    painter.setBrush(QBrush(cyan))
+                    painter.drawEllipse(arc[0], 4.0, 4.0)
+                    painter.drawEllipse(arc[-1], 4.0, 4.0)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(yellow, 2.0))
+        painter.setBrush(QBrush(yellow))
 
         geometry_by_id = {
             str(entity.get("id", "")): entity
@@ -2809,6 +3010,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         markers_by_geometry: dict[str, list[str]] = {
             geometry_id: [] for geometry_id in geometry_by_id
         }
+        tangent_contact_ids: set[str] = set()
 
         def add_marker(geometry_id: str, marker: str) -> None:
             markers = markers_by_geometry.get(geometry_id)
@@ -2835,6 +3037,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         str(constraint.get("geometry_id", "")),
                         "=",
                     )
+                elif constraint_type == "tangent":
+                    contact_id = str(
+                        constraint.get("contact_point_id", "")
+                    )
+                    if contact_id:
+                        tangent_contact_ids.add(contact_id)
 
         metrics = painter.fontMetrics()
         marker_spacing = 16.0
@@ -2868,6 +3076,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ),
                     label,
                 )
+
+        for contact_id in tangent_contact_ids:
+            local_contact = point_positions.get(contact_id)
+            if local_contact is None:
+                continue
+            contact = self._screen_point(
+                self._camera_point(self._sketch_world_point(local_contact))
+            )
+            painter.drawText(
+                QPointF(contact.x() + 7.0, contact.y() - 7.0),
+                "T",
+            )
 
         painter.setPen(QPen(constraint_color, 2.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -2991,14 +3211,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setBrush(QBrush(QColor("#FF7A00")))
             for point in pending:
                 painter.drawEllipse(point, 3.5, 3.5)
-            if self._sketch_tool == "circle" and len(pending) >= 2:
-                radius = hypot(
-                    pending[1].x() - pending[0].x(),
-                    pending[1].y() - pending[0].y(),
-                )
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(pending[0], radius, radius)
-            elif len(pending) >= 2:
+            if len(pending) >= 2:
                 painter.drawPolyline(QPolygonF(pending))
             if self._sketch_preview_position is not None:
                 preview = self._screen_point(
@@ -3114,10 +3327,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if distance <= 9.0:
                     candidates.append((0, distance, order, entity_id))
                 continue
-            if entity_type == "circle" and len(screen_points) == 2:
+            if entity_type == "circle" and len(screen_points) == 1:
+                local_radius = float(entity.get("radius", 0.0))
+                centre_id = str(entity.get("point_ids", [""])[0])
+                local_center = point_positions.get(centre_id)
+                if local_center is None:
+                    continue
+                rim = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(
+                            (
+                                local_center[0] + local_radius,
+                                local_center[1],
+                            )
+                        )
+                    )
+                )
                 radius = hypot(
-                    screen_points[1].x() - screen_points[0].x(),
-                    screen_points[1].y() - screen_points[0].y(),
+                    rim.x() - screen_points[0].x(),
+                    rim.y() - screen_points[0].y(),
                 )
                 distance = abs(
                     hypot(
@@ -3146,8 +3374,258 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         entity_id,
                     )
                 )
+        for distance, vertex_id in self._corner_radius_handle_candidates(
+            position
+        ):
+            candidates.append((0, distance, -1, vertex_id))
         candidates.sort()
         return tuple(candidate[3] for candidate in candidates)
+
+    def _corner_radius_handle_candidates(
+        self,
+        position: QPointF,
+    ) -> list[tuple[float, str]]:
+        point_positions = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in self._sketch_entities
+            if entity.get("type") == "segment"
+        }
+        candidates: list[tuple[float, str]] = []
+        for first in geometry_by_id.values():
+            first_ids = tuple(map(str, first.get("point_ids", ())))
+            records = first.get("corner_radii", ())
+            if len(first_ids) != 2 or not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                second = geometry_by_id.get(
+                    str(record.get("other_geometry_id", ""))
+                )
+                vertex_id = str(record.get("vertex_id", ""))
+                second_ids = (
+                    tuple(map(str, second.get("point_ids", ())))
+                    if second is not None
+                    else ()
+                )
+                if (
+                    len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                ):
+                    continue
+                vertex = point_positions.get(vertex_id)
+                first_outer = point_positions.get(
+                    next(item for item in first_ids if item != vertex_id)
+                )
+                second_outer = point_positions.get(
+                    next(item for item in second_ids if item != vertex_id)
+                )
+                if (
+                    vertex is None
+                    or first_outer is None
+                    or second_outer is None
+                ):
+                    continue
+                evaluated = evaluate_corner_radius(
+                    vertex,
+                    first_outer,
+                    second_outer,
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                for handle in (
+                    evaluated.first_tangent,
+                    evaluated.second_tangent,
+                ):
+                    screen = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(handle)
+                        )
+                    )
+                    distance = hypot(
+                        position.x() - screen.x(),
+                        position.y() - screen.y(),
+                    )
+                    if distance <= 9.0:
+                        candidates.append((distance, vertex_id))
+        return candidates
+
+    def _corner_radius_drag_candidate(
+        self,
+        position: QPointF,
+    ) -> str | None:
+        if len(self._selected_sketch_entity_ids) != 2:
+            return None
+        point_positions = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in self._sketch_entities
+            if entity.get("type") == "segment"
+        }
+        selected_ids = sorted(self._selected_sketch_entity_ids)
+        first = geometry_by_id.get(selected_ids[0])
+        second = geometry_by_id.get(selected_ids[1])
+        if first is None or second is None:
+            return None
+        first_ids = tuple(map(str, first.get("point_ids", ())))
+        second_ids = tuple(map(str, second.get("point_ids", ())))
+        shared = set(first_ids) & set(second_ids)
+        if len(first_ids) != 2 or len(second_ids) != 2 or len(shared) != 1:
+            return None
+        vertex_id = next(iter(shared))
+        vertex = point_positions.get(vertex_id)
+        first_outer = point_positions.get(
+            next(point_id for point_id in first_ids if point_id != vertex_id)
+        )
+        second_outer = point_positions.get(
+            next(point_id for point_id in second_ids if point_id != vertex_id)
+        )
+        if vertex is None or first_outer is None or second_outer is None:
+            return None
+        handles = [vertex]
+        records = first.get("corner_radii", ())
+        if isinstance(records, list):
+            record = next(
+                (
+                    item
+                    for item in records
+                    if isinstance(item, dict)
+                    and str(item.get("other_geometry_id", ""))
+                    == selected_ids[1]
+                    and str(item.get("vertex_id", "")) == vertex_id
+                ),
+                None,
+            )
+            if record is not None:
+                evaluated = evaluate_corner_radius(
+                    vertex,
+                    first_outer,
+                    second_outer,
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is not None:
+                    handles.extend(
+                        (
+                            evaluated.first_tangent,
+                            evaluated.second_tangent,
+                        )
+                    )
+        for handle in handles:
+            screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(handle))
+            )
+            if hypot(
+                position.x() - screen.x(),
+                position.y() - screen.y(),
+            ) <= 10.0:
+                return vertex_id
+        return None
+
+    def _corner_radius_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[str, str, str] | None:
+        point_positions = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in self._sketch_entities
+            if entity.get("type") == "segment"
+        }
+        nearest: tuple[float, str, str, str] | None = None
+        for first_id, first in geometry_by_id.items():
+            first_ids = tuple(map(str, first.get("point_ids", ())))
+            records = first.get("corner_radii", ())
+            if len(first_ids) != 2 or not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second = geometry_by_id.get(second_id)
+                second_ids = (
+                    tuple(map(str, second.get("point_ids", ())))
+                    if second is not None
+                    else ()
+                )
+                if (
+                    len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                ):
+                    continue
+                vertex = point_positions.get(vertex_id)
+                first_outer = point_positions.get(
+                    next(item for item in first_ids if item != vertex_id)
+                )
+                second_outer = point_positions.get(
+                    next(item for item in second_ids if item != vertex_id)
+                )
+                if (
+                    vertex is None
+                    or first_outer is None
+                    or second_outer is None
+                ):
+                    continue
+                evaluated = evaluate_corner_radius(
+                    vertex,
+                    first_outer,
+                    second_outer,
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                screen_arc = [
+                    self._screen_point(
+                        self._camera_point(self._sketch_world_point(point))
+                    )
+                    for point in evaluated.arc_points
+                ]
+                distance = min(
+                    self._point_segment_distance(position, first, second)[0]
+                    for first, second in zip(
+                        screen_arc,
+                        screen_arc[1:],
+                    )
+                )
+                if distance <= 9.0 and (
+                    nearest is None or distance < nearest[0]
+                ):
+                    nearest = (
+                        distance,
+                        first_id,
+                        second_id,
+                        vertex_id,
+                    )
+        return (
+            (nearest[1], nearest[2], nearest[3])
+            if nearest is not None
+            else None
+        )
 
     def _pick_sketch_entity(self, position: QPointF) -> str | None:
         candidates = self._sketch_entity_candidates(position)

@@ -12,18 +12,158 @@ from zima_cad.sketch_model import (
     SketchPoint,
     classify_linear_dimension,
 )
+from zima_cad.sketch_geometry import (
+    corner_radius_from_drag,
+    evaluate_corner_radius,
+)
 
 
 class SketchModelTests(unittest.TestCase):
-    def test_circle_round_trips_with_centre_and_radius_point(self):
+    def test_corner_radius_evaluates_tangent_arc_and_drag_is_reversible(self):
+        evaluated = evaluate_corner_radius(
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (0.0, 10.0),
+            2.0,
+        )
+
+        self.assertIsNotNone(evaluated)
+        assert evaluated is not None
+        self.assertAlmostEqual(evaluated.first_tangent[0], 2.0)
+        self.assertAlmostEqual(evaluated.first_tangent[1], 0.0)
+        self.assertAlmostEqual(evaluated.second_tangent[0], 0.0)
+        self.assertAlmostEqual(evaluated.second_tangent[1], 2.0)
+        self.assertAlmostEqual(evaluated.center[0], 2.0)
+        self.assertAlmostEqual(evaluated.center[1], 2.0)
+        radius, maximum = corner_radius_from_drag(
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (0.0, 10.0),
+            (3.0, 0.0),
+        ) or (0.0, 0.0)
+        self.assertAlmostEqual(radius, 3.0)
+        self.assertGreater(maximum, radius)
+        zero_radius, _maximum = corner_radius_from_drag(
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ) or (-1.0, 0.0)
+        self.assertEqual(zero_radius, 0.0)
+
+    def test_corner_radius_metadata_round_trips_with_segments(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("a", 10.0, 0.0),
+            SketchPoint("vertex", 0.0, 0.0),
+            SketchPoint("b", 0.0, 10.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry(
+                "first",
+                GeometryType.SEGMENT,
+                ("a", "vertex"),
+                {
+                    "corner_radii": [{
+                        "other_geometry_id": "second",
+                        "vertex_id": "vertex",
+                        "radius": 2.0,
+                    }],
+                },
+            )
+        )
+        sketch.add_geometry(
+            SketchGeometry(
+                "second",
+                GeometryType.SEGMENT,
+                ("vertex", "b"),
+            )
+        )
+
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+
+        self.assertEqual(
+            restored.geometry["first"].attributes["corner_radii"][0][
+                "radius"
+            ],
+            2.0,
+        )
+
+    def test_corner_radius_does_not_change_rectangle_dimension_dof(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("top_left", 0.0, 10.0),
+            SketchPoint("top_right", 20.0, 10.0),
+            SketchPoint("bottom_right", 20.0, 0.0),
+            SketchPoint("bottom_left", 0.0, 0.0),
+        ):
+            sketch.add_point(point)
+        segments = (
+            ("top", "top_left", "top_right"),
+            ("right", "top_right", "bottom_right"),
+            ("bottom", "bottom_right", "bottom_left"),
+            ("left", "bottom_left", "top_left"),
+        )
+        for geometry_id, first, second in segments:
+            attributes = {}
+            if geometry_id == "top":
+                attributes["corner_radii"] = [{
+                    "other_geometry_id": "left",
+                    "vertex_id": "top_left",
+                    "radius": 2.0,
+                }]
+            sketch.add_geometry(
+                SketchGeometry(
+                    geometry_id,
+                    GeometryType.SEGMENT,
+                    (first, second),
+                    attributes,
+                )
+            )
+        for index, (kind, points) in enumerate(
+            (
+                ("horizontal", ("top_left", "top_right")),
+                ("vertical", ("top_right", "bottom_right")),
+                ("horizontal", ("bottom_right", "bottom_left")),
+                ("vertical", ("bottom_left", "top_left")),
+            ),
+            1,
+        ):
+            sketch.add_constraint(
+                SketchConstraint(f"c{index}", kind, points)
+            )
+
+        top_reduction = sketch.dimension_dof_reduction(
+            SketchDimension(
+                "top_width",
+                "distance_x",
+                20.0,
+                ("top_left", "top_right"),
+            )
+        )
+        bottom_reduction = sketch.dimension_dof_reduction(
+            SketchDimension(
+                "bottom_width",
+                "distance_x",
+                20.0,
+                ("bottom_left", "bottom_right"),
+            )
+        )
+
+        self.assertEqual(top_reduction, 1)
+        self.assertEqual(bottom_reduction, 1)
+
+    def test_circle_round_trips_with_centre_and_scalar_radius(self):
         sketch = SketchModel()
         sketch.add_point(SketchPoint("centre", 2.0, 3.0))
-        sketch.add_point(SketchPoint("rim", 7.0, 3.0))
         sketch.add_geometry(
             SketchGeometry(
                 "circle1",
                 GeometryType.CIRCLE,
-                ("centre", "rim"),
+                ("centre",),
+                {"radius": 5.0},
             )
         )
 
@@ -35,7 +175,11 @@ class SketchModelTests(unittest.TestCase):
         )
         self.assertEqual(
             restored.geometry["circle1"].point_ids,
-            ("centre", "rim"),
+            ("centre",),
+        )
+        self.assertEqual(
+            restored.geometry["circle1"].attributes["radius"],
+            5.0,
         )
         entities, dimensions = restored.to_editor_data()
         editor_restored = SketchModel.from_editor_data(
@@ -44,24 +188,121 @@ class SketchModelTests(unittest.TestCase):
         )
         self.assertEqual(
             editor_restored.geometry["circle1"].point_ids,
-            ("centre", "rim"),
+            ("centre",),
         )
+        self.assertEqual(restored.dof_analysis().degrees_of_freedom, 3)
 
-    def test_circle_rejects_identical_centre_and_radius_point(self):
+    def test_circle_rejects_non_positive_radius(self):
         sketch = SketchModel()
         sketch.add_point(SketchPoint("centre", 2.0, 3.0))
 
         with self.assertRaisesRegex(
             SketchModelError,
-            "requires distinct centre",
+            "requires a positive radius",
         ):
             sketch.add_geometry(
                 SketchGeometry(
                     "circle1",
                     GeometryType.CIRCLE,
-                    ("centre", "centre"),
+                    ("centre",),
+                    {"radius": 0.0},
                 )
             )
+
+    def test_line_circle_tangent_constraint_solves_and_round_trips(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("a", -10.0, 0.0),
+            SketchPoint("b", 10.0, 0.0),
+            SketchPoint("centre", 0.0, 5.0),
+            SketchPoint(
+                "contact",
+                0.0,
+                0.0,
+                attributes={
+                    "derived": True,
+                    "role": "tangent_contact",
+                },
+            ),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry("line", GeometryType.SEGMENT, ("a", "b"))
+        )
+        sketch.add_geometry(
+            SketchGeometry(
+                "circle",
+                GeometryType.CIRCLE,
+                ("centre",),
+                {"radius": 4.0},
+            )
+        )
+        sketch.add_constraint(
+            SketchConstraint(
+                "t1",
+                "tangent",
+                ("a", "b", "centre", "contact"),
+                attributes={
+                    "line_geometry_id": "line",
+                    "circle_geometry_id": "circle",
+                    "side": 1,
+                    "contact_point_id": "contact",
+                },
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertEqual(sketch.violated_equations(), ())
+        first = sketch.points["a"].position()
+        second = sketch.points["b"].position()
+        centre = sketch.points["centre"].position()
+        line_length = math.dist(first, second)
+        distance = abs(
+            (second[0] - first[0]) * (centre[1] - first[1])
+            - (second[1] - first[1]) * (centre[0] - first[0])
+        ) / line_length
+        self.assertAlmostEqual(
+            distance,
+            sketch.geometry["circle"].attributes["radius"],
+            places=5,
+        )
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+        self.assertEqual(
+            restored.constraints["t1"].attributes["line_geometry_id"],
+            "line",
+        )
+        self.assertEqual(
+            restored.constraints["t1"].attributes["circle_geometry_id"],
+            "circle",
+        )
+
+    def test_legacy_two_point_circle_loads_as_centre_and_radius(self):
+        restored = SketchModel.from_dict({
+            "version": 2,
+            "points": {
+                "centre": {"x": 1.0, "y": 2.0},
+                "rim": {"x": 4.0, "y": 6.0},
+            },
+            "geometry": {
+                "circle": {
+                    "type": "circle",
+                    "points": ["centre", "rim"],
+                },
+            },
+            "constraints": {},
+            "dimensions": {},
+        })
+
+        self.assertEqual(
+            restored.geometry["circle"].point_ids,
+            ("centre",),
+        )
+        self.assertEqual(
+            restored.geometry["circle"].attributes["radius"],
+            5.0,
+        )
+        self.assertNotIn("rim", restored.points)
 
     def test_fully_dimensioned_rectangle_rejects_driving_diagonal(self):
         width = 12.0
@@ -617,6 +858,28 @@ class SketchModelTests(unittest.TestCase):
             places=6,
         )
         self.assertEqual(sketch.violated_equations(), ())
+
+    def test_point_to_line_dimension_measures_perpendicular_distance(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("point", 4.0, 3.0),
+            SketchPoint("line_start", 0.0, 0.0),
+            SketchPoint("line_end", 10.0, 0.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_dimension(
+            SketchDimension(
+                "point_line",
+                "distance_line",
+                3.0,
+                ("point", "line_start", "line_end"),
+                True,
+            )
+        )
+
+        self.assertEqual(sketch.violated_equations(), ())
+        sketch.points["point"].y = 4.0
+        self.assertEqual(sketch.violated_equations(), ("point_line",))
 
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):

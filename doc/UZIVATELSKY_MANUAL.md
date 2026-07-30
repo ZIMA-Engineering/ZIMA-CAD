@@ -78,7 +78,8 @@ body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
 
 Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
 **Obdélník**, **Kružnice**, **Oblouk** a **Spline**. Kružnice se zadává
-prvním kliknutím do středu a druhým kliknutím na obvod. Pravé tlačítko zruší
+prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze určí
+poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
 rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
 
 Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
@@ -89,6 +90,17 @@ nejsou podmínkou a nezobrazují se. Solver je používá jako aktuální polohu
 je měnit při řešení vazeb. Konstrukční čára i další geometrie odkazují na své
 řídicí body; kliknutí do volného místa bod vytvoří a kliknutí poblíž
 existujícího bodu jej znovu použije.
+
+Vazba **Tečná** se vytvoří postupným výběrem úsečky (nebo konstrukční čáry)
+a kružnice v libovolném pořadí. Bod dotyku musí ležet v rozsahu vybrané
+úsečky. V místě dotyku vznikne odvozený bod označený značkou **T**. Solver
+zachová stranu kružnice vůči čáře z okamžiku vytvoření vazby.
+
+Vratný rádius společného rohu dvou úseček se vytváří v režimu výběru.
+Kliknutím se vybere první úsečka a `Ctrl`+kliknutím se k ní přidá druhá.
+Tažením jejich společného bodu podél některého ramene vzniká živý tečný
+oblouk. Původní ostrý roh zůstává virtuálně zachovaný. Tažením některého
+tečného konce zpět do tohoto rohu se poloměr zmenší na nulu a rádius odstraní.
 
 Řídicí souřadnicová kóta se vytvoří příkazem **Kóty → Vodorovná vzdálenost**
 nebo **Kóty → Svislá vzdálenost** a následným výběrem bodu. Teprve takto

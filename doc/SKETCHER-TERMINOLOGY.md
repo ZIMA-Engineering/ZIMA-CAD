@@ -9,6 +9,11 @@ The geometry type describes the geometric shape:
 - `circle`
 - `spline`
 
+A `circle` references one centre point and owns one scalar `radius`.
+The circumference click used while drawing is an input gesture, not a
+persistent sketch point. Points on a circle are separate entities connected
+by an explicit constraint.
+
 ## Geometry role
 
 The geometry role describes how the geometry is used:

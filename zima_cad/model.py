@@ -10,8 +10,10 @@ from uuid import uuid4
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeVertex,
+    BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRep import BRep_Builder
@@ -24,12 +26,14 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeCylinder,
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeWedge,
+    BRepPrimAPI_MakePrism,
 )
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
+from zima_cad.sketch_geometry import evaluate_corner_radius
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -155,6 +159,7 @@ class EntityKind(str, Enum):
     AXIS = "axis"
     PLANE = "plane"
     SKETCH = "sketch"
+    PROTRUSION = "protrusion"
     BOX = "box"
     SPHERE = "sphere"
     CYLINDER = "cylinder"
@@ -175,6 +180,7 @@ class ContainerType(str, Enum):
     CONE = "CONE"
     PYRAMID = "PYRAMID"
     WEDGE = "WEDGE"
+    PROTRUSION = "PROTRUSION"
 
 
 class TreeExposure(str, Enum):
@@ -203,6 +209,7 @@ ENTITY_KINDS = frozenset(
         EntityKind.AXIS,
         EntityKind.PLANE,
         EntityKind.SKETCH,
+        EntityKind.PROTRUSION,
         EntityKind.BOX,
         EntityKind.SPHERE,
         EntityKind.CYLINDER,
@@ -324,14 +331,24 @@ class ZimaEntity:
         axes = [entity for entity in entities if entity.kind == EntityKind.AXIS]
         planes = [entity for entity in entities if entity.kind == EntityKind.PLANE]
         sketches = [entity for entity in entities if entity.kind == EntityKind.SKETCH]
+        protrusions = [
+            entity for entity in entities if entity.kind == EntityKind.PROTRUSION
+        ]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
-        if len(points) > 1 or len(axes) > 1 or len(planes) > 1 or len(solids) > 1:
+        if (
+            len(points) > 1
+            or len(axes) > 1
+            or len(planes) > 1
+            or len(protrusions) > 1
+            or len(solids) > 1
+        ):
             return False
         if (
             len(points)
             + len(axes)
             + len(planes)
             + len(sketches)
+            + len(protrusions)
             + len(solids)
             != len(entities)
         ):
@@ -341,6 +358,8 @@ class ZimaEntity:
         if axes and len(entities) != 1:
             return False
         if planes and len(entities) != 1:
+            return False
+        if protrusions and any((points, axes, planes, solids)):
             return False
         roles = [sketch.sketch_role() for sketch in sketches]
         if any(role is None for role in roles):
@@ -363,6 +382,7 @@ class ZimaEntity:
                 EntityKind.POINT,
                 EntityKind.AXIS,
                 EntityKind.SKETCH,
+                EntityKind.PROTRUSION,
                 EntityKind.BOX,
                 EntityKind.SPHERE,
                 EntityKind.CYLINDER,
@@ -869,6 +889,7 @@ class PartDocument:
                 result_shape,
                 obj,
                 identity_transform(),
+                document=self,
             )
 
         return result_shape
@@ -880,6 +901,7 @@ class PartDocument:
             obj,
             identity_transform(),
             accept_first_shape=True,
+            document=self,
         )
 
     def source_highlight_shapes(self, obj: ZimaEntity) -> list[Any]:
@@ -963,7 +985,7 @@ class PartDocument:
                     )
             else:
                 result_shape = apply_object_to_shape(
-                    result_shape, item, identity_transform()
+                    result_shape, item, identity_transform(), document=self
                 )
         return result_shape
 
@@ -977,6 +999,7 @@ def apply_object_to_shape(
     obj: ZimaEntity,
     parent_transform: tuple[tuple[float, float, float, float], ...],
     accept_first_shape: bool = False,
+    document: PartDocument | None = None,
 ):
     if obj.suppressed:
         return result_shape
@@ -984,18 +1007,46 @@ def apply_object_to_shape(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
     )
-    shape = make_shape(obj)
+    is_protrusion = (
+        obj.kind == EntityKind.CONTAINER
+        and obj.parameters.get("container_type") == ContainerType.PROTRUSION.value
+    )
+    shape = make_protrusion_shape(document, obj) if is_protrusion else make_shape(obj)
 
     if shape is not None:
-        shape = transform_shape(shape, world_transform)
-        if obj.combine_mode == CombineMode.ADD or (
+        if not is_protrusion:
+            shape = transform_shape(shape, world_transform)
+        protrusion_feature = (
+            next(
+                (
+                    child for child in obj.children
+                    if child.kind == EntityKind.PROTRUSION and not child.locked
+                ),
+                None,
+            )
+            if is_protrusion else None
+        )
+        operation = (
+            CombineMode(
+                str(
+                    (
+                        protrusion_feature.parameters
+                        if protrusion_feature is not None
+                        else obj.parameters
+                    ).get("operation", CombineMode.ADD.value)
+                )
+            )
+            if is_protrusion
+            else obj.combine_mode
+        )
+        if operation == CombineMode.ADD or (
             accept_first_shape and result_shape is None
         ):
             if result_shape is None:
                 result_shape = shape
             else:
                 result_shape = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
-        elif obj.combine_mode == CombineMode.SUBTRACT and result_shape is not None:
+        elif operation == CombineMode.SUBTRACT and result_shape is not None:
             result_shape = BRepAlgoAPI_Cut(result_shape, shape).Shape()
 
     for child in obj.children:
@@ -1006,9 +1057,232 @@ def apply_object_to_shape(
             child,
             world_transform,
             accept_first_shape=accept_first_shape,
+            document=document,
         )
 
     return result_shape
+
+
+def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
+    """Build a straight extrusion from the closed profile of a referenced sketch."""
+    if document is None:
+        return None
+    feature = next(
+        (
+            child for child in obj.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ),
+        None,
+    )
+    parameters = feature.parameters if feature is not None else obj.parameters
+    sketch = document.find_entity(str(parameters.get("sketch_id", "")))
+    if sketch is None or sketch.kind != EntityKind.SKETCH:
+        return None
+
+    wires = []
+    if sketch.parameters.get("profile") == "circle":
+        radius = max(1.0e-9, float(sketch.parameters.get("diameter", 10.0)) / 2.0)
+        edge = BRepBuilderAPI_MakeEdge(
+            gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)), radius)
+        ).Edge()
+        wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+    elif sketch.parameters.get("profile") == "entities":
+        try:
+            model = SketchModel.from_dict(
+                json.loads(str(sketch.parameters.get("sketch_data", "{}")))
+            )
+            entities, _dimensions = model.to_editor_data()
+        except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+            return None
+        points = {
+            str(item.get("id")): (
+                float(item.get("x", 0.0)),
+                float(item.get("y", 0.0)),
+            )
+            for item in entities
+            if isinstance(item, dict) and item.get("type") == "point"
+        }
+        for item in entities:
+            if not isinstance(item, dict) or item.get("role") == "construction":
+                continue
+            if item.get("type") == "circle":
+                center_ids = item.get("point_ids", ())
+                if len(center_ids) == 1 and str(center_ids[0]) in points:
+                    cx, cy = points[str(center_ids[0])]
+                    radius = float(item.get("radius", 0.0))
+                    if radius > 1.0e-9:
+                        edge = BRepBuilderAPI_MakeEdge(
+                            gp_Circ(
+                                gp_Ax2(gp_Pnt(cx, cy, 0.0), gp_Dir(0.0, 0.0, 1.0)),
+                                radius,
+                            )
+                        ).Edge()
+                        wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+        segment_entities = {
+            str(item.get("id", "")): item
+            for item in entities
+            if isinstance(item, dict)
+            and item.get("type") == "segment"
+            and item.get("role") != "construction"
+            and len(item.get("point_ids", ())) == 2
+        }
+        trim_points: dict[tuple[str, str], tuple[float, float]] = {}
+        corner_arcs: dict[
+            tuple[str, str, str],
+            tuple[tuple[float, float], ...],
+        ] = {}
+        for first_id, first_geometry in segment_entities.items():
+            first_points = tuple(map(str, first_geometry.get("point_ids", ())))
+            for record in first_geometry.get("corner_radii", ()):
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second_geometry = segment_entities.get(second_id)
+                if second_geometry is None:
+                    continue
+                second_points = tuple(
+                    map(str, second_geometry.get("point_ids", ()))
+                )
+                if (
+                    vertex_id not in first_points
+                    or vertex_id not in second_points
+                    or vertex_id not in points
+                ):
+                    continue
+                first_outer_id = next(
+                    point_id for point_id in first_points
+                    if point_id != vertex_id
+                )
+                second_outer_id = next(
+                    point_id for point_id in second_points
+                    if point_id != vertex_id
+                )
+                evaluated = evaluate_corner_radius(
+                    points[vertex_id],
+                    points[first_outer_id],
+                    points[second_outer_id],
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                trim_points[(first_id, vertex_id)] = evaluated.first_tangent
+                trim_points[(second_id, vertex_id)] = evaluated.second_tangent
+                corner_arcs[(vertex_id, first_id, second_id)] = (
+                    evaluated.arc_points
+                )
+
+        unused = [
+            (
+                geometry_id,
+                *tuple(map(str, geometry.get("point_ids", ()))),
+            )
+            for geometry_id, geometry in segment_entities.items()
+        ]
+        while unused:
+            first_id, first_point, second_point = unused.pop(0)
+            chain_points = [first_point, second_point]
+            chain_segments = [first_id]
+            while chain_points[-1] != chain_points[0]:
+                match_index = next(
+                    (
+                        index for index, (_segment_id, start_id, end_id)
+                        in enumerate(unused)
+                        if chain_points[-1] in (start_id, end_id)
+                    ),
+                    None,
+                )
+                if match_index is None:
+                    break
+                segment_id, start_id, end_id = unused.pop(match_index)
+                chain_segments.append(segment_id)
+                chain_points.append(
+                    end_id if start_id == chain_points[-1] else start_id
+                )
+            if len(chain_points) < 4 or chain_points[-1] != chain_points[0]:
+                continue
+            wire_builder = BRepBuilderAPI_MakeWire()
+            valid = True
+            segment_count = len(chain_segments)
+            for index, segment_id in enumerate(chain_segments):
+                start_id = chain_points[index]
+                end_id = chain_points[index + 1]
+                start = trim_points.get((segment_id, start_id), points.get(start_id))
+                end = trim_points.get((segment_id, end_id), points.get(end_id))
+                if start is None or end is None:
+                    valid = False
+                    break
+                wire_builder.Add(
+                    BRepBuilderAPI_MakeEdge(
+                        gp_Pnt(*start, 0.0),
+                        gp_Pnt(*end, 0.0),
+                    ).Edge()
+                )
+                outgoing_id = chain_segments[(index + 1) % segment_count]
+                arc_points = (
+                    corner_arcs.get((end_id, segment_id, outgoing_id))
+                    or corner_arcs.get((end_id, outgoing_id, segment_id))
+                )
+                if arc_points:
+                    outgoing_start = trim_points.get(
+                        (outgoing_id, end_id)
+                    )
+                    if outgoing_start is None:
+                        continue
+                    ordered = arc_points
+                    distance_to_end = math.dist(ordered[0], end)
+                    distance_to_outgoing = math.dist(ordered[0], outgoing_start)
+                    if distance_to_outgoing < distance_to_end:
+                        ordered = tuple(reversed(ordered))
+                    wire_builder.Add(
+                        BRepBuilderAPI_MakeEdge(
+                            GC_MakeArcOfCircle(
+                                gp_Pnt(*ordered[0], 0.0),
+                                gp_Pnt(*ordered[len(ordered) // 2], 0.0),
+                                gp_Pnt(*ordered[-1], 0.0),
+                            ).Value()
+                        ).Edge()
+                    )
+            if valid and wire_builder.IsDone():
+                wires.append(wire_builder.Wire())
+    if not wires:
+        return None
+
+    forward = max(0.0, float(parameters.get("length_forward", parameters.get("length", 10.0))))
+    reverse = max(0.0, float(parameters.get("length_reverse", 0.0)))
+    extent_mode = str(parameters.get("extent_mode", "one_side"))
+    if extent_mode == "symmetric":
+        reverse = forward
+    elif extent_mode == "one_side":
+        if str(parameters.get("direction", "forward")) == "reverse":
+            reverse, forward = forward, 0.0
+        else:
+            reverse = 0.0
+    length = forward + reverse
+    if length <= 1.0e-9:
+        return None
+    start = -reverse
+    # An external sketch lends its 2D geometry, not its placement.  The
+    # Protrusion container's plane/reference frame owns the resulting feature.
+    profile_transform = coordinate_system_transform(obj.coordinate_system)
+    translated = multiply_transforms(
+        profile_transform,
+        (
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, start),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+    )
+    solids = []
+    for wire in wires:
+        face = BRepBuilderAPI_MakeFace(wire).Face()
+        local = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, length)).Shape()
+        solids.append(transform_shape(local, translated))
+    result = solids[0]
+    for solid in solids[1:]:
+        result = BRepAlgoAPI_Fuse(result, solid).Shape()
+    return result
 
 
 def make_shape(obj: ZimaEntity):
@@ -1478,6 +1752,68 @@ def make_sketch_shape(
             and entity.get("type") == "point"
             and str(entity.get("id", ""))
         }
+        geometry_by_id = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if isinstance(entity, dict)
+            and entity.get("type") == "segment"
+            and entity.get("role") != "construction"
+            and str(entity.get("id", ""))
+        }
+        corner_trim_points: dict[tuple[str, str], tuple[float, float]] = {}
+        corner_arcs: list[tuple[tuple[float, float], ...]] = []
+        for first_id, first_geometry in geometry_by_id.items():
+            records = first_geometry.get("corner_radii", ())
+            if not isinstance(records, list):
+                continue
+            first_ids = tuple(map(str, first_geometry.get("point_ids", ())))
+            if len(first_ids) != 2:
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second_geometry = geometry_by_id.get(second_id)
+                second_ids = (
+                    tuple(map(str, second_geometry.get("point_ids", ())))
+                    if second_geometry is not None
+                    else ()
+                )
+                if (
+                    len(second_ids) != 2
+                    or vertex_id not in first_ids
+                    or vertex_id not in second_ids
+                ):
+                    continue
+                vertex = point_positions.get(vertex_id)
+                first_outer = point_positions.get(
+                    next(item for item in first_ids if item != vertex_id)
+                )
+                second_outer = point_positions.get(
+                    next(item for item in second_ids if item != vertex_id)
+                )
+                if (
+                    vertex is None
+                    or first_outer is None
+                    or second_outer is None
+                ):
+                    continue
+                evaluated = evaluate_corner_radius(
+                    tuple(vertex),
+                    tuple(first_outer),
+                    tuple(second_outer),
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None:
+                    continue
+                corner_trim_points[(first_id, vertex_id)] = (
+                    evaluated.first_tangent
+                )
+                corner_trim_points[(second_id, vertex_id)] = (
+                    evaluated.second_tangent
+                )
+                corner_arcs.append(evaluated.arc_points)
         for entity in entities:
             if (
                 not isinstance(entity, dict)
@@ -1488,7 +1824,15 @@ def make_sketch_shape(
             points = entity.get("points", ())
             if isinstance(entity.get("point_ids"), list):
                 points = [
-                    point_positions[point_id]
+                    list(
+                        corner_trim_points.get(
+                            (
+                                str(entity.get("id", "")),
+                                point_id,
+                            ),
+                            tuple(point_positions[point_id]),
+                        )
+                    )
                     for point_id in map(str, entity["point_ids"])
                     if point_id in point_positions
                 ]
@@ -1496,13 +1840,9 @@ def make_sketch_shape(
                 continue
             curve = None
             try:
-                if entity.get("type") == "circle" and len(points) == 2:
+                if entity.get("type") == "circle" and len(points) == 1:
                     center = points[0]
-                    circumference = points[1]
-                    radius = math.hypot(
-                        float(circumference[0]) - float(center[0]),
-                        float(circumference[1]) - float(center[1]),
-                    )
+                    radius = float(entity.get("radius", 0.0))
                     if radius > 1.0e-12:
                         circle = gp_Circ(
                             gp_Ax2(
@@ -1569,6 +1909,20 @@ def make_sketch_shape(
                 ).Edge()
                 builder.Add(compound, edge)
                 edge_count += 1
+        for arc_points in corner_arcs:
+            try:
+                curve = GC_MakeArcOfCircle(
+                    gp_Pnt(*arc_points[0], 0.0),
+                    gp_Pnt(*arc_points[len(arc_points) // 2], 0.0),
+                    gp_Pnt(*arc_points[-1], 0.0),
+                ).Value()
+                builder.Add(
+                    compound,
+                    BRepBuilderAPI_MakeEdge(curve).Edge(),
+                )
+                edge_count += 1
+            except (RuntimeError, ValueError, TypeError):
+                continue
         if edge_count == 0:
             return None
         transform = (

@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any, Iterable, Mapping
 
 
-SKETCH_SCHEMA_VERSION = 2
+SKETCH_SCHEMA_VERSION = 3
 
 
 class SketchModelError(ValueError):
@@ -35,8 +35,8 @@ _POINT_COUNTS: dict[GeometryType, tuple[int, int | None]] = {
     GeometryType.CONSTRUCTION: (2, 2),
     GeometryType.ARC: (3, 3),
     GeometryType.SPLINE: (2, None),
-    # Centre and a point on the circumference.  Radius is derived.
-    GeometryType.CIRCLE: (2, 2),
+    # A circle owns one centre point and a scalar radius attribute.
+    GeometryType.CIRCLE: (1, 1),
 }
 
 _CONSTRAINT_POINT_COUNTS = {
@@ -49,6 +49,8 @@ _CONSTRAINT_POINT_COUNTS = {
     "point_on_reference": 1,
     "point_on_line": 3,
     "midpoint": 3,
+    # Line start/end, circle centre and the explicit contact point.
+    "tangent": 4,
 }
 
 
@@ -200,11 +202,12 @@ class SketchModel:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SketchModel":
         version = int(data.get("version", 0))
-        if version != SKETCH_SCHEMA_VERSION:
+        if version not in (2, SKETCH_SCHEMA_VERSION):
             raise SketchModelError(
                 f"unsupported sketch schema version {version}"
             )
-        model = cls(schema_version=version)
+        model = cls(schema_version=SKETCH_SCHEMA_VERSION)
+        legacy_circle_rim_ids: set[str] = set()
         raw_points = cls._mapping(data.get("points"), "points")
         for point_id, value in raw_points.items():
             raw = cls._mapping(value, f"point {point_id}")
@@ -234,6 +237,17 @@ class SketchModel:
             raw = dict(cls._mapping(value, f"geometry {geometry_id}"))
             geometry_type = GeometryType(str(raw.pop("type", "")))
             point_ids = tuple(map(str, raw.pop("points", ())))
+            # Compatibility with the initial centre-plus-rim circle format.
+            if geometry_type == GeometryType.CIRCLE and len(point_ids) == 2:
+                centre = model.points.get(point_ids[0])
+                rim = model.points.get(point_ids[1])
+                if centre is not None and rim is not None:
+                    raw.setdefault(
+                        "radius",
+                        math.dist(centre.position(), rim.position()),
+                    )
+                    legacy_circle_rim_ids.add(point_ids[1])
+                    point_ids = point_ids[:1]
             model.add_geometry(
                 SketchGeometry(
                     str(geometry_id), geometry_type, point_ids, raw
@@ -273,6 +287,9 @@ class SketchModel:
                     raw,
                 )
             )
+        for point_id in legacy_circle_rim_ids:
+            if point_id in model.points and not model.point_users(point_id):
+                model.remove_point(point_id)
         model.validate()
         return model
 
@@ -397,6 +414,30 @@ class SketchModel:
                     )
                 owner_id = owner_geometry.geometry_id
                 raw["geometry_id"] = reference.geometry_id
+            elif constraint.constraint_type == "tangent":
+                line_id = str(
+                    constraint.attributes.get("line_geometry_id", "")
+                )
+                circle_id = str(
+                    constraint.attributes.get("circle_geometry_id", "")
+                )
+                line = self.geometry.get(line_id)
+                circle = self.geometry.get(circle_id)
+                if (
+                    line is None
+                    or line.geometry_type
+                    not in {GeometryType.SEGMENT, GeometryType.CONSTRUCTION}
+                    or circle is None
+                    or circle.geometry_type != GeometryType.CIRCLE
+                ):
+                    raise SketchModelError(
+                        f"tangent constraint "
+                        f"{constraint.constraint_id!r} has invalid geometry"
+                    )
+                owner_id = line_id
+                raw["geometry_id"] = circle_id
+                raw.pop("line_geometry_id", None)
+                raw.pop("circle_geometry_id", None)
             elif constraint.constraint_type in {"horizontal", "vertical"}:
                 if len(points) != 2:
                     raise SketchModelError(
@@ -606,6 +647,28 @@ class SketchModel:
                 - (fourth[0] - third[0]) ** 2
                 - (fourth[1] - third[1]) ** 2,
             )
+        if constraint.constraint_type == "tangent":
+            first, second, centre, contact = positions
+            circle_id = str(
+                constraint.attributes.get("circle_geometry_id", "")
+            )
+            circle = self.geometry.get(circle_id)
+            if circle is None:
+                raise SketchModelError(
+                    f"tangent constraint {constraint_id!r} has no circle"
+                )
+            radius = float(circle.attributes.get("radius", 0.0))
+            dx = second[0] - first[0]
+            dy = second[1] - first[1]
+            radial_x = contact[0] - centre[0]
+            radial_y = contact[1] - centre[1]
+            return (
+                (contact[0] - first[0]) * dy
+                - (contact[1] - first[1]) * dx,
+                radial_x * radial_x + radial_y * radial_y
+                - radius * radius,
+                radial_x * dx + radial_y * dy,
+            )
         if constraint.constraint_type == "point_on_line":
             point, first, second = positions
             return (
@@ -620,7 +683,7 @@ class SketchModel:
         equations = self._equation_values()
         jacobian = self._numerical_jacobian()
         return DofAnalysis(
-            variables=2 * len(self.points),
+            variables=len(self._solver_variables()),
             equations=len(equations),
             rank=self._matrix_rank(jacobian),
         )
@@ -779,6 +842,29 @@ class SketchModel:
                     (raw / scale if scale > 1.0e-12 else math.inf),
                 )
                 tolerance = angular_tolerance
+            elif constraint_type == "tangent":
+                raw = self.constraint_residuals(constraint_id)
+                first, second, _centre, contact = positions
+                line_length = math.dist(first, second)
+                scale = max(line_length, 1.0e-12)
+                errors = (
+                    raw[0] / scale,
+                    raw[1] / max(scale * scale, 1.0e-12),
+                    raw[2] / scale,
+                )
+                if line_length > 1.0e-12:
+                    dx = second[0] - first[0]
+                    dy = second[1] - first[1]
+                    factor = (
+                        (contact[0] - first[0]) * dx
+                        + (contact[1] - first[1]) * dy
+                    ) / (line_length * line_length)
+                    if not (
+                        -linear_tolerance
+                        <= factor
+                        <= 1.0 + linear_tolerance
+                    ):
+                        errors = (*errors, math.inf)
             if any(abs(error) > tolerance for error in errors):
                 violated.append(constraint_id)
         for dimension_id, dimension in self.dimensions.items():
@@ -804,6 +890,18 @@ class SketchModel:
                     actual = abs(dy)
                 elif dimension.dimension_type == "distance":
                     actual = math.hypot(dx, dy)
+                elif (
+                    dimension.dimension_type == "distance_line"
+                    and len(positions) >= 3
+                ):
+                    line_dx = positions[2][0] - positions[1][0]
+                    line_dy = positions[2][1] - positions[1][1]
+                    line_length = math.hypot(line_dx, line_dy)
+                    if line_length > 1.0e-12:
+                        actual = abs(
+                            line_dx * (positions[0][1] - positions[1][1])
+                            - line_dy * (positions[0][0] - positions[1][0])
+                        ) / line_length
             if actual is not None:
                 error = (
                     abs(
@@ -822,7 +920,7 @@ class SketchModel:
 
         if not self.points:
             return True
-        point_ids = list(self.points)
+        solver_variables = self._solver_variables()
         damping = 1.0e-10
         for _iteration in range(max_iterations):
             residuals = list(self._equation_values())
@@ -845,7 +943,7 @@ class SketchModel:
                 )
             if max(map(abs, normalized_residuals), default=0.0) < 1.0e-10:
                 break
-            variables = 2 * len(point_ids)
+            variables = len(solver_variables)
             normal = [
                 [0.0] * variables for _ in range(variables)
             ]
@@ -866,9 +964,8 @@ class SketchModel:
             if step is None:
                 return False
             original = [
-                coordinate
-                for point_id in point_ids
-                for coordinate in self.points[point_id].position()
+                self._solver_value(variable)
+                for variable in solver_variables
             ]
             original_error = sum(
                 residual * residual
@@ -877,15 +974,18 @@ class SketchModel:
             accepted = False
             factor = 1.0
             while factor >= 1.0e-4:
-                for point_index, point_id in enumerate(point_ids):
-                    self.points[point_id].x = (
-                        original[2 * point_index]
-                        + factor * step[2 * point_index]
+                for index, variable in enumerate(solver_variables):
+                    self._set_solver_value(
+                        variable,
+                        original[index] + factor * step[index],
                     )
-                    self.points[point_id].y = (
-                        original[2 * point_index + 1]
-                        + factor * step[2 * point_index + 1]
-                    )
+                if any(
+                    self._solver_value(variable) <= 1.0e-12
+                    for variable in solver_variables
+                    if variable[0] == "circle_radius"
+                ):
+                    factor *= 0.5
+                    continue
                 candidate = self._equation_values()
                 candidate_error = sum(
                     (value / scale) ** 2
@@ -896,11 +996,8 @@ class SketchModel:
                     break
                 factor *= 0.5
             if not accepted:
-                for point_index, point_id in enumerate(point_ids):
-                    self.points[point_id].x = original[2 * point_index]
-                    self.points[point_id].y = original[
-                        2 * point_index + 1
-                    ]
+                for index, variable in enumerate(solver_variables):
+                    self._set_solver_value(variable, original[index])
                 return False
             if max(map(abs, step), default=0.0) * factor < 1.0e-10:
                 break
@@ -977,6 +1074,7 @@ class SketchModel:
                 "equal_length",
                 "point_on_line",
                 "midpoint",
+                "tangent",
             }:
                 values.extend(
                     self.constraint_residuals(constraint.constraint_id)
@@ -1015,33 +1113,74 @@ class SketchModel:
                     values.append(
                         dx * dx + dy * dy - target * target
                     )
+                elif dimension_type == "distance_line" and len(positions) >= 3:
+                    line_dx = positions[2][0] - positions[1][0]
+                    line_dy = positions[2][1] - positions[1][1]
+                    line_length_squared = (
+                        line_dx * line_dx + line_dy * line_dy
+                    )
+                    cross = (
+                        line_dx * (positions[0][1] - positions[1][1])
+                        - line_dy * (positions[0][0] - positions[1][0])
+                    )
+                    values.append(
+                        cross * cross
+                        - target * target * line_length_squared
+                    )
         return tuple(values)
 
     def _numerical_jacobian(self) -> list[list[float]]:
-        point_ids = list(self.points)
+        variables = self._solver_variables()
         base = self._equation_values()
         if not base:
             return []
         jacobian = [
-            [0.0] * (2 * len(point_ids))
+            [0.0] * len(variables)
             for _ in range(len(base))
         ]
-        for point_index, point_id in enumerate(point_ids):
-            point = self.points[point_id]
-            for coordinate_index, coordinate in enumerate(("x", "y")):
-                original = getattr(point, coordinate)
-                step = 1.0e-6 * max(1.0, abs(original))
-                setattr(point, coordinate, original + step)
-                positive = self._equation_values()
-                setattr(point, coordinate, original - step)
-                negative = self._equation_values()
-                setattr(point, coordinate, original)
-                column = 2 * point_index + coordinate_index
-                for row in range(len(base)):
-                    jacobian[row][column] = (
-                        positive[row] - negative[row]
-                    ) / (2.0 * step)
+        for column, variable in enumerate(variables):
+            original = self._solver_value(variable)
+            step = 1.0e-6 * max(1.0, abs(original))
+            self._set_solver_value(variable, original + step)
+            positive = self._equation_values()
+            self._set_solver_value(variable, original - step)
+            negative = self._equation_values()
+            self._set_solver_value(variable, original)
+            for row in range(len(base)):
+                jacobian[row][column] = (
+                    positive[row] - negative[row]
+                ) / (2.0 * step)
         return jacobian
+
+    def _solver_variables(self) -> list[tuple[str, str, str]]:
+        variables = [
+            ("point", point_id, coordinate)
+            for point_id in self.points
+            for coordinate in ("x", "y")
+        ]
+        variables.extend(
+            ("circle_radius", geometry_id, "radius")
+            for geometry_id, geometry in self.geometry.items()
+            if geometry.geometry_type == GeometryType.CIRCLE
+        )
+        return variables
+
+    def _solver_value(self, variable: tuple[str, str, str]) -> float:
+        kind, entity_id, coordinate = variable
+        if kind == "point":
+            return float(getattr(self.points[entity_id], coordinate))
+        return float(self.geometry[entity_id].attributes["radius"])
+
+    def _set_solver_value(
+        self,
+        variable: tuple[str, str, str],
+        value: float,
+    ) -> None:
+        kind, entity_id, coordinate = variable
+        if kind == "point":
+            setattr(self.points[entity_id], coordinate, value)
+        else:
+            self.geometry[entity_id].attributes["radius"] = value
 
     @staticmethod
     def _matrix_rank(
@@ -1148,23 +1287,18 @@ class SketchModel:
                 f"geometry {geometry.geometry_id!r} references missing "
                 f"points: {', '.join(missing)}"
             )
-        if (
-            geometry.geometry_type == GeometryType.CIRCLE
-            and (
-                len(set(geometry.point_ids)) != 2
-                or math.hypot(
-                    self.points[geometry.point_ids[1]].x
-                    - self.points[geometry.point_ids[0]].x,
-                    self.points[geometry.point_ids[1]].y
-                    - self.points[geometry.point_ids[0]].y,
+        if geometry.geometry_type == GeometryType.CIRCLE:
+            try:
+                radius = float(geometry.attributes["radius"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise SketchModelError(
+                    f"circle {geometry.geometry_id!r} requires a radius"
+                ) from error
+            if not math.isfinite(radius) or radius <= 1.0e-12:
+                raise SketchModelError(
+                    f"circle {geometry.geometry_id!r} requires a positive "
+                    "radius"
                 )
-                <= 1.0e-12
-            )
-        ):
-            raise SketchModelError(
-                f"circle {geometry.geometry_id!r} requires distinct centre "
-                "and circumference points"
-            )
 
     def _validate_constraint(self, constraint: SketchConstraint) -> None:
         if not constraint.constraint_type:
@@ -1221,6 +1355,7 @@ class SketchModel:
         """Build the canonical model from the current editor's flat data."""
 
         model = cls()
+        legacy_circle_rim_ids: set[str] = set()
         raw_entities = [dict(entity) for entity in entities]
         for entity in raw_entities:
             if entity.get("type") != "point":
@@ -1281,16 +1416,28 @@ class SketchModel:
                     f"unknown geometry type {raw_type!r}"
                 ) from error
             known = {"id", "type", "point_ids", "constraints"}
+            point_ids = tuple(map(str, entity.get("point_ids", ())))
+            attributes = {
+                key: value
+                for key, value in entity.items()
+                if key not in known
+            }
+            if geometry_type == GeometryType.CIRCLE and len(point_ids) == 2:
+                centre = model.points.get(point_ids[0])
+                rim = model.points.get(point_ids[1])
+                if centre is not None and rim is not None:
+                    attributes.setdefault(
+                        "radius",
+                        math.dist(centre.position(), rim.position()),
+                    )
+                    legacy_circle_rim_ids.add(point_ids[1])
+                    point_ids = point_ids[:1]
             model.add_geometry(
                 SketchGeometry(
                     geometry_id=owner_id,
                     geometry_type=geometry_type,
-                    point_ids=tuple(map(str, entity.get("point_ids", ()))),
-                    attributes={
-                        key: value
-                        for key, value in entity.items()
-                        if key not in known
-                    },
+                    point_ids=point_ids,
+                    attributes=attributes,
                 )
             )
         used_constraint_ids = {
@@ -1405,6 +1552,55 @@ class SketchModel:
                             *reference.point_ids,
                             *owner_points,
                         ]
+                    elif constraint_type == "tangent":
+                        if target_geometry is None:
+                            raise SketchModelError(
+                                "a tangent constraint requires a line and "
+                                "a circle"
+                            )
+                        target = model.geometry[str(target_geometry)]
+                        if (
+                            owner_geometry.geometry_type
+                            in {
+                                GeometryType.SEGMENT,
+                                GeometryType.CONSTRUCTION,
+                            }
+                            and target.geometry_type == GeometryType.CIRCLE
+                        ):
+                            line = owner_geometry
+                            circle = target
+                        elif (
+                            owner_geometry.geometry_type
+                            == GeometryType.CIRCLE
+                            and target.geometry_type
+                            in {
+                                GeometryType.SEGMENT,
+                                GeometryType.CONSTRUCTION,
+                            }
+                        ):
+                            line = target
+                            circle = owner_geometry
+                        else:
+                            raise SketchModelError(
+                                "tangent currently requires one line and "
+                                "one circle"
+                            )
+                        point_ids = [
+                            *line.point_ids,
+                            circle.point_ids[0],
+                        ]
+                        contact_point_id = str(
+                            constraint.get("contact_point_id", "")
+                        )
+                        if contact_point_id not in model.points:
+                            raise SketchModelError(
+                                "tangent constraint has no contact point"
+                            )
+                        point_ids.append(contact_point_id)
+                        constraint["line_geometry_id"] = line.geometry_id
+                        constraint["circle_geometry_id"] = (
+                            circle.geometry_id
+                        )
                     else:
                         point_ids = owner_points
                 model.add_constraint(
@@ -1435,6 +1631,8 @@ class SketchModel:
                         f"connector {geometry_id!r}"
                     )
                 point_ids = geometry.point_ids
+            if geometry_id is not None:
+                dimension["geometry_id"] = str(geometry_id)
             model.add_dimension(
                 SketchDimension(
                     dimension_id=dimension_id,
@@ -1450,5 +1648,8 @@ class SketchModel:
                     attributes=dimension,
                 )
             )
+        for point_id in legacy_circle_rim_ids:
+            if point_id in model.points and not model.point_users(point_id):
+                model.remove_point(point_id)
         model.validate()
         return model
