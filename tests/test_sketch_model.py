@@ -859,7 +859,7 @@ class SketchModelTests(unittest.TestCase):
         )
         self.assertEqual(sketch.violated_equations(), ())
 
-    def test_point_to_line_dimension_measures_perpendicular_distance(self):
+    def test_point_line_dimension_uses_perpendicular_distance(self):
         sketch = SketchModel()
         for point in (
             SketchPoint("point", 4.0, 3.0),

@@ -180,7 +180,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     selectedPlaneChanged = Signal(str, int)
     hoveredObjectChanged = Signal(str)
     selectedObjectChanged = Signal(str)
-    objectDoubleClicked = Signal()
+    objectDoubleClicked = Signal(str)
     dimensionsDismissRequested = Signal()
     selectionPreviewConfirmed = Signal()
     selectionFilterChanged = Signal(str)
@@ -199,6 +199,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchEntitiesSelected = Signal(object)
     sketchCornerRadiusSelected = Signal(str, str, str)
     sketchCornerRadiusDragged = Signal(str, float, float, bool)
+    sketchDimensionDragged = Signal(str, float, float, bool)
     sketchEntityHovered = Signal(str)
     sketchCursorMoved = Signal(float, float)
     sketchConstraintReferenceSelected = Signal(str)
@@ -288,6 +289,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_box_end: QPointF | None = None
         self._sketch_corner_drag_vertex_id: str | None = None
         self._sketch_corner_drag_moved = False
+        self._sketch_dimension_drag_key: str | None = None
+        self._sketch_dimension_drag_moved = False
         self._preview_sketch_entity_id: str | None = None
         self._hovered_sketch_external_reference_id: str | None = None
         self._sketch_cycle_ids: tuple[str, ...] = ()
@@ -984,17 +987,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             self._suppress_next_context_menu = True
-            if self._sketch_constraint_selection_mode:
+            if (
+                self._sketch_constraint_selection_mode
+                and self._sketch_tool in ("dimension", "midpoint")
+            ):
+                self._cycle_sketch_entity(event.position())
+            elif self._sketch_constraint_selection_mode:
                 self.sketchAlternateCurrentRequested.emit()
             elif self._sketch_selection_mode:
-                if (
+                candidates = self._sketch_selection_candidates(
+                    event.position()
+                )
+                if len(candidates) > 1:
+                    self._cycle_sketch_entity(event.position())
+                elif (
                     self._selected_sketch_entity_id is not None
                     or self._selected_sketch_corner_radius is not None
                 ):
                     self._suppress_next_context_menu = False
                     super().mousePressEvent(event)
                     return
-                self._cycle_sketch_entity(event.position())
+                else:
+                    self._cycle_sketch_entity(event.position())
             else:
                 self.sketchCancelCurrentRequested.emit()
             event.accept()
@@ -1021,32 +1035,42 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self.sketchCornerRadiusSelected.emit(*corner_radius)
                         event.accept()
                         return
-                candidates = self._sketch_entity_candidates(event.position())
-                selected = (
-                    self._preview_sketch_entity_id
+                    dimension_key = self.dimension_key_at(event.position())
                     if (
-                        self._preview_sketch_entity_id is not None
-                        and tuple(candidates) == self._sketch_cycle_ids
+                        dimension_key is not None
+                        and dimension_key.startswith("sketch_distance:")
+                        and not self._sketch_selection_candidates(
+                            event.position()
+                        )
+                    ):
+                        self._sketch_dimension_drag_key = dimension_key
+                        self._sketch_dimension_drag_moved = False
+                        event.accept()
+                        return
+                candidates = self._sketch_selection_candidates(
+                    event.position()
+                )
+                selected = (
+                    candidates[self._sketch_cycle_index]
+                    if (
+                        tuple(candidates) == self._sketch_cycle_ids
+                        and 0 <= self._sketch_cycle_index < len(candidates)
                     )
                     else (candidates[0] if candidates else "")
                 )
                 if selected:
-                    if (
+                    if selected.startswith("reference:"):
+                        self.sketchConstraintReferenceSelected.emit(
+                            selected.removeprefix("reference:")
+                        )
+                    elif (
                         event.modifiers()
                         & Qt.KeyboardModifier.ControlModifier
                     ):
                         self.sketchEntityAdditiveSelected.emit(selected)
                     else:
                         self.sketchEntitySelected.emit(selected)
-                else:
-                    reference = self._sketch_external_reference_candidate(
-                        event.position()
-                    )
-                    if reference is not None:
-                        self.sketchConstraintReferenceSelected.emit(
-                            reference[0]
-                        )
-                    elif not self._sketch_constraint_selection_mode:
+                elif not self._sketch_constraint_selection_mode:
                         self._sketch_box_start = event.position()
                         self._sketch_box_end = event.position()
                 self._preview_sketch_entity_id = None
@@ -1218,6 +1242,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             if (
+                self._sketch_dimension_drag_key is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                local = self._sketch_local_position(event.position())
+                if local is not None:
+                    self._sketch_dimension_drag_moved = True
+                    self.sketchDimensionDragged.emit(
+                        self._sketch_dimension_drag_key,
+                        local[0],
+                        local[1],
+                        False,
+                    )
+                event.accept()
+                return
+            if (
                 self._sketch_corner_drag_vertex_id is not None
                 and event.buttons() & Qt.MouseButton.LeftButton
             ):
@@ -1243,21 +1282,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             local = self._sketch_local_position(event.position())
             if local is not None:
                 self.sketchCursorMoved.emit(*local)
-            candidates = self._sketch_entity_candidates(event.position())
+            candidates = self._sketch_selection_candidates(event.position())
             if candidates != self._sketch_cycle_ids:
                 self._sketch_cycle_ids = candidates
                 self._sketch_cycle_index = 0 if candidates else -1
-                self._preview_sketch_entity_id = (
-                    candidates[0] if candidates else None
-                )
-            reference = (
-                None
-                if candidates
-                else self._sketch_external_reference_candidate(
-                    event.position()
-                )
+            active_candidate = (
+                candidates[self._sketch_cycle_index]
+                if candidates and self._sketch_cycle_index >= 0
+                else ""
             )
-            reference_id = reference[0] if reference is not None else None
+            reference_id = (
+                active_candidate.removeprefix("reference:")
+                if active_candidate.startswith("reference:")
+                else None
+            )
+            self._preview_sketch_entity_id = (
+                active_candidate
+                if active_candidate and reference_id is None
+                else None
+            )
             if reference_id != self._hovered_sketch_external_reference_id:
                 self._hovered_sketch_external_reference_id = reference_id
                 self.sketchReferenceHovered.emit(reference_id or "")
@@ -1373,6 +1416,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_dimension_drag_key is not None
+        ):
+            local = self._sketch_local_position(event.position())
+            if local is not None and self._sketch_dimension_drag_moved:
+                self.sketchDimensionDragged.emit(
+                    self._sketch_dimension_drag_key,
+                    local[0],
+                    local[1],
+                    True,
+                )
+            self._sketch_dimension_drag_key = None
+            self._sketch_dimension_drag_moved = False
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._sketch_corner_drag_vertex_id is not None
@@ -1517,7 +1576,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             event.button() == Qt.MouseButton.LeftButton
             and self._interaction_mode == "object"
         ):
-            self.objectDoubleClicked.emit()
+            self.objectDoubleClicked.emit(
+                self._pick_object(event.position())
+                or self._selected_object_id
+                or ""
+            )
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -2475,7 +2538,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "sketch_axis:x" if axis_index == 0 else "sketch_axis:y"
             )
             painter.setPen(
-                highlighted_centerline(QColor("#FF7A00"))
+                highlighted_auxiliary(QColor("#FF7A00"))
                 if (
                     axis_reference_id
                     == self._hovered_sketch_external_reference_id
@@ -3643,7 +3706,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             sketch_line = self._sketch_line_reference_candidate(position)
             if sketch_line is not None:
                 geometry_id, snapped = sketch_line
-                return snapped, f"sketch_geometry:{geometry_id}", None
+                reference_id = f"sketch_geometry:{geometry_id}"
+                constraint = self._sketch_inferred_direction_constraint(
+                    snapped
+                )
+                if constraint is not None:
+                    combined = self._sketch_reference_direction_snap(
+                        reference_id,
+                        constraint,
+                        snapped,
+                    )
+                    if combined is None:
+                        constraint = None
+                    else:
+                        snapped = combined
+                return snapped, reference_id, constraint
             reference = self._sketch_external_reference_candidate(
                 position
             )
@@ -3818,6 +3895,48 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "point": (0.0, 0.0),
                 "direction": (0.0, 1.0),
             }
+        elif reference_id.startswith("sketch_geometry:"):
+            geometry_id = reference_id.split(":", 1)[1]
+            points = {
+                str(entity.get("id", "")): (
+                    float(entity.get("x", 0.0)),
+                    float(entity.get("y", 0.0)),
+                )
+                for entity in self._sketch_entities
+                if entity.get("type") == "point"
+            }
+            source = next(
+                (
+                    entity
+                    for entity in self._sketch_entities
+                    if str(entity.get("id", "")) == geometry_id
+                    and entity.get("type") in ("segment", "construction")
+                ),
+                None,
+            )
+            point_ids = (
+                list(map(str, source.get("point_ids", ())))
+                if source is not None
+                and isinstance(source.get("point_ids"), list)
+                else []
+            )
+            line_first = points.get(point_ids[0]) if len(point_ids) == 2 else None
+            line_second = points.get(point_ids[1]) if len(point_ids) == 2 else None
+            geometry = (
+                {
+                    "type": "line",
+                    "point": line_first,
+                    "direction": (
+                        line_second[0] - line_first[0],
+                        line_second[1] - line_first[1],
+                    ),
+                    "bounded": source.get("type") == "segment",
+                }
+                if source is not None
+                and line_first is not None
+                and line_second is not None
+                else None
+            )
         else:
             reference = next(
                 (
@@ -3859,13 +3978,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if constraint == "horizontal":
                 if abs(dy) > 1.0e-12:
                     factor = (first[1] - py) / dy
-                    candidates.append((px + factor * dx, first[1]))
+                    if not bool(line.get("bounded", False)) or 0.0 <= factor <= 1.0:
+                        candidates.append((px + factor * dx, first[1]))
                 elif abs(py - first[1]) <= 1.0e-9:
                     candidates.append((snapped[0], first[1]))
             elif constraint == "vertical":
                 if abs(dx) > 1.0e-12:
                     factor = (first[0] - px) / dx
-                    candidates.append((first[0], py + factor * dy))
+                    if not bool(line.get("bounded", False)) or 0.0 <= factor <= 1.0:
+                        candidates.append((first[0], py + factor * dy))
                 elif abs(px - first[0]) <= 1.0e-9:
                     candidates.append((first[0], snapped[1]))
         return (
@@ -4034,7 +4155,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
 
     def _cycle_sketch_entity(self, position: QPointF) -> None:
-        candidates = self._sketch_entity_candidates(position)
+        candidates = self._sketch_selection_candidates(position)
         if not candidates:
             self._preview_sketch_entity_id = None
             self._sketch_cycle_ids = ()
@@ -4048,10 +4169,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._sketch_cycle_index = (
                 self._sketch_cycle_index + 1
             ) % len(candidates)
-        self._preview_sketch_entity_id = candidates[
-            self._sketch_cycle_index
-        ]
+        active_candidate = candidates[self._sketch_cycle_index]
+        if active_candidate.startswith("reference:"):
+            self._preview_sketch_entity_id = None
+            reference_id = active_candidate.removeprefix("reference:")
+            self._hovered_sketch_external_reference_id = reference_id
+            self.sketchReferenceHovered.emit(reference_id)
+        else:
+            self._preview_sketch_entity_id = active_candidate
+            if self._hovered_sketch_external_reference_id is not None:
+                self._hovered_sketch_external_reference_id = None
+                self.sketchReferenceHovered.emit("")
         self.update()
+
+    def _sketch_selection_candidates(
+        self,
+        position: QPointF,
+    ) -> tuple[str, ...]:
+        candidates = list(self._sketch_entity_candidates(position))
+        reference = self._sketch_external_reference_candidate(position)
+        if reference is not None:
+            candidates.append(f"reference:{reference[0]}")
+        return tuple(candidates)
 
     def _paint_object_highlights(self) -> None:
         mesh = self._mesh

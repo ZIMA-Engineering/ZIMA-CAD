@@ -7,7 +7,12 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCC.Core.BRepAlgoAPI import (
+    BRepAlgoAPI_Common,
+    BRepAlgoAPI_Cut,
+    BRepAlgoAPI_Fuse,
+)
+from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -19,6 +24,7 @@ from OCC.Core.BRepBuilderAPI import (
 from OCC.Core.BRep import BRep_Builder
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
+from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
@@ -1279,9 +1285,33 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         face = BRepBuilderAPI_MakeFace(wire).Face()
         local = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, length)).Shape()
         solids.append(transform_shape(local, translated))
-    result = solids[0]
-    for solid in solids[1:]:
-        result = BRepAlgoAPI_Fuse(result, solid).Shape()
+    def solid_volume(shape) -> float:
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(shape, properties)
+        return abs(float(properties.Mass()))
+
+    profiled_solids = sorted(
+        ((solid_volume(solid), solid) for solid in solids),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    result = None
+    for index, (volume, solid) in enumerate(profiled_solids):
+        nesting_depth = 0
+        if volume > 1.0e-12:
+            for outer_volume, outer_solid in profiled_solids[:index]:
+                if outer_volume <= volume:
+                    continue
+                common = BRepAlgoAPI_Common(outer_solid, solid).Shape()
+                common_volume = solid_volume(common)
+                if common_volume >= volume - max(volume * 1.0e-7, 1.0e-9):
+                    nesting_depth += 1
+        if result is None:
+            result = solid
+        elif nesting_depth % 2:
+            result = BRepAlgoAPI_Cut(result, solid).Shape()
+        else:
+            result = BRepAlgoAPI_Fuse(result, solid).Shape()
     return result
 
 

@@ -120,6 +120,7 @@ def build_document_viewer_scene_data(
             show_user_points,
             show_user_axes,
             show_user_planes,
+            editing_object_id,
         )
         _append_object_origins(
             document,
@@ -173,6 +174,7 @@ def _append_object_sketches(
     show_user_points: bool,
     show_user_axes: bool,
     show_user_planes: bool,
+    editing_object_id: str | None,
 ) -> None:
     if not document.is_effectively_visible(obj.entity_id):
         return
@@ -235,6 +237,8 @@ def _append_object_sketches(
         )
     for child in obj.children:
         if child.kind == EntityKind.SKETCH:
+            if obj.container_type == ContainerType.PROTRUSION:
+                continue
             if not document.is_effectively_visible(child.entity_id):
                 continue
             shape = make_sketch_shape(obj, child, world_transform)
@@ -258,6 +262,7 @@ def _append_object_sketches(
                 show_user_points,
                 show_user_axes,
                 show_user_planes,
+                editing_object_id,
             )
 
 

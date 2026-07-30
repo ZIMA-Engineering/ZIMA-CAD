@@ -1631,8 +1631,6 @@ class SketchModel:
                         f"connector {geometry_id!r}"
                     )
                 point_ids = geometry.point_ids
-            if geometry_id is not None:
-                dimension["geometry_id"] = str(geometry_id)
             model.add_dimension(
                 SketchDimension(
                     dimension_id=dimension_id,

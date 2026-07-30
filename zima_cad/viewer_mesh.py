@@ -89,6 +89,7 @@ def triangulate_shape(
     edge_label: str = "",
     linear_deflection: float = 0.2,
     angular_deflection: float = 0.35,
+    edge_linear_deflection: float = 0.025,
 ) -> ViewerMesh:
     """Convert a TopoDS shape into ZIMA-CAD surface and edge buffers."""
     if shape is None or shape.IsNull():
@@ -156,7 +157,7 @@ def triangulate_shape(
             continue
         seen_edges.append(edge)
         edge_index += 1
-        points = _sample_edge(edge, linear_deflection)
+        points = _sample_edge(edge, edge_linear_deflection)
         if len(points) >= 2:
             edges.append(
                 EdgePolyline(

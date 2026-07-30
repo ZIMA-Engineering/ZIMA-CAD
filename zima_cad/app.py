@@ -100,6 +100,7 @@ from zima_cad.model import (
     identity_transform,
     multiply_transforms,
     entity_world_transform,
+    make_sketch_shape,
     transform_point,
 )
 from zima_cad.sketch_model import (
@@ -4898,6 +4899,9 @@ class MainWindow(QMainWindow):
         self.native_viewer.sketchCornerRadiusDragged.connect(
             self._on_sketch_corner_radius_dragged
         )
+        self.native_viewer.sketchDimensionDragged.connect(
+            self._on_sketch_dimension_dragged
+        )
         self.native_viewer.sketchCornerRadiusSelected.connect(
             self._select_sketch_corner_radius
         )
@@ -9348,9 +9352,17 @@ class MainWindow(QMainWindow):
         self._history_source_cycle_active = False
         self._select_native_tree_object(tree_object_id)
 
-    def _on_native_object_double_clicked(self) -> None:
+    def _on_native_object_double_clicked(self, owner_id: str) -> None:
         obj = self._selected_object()
-        if obj is None or not self._view_selection_confirmed:
+        if (
+            self.document is not None
+            and owner_id
+            and owner_id != self.document.root.entity_id
+        ):
+            picked = self.document.find_entity(owner_id)
+            if picked is not None:
+                obj = picked
+        if obj is None:
             return
         target = obj
         if obj.kind in (EntityKind.PART, EntityKind.BODY):
@@ -9362,18 +9374,142 @@ class MainWindow(QMainWindow):
                     for candidate in reversed(
                         self.document.active_history_objects()
                     )
-                    if self._first_editable_solid(candidate) is not None
+                    if (
+                        candidate.container_type == ContainerType.PROTRUSION
+                        or self._first_editable_solid(candidate) is not None
+                    )
                 ),
                 obj,
             )
         target = self._activate_object_for_editing(target)
-        self._show_edit_overlays(
-            target,
-            QPoint(
-                self.native_viewer.width() // 2,
-                self.native_viewer.height() // 2,
+        signals_were_blocked = self.native_viewer.blockSignals(True)
+        try:
+            self.native_viewer._clear_topology_selection()
+            self.native_viewer.set_selected_container_contents(set())
+            self.native_viewer.set_selected_container_origin(None)
+        finally:
+            self.native_viewer.blockSignals(signals_were_blocked)
+        if (
+            target.kind == EntityKind.CONTAINER
+            and target.container_type == ContainerType.PROTRUSION
+        ):
+            self._show_protrusion_profile_overlay(target)
+        else:
+            self._show_edit_overlays(
+                target,
+                QPoint(
+                    self.native_viewer.width() // 2,
+                    self.native_viewer.height() // 2,
+                ),
+            )
+
+    def _show_protrusion_profile_overlay(self, obj: ZimaEntity) -> None:
+        if (
+            self.document is None
+            or obj.kind != EntityKind.CONTAINER
+            or obj.container_type != ContainerType.PROTRUSION
+        ):
+            return
+        feature = next(
+            (
+                child
+                for child in obj.children
+                if child.kind == EntityKind.PROTRUSION and not child.locked
             ),
+            None,
         )
+        sketch = (
+            self.document.find_entity(
+                str(feature.parameters.get("sketch_id", ""))
+            )
+            if feature is not None
+            else None
+        )
+        transform = entity_world_transform(self.document, obj.entity_id)
+        if sketch is None or transform is None:
+            return
+        shape = make_sketch_shape(obj, sketch, transform)
+        self.native_viewer.set_object_overlay(
+            triangulate_shape(
+                shape,
+                owner_id=sketch.entity_id,
+                edge_kind="sketch",
+            )
+            if shape is not None
+            else None,
+            selected=True,
+        )
+        self._show_all_sketch_dimensions(sketch)
+        extrusion_dimensions = self._primitive_dimensions(feature)
+        if not extrusion_dimensions:
+            return
+        combined_dimensions = (
+            *self.native_viewer._dimensions,
+            *extrusion_dimensions,
+        )
+        locked_keys = set(self.native_viewer._locked_dimension_keys)
+        locked_keys.update(
+            dimension.key
+            for dimension in extrusion_dimensions
+            if bool(
+                self._dimension_style(feature, dimension).get(
+                    "locked",
+                    False,
+                )
+            )
+        )
+        self.native_viewer.set_dimensions(combined_dimensions)
+        self.native_viewer.set_locked_dimension_keys(locked_keys)
+        for dimension in extrusion_dimensions:
+            overlay = ParameterEditOverlay(self.native_viewer)
+            self._configure_dimension_overlay(
+                overlay,
+                feature,
+                dimension,
+                feature.parameters.get(dimension.key, "0"),
+            )
+            overlay.valueCommitted.connect(
+                lambda value, feature_id=feature.entity_id,
+                key=dimension.key:
+                self._commit_protrusion_preview_value(
+                    feature_id,
+                    key,
+                    value,
+                )
+            )
+            overlay.selected.connect(
+                lambda key=dimension.key:
+                self._select_dimension_overlay(key)
+            )
+            self._dimension_overlays[dimension.key] = overlay
+        QTimer.singleShot(0, self._position_dimension_overlays)
+
+    def _commit_protrusion_preview_value(
+        self,
+        feature_id: str,
+        key: str,
+        raw_value: str,
+    ) -> None:
+        if self.document is None:
+            return
+        feature = self.document.find_entity(feature_id)
+        if feature is None or feature.kind != EntityKind.PROTRUSION:
+            return
+        try:
+            value = float(str(raw_value).replace(",", "."))
+        except (TypeError, ValueError):
+            return
+        if value <= 1.0e-9:
+            return
+        feature.parameters[key] = f"{value:.12g}"
+        owner = self.document.find_owning_object(feature.entity_id)
+        self._mark_model_for_regeneration()
+        self.regenerate_model()
+        if (
+            owner is not None
+            and owner.container_type == ContainerType.PROTRUSION
+        ):
+            self._show_protrusion_profile_overlay(owner)
 
     def _on_native_face_selected(
         self,
@@ -11961,6 +12097,48 @@ class MainWindow(QMainWindow):
                 f"invalid sketch data in {sketch.name!r}"
             ) from error
 
+    def _sketch_dimension_independence_model(
+        self,
+        sketch: ZimaEntity,
+        entities: list[dict[str, Any]],
+        dimensions: list[dict[str, Any]],
+    ) -> SketchModel:
+        checked_dimensions = [
+            {**dimension, "locked": True}
+            for dimension in dimensions
+        ]
+        model = SketchModel.from_editor_data(
+            entities,
+            checked_dimensions,
+        )
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        for key in self._dimension_styles(sketch):
+            if not key.startswith("sketch_point:"):
+                continue
+            _prefix, point_id, coordinate = key.split(":", 2)
+            point = points.get(point_id)
+            dimension_id = f"coordinate:{point_id}:{coordinate}"
+            if (
+                point is None
+                or coordinate not in ("x", "y")
+                or dimension_id in model.dimensions
+            ):
+                continue
+            model.add_dimension(
+                SketchDimension(
+                    dimension_id=dimension_id,
+                    dimension_type=f"coordinate_{coordinate}",
+                    value=float(point.get(coordinate, 0.0)),
+                    point_ids=(point_id,),
+                    driving=True,
+                )
+            )
+        return model
+
     @staticmethod
     def _store_sketch_editor_data(
         sketch: ZimaEntity,
@@ -14046,6 +14224,7 @@ class MainWindow(QMainWindow):
         self._sketch_dimension_preview_type = None
         self._sketch_angle_variant = 0
         self._sketch_selected_entity_id = None
+        self._sketch_selected_entity_ids.clear()
         self._refresh_sketch_overlay()
         if sketch is not None and self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
@@ -15394,17 +15573,80 @@ class MainWindow(QMainWindow):
                 else []
             )
             if len(point_ids) == 2 and point_ids[0] != point_ids[1]:
-                if len(self._sketch_dimension_point_ids) == 1:
-                    self._sketch_dimension_reference_id = (
-                        f"geometry:{entity_id}"
-                    )
+                if self._sketch_dimension_reference_id in (
+                    "sketch_axis:x",
+                    "sketch_axis:y",
+                ):
+                    self._sketch_dimension_point_ids[:] = point_ids
+                    self._sketch_selected_entity_ids.add(entity_id)
                     self._sketch_selected_entity_id = entity_id
                     self._refresh_sketch_overlay()
                     self.statusBar().showMessage(
                         tr("sketch.status.dimension.position")
                     )
                     return
-                if len(self._sketch_dimension_point_ids) == 2:
+                selected_geometry_id = (
+                    self._sketch_dimension_reference_id.removeprefix(
+                        "geometry:"
+                    )
+                    if (
+                        self._sketch_dimension_reference_id is not None
+                        and self._sketch_dimension_reference_id.startswith(
+                            "geometry:"
+                        )
+                    )
+                    else None
+                )
+                if selected_geometry_id is not None:
+                    first_geometry = next(
+                        (
+                            candidate
+                            for candidate in entities
+                            if str(candidate.get("id", ""))
+                            == selected_geometry_id
+                        ),
+                        None,
+                    )
+                    first_ids = (
+                        list(
+                            map(
+                                str,
+                                first_geometry.get("point_ids", ()),
+                            )
+                        )
+                        if first_geometry is not None
+                        and isinstance(
+                            first_geometry.get("point_ids"),
+                            list,
+                        )
+                        else []
+                    )
+                    if len(first_ids) == 2:
+                        self._sketch_dimension_point_ids[:] = [
+                            *first_ids,
+                            *point_ids,
+                        ]
+                        self._sketch_dimension_reference_id = None
+                        self._sketch_selected_entity_ids.update(
+                            (selected_geometry_id, entity_id)
+                        )
+                        self._sketch_selected_entity_id = entity_id
+                        self._refresh_sketch_overlay()
+                        self.statusBar().showMessage(
+                            tr("sketch.status.dimension.position")
+                        )
+                        return
+                elif len(self._sketch_dimension_point_ids) == 1:
+                    self._sketch_dimension_reference_id = (
+                        f"geometry:{entity_id}"
+                    )
+                    self._sketch_selected_entity_ids.add(entity_id)
+                elif not self._sketch_dimension_point_ids:
+                    self._sketch_dimension_reference_id = (
+                        f"geometry:{entity_id}"
+                    )
+                    self._sketch_selected_entity_ids = {entity_id}
+                elif len(self._sketch_dimension_point_ids) == 2:
                     first_pair = list(self._sketch_dimension_point_ids)
                     shared = set(first_pair) & set(point_ids)
                     if len(shared) == 1:
@@ -15424,13 +15666,18 @@ class MainWindow(QMainWindow):
                         ]
                     else:
                         self._sketch_dimension_point_ids.extend(point_ids)
+                    self._sketch_selected_entity_ids.add(entity_id)
                 else:
                     self._sketch_dimension_point_ids[:] = point_ids
-                self._sketch_dimension_reference_id = None
+                    self._sketch_selected_entity_ids = {entity_id}
                 self._sketch_selected_entity_id = entity_id
                 self._refresh_sketch_overlay()
                 self.statusBar().showMessage(
-                    tr("sketch.status.dimension.position")
+                    tr(
+                        "sketch.status.dimension.position"
+                        if self._sketch_dimension_point_ids
+                        else "sketch.status.dimension.select_second"
+                    )
                 )
                 return
         if point is None:
@@ -15440,6 +15687,7 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_dimension_reference_id is not None:
             self._sketch_dimension_point_ids[:] = [entity_id]
+            self._sketch_selected_entity_ids.add(entity_id)
             self._sketch_selected_entity_id = entity_id
             self._refresh_sketch_overlay()
             self.statusBar().showMessage(
@@ -15451,6 +15699,7 @@ class MainWindow(QMainWindow):
         if len(self._sketch_dimension_point_ids) >= 4:
             self._clear_unified_dimension_selection(sketch)
         self._sketch_dimension_point_ids.append(entity_id)
+        self._sketch_selected_entity_ids.add(entity_id)
         self._sketch_selected_entity_id = entity_id
         self._refresh_sketch_overlay()
         self.statusBar().showMessage(
@@ -15477,6 +15726,15 @@ class MainWindow(QMainWindow):
             # A completed three/four-point angle cannot be combined with
             # another reference. Start a fresh axis-based operation.
             self._clear_unified_dimension_selection(sketch)
+        if (
+            sketch is not None
+            and not self._sketch_dimension_point_ids
+            and self._sketch_dimension_reference_id is not None
+            and self._sketch_dimension_reference_id.startswith("geometry:")
+        ):
+            line_ids = self._selected_dimension_line_point_ids(sketch)
+            if len(line_ids) == 2:
+                self._sketch_dimension_point_ids[:] = line_ids
         self._sketch_dimension_reference_id = reference_id
         self._sketch_dimension_cursor = None
         self._sketch_dimension_preview_type = None
@@ -15492,6 +15750,39 @@ class MainWindow(QMainWindow):
                 else "sketch.status.dimension.select_first"
             )
         )
+
+    def _on_sketch_dimension_dragged(
+        self,
+        dimension_key: str,
+        x: float,
+        y: float,
+        finished: bool,
+    ) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        prefix = "sketch_distance:"
+        if not dimension_key.startswith(prefix):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        dimension_id = dimension_key.removeprefix(prefix)
+        dimensions = self._stored_sketch_dimensions(sketch)
+        dimension = next(
+            (
+                item
+                for item in dimensions
+                if str(item.get("id", "")) == dimension_id
+            ),
+            None,
+        )
+        if dimension is None:
+            return
+        dimension["placement"] = [float(x), float(y)]
+        self._store_sketch_dimensions(sketch, dimensions)
+        self._show_all_sketch_dimensions(sketch)
+        if finished:
+            self._refresh_sketch_overlay(populate_tree=False)
 
     def _on_sketch_dimension_cursor_moved(
         self,
@@ -15523,9 +15814,7 @@ class MainWindow(QMainWindow):
                 return
             origin, x_axis, y_axis = frame
 
-            def world_point_line(
-                position: tuple[float, float],
-            ) -> tuple[float, float, float]:
+            def world_point_line(position):
                 return tuple(
                     origin[index]
                     + position[0] * x_axis[index]
@@ -15642,20 +15931,31 @@ class MainWindow(QMainWindow):
                 ),
             ))
             return
-        if len(self._sketch_dimension_point_ids) != 2:
+        dimension_point_ids = list(self._sketch_dimension_point_ids)
+        selected_line_ids = self._selected_dimension_line_point_ids(sketch)
+        line_length_preview = (
+            not dimension_point_ids and len(selected_line_ids) == 2
+        )
+        if line_length_preview:
+            dimension_point_ids = selected_line_ids
+        if len(dimension_point_ids) != 2:
             return
-        first = points.get(self._sketch_dimension_point_ids[0])
-        second = points.get(self._sketch_dimension_point_ids[1])
+        first = points.get(dimension_point_ids[0])
+        second = points.get(dimension_point_ids[1])
         frame = self._sketch_frame(sketch)
         if first is None or second is None or frame is None:
             return
         first_position = self._sketch_point_position(first)
         second_position = self._sketch_point_position(second)
         cursor = (x, y)
-        dimension_type = classify_linear_dimension(
-            first_position,
-            second_position,
-            cursor,
+        dimension_type = (
+            "distance"
+            if line_length_preview
+            else classify_linear_dimension(
+                first_position,
+                second_position,
+                cursor,
+            )
         )
         self._sketch_dimension_cursor = cursor
         self._sketch_dimension_preview_type = dimension_type
@@ -15824,21 +16124,13 @@ class MainWindow(QMainWindow):
         )
         return first, vertex, second, math.degrees(math.acos(cosine))
 
-    def _unified_point_line_geometry(
+    def _selected_dimension_line_point_ids(
         self,
         sketch: ZimaEntity,
-        points: dict[str, dict[str, Any]],
-    ) -> tuple[
-        tuple[float, float],
-        tuple[float, float],
-        float,
-    ] | None:
+    ) -> list[str]:
         reference_id = self._sketch_dimension_reference_id or ""
-        if (
-            not reference_id.startswith("geometry:")
-            or len(self._sketch_dimension_point_ids) != 1
-        ):
-            return None
+        if not reference_id.startswith("geometry:"):
+            return []
         geometry_id = reference_id.removeprefix("geometry:")
         geometry = next(
             (
@@ -15849,12 +16141,21 @@ class MainWindow(QMainWindow):
             ),
             None,
         )
-        line_ids = (
+        return (
             list(map(str, geometry.get("point_ids", ())))
             if geometry is not None
             and isinstance(geometry.get("point_ids"), list)
             else []
         )
+
+    def _unified_point_line_geometry(
+        self,
+        sketch: ZimaEntity,
+        points: dict[str, dict[str, Any]],
+    ):
+        if len(self._sketch_dimension_point_ids) != 1:
+            return None
+        line_ids = self._selected_dimension_line_point_ids(sketch)
         point = points.get(self._sketch_dimension_point_ids[0])
         if point is None or len(line_ids) != 2:
             return None
@@ -15938,6 +16239,17 @@ class MainWindow(QMainWindow):
         ):
             return self._commit_unified_axis_dimension()
         if (
+            not self._sketch_dimension_point_ids
+            and self.document is not None
+            and self._sketch_edit_entity_id is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None:
+                line_ids = self._selected_dimension_line_point_ids(sketch)
+                if len(line_ids) == 2:
+                    self._sketch_dimension_point_ids[:] = line_ids
+                    self._sketch_dimension_reference_id = None
+        if (
             len(self._sketch_dimension_point_ids) != 2
             or self._sketch_dimension_cursor is None
             or self._sketch_dimension_preview_type is None
@@ -15993,7 +16305,7 @@ class MainWindow(QMainWindow):
             "type": dimension_type,
             "point_ids": [first_id, second_id],
             "value": value,
-            "locked": True,
+            "locked": False,
             "placement": list(self._sketch_dimension_cursor),
         }
         candidate = SketchDimension(
@@ -16002,14 +16314,13 @@ class MainWindow(QMainWindow):
             value=value,
             point_ids=(first_id, second_id),
             driving=True,
-            attributes={
-                "placement": list(self._sketch_dimension_cursor),
-            },
         )
         if (
-            self._stored_sketch_model(sketch).dimension_dof_reduction(
-                candidate
-            )
+            self._sketch_dimension_independence_model(
+                sketch,
+                self._stored_sketch_entities(sketch),
+                dimensions,
+            ).dimension_dof_reduction(candidate)
             == 0
         ):
             self.statusBar().showMessage(
@@ -16045,32 +16356,16 @@ class MainWindow(QMainWindow):
             if entity.get("type") == "point"
         }
         geometry = self._unified_point_line_geometry(sketch, points)
-        reference_id = self._sketch_dimension_reference_id or ""
-        if geometry is None or not reference_id.startswith("geometry:"):
-            return False
-        geometry_id = reference_id.removeprefix("geometry:")
-        line = next(
-            (
-                entity
-                for entity in self._stored_sketch_entities(sketch)
-                if str(entity.get("id", "")) == geometry_id
-            ),
-            None,
-        )
-        line_ids = (
-            list(map(str, line.get("point_ids", ())))
-            if line is not None and isinstance(line.get("point_ids"), list)
-            else []
-        )
-        if len(line_ids) != 2:
+        line_ids = self._selected_dimension_line_point_ids(sketch)
+        if geometry is None or len(line_ids) != 2:
             return False
         point_id = self._sketch_dimension_point_ids[0]
         value = geometry[2]
         dimensions = self._stored_sketch_dimensions(sketch)
         if any(
             str(item.get("type", "")) == "distance_line"
-            and str(item.get("geometry_id", "")) == geometry_id
-            and list(map(str, item.get("point_ids", ())))[:1] == [point_id]
+            and list(map(str, item.get("point_ids", ())))
+            == [point_id, *line_ids]
             for item in dimensions
         ):
             self.statusBar().showMessage(
@@ -16082,31 +16377,27 @@ class MainWindow(QMainWindow):
         index = 1
         while f"d{index}" in used_ids:
             index += 1
-        all_point_ids = [point_id, *line_ids]
         raw_dimension = {
             "id": f"d{index}",
             "type": "distance_line",
-            "point_ids": all_point_ids,
-            "geometry_id": geometry_id,
+            "point_ids": [point_id, *line_ids],
             "value": value,
-            "locked": True,
+            "locked": False,
             "placement": list(self._sketch_dimension_cursor),
         }
         candidate = SketchDimension(
             dimension_id=raw_dimension["id"],
             dimension_type="distance_line",
             value=value,
-            point_ids=tuple(all_point_ids),
+            point_ids=tuple(raw_dimension["point_ids"]),
             driving=True,
-            attributes={
-                "geometry_id": geometry_id,
-                "placement": list(self._sketch_dimension_cursor),
-            },
         )
         if (
-            self._stored_sketch_model(sketch).dimension_dof_reduction(
-                candidate
-            )
+            self._sketch_dimension_independence_model(
+                sketch,
+                self._stored_sketch_entities(sketch),
+                dimensions,
+            ).dimension_dof_reduction(candidate)
             == 0
         ):
             self.statusBar().showMessage(
@@ -16174,7 +16465,7 @@ class MainWindow(QMainWindow):
             "type": "angle",
             "point_ids": point_ids,
             "value": value,
-            "locked": True,
+            "locked": False,
             **attributes,
         }
         candidate = SketchDimension(
@@ -16186,9 +16477,11 @@ class MainWindow(QMainWindow):
             attributes=attributes,
         )
         if (
-            self._stored_sketch_model(sketch).dimension_dof_reduction(
-                candidate
-            )
+            self._sketch_dimension_independence_model(
+                sketch,
+                self._stored_sketch_entities(sketch),
+                dimensions,
+            ).dimension_dof_reduction(candidate)
             == 0
         ):
             self.statusBar().showMessage(
@@ -16242,7 +16535,9 @@ class MainWindow(QMainWindow):
             for item in point.get("dimension_locks", ())
             if str(item) in ("x", "y")
         } if isinstance(point.get("dimension_locks"), list) else set()
-        if coordinate in locks:
+        key = f"sketch_point:{point_id}:{coordinate}"
+        styles = self._dimension_styles(sketch)
+        if coordinate in locks or key in styles:
             self.statusBar().showMessage(
                 tr("sketch.status.dimension.already_exists")
             )
@@ -16257,9 +16552,11 @@ class MainWindow(QMainWindow):
             driving=True,
         )
         if (
-            self._stored_sketch_model(sketch).dimension_dof_reduction(
-                candidate
-            )
+            self._sketch_dimension_independence_model(
+                sketch,
+                entities,
+                self._stored_sketch_dimensions(sketch),
+            ).dimension_dof_reduction(candidate)
             == 0
         ):
             self.statusBar().showMessage(
@@ -16267,12 +16564,8 @@ class MainWindow(QMainWindow):
             )
             self._clear_unified_dimension_selection(sketch)
             return False
-        locks.add(coordinate)
-        point["dimension_locks"] = sorted(locks)
-        key = f"sketch_point:{point_id}:{coordinate}"
-        styles = self._dimension_styles(sketch)
         style = dict(styles.get(key, {}))
-        style["locked"] = True
+        style["locked"] = False
         styles[key] = style
         sketch.parameters["dimension_styles"] = json.dumps(
             styles,
@@ -16365,13 +16658,36 @@ class MainWindow(QMainWindow):
         index = 1
         while f"d{index}" in used_ids:
             index += 1
-        dimensions.append({
+        raw_dimension = {
             "id": f"d{index}",
             "type": "distance",
             "point_ids": [first_id, entity_id],
             "value": value,
-            "locked": True,
-        })
+            "locked": False,
+        }
+        candidate = SketchDimension(
+            dimension_id=raw_dimension["id"],
+            dimension_type="distance",
+            value=value,
+            point_ids=(first_id, entity_id),
+            driving=True,
+        )
+        if (
+            self._sketch_dimension_independence_model(
+                sketch,
+                entities,
+                dimensions,
+            ).dimension_dof_reduction(candidate)
+            == 0
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.dimension.overconstrained")
+            )
+            self._sketch_distance_first_point_id = None
+            self._sketch_selected_entity_id = None
+            self._refresh_sketch_overlay()
+            return
+        dimensions.append(raw_dimension)
         self._store_sketch_dimensions(sketch, dimensions)
         self._sketch_distance_first_point_id = None
         self._sketch_selected_entity_id = None
@@ -16730,12 +17046,45 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.midpoint.already_exists")
             )
             return
+        constraints = [
+            constraint
+            for constraint in constraints
+            if not (
+                isinstance(constraint, dict)
+                and constraint.get("type") == "point_on_line"
+                and list(
+                    map(str, constraint.get("point_ids", ()))
+                )
+                == point_ids
+            )
+        ]
         constraints.append({
             "type": "midpoint",
             "point_ids": point_ids,
         })
         point["constraints"] = constraints
-        self._store_sketch_entities(sketch, entities)
+        dimensions = self._stored_sketch_dimensions(sketch)
+        try:
+            candidate = SketchModel.from_editor_data(
+                entities,
+                dimensions,
+            )
+        except SketchModelError:
+            candidate = None
+        if candidate is None or not candidate.solve():
+            self.statusBar().showMessage(
+                tr("sketch.status.midpoint.line_required")
+            )
+            self._sketch_midpoint_point_id = None
+            self._sketch_selected_entity_id = None
+            self._refresh_sketch_overlay()
+            return
+        solved_entities, solved_dimensions = candidate.to_editor_data()
+        self._store_sketch_editor_data(
+            sketch,
+            solved_entities,
+            solved_dimensions,
+        )
         self._sketch_midpoint_point_id = None
         self._sketch_selected_entity_id = None
         self._regenerate_active_sketch_constraints(sketch)
@@ -17795,10 +18144,23 @@ class MainWindow(QMainWindow):
         if sketch is None or not self._sketch_pending_points:
             return
         entities = self._stored_sketch_entities(sketch)
+        point_ids = self._reuse_existing_sketch_points(
+            entities,
+            list(self._sketch_pending_point_ids),
+            self._sketch_pending_new_point_ids,
+        )
+        if len(point_ids) < 2 or len(set(point_ids)) != len(point_ids):
+            self._store_sketch_entities(sketch, entities)
+            self._sketch_pending_points.clear()
+            self._sketch_pending_point_ids.clear()
+            self._sketch_pending_new_point_ids.clear()
+            self._sketch_pending_constraint = None
+            self._refresh_sketch_overlay()
+            return
         geometry = {
             "id": self._next_sketch_geometry_id(entities),
             "type": self._sketch_tool or "segment",
-            "point_ids": list(self._sketch_pending_point_ids),
+            "point_ids": point_ids,
         }
         if self._sketch_pending_constraint is not None:
             geometry["constraints"] = [
@@ -17812,6 +18174,77 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
         self._regenerate_active_sketch_constraints(sketch)
+
+    @staticmethod
+    def _reuse_existing_sketch_points(
+        entities: list[dict[str, Any]],
+        point_ids: list[str],
+        new_point_ids: set[str],
+    ) -> list[str]:
+        points = [
+            entity
+            for entity in entities
+            if entity.get("type") == "point"
+        ]
+        by_id = {
+            str(point.get("id", "")): point
+            for point in points
+            if str(point.get("id", ""))
+        }
+        resolved: list[str] = []
+        removed: set[str] = set()
+        for point_id in point_ids:
+            point = by_id.get(point_id)
+            if point is None or point_id not in new_point_ids:
+                resolved.append(point_id)
+                continue
+            x = float(point.get("x", 0.0))
+            y = float(point.get("y", 0.0))
+            existing = next(
+                (
+                    candidate
+                    for candidate in points
+                    if str(candidate.get("id", "")) != point_id
+                    and str(candidate.get("id", "")) not in removed
+                    and math.isclose(
+                        float(candidate.get("x", 0.0)),
+                        x,
+                        abs_tol=1.0e-9,
+                    )
+                    and math.isclose(
+                        float(candidate.get("y", 0.0)),
+                        y,
+                        abs_tol=1.0e-9,
+                    )
+                ),
+                None,
+            )
+            if existing is None:
+                resolved.append(point_id)
+                continue
+            existing_id = str(existing.get("id", ""))
+            existing_constraints = existing.get("constraints", [])
+            if not isinstance(existing_constraints, list):
+                existing_constraints = []
+            new_constraints = point.get("constraints", [])
+            if isinstance(new_constraints, list):
+                for constraint in new_constraints:
+                    if (
+                        isinstance(constraint, dict)
+                        and constraint not in existing_constraints
+                    ):
+                        existing_constraints.append(constraint)
+            if existing_constraints:
+                existing["constraints"] = existing_constraints
+            removed.add(point_id)
+            resolved.append(existing_id)
+        if removed:
+            entities[:] = [
+                entity
+                for entity in entities
+                if str(entity.get("id", "")) not in removed
+            ]
+        return resolved
 
     @staticmethod
     def _prune_orphan_derived_sketch_points(
@@ -18111,9 +18544,7 @@ class MainWindow(QMainWindow):
             )
             for coordinate in ("x", "y"):
                 key = f"sketch_point:{point_id}:{coordinate}"
-                if bool(
-                    dimension_styles.get(key, {}).get("locked", False)
-                ):
+                if key in dimension_styles:
                     explicit_coordinates.add(coordinate)
             point_dimensions: list[
                 tuple[LinearDimension, str, float]
@@ -18121,24 +18552,24 @@ class MainWindow(QMainWindow):
             if "x" in explicit_coordinates:
                 point_dimensions.append((
                     LinearDimension(
-                    key=f"sketch_point:{point_id}:x",
-                    first_point=world(0.0, 0.0),
-                    second_point=world(x, 0.0),
-                    first_dimension_point=world(0.0, -margin),
-                    second_dimension_point=world(x, -margin),
-                    direction=x_axis,
-                ),
+                        key=f"sketch_point:{point_id}:x",
+                        first_point=world(0.0, 0.0),
+                        second_point=world(x, 0.0),
+                        first_dimension_point=world(0.0, -margin),
+                        second_dimension_point=world(x, -margin),
+                        direction=x_axis,
+                    ),
                     "x",
                     x,
                 ))
             if "y" in explicit_coordinates:
                 point_dimensions.append((
                     LinearDimension(
-                    key=f"sketch_point:{point_id}:y",
-                    first_point=world(x, 0.0),
-                    second_point=world(x, y),
-                    first_dimension_point=world(x + margin, 0.0),
-                    second_dimension_point=world(x + margin, y),
+                        key=f"sketch_point:{point_id}:y",
+                        first_point=world(x, 0.0),
+                        second_point=world(x, y),
+                        first_dimension_point=world(x + margin, 0.0),
+                        second_dimension_point=world(x + margin, y),
                     direction=y_axis,
                     leader_anchor="second",
                 ),
@@ -18206,15 +18637,23 @@ class MainWindow(QMainWindow):
                     first_direction_point=world(*first_position),
                     second_direction_point=world(*second_position),
                     arc_point=world(*arc_point),
-                    sweep_degrees=float(
-                        stored_dimension.get("value", display_value)
+                    sweep_degrees=(
+                        float(
+                            stored_dimension.get("value", display_value)
+                        )
+                        if bool(stored_dimension.get("locked", True))
+                        else display_value
                     ),
                 )
                 dimensions.append(angular_dimension)
                 distance_values.append((
                     angular_dimension,
                     dimension_id,
-                    float(stored_dimension.get("value", display_value)),
+                    (
+                        float(stored_dimension.get("value", display_value))
+                        if bool(stored_dimension.get("locked", True))
+                        else display_value
+                    ),
                 ))
                 continue
             if dimension_type == "distance_line" and len(point_ids) >= 3:
@@ -18228,13 +18667,13 @@ class MainWindow(QMainWindow):
                 second_position = self._sketch_point_position(line_second)
                 line_dx = second_position[0] - first_position[0]
                 line_dy = second_position[1] - first_position[1]
-                line_length_squared = line_dx * line_dx + line_dy * line_dy
-                if line_length_squared <= 1.0e-12:
+                denominator = line_dx * line_dx + line_dy * line_dy
+                if denominator <= 1.0e-12:
                     continue
                 factor = (
                     (point_position[0] - first_position[0]) * line_dx
                     + (point_position[1] - first_position[1]) * line_dy
-                ) / line_length_squared
+                ) / denominator
                 projection = (
                     first_position[0] + factor * line_dx,
                     first_position[1] + factor * line_dy,
@@ -18266,7 +18705,11 @@ class MainWindow(QMainWindow):
                 distance_values.append((
                     dimension,
                     dimension_id,
-                    float(stored_dimension.get("value", display_value)),
+                    (
+                        float(stored_dimension.get("value", display_value))
+                        if bool(stored_dimension.get("locked", True))
+                        else display_value
+                    ),
                 ))
                 continue
             first_id, second_id = map(str, point_ids[:2])
@@ -18343,7 +18786,11 @@ class MainWindow(QMainWindow):
                 (
                     dimension,
                     dimension_id,
-                    float(stored_dimension.get("value", display_value)),
+                    (
+                        float(stored_dimension.get("value", display_value))
+                        if bool(stored_dimension.get("locked", True))
+                        else display_value
+                    ),
                 )
             )
         self._clear_dimension_overlays()
@@ -18600,6 +19047,19 @@ class MainWindow(QMainWindow):
     def _definition_history_boundary(self) -> int:
         if self.document is None:
             return 0
+        if self._sketch_edit_entity_id is not None:
+            for index, obj in enumerate(self.document.history_objects()):
+                if (
+                    obj.kind == EntityKind.CONTAINER
+                    and obj.container_type == ContainerType.PROTRUSION
+                    and any(
+                        child.kind == EntityKind.PROTRUSION
+                        and str(child.parameters.get("sketch_id", ""))
+                        == self._sketch_edit_entity_id
+                        for child in obj.children
+                    )
+                ):
+                    return min(self.document.history_cursor(), index)
         # Editing an existing definition is a live operation. Keep the full
         # active history visible instead of rolling the model back before the
         # edited object; otherwise the object disappears from the viewport
@@ -18759,7 +19219,7 @@ class MainWindow(QMainWindow):
             return False
         dimensions = (
             self._primitive_dimensions(entity)
-            if entity.kind in SOLID_KINDS
+            if entity.kind in (*SOLID_KINDS, EntityKind.PROTRUSION)
             else self._construction_entity_dimensions(entity)
         )
         dimensions = (*dimensions, *self._reference_dimensions(entity))
@@ -19058,6 +19518,15 @@ class MainWindow(QMainWindow):
             dimensions = self._stored_sketch_dimensions(entity)
             for dimension in dimensions:
                 if str(dimension.get("id", "")) == dimension_id:
+                    if locked:
+                        overlay = self._dimension_overlays.get(key)
+                        if overlay is not None:
+                            try:
+                                dimension["value"] = float(
+                                    overlay._edit_value.replace(",", ".")
+                                )
+                            except (TypeError, ValueError):
+                                pass
                     dimension["locked"] = locked
                     break
             self._store_sketch_dimensions(entity, dimensions)
@@ -19393,18 +19862,6 @@ class MainWindow(QMainWindow):
             if point is None or coordinate not in ("x", "y"):
                 self._clear_dimension_overlays()
                 return
-            if coordinate in self._sketch_point_locked_coordinates(
-                entity,
-                point,
-            ):
-                self.statusBar().showMessage(
-                    tr("sketch.status.coordinate_constrained")
-                )
-                if self._sketch_show_all_dimensions:
-                    self._show_all_sketch_dimensions(entity)
-                else:
-                    self._show_sketch_point_dimensions(entity, point)
-                return
             candidate_model = SketchModel.from_editor_data(
                 entities,
                 dimensions,
@@ -19413,9 +19870,27 @@ class MainWindow(QMainWindow):
                 f"coordinate:{point_id}:{coordinate}"
             )
             if coordinate_dimension is None:
-                self._clear_dimension_overlays()
-                return
-            coordinate_dimension.value = value
+                coordinate_dimension = SketchDimension(
+                    dimension_id=f"coordinate:{point_id}:{coordinate}",
+                    dimension_type=f"coordinate_{coordinate}",
+                    value=value,
+                    point_ids=(point_id,),
+                    driving=True,
+                )
+                candidate_model.add_dimension(coordinate_dimension)
+            else:
+                coordinate_dimension.value = value
+                coordinate_dimension.driving = True
+            was_locked = (
+                coordinate
+                in {
+                    str(item)
+                    for item in point.get("dimension_locks", ())
+                    if str(item) in ("x", "y")
+                }
+                if isinstance(point.get("dimension_locks"), list)
+                else False
+            )
             if not candidate_model.solve():
                 self.statusBar().showMessage(
                     tr("sketch.status.dimension.overconstrained")
@@ -19428,6 +19903,32 @@ class MainWindow(QMainWindow):
             solved_entities, solved_dimensions = (
                 candidate_model.to_editor_data()
             )
+            if not was_locked:
+                solved_point = next(
+                    (
+                        item
+                        for item in solved_entities
+                        if item.get("type") == "point"
+                        and str(item.get("id", "")) == point_id
+                    ),
+                    None,
+                )
+                if solved_point is not None:
+                    solved_locks = {
+                        str(item)
+                        for item in solved_point.get(
+                            "dimension_locks",
+                            (),
+                        )
+                        if str(item) in ("x", "y")
+                    }
+                    solved_locks.discard(coordinate)
+                    if solved_locks:
+                        solved_point["dimension_locks"] = sorted(
+                            solved_locks
+                        )
+                    else:
+                        solved_point.pop("dimension_locks", None)
             self._store_sketch_dimensions(entity, solved_dimensions)
             self._store_sketch_entities(entity, solved_entities)
         elif binding[0] == "sketch_distance":
@@ -19439,14 +19940,22 @@ class MainWindow(QMainWindow):
                     for candidate in dimensions
                     if str(candidate.get("id", "")) == dimension_id
                     and candidate.get("type")
-                    in ("distance", "distance_x", "distance_y", "angle")
+                    in (
+                        "distance",
+                        "distance_x",
+                        "distance_y",
+                        "distance_line",
+                        "angle",
+                    )
                 ),
                 None,
             )
             if dimension is None:
                 self._clear_dimension_overlays()
                 return
+            was_locked = bool(dimension.get("locked", True))
             dimension["value"] = value
+            dimension["locked"] = True
             entities = self._stored_sketch_entities(entity)
             candidate_model = SketchModel.from_editor_data(
                 entities,
@@ -19516,6 +20025,7 @@ class MainWindow(QMainWindow):
                     )
                     solved = candidate_model.solve()
             if not solved:
+                dimension["locked"] = was_locked
                 self.statusBar().showMessage(
                     tr("sketch.status.dimension.overconstrained")
                 )
@@ -19525,6 +20035,10 @@ class MainWindow(QMainWindow):
             entities, solved_dimensions = (
                 candidate_model.to_editor_data()
             )
+            for solved_dimension in solved_dimensions:
+                if str(solved_dimension.get("id", "")) == dimension_id:
+                    solved_dimension["locked"] = was_locked
+                    break
             self._store_sketch_dimensions(entity, solved_dimensions)
             self._store_sketch_entities(entity, entities)
         elif binding[0] == "reference_offset":
@@ -19554,6 +20068,16 @@ class MainWindow(QMainWindow):
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
+        preview_owner = (
+            self.document.find_owning_object(entity.entity_id)
+            if entity.kind == EntityKind.SKETCH
+            and self._sketch_edit_entity_id is None
+            else None
+        )
+        protrusion_preview = (
+            preview_owner is not None
+            and preview_owner.container_type == ContainerType.PROTRUSION
+        )
         if binding[0] == "sketch_point":
             point = next(
                 (
@@ -19565,13 +20089,18 @@ class MainWindow(QMainWindow):
                 None,
             )
             if point is not None:
-                if self._sketch_show_all_dimensions:
+                if protrusion_preview:
+                    self._show_protrusion_profile_overlay(preview_owner)
+                elif self._sketch_show_all_dimensions:
                     self._show_all_sketch_dimensions(entity)
                 else:
                     self._show_sketch_point_dimensions(entity, point)
             self._refresh_sketch_overlay()
         elif binding[0] == "sketch_distance":
-            self._show_all_sketch_dimensions(entity)
+            if protrusion_preview:
+                self._show_protrusion_profile_overlay(preview_owner)
+            else:
+                self._show_all_sketch_dimensions(entity)
             self._refresh_sketch_overlay()
         else:
             self._show_edit_overlays(
@@ -19894,6 +20423,38 @@ class MainWindow(QMainWindow):
                     ),
                 )
             )
+        elif primitive.kind == EntityKind.PROTRUSION:
+            forward = number("length_forward", 10.0)
+            reverse = number("length_reverse", 0.0)
+            extent_mode = str(
+                primitive.parameters.get("extent_mode", "one_side")
+            )
+            direction = str(
+                primitive.parameters.get("direction", "forward")
+            )
+            if extent_mode == "symmetric":
+                reverse = forward
+            elif extent_mode == "one_side":
+                if direction == "reverse":
+                    reverse, forward = forward, 0.0
+                else:
+                    reverse = 0.0
+            if forward > 1.0e-9:
+                specifications.append((
+                    "length_forward",
+                    (0.0, 0.0, 0.0),
+                    (0.0, 0.0, forward),
+                    (margin, 0.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                ))
+            if reverse > 1.0e-9:
+                specifications.append((
+                    "length_reverse",
+                    (0.0, 0.0, 0.0),
+                    (0.0, 0.0, -reverse),
+                    (-margin, 0.0, 0.0),
+                    (0.0, 0.0, -1.0),
+                ))
         elif primitive.kind in (EntityKind.PYRAMID, EntityKind.WEDGE):
             specifications.extend(
                 (
@@ -20057,10 +20618,11 @@ class MainWindow(QMainWindow):
                 EntityKind.POINT,
                 EntityKind.AXIS,
                 EntityKind.PLANE,
+                EntityKind.PROTRUSION,
                 *SOLID_KINDS,
             )
             and (
-                obj.kind in SOLID_KINDS
+                obj.kind in (*SOLID_KINDS, EntityKind.PROTRUSION)
                 or "constraint_refs" in obj.parameters
             )
         ):
