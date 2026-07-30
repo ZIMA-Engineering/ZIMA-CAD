@@ -27,6 +27,9 @@ as the document model, geometric kernel integration and user workflows evolve.
 - geometric constraints
 - parametric constraint solver
 - under-, fully- and over-constrained state visualization
+- automatic grey reference dimensions for remaining degrees of freedom;
+  each geometric constraint or driving dimension should remove the
+  corresponding reference dimension, in the style of Pro/ENGINEER
 - construction and reference geometry
 - stable references between sketches and 3D geometry
 
@@ -111,4 +114,3 @@ as the document model, geometric kernel integration and user workflows evolve.
 - assembly drawings and bills of materials
 - sheet-metal flat-pattern drawings
 - PDF and DXF export
-

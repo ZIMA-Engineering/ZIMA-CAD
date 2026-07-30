@@ -203,6 +203,61 @@ class SketchModelTests(unittest.TestCase):
         sketch.points["p3"].y = 2.0
         self.assertNotEqual(sketch.constraint_residuals("c1"), (0.0,))
 
+    def test_perpendicularity_to_external_reference_round_trips(self):
+        sketch = SketchModel.from_editor_data(
+            [
+                {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "p2", "type": "point", "x": 0.0, "y": 4.0},
+                {
+                    "id": "g1",
+                    "type": "segment",
+                    "point_ids": ["p1", "p2"],
+                    "constraints": [{
+                        "type": "perpendicular",
+                        "reference_id": "external:1",
+                        "reference_direction": [1.0, 0.0],
+                    }],
+                },
+            ]
+        )
+
+        self.assertEqual(sketch.constraint_residuals("c1"), (0.0,))
+        self.assertTrue(sketch.solve())
+        entities, _dimensions = sketch.to_editor_data()
+        constraint = entities[2]["constraints"][0]
+        self.assertEqual(constraint["reference_id"], "external:1")
+        self.assertEqual(constraint["reference_direction"], [1.0, 0.0])
+
+    def test_perpendicularity_between_separate_lines_round_trips(self):
+        sketch = SketchModel.from_editor_data(
+            [
+                {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "p2", "type": "point", "x": 3.0, "y": 0.0},
+                {"id": "p3", "type": "point", "x": 5.0, "y": 2.0},
+                {"id": "p4", "type": "point", "x": 5.0, "y": 6.0},
+                {
+                    "id": "g1",
+                    "type": "construction",
+                    "point_ids": ["p1", "p2"],
+                },
+                {
+                    "id": "g2",
+                    "type": "segment",
+                    "point_ids": ["p3", "p4"],
+                    "constraints": [{
+                        "type": "perpendicular",
+                        "geometry_id": "g1",
+                    }],
+                },
+            ]
+        )
+
+        self.assertEqual(sketch.constraint_residuals("c1"), (0.0,))
+        self.assertTrue(sketch.solve())
+        entities, _dimensions = sketch.to_editor_data()
+        constraint = entities[-1]["constraints"][0]
+        self.assertEqual(constraint["geometry_id"], "g1")
+
     def test_canonical_round_trip_keeps_constraints_separate(self):
         sketch = SketchModel.from_editor_data(
             [
@@ -375,6 +430,7 @@ class SketchModelTests(unittest.TestCase):
                 "constraints": [{
                     "type": "point_on_line",
                     "point_ids": ["p1", "p2"],
+                    "bounded": True,
                 }],
             },
             {
@@ -399,6 +455,73 @@ class SketchModelTests(unittest.TestCase):
             restored_point["constraints"][0]["point_ids"],
             ["p1", "p2"],
         )
+        self.assertTrue(
+            restored_point["constraints"][0]["bounded"]
+        )
+
+    def test_midpoint_constraint_round_trips_and_solves(self):
+        sketch = SketchModel.from_editor_data([
+            {
+                "id": "p1",
+                "type": "point",
+                "x": 0.0,
+                "y": 0.0,
+                "dimension_locks": ["x", "y"],
+            },
+            {
+                "id": "p2",
+                "type": "point",
+                "x": 8.0,
+                "y": 4.0,
+                "dimension_locks": ["x", "y"],
+            },
+            {
+                "id": "middle",
+                "type": "point",
+                "x": 0.0,
+                "y": 0.0,
+                "constraints": [{
+                    "type": "midpoint",
+                    "point_ids": ["p1", "p2"],
+                }],
+            },
+            {
+                "id": "g1",
+                "type": "segment",
+                "point_ids": ["p1", "p2"],
+            },
+        ])
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(sketch.points["middle"].x, 4.0)
+        self.assertAlmostEqual(sketch.points["middle"].y, 2.0)
+        entities, _dimensions = sketch.to_editor_data()
+        restored = next(
+            entity for entity in entities if entity["id"] == "middle"
+        )
+        self.assertEqual(
+            restored["constraints"][0]["point_ids"],
+            ["p1", "p2"],
+        )
+
+    def test_geometry_role_round_trips_without_changing_type(self):
+        sketch = SketchModel.from_editor_data([
+            {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "p2", "type": "point", "x": 4.0, "y": 0.0},
+            {
+                "id": "g1",
+                "type": "segment",
+                "role": "construction",
+                "point_ids": ["p1", "p2"],
+            },
+        ])
+
+        entities, _dimensions = sketch.to_editor_data()
+        geometry = next(
+            entity for entity in entities if entity["id"] == "g1"
+        )
+        self.assertEqual(geometry["type"], "segment")
+        self.assertEqual(geometry["role"], "construction")
 
     def test_equal_length_is_distance_between_two_point_pairs(self):
         sketch = SketchModel()

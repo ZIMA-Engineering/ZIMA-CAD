@@ -43,11 +43,12 @@ _CONSTRAINT_POINT_COUNTS = {
     "horizontal": 2,
     "vertical": 2,
     "coincident": 2,
-    "perpendicular": 3,
+    "perpendicular": None,
     "parallel": 4,
     "equal_length": 4,
     "point_on_reference": 1,
     "point_on_line": 3,
+    "midpoint": 3,
 }
 
 
@@ -334,21 +335,38 @@ class SketchModel:
             }
             owner_id: str
             if constraint.constraint_type == "perpendicular":
-                if len(points) != 3:
+                if len(points) == 2 and constraint.reference_ids:
+                    owner_geometry = geometry_for_points(
+                        points[0],
+                        points[1],
+                    )
+                    if owner_geometry is None:
+                        raise SketchModelError(
+                            f"perpendicular constraint "
+                            f"{constraint.constraint_id!r} has no connector"
+                        )
+                    owner_id = owner_geometry.geometry_id
+                elif len(points) not in (3, 4):
                     raise SketchModelError(
                         f"perpendicular constraint "
-                        f"{constraint.constraint_id!r} requires 3 points"
+                        f"{constraint.constraint_id!r} requires 3 or 4 "
+                        "points "
+                        "or 2 points and an external reference"
                     )
-                reference = geometry_for_points(points[0], points[1])
-                owner_geometry = geometry_for_points(points[1], points[2])
-                if reference is None or owner_geometry is None:
-                    raise SketchModelError(
-                        f"perpendicular constraint "
-                        f"{constraint.constraint_id!r} is not backed by "
-                        "two connected geometries"
+                else:
+                    reference = geometry_for_points(points[0], points[1])
+                    owner_geometry = geometry_for_points(
+                        points[1] if len(points) == 3 else points[2],
+                        points[2] if len(points) == 3 else points[3],
                     )
-                owner_id = owner_geometry.geometry_id
-                raw["geometry_id"] = reference.geometry_id
+                    if reference is None or owner_geometry is None:
+                        raise SketchModelError(
+                            f"perpendicular constraint "
+                            f"{constraint.constraint_id!r} is not backed by "
+                            "two connected geometries"
+                        )
+                    owner_id = owner_geometry.geometry_id
+                    raw["geometry_id"] = reference.geometry_id
             elif constraint.constraint_type == "parallel":
                 if len(points) != 4:
                     raise SketchModelError(
@@ -392,10 +410,10 @@ class SketchModel:
                         f"{constraint.constraint_id!r} has no connector"
                     )
                 owner_id = owner_geometry.geometry_id
-            elif constraint.constraint_type == "point_on_line":
+            elif constraint.constraint_type in ("point_on_line", "midpoint"):
                 if len(points) != 3:
                     raise SketchModelError(
-                        f"point_on_line constraint "
+                        f"{constraint.constraint_type} constraint "
                         f"{constraint.constraint_id!r} requires 3 points"
                     )
                 owner_id = points[0]
@@ -538,11 +556,41 @@ class SketchModel:
                 positions[1][0] - positions[0][0],
                 positions[1][1] - positions[0][1],
             )
-        if constraint.constraint_type == "perpendicular":
-            first, vertex, third = positions
+        if constraint.constraint_type == "midpoint":
+            point, first, second = positions
             return (
-                (first[0] - vertex[0]) * (third[0] - vertex[0])
-                + (first[1] - vertex[1]) * (third[1] - vertex[1]),
+                point[0] - (first[0] + second[0]) * 0.5,
+                point[1] - (first[1] + second[1]) * 0.5,
+            )
+        if constraint.constraint_type == "perpendicular":
+            if len(positions) == 2:
+                direction = constraint.attributes.get(
+                    "reference_direction",
+                    (),
+                )
+                if (
+                    not isinstance(direction, (list, tuple))
+                    or len(direction) < 2
+                ):
+                    raise SketchModelError(
+                        "external perpendicular constraint has no "
+                        "reference direction"
+                    )
+                first, second = positions
+                return (
+                    (second[0] - first[0]) * float(direction[0])
+                    + (second[1] - first[1]) * float(direction[1]),
+                )
+            if len(positions) == 3:
+                first, vertex, third = positions
+                return (
+                    (first[0] - vertex[0]) * (third[0] - vertex[0])
+                    + (first[1] - vertex[1]) * (third[1] - vertex[1]),
+                )
+            first, second, third, fourth = positions
+            return (
+                (second[0] - first[0]) * (fourth[0] - third[0])
+                + (second[1] - first[1]) * (fourth[1] - third[1]),
             )
         if constraint.constraint_type == "parallel":
             first, second, third, fourth = positions
@@ -680,6 +728,7 @@ class SketchModel:
                 "vertical",
                 "coincident",
                 "point_on_line",
+                "midpoint",
             }:
                 errors = self.constraint_residuals(constraint_id)
             elif constraint_type in {
@@ -695,9 +744,32 @@ class SketchModel:
                         violated.append(constraint_id)
                     continue
                 if constraint_type == "perpendicular":
-                    first, vertex, third = positions
-                    first_length = math.dist(first, vertex)
-                    second_length = math.dist(third, vertex)
+                    if len(positions) == 2:
+                        direction = constraint.attributes.get(
+                            "reference_direction",
+                            (),
+                        )
+                        first_length = math.dist(
+                            positions[0],
+                            positions[1],
+                        )
+                        second_length = (
+                            math.hypot(
+                                float(direction[0]),
+                                float(direction[1]),
+                            )
+                            if isinstance(direction, (list, tuple))
+                            and len(direction) >= 2
+                            else 0.0
+                        )
+                    elif len(positions) == 3:
+                        first, vertex, third = positions
+                        first_length = math.dist(first, vertex)
+                        second_length = math.dist(third, vertex)
+                    else:
+                        first, second, third, fourth = positions
+                        first_length = math.dist(first, second)
+                        second_length = math.dist(third, fourth)
                 else:
                     first, second, third, fourth = positions
                     first_length = math.dist(first, second)
@@ -904,6 +976,7 @@ class SketchModel:
                 "parallel",
                 "equal_length",
                 "point_on_line",
+                "midpoint",
             }:
                 values.extend(
                     self.constraint_residuals(constraint.constraint_id)
@@ -1088,6 +1161,15 @@ class SketchModel:
         expected = _CONSTRAINT_POINT_COUNTS.get(
             constraint.constraint_type
         )
+        if (
+            constraint.constraint_type == "perpendicular"
+            and len(constraint.point_ids) not in (2, 3, 4)
+        ):
+            raise SketchModelError(
+                f"perpendicular constraint "
+                f"{constraint.constraint_id!r} requires 2, 3 or 4 points, "
+                f"got {len(constraint.point_ids)}"
+            )
         if expected is not None and len(constraint.point_ids) != expected:
             raise SketchModelError(
                 f"{constraint.constraint_type} constraint "
@@ -1244,33 +1326,46 @@ class SketchModel:
                         point_ids = owner_points
                     elif constraint_type == "perpendicular":
                         if target_geometry is None:
-                            raise SketchModelError(
-                                "a perpendicular constraint requires "
-                                "two connected point pairs"
+                            if target_reference is None:
+                                raise SketchModelError(
+                                    "a perpendicular constraint requires "
+                                    "a connector or external reference"
+                                )
+                            point_ids = owner_points
+                        else:
+                            reference = model.geometry[
+                                str(target_geometry)
+                            ]
+                            shared = (
+                                set(reference.point_ids) & set(owner_points)
                             )
-                        reference = model.geometry[str(target_geometry)]
-                        shared = set(reference.point_ids) & set(owner_points)
-                        if len(shared) != 1:
-                            raise SketchModelError(
-                                "perpendicular connectors must share "
-                                "exactly one point"
-                            )
-                        vertex = next(iter(shared))
-                        reference_outer = next(
-                            point_id
-                            for point_id in reference.point_ids
-                            if point_id != vertex
-                        )
-                        owner_outer = next(
-                            point_id
-                            for point_id in owner_points
-                            if point_id != vertex
-                        )
-                        point_ids = [
-                            reference_outer,
-                            vertex,
-                            owner_outer,
-                        ]
+                            if len(shared) == 1:
+                                vertex = next(iter(shared))
+                                reference_outer = next(
+                                    point_id
+                                    for point_id in reference.point_ids
+                                    if point_id != vertex
+                                )
+                                owner_outer = next(
+                                    point_id
+                                    for point_id in owner_points
+                                    if point_id != vertex
+                                )
+                                point_ids = [
+                                    reference_outer,
+                                    vertex,
+                                    owner_outer,
+                                ]
+                            elif not shared:
+                                point_ids = [
+                                    *reference.point_ids,
+                                    *owner_points,
+                                ]
+                            else:
+                                raise SketchModelError(
+                                    "perpendicular connectors must be "
+                                    "different"
+                                )
                     elif constraint_type == "parallel":
                         if target_geometry is None:
                             raise SketchModelError(

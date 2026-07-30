@@ -1482,6 +1482,7 @@ def make_sketch_shape(
             if (
                 not isinstance(entity, dict)
                 or entity.get("type") in ("point", "construction")
+                or entity.get("role") == "construction"
             ):
                 continue
             points = entity.get("points", ())

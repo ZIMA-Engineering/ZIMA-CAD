@@ -100,11 +100,15 @@ Explicitní kóty jsou ve skicáři zobrazené vždy; samostatný přepínač je
 viditelnosti se nepoužívá.
 
 V nabídce **Vazby → Kolmá** vyberte postupně dvě úsečky nebo konstrukční
-čáry. První určuje směr. U druhé zůstane zachovaný první bod a délka; její
-druhý bod se dopočítá tak, aby byly čáry kolmé. Pravé tlačítko zruší první
-výběr. Po výběru úsečky lze jako druhou referenci zvolit také čárkovanou
-lokální osu X nebo Y skici. Vazbu lze odstranit z kontextové nabídky ve
-stromu skici.
+čáry. První je ta, která se má srovnat; druhá určuje referenční směr.
+U první zůstane zachovaný první bod a délka a její druhý bod se dopočítá tak,
+aby byly čáry kolmé. Pravé tlačítko zruší první výběr. Jako druhou referenci
+lze zvolit také čárkovanou lokální osu X nebo Y skici nebo externí čárovou
+referenci. Vazbu lze odstranit z kontextové nabídky ve stromu skici.
+
+U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára se srovná a nese
+symbol rovnoběžnosti, druhá čára určuje referenční směr. Druhá čára se nikdy
+nepřepočítává. Pokud je první čára již směrově zavazbená, ohlásí se konflikt.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
