@@ -262,6 +262,37 @@ class SketchModelTests(unittest.TestCase):
         self.assertEqual(entities[0]["dimension_locks"], ["x"])
         self.assertEqual(dimensions, [])
 
+    def test_coordinate_change_regenerates_dependent_distance(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("p1", 0.0, 0.0))
+        sketch.add_point(SketchPoint("p2", 10.0, 0.0))
+        sketch.add_constraint(
+            SketchConstraint("horizontal", "horizontal", ("p1", "p2"))
+        )
+        sketch.add_dimension(
+            SketchDimension(
+                "coordinate:p1:x",
+                "coordinate_x",
+                5.0,
+                ("p1",),
+                True,
+            )
+        )
+        sketch.add_dimension(
+            SketchDimension(
+                "distance",
+                "distance_x",
+                10.0,
+                ("p1", "p2"),
+                True,
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(sketch.points["p1"].x, 5.0, places=6)
+        self.assertAlmostEqual(sketch.points["p2"].x, 15.0, places=6)
+        self.assertEqual(sketch.violated_equations(), ())
+
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):
             SketchModel.from_dict(
