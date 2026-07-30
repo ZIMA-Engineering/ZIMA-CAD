@@ -1148,6 +1148,23 @@ class SketchModel:
                 f"geometry {geometry.geometry_id!r} references missing "
                 f"points: {', '.join(missing)}"
             )
+        if (
+            geometry.geometry_type == GeometryType.CIRCLE
+            and (
+                len(set(geometry.point_ids)) != 2
+                or math.hypot(
+                    self.points[geometry.point_ids[1]].x
+                    - self.points[geometry.point_ids[0]].x,
+                    self.points[geometry.point_ids[1]].y
+                    - self.points[geometry.point_ids[0]].y,
+                )
+                <= 1.0e-12
+            )
+        ):
+            raise SketchModelError(
+                f"circle {geometry.geometry_id!r} requires distinct centre "
+                "and circumference points"
+            )
 
     def _validate_constraint(self, constraint: SketchConstraint) -> None:
         if not constraint.constraint_type:

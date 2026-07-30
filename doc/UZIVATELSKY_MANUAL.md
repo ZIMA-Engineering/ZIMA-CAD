@@ -76,9 +76,10 @@ Po vstupu se pohled nastaví kolmo ke skice. Lokální osy X/Y jsou zobrazené
 hnědou tenkou čárkovanou čarou přes celé view. Profilová geometrie je modrá,
 body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
 
-Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**, **Oblouk**
-a **Spline**. Pravé tlačítko zruší rozpracovaný prvek; u spline ji po zadání
-alespoň dvou bodů dokončí.
+Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
+**Obdélník**, **Kružnice**, **Oblouk** a **Spline**. Kružnice se zadává
+prvním kliknutím do středu a druhým kliknutím na obvod. Pravé tlačítko zruší
+rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
 
 Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
 prostředním tlačítkem nadále pouze otáčí pohled a zadání nepotvrdí.

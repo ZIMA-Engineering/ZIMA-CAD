@@ -15,6 +15,54 @@ from zima_cad.sketch_model import (
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_circle_round_trips_with_centre_and_radius_point(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("centre", 2.0, 3.0))
+        sketch.add_point(SketchPoint("rim", 7.0, 3.0))
+        sketch.add_geometry(
+            SketchGeometry(
+                "circle1",
+                GeometryType.CIRCLE,
+                ("centre", "rim"),
+            )
+        )
+
+        restored = SketchModel.from_dict(sketch.to_dict())
+
+        self.assertEqual(
+            restored.geometry["circle1"].geometry_type,
+            GeometryType.CIRCLE,
+        )
+        self.assertEqual(
+            restored.geometry["circle1"].point_ids,
+            ("centre", "rim"),
+        )
+        entities, dimensions = restored.to_editor_data()
+        editor_restored = SketchModel.from_editor_data(
+            entities,
+            dimensions,
+        )
+        self.assertEqual(
+            editor_restored.geometry["circle1"].point_ids,
+            ("centre", "rim"),
+        )
+
+    def test_circle_rejects_identical_centre_and_radius_point(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("centre", 2.0, 3.0))
+
+        with self.assertRaisesRegex(
+            SketchModelError,
+            "requires distinct centre",
+        ):
+            sketch.add_geometry(
+                SketchGeometry(
+                    "circle1",
+                    GeometryType.CIRCLE,
+                    ("centre", "centre"),
+                )
+            )
+
     def test_fully_dimensioned_rectangle_rejects_driving_diagonal(self):
         width = 12.0
         height = 5.0

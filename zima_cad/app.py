@@ -4976,6 +4976,7 @@ class MainWindow(QMainWindow):
                 ("point", "sketch.tool.point", "point"),
                 ("segment", "sketch.tool.segment", "sketch-segment"),
                 ("rectangle", "sketch.tool.rectangle", "sketch-rectangle"),
+                ("circle", "sketch.tool.circle", "sketch-circle"),
                 ("arc", "sketch.tool.arc", "sketch-arc"),
                 ("spline", "sketch.tool.spline", "sketch-spline"),
             ):
@@ -7433,6 +7434,7 @@ class MainWindow(QMainWindow):
                 "auxiliary": "sketch.tool.auxiliary",
                 "arc": "sketch.tool.arc",
                 "spline": "sketch.tool.spline",
+                "circle": "sketch.tool.circle",
             }.get(display_type)
             label = (
                 tr(label_key)
@@ -13759,6 +13761,7 @@ class MainWindow(QMainWindow):
             "point": 1,
             "segment": 2,
             "construction": 2,
+            "circle": 2,
             "arc": 3,
         }.get(self._sketch_tool)
         if required is not None and len(self._sketch_pending_points) >= required:
@@ -16577,9 +16580,11 @@ class MainWindow(QMainWindow):
                 "point",
                 "segment",
                 "rectangle",
+                "circle",
                 "construction",
                 "coincident",
             ),
+            sketch_tool=self._sketch_tool,
         )
         if populate_tree:
             self._populate_tree()

@@ -270,6 +270,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_entities: tuple[dict[str, Any], ...] = ()
         self._sketch_external_references: tuple[dict[str, Any], ...] = ()
         self._sketch_pending_points: tuple[tuple[float, float], ...] = ()
+        self._sketch_tool: str | None = None
         self._sketch_preview_position: tuple[float, float] | None = None
         self._sketch_preview_constraint: str | None = None
         self._sketch_selection_mode = False
@@ -311,6 +312,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         external_references: tuple[dict[str, Any], ...]
         | list[dict[str, Any]] = (),
         snap_to_external_references: bool = False,
+        sketch_tool: str | None = None,
     ) -> None:
         self._sketch_frame = frame
         self._sketch_entities = tuple(entities)
@@ -323,6 +325,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_sketch_entity_ids = frozenset(selected_entity_ids)
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
+        self._sketch_tool = sketch_tool
         if (
             not snap_to_external_references
             and self._hovered_sketch_external_reference_id is not None
@@ -2628,6 +2631,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 for point in raw_points
                 if isinstance(point, (list, tuple)) and len(point) >= 2
             ]
+            if entity_type == "circle" and len(points) == 2:
+                center, rim = points
+                radius = hypot(
+                    rim.x() - center.x(),
+                    rim.y() - center.y(),
+                )
+                circle_pen = QPen(
+                    cyan if selected else
+                    QColor("#FF7A00") if previewed else yellow,
+                    3.0 if selected or previewed else 2.0,
+                )
+                painter.setPen(circle_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(center, radius, radius)
+                painter.setPen(QPen(yellow, 2.0))
+                painter.setBrush(QBrush(yellow))
+                continue
             is_construction = (
                 entity_type == "construction"
                 or entity.get("role") == "construction"
@@ -2971,7 +2991,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setBrush(QBrush(QColor("#FF7A00")))
             for point in pending:
                 painter.drawEllipse(point, 3.5, 3.5)
-            if len(pending) >= 2:
+            if self._sketch_tool == "circle" and len(pending) >= 2:
+                radius = hypot(
+                    pending[1].x() - pending[0].x(),
+                    pending[1].y() - pending[0].y(),
+                )
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(pending[0], radius, radius)
+            elif len(pending) >= 2:
                 painter.drawPolyline(QPolygonF(pending))
             if self._sketch_preview_position is not None:
                 preview = self._screen_point(
@@ -2981,7 +3008,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         )
                     )
                 )
-                painter.drawLine(pending[-1], preview)
+                if self._sketch_tool == "circle":
+                    radius = hypot(
+                        preview.x() - pending[0].x(),
+                        preview.y() - pending[0].y(),
+                    )
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawEllipse(pending[0], radius, radius)
+                else:
+                    painter.drawLine(pending[-1], preview)
                 painter.drawEllipse(preview, 3.5, 3.5)
                 if self._sketch_preview_constraint is not None:
                     center = QPointF(
@@ -3078,6 +3113,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
                 if distance <= 9.0:
                     candidates.append((0, distance, order, entity_id))
+                continue
+            if entity_type == "circle" and len(screen_points) == 2:
+                radius = hypot(
+                    screen_points[1].x() - screen_points[0].x(),
+                    screen_points[1].y() - screen_points[0].y(),
+                )
+                distance = abs(
+                    hypot(
+                        position.x() - screen_points[0].x(),
+                        position.y() - screen_points[0].y(),
+                    )
+                    - radius
+                )
+                if distance <= 9.0:
+                    candidates.append((1, distance, order, entity_id))
                 continue
             entity_distances: list[float] = []
             for first, second in zip(screen_points, screen_points[1:]):
