@@ -881,6 +881,10 @@ class SketchModel:
                 actual = positions[0][0]
             elif dimension.dimension_type == "coordinate_y" and positions:
                 actual = positions[0][1]
+            elif dimension.dimension_type == "distance_axis" and positions:
+                reference = str(dimension.attributes.get("reference_id", ""))
+                coordinate_index = 1 if reference == "sketch_axis:x" else 0
+                actual = abs(sum(point[coordinate_index] for point in positions) / len(positions))
             elif len(positions) >= 2:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
@@ -1034,6 +1038,52 @@ class SketchModel:
             angular_tolerance=1.0e-7,
         )
 
+    def drive_all_dimensions_at_current_values(self) -> None:
+        """Make every dimension driving while preserving current geometry."""
+        for dimension in self.dimensions.values():
+            positions = [
+                self.points[point_id].position()
+                for point_id in dimension.point_ids
+            ]
+            actual: float | None = None
+            if dimension.dimension_type == "angle":
+                actual = self._dimension_angle(dimension)
+            elif dimension.dimension_type == "coordinate_x" and positions:
+                actual = positions[0][0]
+            elif dimension.dimension_type == "coordinate_y" and positions:
+                actual = positions[0][1]
+            elif dimension.dimension_type == "distance_axis" and positions:
+                reference = str(dimension.attributes.get("reference_id", ""))
+                coordinate_index = 1 if reference == "sketch_axis:x" else 0
+                actual = abs(
+                    sum(point[coordinate_index] for point in positions)
+                    / len(positions)
+                )
+            elif len(positions) >= 2:
+                dx = positions[1][0] - positions[0][0]
+                dy = positions[1][1] - positions[0][1]
+                if dimension.dimension_type == "distance_x":
+                    actual = abs(dx)
+                elif dimension.dimension_type == "distance_y":
+                    actual = abs(dy)
+                elif dimension.dimension_type == "distance":
+                    actual = math.hypot(dx, dy)
+                elif (
+                    dimension.dimension_type == "distance_line"
+                    and len(positions) >= 3
+                ):
+                    line_dx = positions[2][0] - positions[1][0]
+                    line_dy = positions[2][1] - positions[1][1]
+                    line_length = math.hypot(line_dx, line_dy)
+                    if line_length > 1.0e-12:
+                        actual = abs(
+                            line_dx * (positions[0][1] - positions[1][1])
+                            - line_dy * (positions[0][0] - positions[1][0])
+                        ) / line_length
+            if actual is not None:
+                dimension.value = actual
+            dimension.driving = True
+
     @staticmethod
     def _solve_linear_system(
         matrix: list[list[float]],
@@ -1130,6 +1180,14 @@ class SketchModel:
                 values.append(positions[0][0] - target)
             elif dimension_type == "coordinate_y" and positions:
                 values.append(positions[0][1] - target)
+            elif dimension_type == "distance_axis" and positions:
+                reference = str(dimension.attributes.get("reference_id", ""))
+                coordinate_index = 1 if reference == "sketch_axis:x" else 0
+                side = float(dimension.attributes.get("side_sign", 1.0))
+                values.extend(
+                    point[coordinate_index] - side * target
+                    for point in positions[:2]
+                )
             elif len(positions) >= 2:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]

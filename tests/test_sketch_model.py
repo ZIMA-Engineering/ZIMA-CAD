@@ -690,6 +690,34 @@ class SketchModelTests(unittest.TestCase):
         )
         self.assertEqual(restored.violated_equations(), ())
 
+    def test_parallel_line_to_axis_distance_is_solved_and_round_trips(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("p1", 0.0, 5.0))
+        sketch.add_point(SketchPoint("p2", 10.0, 5.0))
+        sketch.add_dimension(
+            SketchDimension(
+                "axis-distance",
+                "distance_axis",
+                5.0,
+                ("p1", "p2"),
+                True,
+                {
+                    "reference_id": "sketch_axis:x",
+                    "side_sign": 1.0,
+                },
+            )
+        )
+
+        self.assertEqual(sketch.violated_equations(), ())
+        restored = SketchModel.from_dict(sketch.to_dict())
+        self.assertEqual(restored.violated_equations(), ())
+        self.assertEqual(
+            restored.dimensions["axis-distance"].attributes[
+                "reference_id"
+            ],
+            "sketch_axis:x",
+        )
+
     def test_reflex_and_negative_angles_share_geometric_equation(self):
         for target in (270.0, -90.0, -270.0):
             sketch = SketchModel()

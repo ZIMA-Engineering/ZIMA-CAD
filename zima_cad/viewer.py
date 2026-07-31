@@ -200,6 +200,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchCornerRadiusSelected = Signal(str, str, str)
     sketchCornerRadiusDragged = Signal(str, float, float, bool)
     sketchDimensionDragged = Signal(str, float, float, bool)
+    sketchDimensionSelected = Signal(str)
+    sketchDimensionHovered = Signal(str)
     sketchEntityHovered = Signal(str)
     sketchCursorMoved = Signal(float, float)
     sketchConstraintReferenceSelected = Signal(str)
@@ -270,6 +272,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._dimensions: tuple[LinearDimension | AngularDimension, ...] = ()
         self._locked_dimension_keys: frozenset[str] = frozenset()
         self._selected_dimension_key: str | None = None
+        self._hovered_dimension_key: str | None = None
         self._suppress_next_context_menu = False
         self._sketch_frame: tuple[Point3, Point3, Point3] | None = None
         self._sketch_entities: tuple[dict[str, Any], ...] = ()
@@ -642,6 +645,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             dimension.key for dimension in dimensions
         }:
             self._selected_dimension_key = None
+        if self._hovered_dimension_key not in {
+            dimension.key for dimension in dimensions
+        }:
+            self._hovered_dimension_key = None
         self.update()
 
     def set_locked_dimension_keys(
@@ -653,6 +660,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_selected_dimension(self, key: str | None) -> None:
         self._selected_dimension_key = (
+            key
+            if any(dimension.key == key for dimension in self._dimensions)
+            else None
+        )
+        self.update()
+
+    def set_hovered_dimension(self, key: str | None) -> None:
+        self._hovered_dimension_key = (
             key
             if any(dimension.key == key for dimension in self._dimensions)
             else None
@@ -1030,6 +1045,34 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self.sketchCornerRadiusSelected.emit(*corner_radius)
                         event.accept()
                         return
+                if self._sketch_tool in ("select", "dimension"):
+                    dimension_key = self.dimension_key_at(event.position())
+                    geometry_candidates = self._sketch_selection_candidates(
+                        event.position()
+                    )
+                    point_ids = {
+                        str(entity.get("id", ""))
+                        for entity in self._sketch_entities
+                        if entity.get("type") == "point"
+                    }
+                    point_is_candidate = any(
+                        candidate in point_ids
+                        for candidate in geometry_candidates
+                    )
+                    if (
+                        dimension_key is not None
+                        and dimension_key != "sketch_dimension_preview"
+                        and not point_is_candidate
+                        and (
+                            self._sketch_tool == "dimension"
+                            or not geometry_candidates
+                        )
+                    ):
+                        self.sketchDimensionSelected.emit(dimension_key)
+                        self._sketch_dimension_drag_key = dimension_key
+                        self._sketch_dimension_drag_moved = False
+                        event.accept()
+                        return
                 if not self._sketch_constraint_selection_mode:
                     drag_vertex = self._corner_radius_drag_candidate(
                         event.position()
@@ -1037,20 +1080,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     if drag_vertex is not None:
                         self._sketch_corner_drag_vertex_id = drag_vertex
                         self._sketch_corner_drag_moved = False
-                        event.accept()
-                        return
-                    dimension_key = self.dimension_key_at(event.position())
-                    if (
-                        dimension_key is not None
-                        and dimension_key.startswith(
-                            ("sketch_distance:", "sketch_radius:")
-                        )
-                        and not self._sketch_selection_candidates(
-                            event.position()
-                        )
-                    ):
-                        self._sketch_dimension_drag_key = dimension_key
-                        self._sketch_dimension_drag_moved = False
                         event.accept()
                         return
                 candidates = self._sketch_selection_candidates(
@@ -1289,6 +1318,35 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if local is not None:
                 self.sketchCursorMoved.emit(*local)
             candidates = self._sketch_selection_candidates(event.position())
+            hovered_dimension = (
+                self.dimension_key_at(event.position())
+                if self._sketch_tool in ("select", "dimension")
+                else None
+            )
+            if hovered_dimension == "sketch_dimension_preview":
+                hovered_dimension = None
+            point_ids = {
+                str(entity.get("id", ""))
+                for entity in self._sketch_entities
+                if entity.get("type") == "point"
+            }
+            point_is_candidate = any(
+                candidate in point_ids for candidate in candidates
+            )
+            if self._sketch_tool == "select" and candidates:
+                hovered_dimension = None
+            elif (
+                self._sketch_tool == "dimension"
+                and hovered_dimension
+                and not point_is_candidate
+            ):
+                candidates = ()
+            elif self._sketch_tool == "dimension" and point_is_candidate:
+                hovered_dimension = None
+            if hovered_dimension != self._hovered_dimension_key:
+                self._hovered_dimension_key = hovered_dimension
+                self.sketchDimensionHovered.emit(hovered_dimension or "")
+                self.update()
             if candidates != self._sketch_cycle_ids:
                 self._sketch_cycle_ids = candidates
                 self._sketch_cycle_index = 0 if candidates else -1
@@ -1404,6 +1462,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
+        if self._hovered_dimension_key is not None:
+            self._hovered_dimension_key = None
+            self.sketchDimensionHovered.emit("")
+            self.update()
         if self._hovered_sketch_external_reference_id is not None:
             self._hovered_sketch_external_reference_id = None
             self.sketchReferenceHovered.emit("")
@@ -1427,7 +1489,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_dimension_drag_key is not None
         ):
             local = self._sketch_local_position(event.position())
-            if local is not None and self._sketch_dimension_drag_moved:
+            dimension_was_dragged = self._sketch_dimension_drag_moved
+            if local is not None and dimension_was_dragged:
                 self.sketchDimensionDragged.emit(
                     self._sketch_dimension_drag_key,
                     local[0],
@@ -1436,6 +1499,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             self._sketch_dimension_drag_key = None
             self._sketch_dimension_drag_moved = False
+            if dimension_was_dragged:
+                self.sketchDimensionSelected.emit("")
             event.accept()
             return
         if (
@@ -2365,9 +2430,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 QColor("#00D1FF")
                 if dimension.key == self._selected_dimension_key
                 else (
-                    QColor("#9A6A3A")
-                    if dimension.key in self._locked_dimension_keys
-                    else QColor("#FFF06A")
+                    QColor("#FF7A00")
+                    if dimension.key == self._hovered_dimension_key
+                    else (
+                        QColor("#9A6A3A")
+                        if dimension.key in self._locked_dimension_keys
+                        else QColor("#FFF06A")
+                    )
                 )
             )
             painter.setPen(QPen(color, 1.5))
