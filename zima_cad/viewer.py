@@ -53,6 +53,7 @@ class LinearDimension:
     leader_anchor: str = "rightmost"
     value_prefix: str = ""
     value_suffix: str = ""
+    display_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,18 @@ class AngularDimension:
     sweep_degrees: float | None = None
     value_prefix: str = ""
     value_suffix: str = "°"
+
+
+@dataclass(frozen=True)
+class RadialDimension:
+    key: str
+    center: Point3
+    radius_point: Point3
+    value_prefix: str = "R"
+    value_suffix: str = ""
+    display_text: str = ""
+    arrow_placement: str = "outside"
+    diameter: bool = False
 
 
 GL_COLOR_BUFFER_BIT = 0x00004000
@@ -201,6 +214,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchCornerRadiusDragged = Signal(str, float, float, bool)
     sketchDimensionDragged = Signal(str, float, float, bool)
     sketchDimensionSelected = Signal(str)
+    sketchDimensionEditRequested = Signal(str)
     sketchDimensionHovered = Signal(str)
     sketchEntityHovered = Signal(str)
     sketchCursorMoved = Signal(float, float)
@@ -269,7 +283,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
-        self._dimensions: tuple[LinearDimension | AngularDimension, ...] = ()
+        self._dimensions: tuple[
+            LinearDimension | AngularDimension | RadialDimension, ...
+        ] = ()
         self._locked_dimension_keys: frozenset[str] = frozenset()
         self._selected_dimension_key: str | None = None
         self._hovered_dimension_key: str | None = None
@@ -288,6 +304,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_sketch_entity_id: str | None = None
         self._selected_sketch_entity_ids: frozenset[str] = frozenset()
         self._selected_sketch_corner_radius: tuple[str, str, str] | None = None
+        self._hovered_sketch_corner_radius: tuple[str, str, str] | None = None
         self._sketch_box_start: QPointF | None = None
         self._sketch_box_end: QPointF | None = None
         self._sketch_corner_drag_vertex_id: str | None = None
@@ -635,7 +652,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_dimensions(
         self,
-        dimensions: tuple[LinearDimension | AngularDimension, ...],
+        dimensions: tuple[
+            LinearDimension | AngularDimension | RadialDimension, ...
+        ],
     ) -> None:
         self._dimensions = dimensions
         self._locked_dimension_keys &= frozenset(
@@ -718,7 +737,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ):
                 return dimension.key
             segments: list[tuple[QPointF, QPointF]] = []
-            if geometry.get("angular"):
+            if geometry.get("radial"):
+                segments.append((
+                    geometry.get("radial_start", geometry["center"]),
+                    geometry["radial_end"],
+                ))
+                if geometry.get("shoulder_end") is not None:
+                    segments.append((
+                        geometry["shoulder_start"],
+                        geometry["shoulder_end"],
+                    ))
+            elif geometry.get("angular"):
                 arc = geometry.get("arc", ())
                 segments.extend(
                     (arc[index - 1], arc[index])
@@ -1006,7 +1035,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._sketch_constraint_selection_mode
                 and self._sketch_tool in ("dimension", "midpoint")
             ):
-                self._cycle_sketch_entity(event.position())
+                if (
+                    self._sketch_tool == "dimension"
+                    and any(
+                        dimension.key == "sketch_dimension_preview"
+                        for dimension in self._dimensions
+                    )
+                ):
+                    self.sketchAlternateCurrentRequested.emit()
+                else:
+                    self._cycle_sketch_entity(event.position())
             elif self._sketch_constraint_selection_mode:
                 self.sketchAlternateCurrentRequested.emit()
             elif self._sketch_selection_mode:
@@ -1034,17 +1072,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._sketch_reference_selection_mode
         ):
             if self._sketch_selection_mode:
-                if (
-                    not self._sketch_constraint_selection_mode
-                    or self._sketch_tool in ("equal_length", "equal_radius")
-                ):
-                    corner_radius = self._corner_radius_candidate(
-                        event.position()
-                    )
-                    if corner_radius is not None:
-                        self.sketchCornerRadiusSelected.emit(*corner_radius)
-                        event.accept()
-                        return
                 if self._sketch_tool in ("select", "dimension"):
                     dimension_key = self.dimension_key_at(event.position())
                     geometry_candidates = self._sketch_selection_candidates(
@@ -1071,6 +1098,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self.sketchDimensionSelected.emit(dimension_key)
                         self._sketch_dimension_drag_key = dimension_key
                         self._sketch_dimension_drag_moved = False
+                        event.accept()
+                        return
+                if (
+                    not self._sketch_constraint_selection_mode
+                    or self._sketch_tool
+                    in ("equal_length", "equal_radius", "dimension")
+                ):
+                    corner_radius = self._corner_radius_candidate(
+                        event.position()
+                    )
+                    if corner_radius is not None:
+                        self.sketchCornerRadiusSelected.emit(*corner_radius)
                         event.accept()
                         return
                 if not self._sketch_constraint_selection_mode:
@@ -1318,6 +1357,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if local is not None:
                 self.sketchCursorMoved.emit(*local)
             candidates = self._sketch_selection_candidates(event.position())
+            hovered_corner_radius = (
+                self._corner_radius_candidate(event.position())
+                if self._sketch_tool
+                in ("select", "dimension", "equal_length", "equal_radius")
+                else None
+            )
             hovered_dimension = (
                 self.dimension_key_at(event.position())
                 if self._sketch_tool in ("select", "dimension")
@@ -1325,6 +1370,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             if hovered_dimension == "sketch_dimension_preview":
                 hovered_dimension = None
+            if hovered_corner_radius is not None:
+                candidates = ()
+                hovered_dimension = None
+            if hovered_corner_radius != self._hovered_sketch_corner_radius:
+                self._hovered_sketch_corner_radius = hovered_corner_radius
+                self.update()
             point_ids = {
                 str(entity.get("id", ""))
                 for entity in self._sketch_entities
@@ -1462,6 +1513,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
+        if self._hovered_sketch_corner_radius is not None:
+            self._hovered_sketch_corner_radius = None
+            self.update()
         if self._hovered_dimension_key is not None:
             self._hovered_dimension_key = None
             self.sketchDimensionHovered.emit("")
@@ -1643,6 +1697,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._last_mouse_position = None
             event.accept()
             return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_frame is not None
+            and self._sketch_tool in ("select", "dimension")
+        ):
+            dimension_key = self.dimension_key_at(event.position())
+            if (
+                dimension_key is not None
+                and dimension_key != "sketch_dimension_preview"
+            ):
+                # The first press of a double-click may have armed dimension
+                # dragging. Editing and dragging are mutually exclusive;
+                # otherwise the following release/move regenerates the
+                # overlay and immediately destroys the editor just opened.
+                self._sketch_dimension_drag_key = None
+                self._sketch_dimension_drag_moved = False
+                self.sketchDimensionSelected.emit(dimension_key)
+                self.sketchDimensionEditRequested.emit(dimension_key)
+                event.accept()
+                return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._interaction_mode == "object"
@@ -2206,8 +2280,96 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _dimension_screen_geometry(
         self,
-        dimension: LinearDimension | AngularDimension,
+        dimension: LinearDimension | AngularDimension | RadialDimension,
     ) -> dict[str, Any]:
+        if isinstance(dimension, RadialDimension):
+            center = self._screen_point(self._camera_point(dimension.center))
+            endpoint = self._screen_point(
+                self._camera_point(dimension.radius_point)
+            )
+            dx = endpoint.x() - center.x()
+            dy = endpoint.y() - center.y()
+            length = hypot(dx, dy)
+            if length <= 1.0e-9:
+                return {
+                    "radial": True,
+                    "center": center,
+                    "endpoint": endpoint,
+                    "radial_end": endpoint,
+                    "shoulder_start": endpoint,
+                    "shoulder_end": endpoint,
+                    "arrow": QPolygonF(),
+                    "opposite_arrow": QPolygonF(),
+                    "value_position": center,
+                }
+            ux, uy = dx / length, dy / length
+            px, py = -uy, ux
+            arrow_length = 10.0
+            arrow_half_width = arrow_length * tan(radians(15.0))
+            outside = dimension.arrow_placement == "outside"
+            base = QPointF(
+                endpoint.x() + ux * arrow_length * (1.0 if outside else -1.0),
+                endpoint.y() + uy * arrow_length * (1.0 if outside else -1.0),
+            )
+            arrow = QPolygonF([
+                endpoint,
+                QPointF(
+                    base.x() + px * arrow_half_width,
+                    base.y() + py * arrow_half_width,
+                ),
+                QPointF(
+                    base.x() - px * arrow_half_width,
+                    base.y() - py * arrow_half_width,
+                ),
+            ])
+            opposite = QPointF(center.x() - dx, center.y() - dy)
+            opposite_base = QPointF(
+                opposite.x() - ux * arrow_length,
+                opposite.y() - uy * arrow_length,
+            )
+            opposite_arrow = QPolygonF([
+                opposite,
+                QPointF(
+                    opposite_base.x() + px * arrow_half_width,
+                    opposite_base.y() + py * arrow_half_width,
+                ),
+                QPointF(
+                    opposite_base.x() - px * arrow_half_width,
+                    opposite_base.y() - py * arrow_half_width,
+                ),
+            ])
+            # The radius line ends at the measured arc and the horizontal
+            # shoulder begins at the back of the outward-facing arrow.
+            radial_end = endpoint
+            shoulder_start = base
+            shoulder_direction = 1.0 if ux >= 0.0 else -1.0
+            shoulder_end = QPointF(
+                shoulder_start.x() + shoulder_direction * 36.0,
+                shoulder_start.y(),
+            )
+            return {
+                "radial": True,
+                "center": center,
+                "endpoint": endpoint,
+                "radial_start": opposite if dimension.diameter else center,
+                "radial_end": radial_end,
+                "shoulder_start": shoulder_start,
+                "shoulder_end": shoulder_end,
+                "arrow": arrow,
+                "opposite_arrow": (
+                    opposite_arrow if dimension.diameter else QPolygonF()
+                ),
+                "value_position": QPointF(
+                    shoulder_end.x()
+                    + (2.0 if shoulder_direction > 0.0 else -30.0),
+                    shoulder_end.y(),
+                ),
+                "text_position": QPointF(
+                    shoulder_end.x()
+                    + (2.0 if shoulder_direction > 0.0 else -30.0),
+                    shoulder_end.y() + 5.0,
+                ),
+            }
         if isinstance(dimension, AngularDimension):
             def subtract(first: Point3, second: Point3) -> Point3:
                 return tuple(
@@ -2442,6 +2604,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(QPen(color, 1.5))
             painter.setBrush(QBrush(color))
             geometry = self._dimension_screen_geometry(dimension)
+            if geometry.get("radial"):
+                painter.drawLine(
+                    geometry.get("radial_start", geometry["center"]),
+                    geometry["radial_end"],
+                )
+                if geometry.get("shoulder_end") is not None:
+                    painter.drawLine(
+                        geometry["shoulder_start"],
+                        geometry["shoulder_end"],
+                    )
+                painter.drawPolygon(geometry["arrow"])
+                if not geometry["opposite_arrow"].isEmpty():
+                    painter.drawPolygon(geometry["opposite_arrow"])
+                if dimension.display_text:
+                    painter.drawText(
+                        geometry.get(
+                            "text_position", geometry["value_position"]
+                        ),
+                        dimension.display_text,
+                    )
+                continue
             if geometry.get("angular"):
                 painter.drawLine(
                     geometry["vertex"],
@@ -2479,6 +2662,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 geometry["leader_start"],
                 geometry["leader_end"],
             )
+            if dimension.display_text:
+                painter.drawText(
+                    geometry["value_position"],
+                    dimension.display_text,
+                )
         painter.end()
 
     def _sketch_world_point(self, point: tuple[float, float]) -> Point3:
@@ -2884,10 +3072,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 == self._selected_sketch_entity_id
                 or str(entity.get("id", ""))
                 in self._selected_sketch_entity_ids
+                or (
+                    entity_type == "point"
+                    and self._selected_sketch_corner_radius is not None
+                    and str(entity.get("id", ""))
+                    == self._selected_sketch_corner_radius[2]
+                )
             )
             previewed = (
                 str(entity.get("id", ""))
                 == self._preview_sketch_entity_id
+                or (
+                    entity_type == "point"
+                    and self._hovered_sketch_corner_radius is not None
+                    and str(entity.get("id", ""))
+                    == self._hovered_sketch_corner_radius[2]
+                )
             )
             raw_points = entity.get("points", ())
             if entity_type == "point" and "id" in entity:
@@ -2999,6 +3199,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for raw_arc, first_id, second_id, vertex_id in corner_arcs:
+            hovered = self._hovered_sketch_corner_radius == (
+                first_id,
+                second_id,
+                vertex_id,
+            )
             selected = (
                 first_id in self._selected_sketch_entity_ids
                 and second_id in self._selected_sketch_entity_ids
@@ -3009,8 +3214,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             painter.setPen(
                 QPen(
-                    cyan if selected else yellow,
-                    3.0 if selected else 2.0,
+                    cyan
+                    if selected
+                    else QColor("#FF7A00") if hovered else yellow,
+                    3.0 if selected or hovered else 2.0,
                 )
             )
             arc = QPolygonF(

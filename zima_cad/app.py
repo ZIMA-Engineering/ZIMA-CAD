@@ -127,6 +127,7 @@ from zima_cad.localization import configure_localization, tr
 from zima_cad.viewer import (
     AngularDimension,
     LinearDimension,
+    RadialDimension,
     ZimaOpenGLViewer,
 )
 from zima_cad.viewer_scene import (
@@ -4192,7 +4193,7 @@ class ParameterEditOverlay(QWidget):
         self.value_edit.setReadOnly(True)
         self.value_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedWidth(self._passive_width)
-        self._update_style(selected=self._selected)
+        self._update_style(selected=False)
         self.valueCommitted.emit(self.value_edit.text())
 
     def _cancel_edit(self) -> None:
@@ -4823,6 +4824,10 @@ class MainWindow(QMainWindow):
         self._sketch_dimension_cursor: tuple[float, float] | None = None
         self._sketch_dimension_preview_type: str | None = None
         self._sketch_angle_variant = 0
+        self._sketch_radius_dimension_selection: tuple[str, str, str] | None = None
+        self._sketch_radius_dimension_mode = "outside"
+        self._sketch_circle_dimension_selection: str | None = None
+        self._sketch_circle_dimension_mode = "diameter"
         self._sketch_selected_entity_id: str | None = None
         self._sketch_selected_entity_ids: set[str] = set()
         self._sketch_selected_corner_radius: tuple[str, str, str] | None = None
@@ -4927,6 +4932,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchDimensionSelected.connect(
             self._select_dimension_overlay
+        )
+        self.native_viewer.sketchDimensionEditRequested.connect(
+            self._edit_dimension_overlay_value
         )
         self.native_viewer.sketchDimensionHovered.connect(
             self._set_hovered_dimension_overlay
@@ -14081,6 +14089,10 @@ class MainWindow(QMainWindow):
         self._sketch_dimension_cursor = None
         self._sketch_dimension_preview_type = None
         self._sketch_angle_variant = 0
+        self._sketch_radius_dimension_selection = None
+        self._sketch_radius_dimension_mode = "outside"
+        self._sketch_circle_dimension_selection = None
+        self._sketch_circle_dimension_mode = "diameter"
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
         self._sketch_selected_corner_radius = None
@@ -14206,6 +14218,8 @@ class MainWindow(QMainWindow):
         self._sketch_dimension_cursor = None
         self._sketch_dimension_preview_type = None
         self._sketch_angle_variant = 0
+        self._sketch_circle_dimension_selection = None
+        self._sketch_circle_dimension_mode = "diameter"
         if (
             tool != "select"
             or previous_tool in (
@@ -14285,6 +14299,10 @@ class MainWindow(QMainWindow):
         self._sketch_dimension_cursor = None
         self._sketch_dimension_preview_type = None
         self._sketch_angle_variant = 0
+        self._sketch_radius_dimension_selection = None
+        self._sketch_radius_dimension_mode = "outside"
+        self._sketch_circle_dimension_selection = None
+        self._sketch_circle_dimension_mode = "diameter"
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
         self._refresh_sketch_overlay()
@@ -14605,6 +14623,8 @@ class MainWindow(QMainWindow):
                 sketch,
                 self._sketch_pending_point_ids[0],
                 radius,
+                rim_position=(x, y),
+                reference_id=reference_id,
             )
             return
         if self._sketch_tool == "coincident":
@@ -15056,7 +15076,11 @@ class MainWindow(QMainWindow):
         if self._sketch_edit_entity_id is None:
             return
         if self._sketch_tool == "dimension":
-            if self._sketch_dimension_point_ids:
+            if (
+                self._sketch_dimension_point_ids
+                or self._sketch_radius_dimension_selection is not None
+                or self._sketch_circle_dimension_selection is not None
+            ):
                 sketch = (
                     self.document.find_entity(self._sketch_edit_entity_id)
                     if self.document is not None
@@ -15155,6 +15179,26 @@ class MainWindow(QMainWindow):
     def _alternate_current_sketch_entity(self) -> None:
         if (
             self._sketch_tool == "dimension"
+            and self._sketch_circle_dimension_selection is not None
+            and self._sketch_dimension_cursor is not None
+        ):
+            self._sketch_circle_dimension_mode = (
+                "radius"
+                if self._sketch_circle_dimension_mode == "diameter"
+                else "diameter"
+            )
+            self._on_sketch_dimension_cursor_moved(
+                *self._sketch_dimension_cursor
+            )
+            return
+        if (
+            self._sketch_tool == "dimension"
+            and self._sketch_radius_dimension_selection is not None
+            and self._sketch_dimension_cursor is not None
+        ):
+            return
+        if (
+            self._sketch_tool == "dimension"
             and self._sketch_dimension_cursor is not None
             and self.document is not None
             and self._sketch_edit_entity_id is not None
@@ -15251,6 +15295,7 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_selection()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+        self._refresh_sketch_overlay(populate_tree=False)
         if not self._sketch_show_all_dimensions:
             self._clear_dimension_overlays()
         elif (
@@ -15263,7 +15308,6 @@ class MainWindow(QMainWindow):
             is not None
         ):
             self._show_all_sketch_dimensions(sketch)
-        self._refresh_sketch_overlay(populate_tree=False)
         self._rebuild_application_toolbar()
 
     def _remove_pending_sketch_points(self) -> None:
@@ -15371,6 +15415,7 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_selection()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+        self._refresh_sketch_overlay()
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
         elif (
@@ -15381,7 +15426,6 @@ class MainWindow(QMainWindow):
             self._show_sketch_point_dimensions(sketch, selected)
         else:
             self._clear_dimension_overlays()
-        self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
 
     def _select_sketch_entities(self, entity_ids: object) -> None:
@@ -15411,11 +15455,11 @@ class MainWindow(QMainWindow):
         self._sketch_selected_dimension_id = None
         self._sketch_selected_reference = None
         self._sketch_selected_external_reference_id = None
+        self._refresh_sketch_overlay(populate_tree=False)
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
         else:
             self._clear_dimension_overlays()
-        self._refresh_sketch_overlay(populate_tree=False)
         self._rebuild_application_toolbar()
 
     def _select_sketch_entity_additive(self, entity_id: str) -> None:
@@ -15461,6 +15505,13 @@ class MainWindow(QMainWindow):
         second_id: str,
         vertex_id: str,
     ) -> None:
+        if self._sketch_tool == "dimension":
+            self._create_sketch_radius_dimension(
+                first_id,
+                second_id,
+                vertex_id,
+            )
+            return
         if self._sketch_tool in ("equal_length", "equal_radius"):
             self._handle_sketch_equal_radius_selection(
                 first_id,
@@ -15478,6 +15529,55 @@ class MainWindow(QMainWindow):
         self._sketch_selected_dimension_id = None
         self._refresh_sketch_overlay(populate_tree=False)
         self._rebuild_application_toolbar()
+
+    def _create_sketch_radius_dimension(
+        self,
+        first_id: str,
+        second_id: str,
+        vertex_id: str,
+    ) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        record = next(
+            (
+                item
+                for entity in entities
+                if str(entity.get("id", "")) == first_id
+                for item in (
+                    entity.get("corner_radii", ())
+                    if isinstance(entity.get("corner_radii", ()), list)
+                    else ()
+                )
+                if isinstance(item, dict)
+                and str(item.get("other_geometry_id", "")) == second_id
+                and str(item.get("vertex_id", "")) == vertex_id
+            ),
+            None,
+        )
+        if record is None:
+            return
+        radius_id = str(
+            record.setdefault(
+                "id",
+                f"radius:{first_id}:{second_id}:{vertex_id}",
+            )
+        )
+        if bool(record.get("dimension_visible", False)):
+            self._select_dimension_overlay(f"sketch_radius:{radius_id}")
+            return
+        self._sketch_radius_dimension_selection = (
+            first_id,
+            second_id,
+            vertex_id,
+        )
+        self._sketch_radius_dimension_mode = "outside"
+        self._sketch_dimension_cursor = None
+        self._refresh_sketch_overlay(populate_tree=False)
+        self.statusBar().showMessage(tr("sketch.status.dimension.position"))
 
     def _handle_sketch_equal_radius_selection(
         self,
@@ -15784,6 +15884,14 @@ class MainWindow(QMainWindow):
                 updated_record["equal_radius_group"] = (
                     previous_record["equal_radius_group"]
                 )
+            if previous_record is not None:
+                for key in (
+                    "dimension_visible",
+                    "arrow_placement",
+                    "placement",
+                ):
+                    if key in previous_record:
+                        updated_record[key] = previous_record[key]
             records.append(updated_record)
             group = str(updated_record.get("equal_radius_group", ""))
             if group:
@@ -15871,6 +15979,29 @@ class MainWindow(QMainWindow):
         if sketch is None:
             return
         entities = self._stored_sketch_entities(sketch)
+        circle = next(
+            (
+                entity
+                for entity in entities
+                if entity.get("type") == "circle"
+                and str(entity.get("id", "")) == entity_id
+            ),
+            None,
+        )
+        if circle is not None:
+            circle_id = str(circle.get("id", ""))
+            if bool(circle.get("dimension_visible", False)):
+                self._select_dimension_overlay(
+                    f"sketch_circle_radius:{circle_id}"
+                )
+                return
+            self._sketch_circle_dimension_selection = circle_id
+            self._sketch_circle_dimension_mode = "diameter"
+            self._sketch_dimension_cursor = None
+            self.statusBar().showMessage(
+                tr("sketch.status.dimension.position")
+            )
+            return
         point = next(
             (
                 entity
@@ -16087,9 +16218,15 @@ class MainWindow(QMainWindow):
             return
         distance_prefix = "sketch_distance:"
         radius_prefix = "sketch_radius:"
+        circle_radius_prefix = "sketch_circle_radius:"
         point_prefix = "sketch_point:"
         if not dimension_key.startswith(
-            (distance_prefix, radius_prefix, point_prefix)
+            (
+                distance_prefix,
+                radius_prefix,
+                circle_radius_prefix,
+                point_prefix,
+            )
         ):
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
@@ -16144,6 +16281,38 @@ class MainWindow(QMainWindow):
                 self._refresh_sketch_overlay(populate_tree=False)
             restore_drag_selection()
             return
+        if dimension_key.startswith(circle_radius_prefix):
+            circle_id = dimension_key.removeprefix(circle_radius_prefix)
+            entities = self._stored_sketch_entities(sketch)
+            circle = next(
+                (
+                    item
+                    for item in entities
+                    if item.get("type") == "circle"
+                    and str(item.get("id", "")) == circle_id
+                ),
+                None,
+            )
+            if circle is None:
+                return
+            points = {
+                str(item.get("id", "")): item
+                for item in entities
+                if item.get("type") == "point"
+            }
+            point_ids = tuple(map(str, circle.get("point_ids", ())))
+            center = points.get(point_ids[0]) if point_ids else None
+            if center is None:
+                return
+            center_position = self._sketch_point_position(center)
+            circle["dimension_placement"] = [
+                float(x) - center_position[0],
+                float(y) - center_position[1],
+            ]
+            self._store_sketch_entities(sketch, entities)
+            self._show_all_sketch_dimensions(sketch)
+            restore_drag_selection()
+            return
         dimension_id = dimension_key.removeprefix(distance_prefix)
         dimensions = self._stored_sketch_dimensions(sketch)
         dimension = next(
@@ -16182,6 +16351,134 @@ class MainWindow(QMainWindow):
             for entity in self._stored_sketch_entities(sketch)
             if entity.get("type") == "point"
         }
+        if self._sketch_circle_dimension_selection is not None:
+            circle = next(
+                (
+                    item
+                    for item in self._stored_sketch_entities(sketch)
+                    if item.get("type") == "circle"
+                    and str(item.get("id", ""))
+                    == self._sketch_circle_dimension_selection
+                ),
+                None,
+            )
+            point_ids = (
+                tuple(map(str, circle.get("point_ids", ())))
+                if circle is not None else ()
+            )
+            center = points.get(point_ids[0]) if point_ids else None
+            frame = self._sketch_frame(sketch)
+            if circle is None or center is None or frame is None:
+                return
+            center_position = self._sketch_point_position(center)
+            dx, dy = x - center_position[0], y - center_position[1]
+            length = math.hypot(dx, dy)
+            radius = float(circle.get("radius", 0.0))
+            if length <= 1.0e-12 or radius <= 1.0e-12:
+                return
+            radius_point = (
+                center_position[0] + radius * dx / length,
+                center_position[1] + radius * dy / length,
+            )
+            origin, x_axis, y_axis = frame
+            def world_circle(position):
+                return tuple(
+                    origin[index]
+                    + position[0] * x_axis[index]
+                    + position[1] * y_axis[index]
+                    for index in range(3)
+                )
+            diameter = self._sketch_circle_dimension_mode == "diameter"
+            self._sketch_dimension_cursor = (x, y)
+            self._sketch_dimension_preview_type = "circle_radius"
+            self._set_sketch_dimension_preview(RadialDimension(
+                key="sketch_dimension_preview",
+                center=world_circle(center_position),
+                radius_point=world_circle(radius_point),
+                value_prefix="⌀" if diameter else "R",
+                display_text=(
+                    ("⌀" if diameter else "R")
+                    + self._format_dimension_display(
+                        radius * (2.0 if diameter else 1.0),
+                        display_decimal_places(self),
+                    )
+                ),
+                arrow_placement="outside",
+                diameter=diameter,
+            ))
+            return
+        if self._sketch_radius_dimension_selection is not None:
+            first_id, second_id, vertex_id = (
+                self._sketch_radius_dimension_selection
+            )
+            geometry_by_id = {
+                str(item.get("id", "")): item
+                for item in self._stored_sketch_entities(sketch)
+                if item.get("type") == "segment"
+            }
+            first_geometry = geometry_by_id.get(first_id)
+            second_geometry = geometry_by_id.get(second_id)
+            first_ids = tuple(map(str, first_geometry.get("point_ids", ()))) if first_geometry else ()
+            second_ids = tuple(map(str, second_geometry.get("point_ids", ()))) if second_geometry else ()
+            record = next(
+                (
+                    item
+                    for item in first_geometry.get("corner_radii", ())
+                    if isinstance(item, dict)
+                    and str(item.get("other_geometry_id", "")) == second_id
+                    and str(item.get("vertex_id", "")) == vertex_id
+                ),
+                None,
+            ) if first_geometry is not None else None
+            if (
+                record is None
+                or vertex_id not in first_ids
+                or vertex_id not in second_ids
+            ):
+                return
+            vertex = points.get(vertex_id)
+            first_outer = points.get(next(item for item in first_ids if item != vertex_id))
+            second_outer = points.get(next(item for item in second_ids if item != vertex_id))
+            frame = self._sketch_frame(sketch)
+            if vertex is None or first_outer is None or second_outer is None or frame is None:
+                return
+            evaluated = evaluate_corner_radius(
+                self._sketch_point_position(vertex),
+                self._sketch_point_position(first_outer),
+                self._sketch_point_position(second_outer),
+                float(record.get("radius", 0.0)),
+            )
+            if evaluated is None:
+                return
+            origin, x_axis, y_axis = frame
+            def world_radius(position):
+                return tuple(
+                    origin[index] + position[0] * x_axis[index] + position[1] * y_axis[index]
+                    for index in range(3)
+                )
+            radius_point = min(
+                evaluated.arc_points,
+                key=lambda point: math.hypot(point[0] - x, point[1] - y),
+            )
+            self._sketch_dimension_cursor = (x, y)
+            self._sketch_dimension_preview_type = "radius"
+            self._set_sketch_dimension_preview(
+                RadialDimension(
+                    key="sketch_dimension_preview",
+                    center=world_radius(evaluated.center),
+                    radius_point=world_radius(radius_point),
+                    value_prefix="R",
+                    display_text=(
+                        "R"
+                        + self._format_dimension_display(
+                            float(record.get("radius", 0.0)),
+                            display_decimal_places(self),
+                        )
+                    ),
+                    arrow_placement="outside",
+                )
+            )
+            return
         axis_line_geometry = self._unified_axis_line_geometry(sketch, points)
         if axis_line_geometry is not None:
             first, second, reference_id, value, _side = axis_line_geometry
@@ -16443,7 +16740,7 @@ class MainWindow(QMainWindow):
 
     def _set_sketch_dimension_preview(
         self,
-        preview: LinearDimension | AngularDimension,
+        preview: LinearDimension | AngularDimension | RadialDimension,
     ) -> None:
         existing = tuple(
             dimension
@@ -16699,6 +16996,10 @@ class MainWindow(QMainWindow):
         )
 
     def _commit_unified_dimension(self) -> bool:
+        if self._sketch_circle_dimension_selection is not None:
+            return self._commit_sketch_circle_dimension()
+        if self._sketch_radius_dimension_selection is not None:
+            return self._commit_sketch_radius_dimension()
         if self._sketch_dimension_preview_type == "distance_axis":
             return self._commit_unified_axis_line_dimension()
         if self._sketch_dimension_preview_type == "distance_line":
@@ -16811,6 +17112,111 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("sketch.status.dimension.created")
         )
+        return True
+
+    def _commit_sketch_circle_dimension(self) -> bool:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_dimension_cursor is None
+            or self._sketch_circle_dimension_selection is None
+        ):
+            return False
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return False
+        entities = self._stored_sketch_entities(sketch)
+        circle = next(
+            (
+                item
+                for item in entities
+                if item.get("type") == "circle"
+                and str(item.get("id", ""))
+                == self._sketch_circle_dimension_selection
+            ),
+            None,
+        )
+        if circle is None:
+            return False
+        point_ids = tuple(map(str, circle.get("point_ids", ())))
+        center = next(
+            (
+                item for item in entities
+                if item.get("type") == "point"
+                and point_ids
+                and str(item.get("id", "")) == point_ids[0]
+            ),
+            None,
+        )
+        if center is None:
+            return False
+        cx, cy = self._sketch_point_position(center)
+        x, y = self._sketch_dimension_cursor
+        circle["dimension_visible"] = True
+        circle["dimension_mode"] = self._sketch_circle_dimension_mode
+        circle["dimension_placement"] = [x - cx, y - cy]
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_circle_dimension_selection = None
+        self._sketch_circle_dimension_mode = "diameter"
+        self._sketch_dimension_cursor = None
+        self._sketch_dimension_preview_type = None
+        self._refresh_sketch_overlay(populate_tree=False)
+        self._show_all_sketch_dimensions(sketch)
+        self.statusBar().showMessage(tr("sketch.status.dimension.created"))
+        return True
+
+    def _commit_sketch_radius_dimension(self) -> bool:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_dimension_cursor is None
+            or self._sketch_radius_dimension_selection is None
+        ):
+            return False
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return False
+        first_id, second_id, vertex_id = self._sketch_radius_dimension_selection
+        entities = self._stored_sketch_entities(sketch)
+        record = next(
+            (
+                item
+                for entity in entities
+                if str(entity.get("id", "")) == first_id
+                for item in entity.get("corner_radii", ())
+                if isinstance(item, dict)
+                and str(item.get("other_geometry_id", "")) == second_id
+                and str(item.get("vertex_id", "")) == vertex_id
+            ),
+            None,
+        )
+        if record is None:
+            return False
+        record.setdefault("id", f"radius:{first_id}:{second_id}:{vertex_id}")
+        record["dimension_visible"] = True
+        record["arrow_placement"] = "outside"
+        record.pop("dimension_mode", None)
+        record["placement"] = list(self._sketch_dimension_cursor)
+        self._store_sketch_entities(sketch, entities)
+        # Replace the radial preview atomically. The generic clearing helper
+        # refreshes the sketch/tree before dimensions are rebuilt, exposing
+        # the stale preview and destroying every value overlay mid-click.
+        self._sketch_dimension_point_ids.clear()
+        self._sketch_dimension_reference_id = None
+        self._sketch_dimension_cursor = None
+        self._sketch_dimension_preview_type = None
+        self._sketch_angle_variant = 0
+        self._sketch_radius_dimension_selection = None
+        self._sketch_radius_dimension_mode = "outside"
+        self._sketch_selected_entity_id = None
+        self._sketch_selected_entity_ids.clear()
+        # Creating a radius annotation changes no sketch geometry. Rebuilding
+        # the model here destroys every existing dimension widget while the
+        # middle-click event is still active and leaves the new radius widget
+        # at its default top-left position. Replace only the preview/overlays.
+        self._refresh_sketch_overlay(populate_tree=False)
+        self._show_all_sketch_dimensions(sketch)
+        self.statusBar().showMessage(tr("sketch.status.dimension.created"))
         return True
 
     def _commit_unified_axis_line_dimension(self) -> bool:
@@ -18227,6 +18633,71 @@ class MainWindow(QMainWindow):
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
 
+    def _delete_sketch_radius_dimension(self, radius_id: str) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        record = next(
+            (
+                item
+                for entity in entities
+                for item in (
+                    entity.get("corner_radii", ())
+                    if isinstance(entity.get("corner_radii", ()), list)
+                    else ()
+                )
+                if isinstance(item, dict)
+                and str(item.get("id", "")) == radius_id
+            ),
+            None,
+        )
+        if record is None or not bool(record.get("dimension_visible", False)):
+            return
+        record.pop("dimension_visible", None)
+        record.pop("dimension_mode", None)
+        record.pop("arrow_placement", None)
+        record.pop("placement", None)
+        self._store_sketch_entities(sketch, entities)
+        styles = self._dimension_styles(sketch)
+        styles.pop(f"sketch_radius:{radius_id}", None)
+        sketch.parameters["dimension_styles"] = json.dumps(
+            styles,
+            ensure_ascii=False,
+        )
+        self.native_viewer.set_selected_dimension(None)
+        self._clear_dimension_overlays()
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        if self._sketch_show_all_dimensions:
+            self._show_all_sketch_dimensions(sketch)
+
+    def _delete_sketch_circle_radius_dimension(self, circle_id: str) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        circle = next(
+            (
+                item
+                for item in entities
+                if item.get("type") == "circle"
+                and str(item.get("id", "")) == circle_id
+            ),
+            None,
+        )
+        if circle is None:
+            return
+        circle.pop("dimension_visible", None)
+        circle.pop("dimension_placement", None)
+        self._store_sketch_entities(sketch, entities)
+        self._show_all_sketch_dimensions(sketch)
+
     def _delete_sketch_external_reference(
         self,
         reference_id: str,
@@ -18371,8 +18842,8 @@ class MainWindow(QMainWindow):
         )
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
-        self._show_all_sketch_dimensions(sketch)
         self._refresh_sketch_overlay()
+        self._show_all_sketch_dimensions(sketch)
         self._rebuild_application_toolbar()
         self.statusBar().showMessage(
             tr(
@@ -18480,6 +18951,16 @@ class MainWindow(QMainWindow):
                 self._delete_sketch_point_dimension(
                     str(selected_dimension_binding[1]),
                     str(selected_dimension_binding[2]),
+                )
+                return
+            if selected_dimension_binding[0] == "sketch_radius":
+                self._delete_sketch_radius_dimension(
+                    str(selected_dimension_binding[1])
+                )
+                return
+            if selected_dimension_binding[0] == "sketch_circle_radius":
+                self._delete_sketch_circle_radius_dimension(
+                    str(selected_dimension_binding[1])
                 )
                 return
         if self._sketch_selected_entity_ids:
@@ -18749,9 +19230,9 @@ class MainWindow(QMainWindow):
         self._clear_dimension_overlays()
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
-        self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
 
     def _commit_pending_sketch_entity(self) -> None:
@@ -18947,16 +19428,78 @@ class MainWindow(QMainWindow):
         sketch: ZimaEntity,
         centre_id: str,
         radius: float,
+        *,
+        rim_position: tuple[float, float] | None = None,
+        reference_id: str | None = None,
     ) -> None:
         if not centre_id or not math.isfinite(radius) or radius <= 1.0e-12:
             return
         entities = self._stored_sketch_entities(sketch)
-        entities.append({
+        circle = {
             "id": self._next_sketch_geometry_id(entities),
             "type": "circle",
             "point_ids": [centre_id],
             "radius": radius,
-        })
+        }
+        if rim_position is not None:
+            target_point = next(
+                (
+                    entity
+                    for entity in entities
+                    if entity.get("type") == "point"
+                    and math.hypot(
+                        float(entity.get("x", 0.0)) - rim_position[0],
+                        float(entity.get("y", 0.0)) - rim_position[1],
+                    )
+                    <= 1.0e-9
+                    and str(entity.get("id", "")) != centre_id
+                ),
+                None,
+            )
+            if target_point is not None:
+                circle["rim_coincident"] = {
+                    "type": "point",
+                    "point_id": str(target_point.get("id", "")),
+                }
+            elif reference_id and reference_id.startswith(
+                "sketch_geometry:"
+            ):
+                geometry_id = reference_id.split(":", 1)[1]
+                geometry = next(
+                    (
+                        item
+                        for item in entities
+                        if str(item.get("id", "")) == geometry_id
+                        and item.get("type")
+                        in ("segment", "construction")
+                    ),
+                    None,
+                )
+                factor = 0.0
+                if geometry is not None:
+                    points = {
+                        str(item.get("id", "")): item
+                        for item in entities
+                        if item.get("type") == "point"
+                    }
+                    ids = tuple(map(str, geometry.get("point_ids", ())))
+                    first = points.get(ids[0]) if len(ids) == 2 else None
+                    second = points.get(ids[1]) if len(ids) == 2 else None
+                    if first is not None and second is not None:
+                        ax, ay = self._sketch_point_position(first)
+                        bx, by = self._sketch_point_position(second)
+                        squared = (bx - ax) ** 2 + (by - ay) ** 2
+                        if squared > 1.0e-12:
+                            factor = (
+                                (rim_position[0] - ax) * (bx - ax)
+                                + (rim_position[1] - ay) * (by - ay)
+                            ) / squared
+                circle["rim_coincident"] = {
+                    "type": "geometry",
+                    "geometry_id": geometry_id,
+                    "factor": factor,
+                }
+        entities.append(circle)
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
         self._sketch_pending_points.clear()
@@ -19050,6 +19593,7 @@ class MainWindow(QMainWindow):
             self._apply_sketch_geometry_constraints(entities, sketch)
             self._apply_sketch_distance_dimensions(sketch, entities)
             self._apply_sketch_coincident_constraints(entities)
+            self._apply_sketch_circle_rim_constraints(entities)
         dimensions = self._stored_sketch_dimensions(sketch)
         candidate = SketchModel.from_editor_data(entities, dimensions)
         if (
@@ -19086,6 +19630,55 @@ class MainWindow(QMainWindow):
         else:
             self._clear_dimension_overlays()
         self.native_viewer.set_selected_dimension(None)
+
+    def _apply_sketch_circle_rim_constraints(
+        self,
+        entities: list[dict[str, Any]],
+    ) -> None:
+        points = {
+            str(item.get("id", "")): item
+            for item in entities
+            if item.get("type") == "point"
+        }
+        geometry = {
+            str(item.get("id", "")): item
+            for item in entities
+            if item.get("type") in ("segment", "construction")
+        }
+        for circle in (
+            item for item in entities if item.get("type") == "circle"
+        ):
+            ids = tuple(map(str, circle.get("point_ids", ())))
+            center = points.get(ids[0]) if ids else None
+            constraint = circle.get("rim_coincident")
+            if center is None or not isinstance(constraint, dict):
+                continue
+            target = None
+            if constraint.get("type") == "point":
+                target = points.get(str(constraint.get("point_id", "")))
+                if target is not None:
+                    target = self._sketch_point_position(target)
+            elif constraint.get("type") == "geometry":
+                line = geometry.get(str(constraint.get("geometry_id", "")))
+                line_ids = (
+                    tuple(map(str, line.get("point_ids", ())))
+                    if line is not None else ()
+                )
+                first = points.get(line_ids[0]) if len(line_ids) == 2 else None
+                second = points.get(line_ids[1]) if len(line_ids) == 2 else None
+                if first is not None and second is not None:
+                    ax, ay = self._sketch_point_position(first)
+                    bx, by = self._sketch_point_position(second)
+                    factor = float(constraint.get("factor", 0.0))
+                    target = (
+                        ax + factor * (bx - ax),
+                        ay + factor * (by - ay),
+                    )
+            if target is not None:
+                cx, cy = self._sketch_point_position(center)
+                radius = math.hypot(target[0] - cx, target[1] - cy)
+                if radius > 1.0e-12:
+                    circle["radius"] = radius
 
     def _show_sketch_point_dimensions(
         self,
@@ -19132,6 +19725,7 @@ class MainWindow(QMainWindow):
             tuple[LinearDimension | AngularDimension, str, float]
         ] = []
         radius_values: list[tuple[LinearDimension, str, float]] = []
+        circle_radius_values: list[tuple[RadialDimension, str, float]] = []
         dimension_styles = self._dimension_styles(sketch)
         all_entities = self._stored_sketch_entities(sketch)
         points_by_id = {
@@ -19495,6 +20089,48 @@ class MainWindow(QMainWindow):
             for entity in all_entities
             if entity.get("type") == "segment"
         }
+        for circle in (
+            entity
+            for entity in all_entities
+            if entity.get("type") == "circle"
+            and bool(entity.get("dimension_visible", False))
+        ):
+            point_ids = tuple(map(str, circle.get("point_ids", ())))
+            center = points_by_id.get(point_ids[0]) if point_ids else None
+            radius = float(circle.get("radius", 0.0))
+            if center is None or radius <= 1.0e-12:
+                continue
+            center_position = self._sketch_point_position(center)
+            placement = circle.get("dimension_placement", (1.0, 0.0))
+            direction = (
+                (float(placement[0]), float(placement[1]))
+                if isinstance(placement, list) and len(placement) >= 2
+                else (1.0, 0.0)
+            )
+            direction_length = math.hypot(*direction)
+            if direction_length <= 1.0e-12:
+                direction = (1.0, 0.0)
+                direction_length = 1.0
+            radius_point = (
+                center_position[0] + radius * direction[0] / direction_length,
+                center_position[1] + radius * direction[1] / direction_length,
+            )
+            circle_id = str(circle.get("id", ""))
+            diameter = str(circle.get("dimension_mode", "diameter")) == "diameter"
+            dimension = RadialDimension(
+                key=f"sketch_circle_radius:{circle_id}",
+                center=world(*center_position),
+                radius_point=world(*radius_point),
+                value_prefix="⌀" if diameter else "R",
+                arrow_placement="outside",
+                diameter=diameter,
+            )
+            dimensions.append(dimension)
+            circle_radius_values.append((
+                dimension,
+                circle_id,
+                radius * (2.0 if diameter else 1.0),
+            ))
         for first_id, first_geometry in geometry_by_id.items():
             first_ids = tuple(
                 map(str, first_geometry.get("point_ids", ()))
@@ -19504,6 +20140,8 @@ class MainWindow(QMainWindow):
                 continue
             for record in records:
                 if not isinstance(record, dict):
+                    continue
+                if not bool(record.get("dimension_visible", False)):
                     continue
                 second_id = str(record.get("other_geometry_id", ""))
                 vertex_id = str(record.get("vertex_id", ""))
@@ -19542,11 +20180,9 @@ class MainWindow(QMainWindow):
                     record.get("id")
                     or f"radius:{first_id}:{second_id}:{vertex_id}"
                 )
-                midpoint = evaluated.arc_points[
-                    len(evaluated.arc_points) // 2
-                ]
+                midpoint = evaluated.arc_points[len(evaluated.arc_points) // 2]
                 placement = record.get("placement", ())
-                label_point = (
+                placement_point = (
                     (
                         float(placement[0]),
                         float(placement[1]),
@@ -19554,25 +20190,19 @@ class MainWindow(QMainWindow):
                     if isinstance(placement, list) and len(placement) >= 2
                     else midpoint
                 )
-                center = evaluated.center
-                dx = label_point[0] - center[0]
-                dy = label_point[1] - center[1]
-                length = math.hypot(dx, dy)
-                if length <= 1.0e-12:
-                    continue
-                dimension = LinearDimension(
-                    key=f"sketch_radius:{radius_id}",
-                    first_point=world(*center),
-                    second_point=world(*midpoint),
-                    first_dimension_point=world(*center),
-                    second_dimension_point=world(*label_point),
-                    direction=tuple(
-                        (dx / length) * x_axis[index]
-                        + (dy / length) * y_axis[index]
-                        for index in range(3)
+                radius_point = min(
+                    evaluated.arc_points,
+                    key=lambda point: math.hypot(
+                        point[0] - placement_point[0],
+                        point[1] - placement_point[1],
                     ),
-                    leader_anchor="second",
+                )
+                dimension = RadialDimension(
+                    key=f"sketch_radius:{radius_id}",
+                    center=world(*evaluated.center),
+                    radius_point=world(*radius_point),
                     value_prefix="R",
+                    arrow_placement="outside",
                 )
                 dimensions.append(dimension)
                 radius_values.append((
@@ -19685,6 +20315,25 @@ class MainWindow(QMainWindow):
                 "sketch_radius",
                 radius_id,
             )
+        for dimension, circle_id, value in circle_radius_values:
+            overlay = ParameterEditOverlay(self.native_viewer)
+            self._configure_dimension_overlay(
+                overlay, sketch, dimension, value
+            )
+            overlay.valueCommitted.connect(
+                lambda raw_value, key=dimension.key:
+                self._commit_dimension_value(key, raw_value)
+            )
+            overlay.selected.connect(
+                lambda key=dimension.key:
+                self._select_dimension_overlay(key)
+            )
+            self._dimension_overlays[dimension.key] = overlay
+            self._dimension_bindings[dimension.key] = (
+                "sketch_circle_radius",
+                circle_id,
+            )
+        self._position_dimension_overlays()
         QTimer.singleShot(0, self._position_dimension_overlays)
 
     def _toggle_sketch_reference_mode(self, checked: bool) -> None:
@@ -20122,7 +20771,7 @@ class MainWindow(QMainWindow):
     def _dimension_style(
         self,
         entity: ZimaEntity,
-        dimension: LinearDimension | AngularDimension,
+        dimension: LinearDimension | AngularDimension | RadialDimension,
     ) -> dict[str, Any]:
         style = {
             "prefix": dimension.value_prefix,
@@ -20161,7 +20810,7 @@ class MainWindow(QMainWindow):
         self,
         overlay: ParameterEditOverlay,
         entity: ZimaEntity,
-        dimension: LinearDimension | AngularDimension,
+        dimension: LinearDimension | AngularDimension | RadialDimension,
         value: Any,
     ) -> None:
         style = self._dimension_style(entity, dimension)
@@ -20173,7 +20822,12 @@ class MainWindow(QMainWindow):
             )
         except (TypeError, ValueError):
             decimal_places = display_decimal_places(self)
-        suffix = str(style.get("suffix", ""))
+        suffix = str(style.get("suffix", "")) or str(
+            getattr(dimension, "value_suffix", "")
+        )
+        prefix = str(style.get("prefix", "")) or str(
+            getattr(dimension, "value_prefix", "")
+        )
         tolerance_mode = str(style.get("tolerance_mode", ""))
         upper = str(style.get("upper_tolerance", "")).strip()
         lower = str(style.get("lower_tolerance", "")).strip()
@@ -20197,7 +20851,7 @@ class MainWindow(QMainWindow):
         overlay.show_value(
             self._format_display_value(value),
             suffix,
-            str(style.get("prefix", "")),
+            prefix,
             display_value=self._format_dimension_display(
                 value,
                 decimal_places,
@@ -20258,7 +20912,13 @@ class MainWindow(QMainWindow):
         binding = self._dimension_bindings.get(key)
         if (
             binding is not None
-            and binding[0] in ("sketch_distance", "sketch_point")
+            and binding[0]
+            in (
+                "sketch_distance",
+                "sketch_point",
+                "sketch_radius",
+                "sketch_circle_radius",
+            )
             and self._sketch_edit_entity_id is not None
         ):
             menu.addSeparator()
@@ -20282,7 +20942,11 @@ class MainWindow(QMainWindow):
             )
         )
         if delete_action is not None and binding is not None:
-            if binding[0] == "sketch_distance":
+            if binding[0] in (
+                "sketch_distance",
+                "sketch_radius",
+                "sketch_circle_radius",
+            ):
                 dimension_id = str(binding[1])
                 delete_action.triggered.connect(
                     lambda _checked=False, item_id=dimension_id:
@@ -20298,6 +20962,18 @@ class MainWindow(QMainWindow):
                         item_id,
                         item_coordinate,
                     )
+                )
+            elif binding[0] == "sketch_radius":
+                radius_id = str(binding[1])
+                delete_action.triggered.connect(
+                    lambda _checked=False, item_id=radius_id:
+                    self._delete_sketch_radius_dimension(item_id)
+                )
+            elif binding[0] == "sketch_circle_radius":
+                circle_id = str(binding[1])
+                delete_action.triggered.connect(
+                    lambda _checked=False, item_id=circle_id:
+                    self._delete_sketch_circle_radius_dimension(item_id)
                 )
         def release_menu() -> None:
             if self._dimension_context_menu is menu:
@@ -20591,11 +21267,62 @@ class MainWindow(QMainWindow):
         if (
             self._sketch_edit_entity_id is not None
             and binding is not None
-            and binding[0] == "sketch_distance"
+            and binding[0]
+            in (
+                "sketch_distance",
+                "sketch_radius",
+                "sketch_circle_radius",
+                "sketch_point",
+            )
         ):
             self._sketch_selected_dimension_id = str(binding[1])
             self._sketch_selected_entity_id = None
             self._rebuild_application_toolbar()
+
+    def _edit_dimension_overlay_value(self, key: str) -> None:
+        self._select_dimension_overlay(key)
+        QTimer.singleShot(
+            0,
+            lambda dimension_key=key:
+            self._begin_dimension_overlay_edit(dimension_key),
+        )
+
+    def _begin_dimension_overlay_edit(self, key: str) -> None:
+        overlay = self._dimension_overlays.get(key)
+        if (
+            overlay is None
+            and key.startswith("sketch_radius:")
+            and self.document is not None
+            and self._sketch_edit_entity_id is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None:
+                self._show_all_sketch_dimensions(sketch)
+                overlay = self._dimension_overlays.get(key)
+        if overlay is None:
+            return
+        self._select_dimension_overlay(key)
+        overlay._begin_edit()
+
+    def _restore_sketch_dimension_overlays_after_edit(
+        self,
+        sketch_id: str,
+        _selected_key: str,
+    ) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id != sketch_id
+            or not self._sketch_show_all_dimensions
+        ):
+            return
+        sketch = self.document.find_entity(sketch_id)
+        if sketch is None:
+            return
+        self._show_all_sketch_dimensions(sketch)
+        self.native_viewer.set_selected_dimension(None)
+        for overlay in self._dimension_overlays.values():
+            overlay.set_selected(False)
+        self._sketch_selected_dimension_id = None
 
     def _set_hovered_dimension_overlay(self, key: str) -> None:
         for overlay_key, overlay in self._dimension_overlays.items():
@@ -20664,7 +21391,8 @@ class MainWindow(QMainWindow):
             not math.isfinite(value)
             or (binding[0] == "parameter" and value < 0.0)
             or (
-                binding[0] in ("sketch_distance", "sketch_radius")
+                binding[0]
+                in ("sketch_distance", "sketch_radius", "sketch_circle_radius")
                 and (
                     (
                         edited_sketch_dimension is not None
@@ -20768,6 +21496,27 @@ class MainWindow(QMainWindow):
                 )
             self._store_sketch_dimensions(entity, solved_dimensions)
             self._store_sketch_entities(entity, solved_entities)
+        elif binding[0] == "sketch_circle_radius":
+            circle_id = str(binding[1])
+            entities = self._stored_sketch_entities(entity)
+            circle = next(
+                (
+                    item
+                    for item in entities
+                    if item.get("type") == "circle"
+                    and str(item.get("id", "")) == circle_id
+                ),
+                None,
+            )
+            if circle is None:
+                return
+            circle["radius"] = (
+                value * 0.5
+                if str(circle.get("dimension_mode", "diameter"))
+                == "diameter"
+                else value
+            )
+            self._store_sketch_entities(entity, entities)
         elif binding[0] == "sketch_radius":
             radius_id = str(binding[1])
             entities = self._stored_sketch_entities(entity)
@@ -20801,6 +21550,7 @@ class MainWindow(QMainWindow):
             )
             if selected_record is None:
                 return
+            radius_value = value
             group = str(selected_record.get("equal_radius_group", ""))
             affected = [
                 (first_id, record)
@@ -20847,7 +21597,7 @@ class MainWindow(QMainWindow):
                             item for item in second_ids
                             if item != vertex_id
                         )],
-                        value,
+                        radius_value,
                     )
                     is None
                 ):
@@ -20856,7 +21606,7 @@ class MainWindow(QMainWindow):
                     )
                     return
             for _first_id, record in affected:
-                record["radius"] = value
+                record["radius"] = radius_value
             self._store_sketch_entities(entity, entities)
         elif binding[0] == "sketch_distance":
             dimension_id = str(binding[1])
@@ -21042,6 +21792,7 @@ class MainWindow(QMainWindow):
                 ),
                 None,
             )
+            self._refresh_sketch_overlay()
             if point is not None:
                 if protrusion_preview:
                     self._show_protrusion_profile_overlay(preview_owner)
@@ -21049,19 +21800,45 @@ class MainWindow(QMainWindow):
                     self._show_all_sketch_dimensions(entity)
                 else:
                     self._show_sketch_point_dimensions(entity, point)
+        elif binding[0] in (
+            "sketch_distance",
+            "sketch_radius",
+            "sketch_circle_radius",
+        ):
             self._refresh_sketch_overlay()
-        elif binding[0] in ("sketch_distance", "sketch_radius"):
             if protrusion_preview:
                 self._show_protrusion_profile_overlay(preview_owner)
             else:
                 self._show_all_sketch_dimensions(entity)
-            self._refresh_sketch_overlay()
         else:
             self._show_edit_overlays(
                 entity,
                 QPoint(
                     self.native_viewer.width() // 2,
                     self.native_viewer.height() // 2,
+                ),
+            )
+        self.native_viewer.set_selected_dimension(None)
+        for overlay in self._dimension_overlays.values():
+            overlay.set_selected(False)
+        self._sketch_selected_dimension_id = None
+        if (
+            binding[0]
+            in (
+                "sketch_point",
+                "sketch_distance",
+                "sketch_radius",
+                "sketch_circle_radius",
+            )
+            and self._sketch_edit_entity_id == entity.entity_id
+        ):
+            QTimer.singleShot(
+                0,
+                lambda sketch_id=entity.entity_id,
+                selected_key=key:
+                self._restore_sketch_dimension_overlays_after_edit(
+                    sketch_id,
+                    selected_key,
                 ),
             )
         self.statusBar().showMessage(
