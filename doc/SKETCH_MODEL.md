@@ -54,3 +54,52 @@ is in progress. `SketchModel.to_editor_data` and
 `SketchModel.from_editor_data` isolate that representation from persistence.
 Project files store only the canonical version 2 object. Old sketch payloads
 are intentionally not supported.
+
+## Agreed development direction
+
+The current sketcher architecture remains the foundation; it is not scheduled
+for replacement. Geometry, constraints, dimensions, solving and presentation
+must remain separate concerns. Further work should consolidate this design
+instead of adding isolated special-case corrections for individual tools.
+
+The following principles guide that consolidation:
+
+- Constraints should converge on one collection of independently identified
+  records instead of being distributed through geometry entities.
+- The solver should express constraints and driving dimensions as a unified
+  system of equations and residuals, rather than successively modifying
+  geometry with tool-specific rules.
+- When more than one mathematical solution exists, solving should prefer the
+  solution closest to the previous valid sketch state. This prevents geometry
+  from unexpectedly flipping or jumping between solution branches.
+- Topology-changing operations such as Trim must centrally map old entity and
+  point IDs to their replacements. Dimensions and constraints must either be
+  transferred deliberately or removed with an explicit, predictable rule.
+- External references require stable semantic identities. Their long-term
+  identity must not depend only on the current numerical ordering of solid
+  faces or edges.
+- Driving state, UI locking and reference/display-only state are separate
+  properties. An unlocked user dimension is still driving and immutable from
+  the solver's perspective.
+
+## Basic sketcher completion boundary
+
+Only a small set of major user-facing capabilities remains before the basic
+sketcher feature set is considered closed:
+
+- production-ready centre/start/end arcs;
+- stable spline creation and control-point editing;
+
+Point-pair symmetry about a construction line is implemented. Trim, including
+intersection splitting and dependency remapping, is deliberately deferred and
+is not part of the current basic-completion target.
+
+After these are complete, priority shifts from adding tools to reliability:
+
+- detect and explain conflicting or redundant constraints;
+- visualize under-, fully- and over-constrained states and remaining degrees
+  of freedom;
+- preserve the current solution branch during edits;
+- recover external references predictably after upstream topology changes;
+- build regression coverage for combinations of geometry, dimensions,
+  constraints and references.

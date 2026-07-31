@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-
-<rect x="4" y="4" width="120" height="120" rx="24" fill="#FFFFFF"/>
-<g transform="translate(8,23) scale(1)">
-  <path d="M16 14 H84 L72 28 H40 L24 48 H60 L50 62 H16 L46 26 H16 Z" fill="#80AA1A"/>
-  <path d="M48 62 H84 L96 48 H60 Z" fill="#1E1E1E"/>
-</g>
+  <!-- Compact ZIMA-CAD monogram for window and application icons. -->
+  <path
+    d="M8 22H62V38L29 90H62V106H8V90L41 38H8Z"
+    fill="#80AA1A"
+  />
+  <path
+    d="M120 40C113 27 102 21 90 21C70 21 58 38 58 64C58 90 70 107 90 107C102 107 113 101 120 88L106 80C102 87 97 91 90 91C80 91 74 81 74 64C74 47 80 37 90 37C97 37 102 41 106 48Z"
+    fill="#FFFFFF"
+  />
 </svg>

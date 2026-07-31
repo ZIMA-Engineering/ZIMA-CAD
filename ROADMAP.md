@@ -29,7 +29,8 @@ as the document model, geometric kernel integration and user workflows evolve.
   - driving dimensions retain their values in the parametric solver regardless
     of their UI lock state
   - geometric constraints for coincident, horizontal, vertical, parallel,
-    perpendicular, tangent and midpoint relationships
+    perpendicular, tangent, midpoint and point-pair symmetry about a
+    construction line
   - one user-facing **Equal** constraint, interpreted as equal length for
     segments and equal radius for fillet arcs; existing conflicting dimensions
     are retained as reference dimensions
@@ -45,14 +46,21 @@ as the document model, geometric kernel integration and user workflows evolve.
   - sketch dimensions shown when a sketch is opened by double-clicking it in
     the 3D view
 - remaining work:
+  - close the basic feature set with robust centre/start/end arcs and stable
+    spline editing; Trim is deliberately deferred
   - complete coverage and stabilization of the parametric constraint solver
+  - consolidate constraints into independently identified records and solve
+    constraints and driving dimensions as one equation/residual system
+  - preserve the solution nearest to the previous valid sketch state to avoid
+    unexpected branch flips
   - under-, fully- and over-constrained state visualization
   - automatic grey reference dimensions for remaining degrees of freedom;
     each geometric constraint or driving dimension should remove the
     corresponding reference dimension, in the style of Pro/ENGINEER
   - stable references between sketches and 3D geometry
-  - additional sketch geometry, constraints and production-level recovery of
-    invalid or conflicting relations
+  - stable semantic identities for external topology references
+  - production-level recovery of invalid, redundant or conflicting relations
+  - central ID remapping for topology-changing operations such as Trim
 
 ## 3. Protrusion / Extrusion
 

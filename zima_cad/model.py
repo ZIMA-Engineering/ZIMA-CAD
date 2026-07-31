@@ -1178,17 +1178,46 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
                     evaluated.arc_points
                 )
 
+        profile_entities: dict[
+            str,
+            tuple[dict[str, Any], str, str],
+        ] = {}
+        for item in entities:
+            if (
+                not isinstance(item, dict)
+                or item.get("role") == "construction"
+            ):
+                continue
+            geometry_id = str(item.get("id", ""))
+            point_ids = tuple(map(str, item.get("point_ids", ())))
+            entity_type = str(item.get("type", ""))
+            endpoints: tuple[str, str] | None = None
+            if entity_type == "segment" and len(point_ids) == 2:
+                endpoints = point_ids
+            elif entity_type == "spline" and len(point_ids) >= 2:
+                endpoints = (point_ids[0], point_ids[-1])
+            elif entity_type == "arc" and len(point_ids) >= 3:
+                endpoints = (
+                    (point_ids[1], point_ids[2])
+                    if item.get("arc_mode") == "center"
+                    else (point_ids[0], point_ids[-1])
+                )
+            if geometry_id and endpoints is not None:
+                profile_entities[geometry_id] = (
+                    item,
+                    endpoints[0],
+                    endpoints[1],
+                )
+
         unused = [
-            (
-                geometry_id,
-                *tuple(map(str, geometry.get("point_ids", ()))),
-            )
-            for geometry_id, geometry in segment_entities.items()
+            (geometry_id, start_id, end_id)
+            for geometry_id, (_geometry, start_id, end_id)
+            in profile_entities.items()
         ]
         while unused:
             first_id, first_point, second_point = unused.pop(0)
             chain_points = [first_point, second_point]
-            chain_segments = [first_id]
+            chain_geometry = [first_id]
             while chain_points[-1] != chain_points[0]:
                 match_index = next(
                     (
@@ -1200,34 +1229,109 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
                 )
                 if match_index is None:
                     break
-                segment_id, start_id, end_id = unused.pop(match_index)
-                chain_segments.append(segment_id)
+                geometry_id, start_id, end_id = unused.pop(match_index)
+                chain_geometry.append(geometry_id)
                 chain_points.append(
                     end_id if start_id == chain_points[-1] else start_id
                 )
-            if len(chain_points) < 4 or chain_points[-1] != chain_points[0]:
+            if len(chain_points) < 3 or chain_points[-1] != chain_points[0]:
                 continue
             wire_builder = BRepBuilderAPI_MakeWire()
             valid = True
-            segment_count = len(chain_segments)
-            for index, segment_id in enumerate(chain_segments):
+            geometry_count = len(chain_geometry)
+            for index, geometry_id in enumerate(chain_geometry):
                 start_id = chain_points[index]
                 end_id = chain_points[index + 1]
-                start = trim_points.get((segment_id, start_id), points.get(start_id))
-                end = trim_points.get((segment_id, end_id), points.get(end_id))
+                geometry = profile_entities[geometry_id][0]
+                entity_type = str(geometry.get("type", ""))
+                point_ids = tuple(
+                    map(str, geometry.get("point_ids", ()))
+                )
+                start = trim_points.get(
+                    (geometry_id, start_id),
+                    points.get(start_id),
+                )
+                end = trim_points.get(
+                    (geometry_id, end_id),
+                    points.get(end_id),
+                )
                 if start is None or end is None:
                     valid = False
                     break
-                wire_builder.Add(
-                    BRepBuilderAPI_MakeEdge(
-                        gp_Pnt(*start, 0.0),
-                        gp_Pnt(*end, 0.0),
-                    ).Edge()
-                )
-                outgoing_id = chain_segments[(index + 1) % segment_count]
+                try:
+                    if entity_type == "segment":
+                        edge = BRepBuilderAPI_MakeEdge(
+                            gp_Pnt(*start, 0.0),
+                            gp_Pnt(*end, 0.0),
+                        ).Edge()
+                    elif entity_type == "arc":
+                        if geometry.get("arc_mode") == "center":
+                            sampled = center_arc_points(
+                                points[point_ids[0]],
+                                points[point_ids[1]],
+                                points[point_ids[2]],
+                                segments=96,
+                                clockwise=bool(
+                                    geometry.get("clockwise", False)
+                                ),
+                            )
+                            if start_id != point_ids[1]:
+                                sampled = tuple(reversed(sampled))
+                        else:
+                            sampled = tuple(
+                                points[point_id] for point_id in point_ids
+                            )
+                            if start_id != point_ids[0]:
+                                sampled = tuple(reversed(sampled))
+                        if len(sampled) < 3:
+                            valid = False
+                            break
+                        edge = BRepBuilderAPI_MakeEdge(
+                            GC_MakeArcOfCircle(
+                                gp_Pnt(*sampled[0], 0.0),
+                                gp_Pnt(
+                                    *sampled[len(sampled) // 2],
+                                    0.0,
+                                ),
+                                gp_Pnt(*sampled[-1], 0.0),
+                            ).Value()
+                        ).Edge()
+                    elif entity_type == "spline":
+                        ordered_ids = point_ids
+                        if start_id != point_ids[0]:
+                            ordered_ids = tuple(reversed(ordered_ids))
+                        poles = TColgp_HArray1OfPnt(1, len(ordered_ids))
+                        for pole_index, point_id in enumerate(
+                            ordered_ids,
+                            1,
+                        ):
+                            poles.SetValue(
+                                pole_index,
+                                gp_Pnt(*points[point_id], 0.0),
+                            )
+                        interpolation = GeomAPI_Interpolate(
+                            poles,
+                            False,
+                            1.0e-7,
+                        )
+                        interpolation.Perform()
+                        if not interpolation.IsDone():
+                            valid = False
+                            break
+                        edge = BRepBuilderAPI_MakeEdge(
+                            interpolation.Curve()
+                        ).Edge()
+                    else:
+                        valid = False
+                        break
+                    wire_builder.Add(edge)
+                except (RuntimeError, TypeError, ValueError, KeyError):
+                    valid = False
+                    break
+                outgoing_id = chain_geometry[(index + 1) % geometry_count]
                 arc_points = (
-                    corner_arcs.get((end_id, segment_id, outgoing_id))
-                    or corner_arcs.get((end_id, outgoing_id, segment_id))
+                    corner_arcs.get((end_id, geometry_id, outgoing_id))
+                    or corner_arcs.get((end_id, outgoing_id, geometry_id))
                 )
                 if arc_points:
                     outgoing_start = trim_points.get(
@@ -1897,6 +2001,9 @@ def make_sketch_shape(
                             tuple(points[0]),
                             tuple(points[1]),
                             tuple(points[2]),
+                            clockwise=bool(
+                                entity.get("clockwise", False)
+                            ),
                         )
                         if len(sampled) < 3:
                             continue

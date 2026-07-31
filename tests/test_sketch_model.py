@@ -57,6 +57,220 @@ class SketchModelTests(unittest.TestCase):
             all(math.isclose(math.hypot(x, y), 5.0) for x, y in points)
         )
 
+    def test_center_arc_supports_major_sweep(self):
+        points = center_arc_points(
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (0.0, -5.0),
+            segments=8,
+        )
+
+        self.assertGreater(len(points), 9)
+        self.assertLess(points[len(points) // 2][0], 0.0)
+        self.assertAlmostEqual(points[-1][0], 0.0, places=6)
+        self.assertAlmostEqual(points[-1][1], -5.0, places=6)
+
+    def test_center_arc_direction_selects_the_initial_side(self):
+        counter_clockwise = center_arc_points(
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (0.0, 5.0),
+            segments=8,
+        )
+        clockwise = center_arc_points(
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (0.0, 5.0),
+            segments=8,
+            clockwise=True,
+        )
+
+        self.assertGreater(counter_clockwise[1][1], 0.0)
+        self.assertLess(clockwise[1][1], 0.0)
+        self.assertGreater(len(clockwise), len(counter_clockwise))
+
+    def test_arc_solver_keeps_both_endpoints_on_the_circle(self):
+        model = SketchModel.from_editor_data(
+            [
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "s", "type": "point", "x": 5.0, "y": 0.0},
+                {"id": "e", "type": "point", "x": 0.0, "y": 7.0},
+                {
+                    "id": "a",
+                    "type": "arc",
+                    "arc_mode": "center",
+                    "radius": 5.0,
+                    "point_ids": ["c", "s", "e"],
+                },
+            ],
+            [],
+        )
+
+        self.assertTrue(model.solve())
+        self.assertAlmostEqual(
+            math.dist(model.points["c"].position(), model.points["s"].position()),
+            math.dist(model.points["c"].position(), model.points["e"].position()),
+            places=6,
+        )
+
+    def test_visible_arc_radius_dimension_drives_the_radius(self):
+        model = SketchModel.from_editor_data(
+            [
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "s", "type": "point", "x": 5.0, "y": 0.0},
+                {"id": "e", "type": "point", "x": 0.0, "y": 7.0},
+                {
+                    "id": "arc",
+                    "type": "arc",
+                    "arc_mode": "center",
+                    "radius": 5.0,
+                    "dimension_visible": True,
+                    "dimension_mode": "radius",
+                    "point_ids": ["c", "s", "e"],
+                },
+            ],
+            [],
+        )
+
+        self.assertTrue(model.solve())
+        self.assertAlmostEqual(model.geometry["arc"].attributes["radius"], 5.0)
+        self.assertAlmostEqual(
+            math.dist(model.points["c"].position(), model.points["e"].position()),
+            5.0,
+            places=6,
+        )
+
+    def test_circle_curve_attachment_is_part_of_the_solve(self):
+        model = SketchModel.from_editor_data(
+            [
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {
+                    "id": "p",
+                    "type": "point",
+                    "x": 7.0,
+                    "y": 0.0,
+                    "curve_attachment": {
+                        "type": "circle",
+                        "geometry_id": "circle",
+                        "angle": 0.0,
+                    },
+                },
+                {
+                    "id": "circle",
+                    "type": "circle",
+                    "point_ids": ["c"],
+                    "radius": 5.0,
+                    "dimension_visible": True,
+                },
+            ],
+            [],
+        )
+
+        self.assertTrue(model.solve())
+        self.assertAlmostEqual(
+            math.dist(model.points["c"].position(), model.points["p"].position()),
+            5.0,
+            places=6,
+        )
+
+    def test_line_endpoints_on_arc_solve_vertical_together(self):
+        model = SketchModel.from_editor_data(
+            [
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "s", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "e", "type": "point", "x": 0.0, "y": 10.0},
+                {
+                    "id": "q1",
+                    "type": "point",
+                    "x": 8.0,
+                    "y": 6.0,
+                    "curve_attachment": {
+                        "type": "arc",
+                        "geometry_id": "arc",
+                        "fraction": 0.4,
+                    },
+                },
+                {
+                    "id": "q2",
+                    "type": "point",
+                    "x": 6.0,
+                    "y": 8.0,
+                    "curve_attachment": {
+                        "type": "arc",
+                        "geometry_id": "arc",
+                        "fraction": 0.6,
+                    },
+                },
+                {
+                    "id": "arc",
+                    "type": "arc",
+                    "arc_mode": "center",
+                    "radius": 10.0,
+                    "point_ids": ["c", "s", "e"],
+                },
+                {
+                    "id": "line",
+                    "type": "construction",
+                    "point_ids": ["q1", "q2"],
+                    "constraints": [{"type": "vertical"}],
+                },
+            ],
+            [],
+        )
+
+        self.assertTrue(model.solve())
+        self.assertAlmostEqual(model.points["q1"].x, model.points["q2"].x, places=6)
+        self.assertAlmostEqual(
+            math.dist(model.points["c"].position(), model.points["q1"].position()),
+            model.geometry["arc"].attributes["radius"],
+            places=6,
+        )
+
+    def test_line_arc_tangency_round_trips_and_solves(self):
+        entities = [
+            {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "contact", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "end", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "line_end", "type": "point", "x": 10.0, "y": 8.0},
+            {
+                "id": "arc",
+                "type": "arc",
+                "arc_mode": "center",
+                "radius": 10.0,
+                "point_ids": ["c", "contact", "end"],
+            },
+            {
+                "id": "line",
+                "type": "segment",
+                "point_ids": ["contact", "line_end"],
+                "constraints": [{
+                    "type": "tangent",
+                    "geometry_id": "arc",
+                    "contact_point_id": "contact",
+                }],
+            },
+        ]
+        model = SketchModel.from_editor_data(entities, [])
+
+        self.assertTrue(model.solve())
+        tangent = next(
+            constraint
+            for constraint in model.constraints.values()
+            if constraint.constraint_type == "tangent"
+        )
+        self.assertEqual(tangent.attributes["curve_geometry_id"], "arc")
+        self.assertTrue(
+            all(abs(value) < 1.0e-6 for value in model.constraint_residuals(tangent.constraint_id))
+        )
+        restored, _dimensions = model.to_editor_data()
+        restored_model = SketchModel.from_editor_data(restored, [])
+        restored_tangent = next(
+            constraint
+            for constraint in restored_model.constraints.values()
+            if constraint.constraint_type == "tangent"
+        )
+        self.assertEqual(restored_tangent.attributes["curve_geometry_id"], "arc")
+
     def test_corner_radius_evaluates_tangent_arc_and_drag_is_reversible(self):
         evaluated = evaluate_corner_radius(
             (0.0, 0.0),
@@ -1089,6 +1303,46 @@ class SketchModelTests(unittest.TestCase):
             ),
             1.0,
         )
+
+    def test_symmetric_constraint_round_trips_and_solves(self):
+        entities = [
+            {
+                "id": "p1",
+                "type": "point",
+                "x": -3.0,
+                "y": 2.0,
+                "constraints": [{
+                    "type": "symmetric",
+                    "point_id": "p2",
+                    "point_ids": ["a1", "a2"],
+                }],
+            },
+            {"id": "p2", "type": "point", "x": 4.0, "y": 1.0},
+            {"id": "a1", "type": "point", "x": 0.0, "y": -5.0},
+            {"id": "a2", "type": "point", "x": 0.0, "y": 5.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["a1", "a2"],
+            },
+        ]
+        model = SketchModel.from_editor_data(entities, [])
+        self.assertTrue(model.solve())
+        residuals = next(
+            model.constraint_residuals(constraint_id)
+            for constraint_id, constraint in model.constraints.items()
+            if constraint.constraint_type == "symmetric"
+        )
+        self.assertTrue(all(abs(value) < 1.0e-6 for value in residuals))
+        round_tripped, _dimensions = model.to_editor_data()
+        first = next(item for item in round_tripped if item["id"] == "p1")
+        symmetric = next(
+            item
+            for item in first.get("constraints", ())
+            if item.get("type") == "symmetric"
+        )
+        self.assertEqual(symmetric["point_id"], "p2")
+        self.assertEqual(symmetric["point_ids"], ["a1", "a2"])
 
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):

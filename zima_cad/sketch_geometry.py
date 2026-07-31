@@ -11,16 +11,25 @@ def center_arc_points(
     start: tuple[float, float],
     end: tuple[float, float],
     segments: int = 32,
+    *,
+    clockwise: bool = False,
 ) -> tuple[tuple[float, float], ...]:
-    """Sample the shorter circular arc defined by center/start/end."""
+    """Sample the counter-clockwise centre/start/end circular arc."""
 
     radius = math.dist(center, start)
     if radius <= 1.0e-12:
         return ()
     start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
     end_angle = math.atan2(end[1] - center[1], end[0] - center[0])
-    sweep = (end_angle - start_angle + math.pi) % (2.0 * math.pi) - math.pi
-    count = max(2, int(segments))
+    sweep = (
+        -((start_angle - end_angle) % (2.0 * math.pi))
+        if clockwise
+        else (end_angle - start_angle) % (2.0 * math.pi)
+    )
+    count = max(
+        2,
+        round(int(segments) * max(1.0, abs(sweep) / math.pi)),
+    )
     return tuple(
         (
             center[0] + radius * math.cos(start_angle + sweep * index / count),
