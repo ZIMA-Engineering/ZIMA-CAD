@@ -9398,6 +9398,8 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._history_source_cycle_active = False
         self._select_native_tree_object(tree_object_id)
+        if self._dimension_overlays:
+            self._clear_dimension_overlays()
 
     def _on_native_object_double_clicked(self, owner_id: str) -> None:
         obj = self._selected_object()
@@ -9436,7 +9438,9 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_selected_container_origin(None)
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
-        if (
+        if target.kind == EntityKind.SKETCH:
+            self._show_all_sketch_dimensions(target)
+        elif (
             target.kind == EntityKind.CONTAINER
             and target.container_type == ContainerType.PROTRUSION
         ):
