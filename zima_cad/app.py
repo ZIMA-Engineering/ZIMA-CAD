@@ -5373,8 +5373,7 @@ class MainWindow(QMainWindow):
                     "sketch.constraint.horizontal",
                     "sketch.constraint.vertical",
                     "sketch.constraint.parallel",
-                    "sketch.constraint.equal_length",
-                    "sketch.constraint.equal_radius",
+                    "sketch.constraint.equal",
                     "sketch.constraint.perpendicular",
                     "sketch.constraint.coincident",
                     "sketch.constraint.midpoint",
@@ -5543,17 +5542,11 @@ class MainWindow(QMainWindow):
                     lambda _checked=False:
                     self._set_sketch_constraint_tool("parallel")
                 )
-            elif command_key == "sketch.constraint.equal_length":
+            elif command_key == "sketch.constraint.equal":
                 action.setEnabled(True)
                 action.triggered.connect(
                     lambda _checked=False:
-                    self._set_sketch_constraint_tool("equal_length")
-                )
-            elif command_key == "sketch.constraint.equal_radius":
-                action.setEnabled(True)
-                action.triggered.connect(
-                    lambda _checked=False:
-                    self._set_sketch_constraint_tool("equal_radius")
+                    self._set_sketch_constraint_tool("equal")
                 )
             elif command_key == "sketch.constraint.tangent":
                 action.setEnabled(True)
@@ -8245,7 +8238,7 @@ class MainWindow(QMainWindow):
                             "parallel":
                             "sketch.constraint.parallel",
                             "equal_length":
-                            "sketch.constraint.equal_length",
+                            "sketch.constraint.equal",
                             "tangent":
                             "sketch.constraint.tangent",
                         }.get(constraint_type)
@@ -9847,7 +9840,7 @@ class MainWindow(QMainWindow):
                     "vertical",
                     "perpendicular",
                     "parallel",
-                    "equal_length",
+                    "equal",
                     "dimension_x",
                     "dimension_y",
                     "dimension_distance",
@@ -12154,7 +12147,10 @@ class MainWindow(QMainWindow):
         dimensions: list[dict[str, Any]],
     ) -> SketchModel:
         checked_dimensions = [
-            {**dimension, "locked": True}
+            {
+                **dimension,
+                "locked": not bool(dimension.get("reference", False)),
+            }
             for dimension in dimensions
         ]
         model = SketchModel.from_editor_data(
@@ -14230,8 +14226,7 @@ class MainWindow(QMainWindow):
                 "horizontal",
                 "vertical",
                 "parallel",
-                "equal_length",
-                "equal_radius",
+                "equal",
                 "perpendicular",
                 "coincident",
                 "midpoint",
@@ -14255,8 +14250,7 @@ class MainWindow(QMainWindow):
                 "coincident",
                 "perpendicular",
                 "parallel",
-                "equal_length",
-                "equal_radius",
+                "equal",
                 "midpoint",
                 "tangent",
             )
@@ -15138,17 +15132,13 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.parallel.select_first")
             )
             return
-        if self._sketch_tool in ("equal_length", "equal_radius"):
+        if self._sketch_tool == "equal":
             self._sketch_equal_first_geometry_id = None
             self._sketch_equal_first_radius_id = None
             self._sketch_selected_entity_id = None
             self._refresh_sketch_overlay()
             self.statusBar().showMessage(
-                tr(
-                    "sketch.status.equal_radius.select_first"
-                    if self._sketch_tool == "equal_radius"
-                    else "sketch.status.equal_length.select_first"
-                )
+                tr("sketch.status.equal.select_first")
             )
             return
         if self._sketch_tool == "tangent":
@@ -15375,7 +15365,7 @@ class MainWindow(QMainWindow):
         if self._sketch_tool == "parallel":
             self._handle_sketch_parallel_selection(entity_id)
             return
-        if self._sketch_tool == "equal_length":
+        if self._sketch_tool == "equal":
             self._handle_sketch_equal_length_selection(entity_id)
             return
         if self._sketch_tool == "tangent":
@@ -15516,7 +15506,7 @@ class MainWindow(QMainWindow):
                 vertex_id,
             )
             return
-        if self._sketch_tool in ("equal_length", "equal_radius"):
+        if self._sketch_tool == "equal":
             self._handle_sketch_equal_radius_selection(
                 first_id,
                 second_id,
@@ -15529,7 +15519,10 @@ class MainWindow(QMainWindow):
             vertex_id,
         )
         self._sketch_selected_entity_id = None
-        self._sketch_selected_entity_ids.clear()
+        # The corner-radius drag handler operates on the two owning edges.
+        # Keep that relationship selected internally when the visible arc is
+        # selected, otherwise its tangent handles can never start a drag.
+        self._sketch_selected_entity_ids = {first_id, second_id}
         self._sketch_selected_dimension_id = None
         self._refresh_sketch_overlay(populate_tree=False)
         self._rebuild_application_toolbar()
@@ -15630,11 +15623,7 @@ class MainWindow(QMainWindow):
             self._store_sketch_entities(sketch, entities)
             self._refresh_sketch_overlay(populate_tree=False)
             self.statusBar().showMessage(
-                tr(
-                    "sketch.status.equal_radius.select_second"
-                    if self._sketch_tool == "equal_radius"
-                    else "sketch.status.equal_length.select_second"
-                )
+                tr("sketch.status.equal.select_second")
             )
             return
         if radius_id == self._sketch_equal_first_radius_id:
@@ -15663,6 +15652,34 @@ class MainWindow(QMainWindow):
             or f"equal-radius:{self._sketch_equal_first_radius_id}"
         )
         radius = float(first_record.get("radius", 0.0))
+        styles = self._dimension_styles(sketch)
+        first_locked = bool(
+            styles.get(
+                f"sketch_radius:{self._sketch_equal_first_radius_id}",
+                {},
+            ).get("locked", False)
+        )
+        second_locked = bool(
+            styles.get(f"sketch_radius:{radius_id}", {}).get(
+                "locked", False
+            )
+        )
+        if (
+            bool(first_record.get("dimension_visible", False))
+            and bool(record.get("dimension_visible", False))
+            and first_locked
+            and second_locked
+            and not math.isclose(
+                radius,
+                float(record.get("radius", 0.0)),
+                rel_tol=1.0e-9,
+                abs_tol=1.0e-9,
+            )
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.equal_length.overconstrained")
+            )
+            return
         geometry_by_id = {
             str(entity.get("id", "")): entity
             for entity in entities
@@ -15726,6 +15743,8 @@ class MainWindow(QMainWindow):
             return
         first_record["equal_radius_group"] = group
         record["equal_radius_group"] = group
+        if bool(record.get("dimension_visible", False)):
+            record["dimension_reference"] = True
         record["radius"] = radius
         self._store_sketch_entities(sketch, entities)
         self._sketch_equal_first_radius_id = None
@@ -15735,7 +15754,7 @@ class MainWindow(QMainWindow):
         self._refresh_sketch_overlay()
         self._show_all_sketch_dimensions(sketch)
         self.statusBar().showMessage(
-            tr("sketch.status.equal_length.created")
+            tr("sketch.status.equal.created")
         )
 
     def _remove_sketch_corner_radius(
@@ -15763,21 +15782,22 @@ class MainWindow(QMainWindow):
         records = first.get("corner_radii", ())
         if not isinstance(records, list):
             return
-        remaining = [
-            record
-            for record in records
-            if not (
-                isinstance(record, dict)
-                and str(record.get("other_geometry_id", "")) == second_id
-                and str(record.get("vertex_id", "")) == vertex_id
-            )
-        ]
-        if len(remaining) == len(records):
+        record = next(
+            (
+                item
+                for item in records
+                if isinstance(item, dict)
+                and str(item.get("other_geometry_id", "")) == second_id
+                and str(item.get("vertex_id", "")) == vertex_id
+            ),
+            None,
+        )
+        if record is None:
             return
-        if remaining:
-            first["corner_radii"] = remaining
-        else:
-            first.pop("corner_radii", None)
+        # Keep the radius, its annotation and equal-radius group available
+        # for a later restore.  Removing the visible fillet is suppression,
+        # not destructive deletion of its definition.
+        record["suppressed"] = True
         self._store_sketch_entities(sketch, entities)
         self._sketch_selected_corner_radius = None
         self._mark_model_for_regeneration()
@@ -15858,7 +15878,7 @@ class MainWindow(QMainWindow):
             ),
             None,
         )
-        records = [
+        other_records = [
             record
             for record in records
             if not (
@@ -15880,6 +15900,7 @@ class MainWindow(QMainWindow):
                     else f"radius:{selected_ids[0]}:"
                     f"{selected_ids[1]}:{vertex_id}"
                 ),
+                "suppressed": False,
             }
             if (
                 previous_record is not None
@@ -15896,7 +15917,7 @@ class MainWindow(QMainWindow):
                 ):
                     if key in previous_record:
                         updated_record[key] = previous_record[key]
-            records.append(updated_record)
+            other_records.append(updated_record)
             group = str(updated_record.get("equal_radius_group", ""))
             if group:
                 grouped_records = [
@@ -15963,8 +15984,14 @@ class MainWindow(QMainWindow):
                         return
                 for _geometry_id, grouped_record in grouped_records:
                     grouped_record["radius"] = radius
-        if records:
-            first["corner_radii"] = records
+        elif previous_record is not None:
+            # Dragging the fillet handle back into the sharp vertex hides the
+            # fillet but deliberately preserves all of its data.  Starting a
+            # new drag from the same vertex restores it.
+            previous_record["suppressed"] = True
+            other_records.append(previous_record)
+        if other_records:
+            first["corner_radii"] = other_records
         else:
             first.pop("corner_radii", None)
         self._store_sketch_entities(sketch, entities)
@@ -18195,7 +18222,7 @@ class MainWindow(QMainWindow):
             self._sketch_selected_entity_id = entity_id
             self._refresh_sketch_overlay()
             self.statusBar().showMessage(
-                tr("sketch.status.equal_length.select_second")
+                tr("sketch.status.equal.select_second")
             )
             return
         if entity_id == first_id:
@@ -18212,7 +18239,51 @@ class MainWindow(QMainWindow):
             return
         first_points = tuple(map(str, first.get("point_ids", ())[:2]))
         second_points = tuple(map(str, geometry.get("point_ids", ())[:2]))
-        model = self._stored_sketch_model(sketch)
+        dimensions = self._stored_sketch_dimensions(sketch)
+        original_dimension_locks = {
+            str(item.get("id", "")): bool(item.get("locked", False))
+            for item in dimensions
+        }
+
+        def line_dimension(point_pair: tuple[str, str]):
+            pair = set(point_pair)
+            return next(
+                (
+                    dimension
+                    for dimension in dimensions
+                    if dimension.get("type")
+                    in ("distance", "distance_x", "distance_y")
+                    and set(map(str, dimension.get("point_ids", ())[:2]))
+                    == pair
+                ),
+                None,
+            )
+
+        first_dimension = line_dimension(first_points)
+        second_dimension = line_dimension(second_points)
+        if (
+            first_dimension is not None
+            and second_dimension is not None
+            and bool(first_dimension.get("locked", False))
+            and bool(second_dimension.get("locked", False))
+            and not math.isclose(
+                float(first_dimension.get("value", 0.0)),
+                float(second_dimension.get("value", 0.0)),
+                rel_tol=1.0e-9,
+                abs_tol=1.0e-9,
+            )
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.equal_length.overconstrained")
+            )
+            return
+        if second_dimension is not None:
+            second_dimension["reference"] = True
+            second_dimension["locked"] = False
+        if first_dimension is not None:
+            first_dimension["reference"] = False
+            first_dimension["locked"] = True
+        model = SketchModel.from_editor_data(entities, dimensions)
         constraint_id = f"equal:{first_id}:{entity_id}"
         if any(
             constraint.constraint_type == "equal_length"
@@ -18251,6 +18322,19 @@ class MainWindow(QMainWindow):
             self._refresh_sketch_overlay()
             return
         solved_entities, solved_dimensions = candidate.to_editor_data()
+        reference_ids = {
+            str(item.get("id", ""))
+            for item in dimensions
+            if bool(item.get("reference", False))
+        }
+        for solved_dimension in solved_dimensions:
+            dimension_id = str(solved_dimension.get("id", ""))
+            solved_dimension["locked"] = original_dimension_locks.get(
+                dimension_id,
+                False,
+            )
+            if dimension_id in reference_ids:
+                solved_dimension["reference"] = True
         self._store_sketch_editor_data(
             sketch,
             solved_entities,
@@ -18264,7 +18348,7 @@ class MainWindow(QMainWindow):
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
         self.statusBar().showMessage(
-            tr("sketch.status.equal_length.created")
+            tr("sketch.status.equal.created")
         )
 
     def _handle_sketch_tangent_selection(self, entity_id: str) -> None:
@@ -19535,8 +19619,7 @@ class MainWindow(QMainWindow):
                 "vertical",
                 "perpendicular",
                 "parallel",
-                "equal_length",
-                "equal_radius",
+                "equal",
                 "midpoint",
                 "tangent",
                 "dimension_x",
@@ -19549,8 +19632,7 @@ class MainWindow(QMainWindow):
                 "vertical",
                 "perpendicular",
                 "parallel",
-                "equal_length",
-                "equal_radius",
+                "equal",
                 "midpoint",
                 "tangent",
                 "dimension_x",
@@ -19656,6 +19738,12 @@ class MainWindow(QMainWindow):
             center = points.get(ids[0]) if ids else None
             constraint = circle.get("rim_coincident")
             if center is None or not isinstance(constraint, dict):
+                continue
+            # A visible circle dimension is driving, just like every other
+            # sketch dimension.  Reapplying the creation-time rim snap must
+            # therefore not silently replace its radius when another piece
+            # of geometry is added or regenerated.
+            if bool(circle.get("dimension_visible", False)):
                 continue
             target = None
             if constraint.get("type") == "point":
@@ -20144,6 +20232,8 @@ class MainWindow(QMainWindow):
                 continue
             for record in records:
                 if not isinstance(record, dict):
+                    continue
+                if bool(record.get("suppressed", False)):
                     continue
                 if not bool(record.get("dimension_visible", False)):
                     continue
@@ -21353,6 +21443,25 @@ class MainWindow(QMainWindow):
         for key, overlay in self._dimension_overlays.items():
             position = self.native_viewer.dimension_value_position(key)
             if position is not None:
+                dimension = next(
+                    (
+                        item
+                        for item in self.native_viewer._dimensions
+                        if item.key == key
+                    ),
+                    None,
+                )
+                if isinstance(dimension, RadialDimension):
+                    geometry = self.native_viewer._dimension_screen_geometry(
+                        dimension
+                    )
+                    if geometry.get("text_side") == "left":
+                        position = QPointF(
+                            geometry["shoulder_end"].x()
+                            - overlay.width()
+                            - 2.0,
+                            geometry["shoulder_end"].y(),
+                        )
                 overlay.move_to(position.toPoint())
 
     def _commit_dimension_value(self, key: str, raw_value: str) -> None:

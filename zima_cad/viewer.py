@@ -1103,8 +1103,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if (
                     not self._sketch_constraint_selection_mode
                     or self._sketch_tool
-                    in ("equal_length", "equal_radius", "dimension")
+                    in ("equal", "dimension")
                 ):
+                    if (
+                        not self._sketch_constraint_selection_mode
+                        and self._selected_sketch_corner_radius is not None
+                    ):
+                        drag_vertex = self._corner_radius_drag_candidate(
+                            event.position()
+                        )
+                        if drag_vertex is not None:
+                            self._sketch_corner_drag_vertex_id = drag_vertex
+                            self._sketch_corner_drag_moved = False
+                            event.accept()
+                            return
                     corner_radius = self._corner_radius_candidate(
                         event.position()
                     )
@@ -1360,7 +1372,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             hovered_corner_radius = (
                 self._corner_radius_candidate(event.position())
                 if self._sketch_tool
-                in ("select", "dimension", "equal_length", "equal_radius")
+                in ("select", "dimension", "equal")
                 else None
             )
             hovered_dimension = (
@@ -2359,14 +2371,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "opposite_arrow": (
                     opposite_arrow if dimension.diameter else QPolygonF()
                 ),
+                "text_side": (
+                    "right" if shoulder_direction > 0.0 else "left"
+                ),
                 "value_position": QPointF(
                     shoulder_end.x()
-                    + (2.0 if shoulder_direction > 0.0 else -30.0),
+                    + (2.0 if shoulder_direction > 0.0 else 0.0),
                     shoulder_end.y(),
                 ),
                 "text_position": QPointF(
                     shoulder_end.x()
-                    + (2.0 if shoulder_direction > 0.0 else -30.0),
+                    + (2.0 if shoulder_direction > 0.0 else 0.0),
                     shoulder_end.y() + 5.0,
                 ),
             }
@@ -2618,10 +2633,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if not geometry["opposite_arrow"].isEmpty():
                     painter.drawPolygon(geometry["opposite_arrow"])
                 if dimension.display_text:
+                    text_position = geometry.get(
+                        "text_position", geometry["value_position"]
+                    )
+                    if geometry.get("text_side") == "left":
+                        text_position = QPointF(
+                            geometry["shoulder_end"].x()
+                            - painter.fontMetrics().horizontalAdvance(
+                                dimension.display_text
+                            )
+                            - 2.0,
+                            text_position.y(),
+                        )
                     painter.drawText(
-                        geometry.get(
-                            "text_position", geometry["value_position"]
-                        ),
+                        text_position,
                         dimension.display_text,
                     )
                 continue
@@ -2996,7 +3021,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         }
         corner_trim_points: dict[tuple[str, str], tuple[float, float]] = {}
         corner_arcs: list[
-            tuple[tuple[tuple[float, float], ...], str, str, str]
+            tuple[
+                tuple[tuple[float, float], ...],
+                str,
+                str,
+                str,
+                bool,
+            ]
         ] = []
         for first_id, first_geometry in sketch_geometry_by_id.items():
             records = first_geometry.get("corner_radii", ())
@@ -3007,6 +3038,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             for record in records:
                 if not isinstance(record, dict):
+                    continue
+                if bool(record.get("suppressed", False)):
                     continue
                 second_id = str(record.get("other_geometry_id", ""))
                 vertex_id = str(record.get("vertex_id", ""))
@@ -3063,6 +3096,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         first_id,
                         second_id,
                         vertex_id,
+                        bool(record.get("equal_radius_group")),
                     )
                 )
         for entity in self._sketch_entities:
@@ -3198,7 +3232,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawPolyline(QPolygonF(points))
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for raw_arc, first_id, second_id, vertex_id in corner_arcs:
+        equal_radius_marker_points: list[QPointF] = []
+        for (
+            raw_arc,
+            first_id,
+            second_id,
+            vertex_id,
+            has_equal_radius,
+        ) in corner_arcs:
             hovered = self._hovered_sketch_corner_radius == (
                 first_id,
                 second_id,
@@ -3229,6 +3270,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 ]
             )
             painter.drawPolyline(arc)
+            if has_equal_radius and arc:
+                equal_radius_marker_points.append(arc[len(arc) // 2])
             if selected:
                 vertex = point_positions.get(vertex_id)
                 if vertex is not None:
@@ -3356,6 +3399,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             geometry_id: [] for geometry_id in geometry_by_id
         }
         tangent_contact_ids: set[str] = set()
+        midpoint_point_ids: set[str] = set()
 
         def add_marker(geometry_id: str, marker: str) -> None:
             markers = markers_by_geometry.get(geometry_id)
@@ -3388,6 +3432,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                     if contact_id:
                         tangent_contact_ids.add(contact_id)
+
+        for entity in self._sketch_entities:
+            if entity.get("type") != "point":
+                continue
+            constraints = entity.get("constraints", ())
+            if (
+                isinstance(constraints, list)
+                and any(
+                    isinstance(constraint, dict)
+                    and constraint.get("type") == "midpoint"
+                    for constraint in constraints
+                )
+            ):
+                midpoint_point_ids.add(str(entity.get("id", "")))
 
         metrics = painter.fontMetrics()
         marker_spacing = 16.0
@@ -3432,6 +3490,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.drawText(
                 QPointF(contact.x() + 7.0, contact.y() - 7.0),
                 "T",
+            )
+
+        for point_id in midpoint_point_ids:
+            local_midpoint = point_positions.get(point_id)
+            if local_midpoint is None:
+                continue
+            midpoint = self._screen_point(
+                self._camera_point(self._sketch_world_point(local_midpoint))
+            )
+            painter.drawText(
+                QPointF(midpoint.x() + 7.0, midpoint.y() - 7.0),
+                "M",
+            )
+
+        for arc_point in equal_radius_marker_points:
+            painter.drawText(
+                QPointF(arc_point.x() + 7.0, arc_point.y() - 7.0),
+                "=",
             )
 
         painter.setPen(QPen(constraint_color, 2.0))
@@ -3752,6 +3828,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             for record in records:
                 if not isinstance(record, dict):
                     continue
+                if bool(record.get("suppressed", False)):
+                    continue
                 second = geometry_by_id.get(
                     str(record.get("other_geometry_id", ""))
                 )
@@ -3859,19 +3937,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 None,
             )
             if record is not None:
-                evaluated = evaluate_corner_radius(
-                    vertex,
-                    first_outer,
-                    second_outer,
-                    float(record.get("radius", 0.0)),
-                )
-                if evaluated is not None:
-                    handles.extend(
-                        (
-                            evaluated.first_tangent,
-                            evaluated.second_tangent,
-                        )
+                if not bool(record.get("suppressed", False)):
+                    evaluated = evaluate_corner_radius(
+                        vertex,
+                        first_outer,
+                        second_outer,
+                        float(record.get("radius", 0.0)),
                     )
+                    if evaluated is not None:
+                        handles.extend(
+                            (
+                                evaluated.first_tangent,
+                                evaluated.second_tangent,
+                            )
+                        )
         for handle in handles:
             screen = self._screen_point(
                 self._camera_point(self._sketch_world_point(handle))
@@ -3908,6 +3987,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             for record in records:
                 if not isinstance(record, dict):
+                    continue
+                if bool(record.get("suppressed", False)):
                     continue
                 second_id = str(record.get("other_geometry_id", ""))
                 vertex_id = str(record.get("vertex_id", ""))

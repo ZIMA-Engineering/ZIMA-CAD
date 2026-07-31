@@ -1041,6 +1041,9 @@ class SketchModel:
     def drive_all_dimensions_at_current_values(self) -> None:
         """Make every dimension driving while preserving current geometry."""
         for dimension in self.dimensions.values():
+            if bool(dimension.attributes.get("reference", False)):
+                dimension.driving = False
+                continue
             positions = [
                 self.points[point_id].position()
                 for point_id in dimension.point_ids
