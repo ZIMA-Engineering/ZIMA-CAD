@@ -22,21 +22,44 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 **Status: In progress**
 
-- 2D sketch geometry
-- dimensional constraints
-- geometric constraints
-- parametric constraint solver
-- under-, fully- and over-constrained state visualization
-- automatic grey reference dimensions for remaining degrees of freedom;
-  each geometric constraint or driving dimension should remove the
-  corresponding reference dimension, in the style of Pro/ENGINEER
-- construction and reference geometry
-- stable references between sketches and 3D geometry
+- implemented foundation:
+  - interactive points, segments, rectangles, circles and construction geometry
+  - selectable, draggable and editable linear, angular, radius and diameter
+    dimensions
+  - driving dimensions retain their values in the parametric solver regardless
+    of their UI lock state
+  - geometric constraints for coincident, horizontal, vertical, parallel,
+    perpendicular, tangent and midpoint relationships
+  - one user-facing **Equal** constraint, interpreted as equal length for
+    segments and equal radius for fillet arcs; existing conflicting dimensions
+    are retained as reference dimensions
+  - in-view constraint markers, including `=`, `M`, `T`, `H`, `V` and `∥`
+  - circle rim snapping to existing points and line geometry
+  - interactive two-edge sketch fillets with radius dimensions and equal-radius
+    groups
+  - reversible fillet suppression: dragging a fillet back to its sharp corner
+    hides it while retaining its radius, dimension and constraint data for
+    restoration
+  - unified dimension hover, selection, dragging, context menus, deletion and
+    value editing in both Select and Dimension modes
+  - sketch dimensions shown when a sketch is opened by double-clicking it in
+    the 3D view
+- remaining work:
+  - complete coverage and stabilization of the parametric constraint solver
+  - under-, fully- and over-constrained state visualization
+  - automatic grey reference dimensions for remaining degrees of freedom;
+    each geometric constraint or driving dimension should remove the
+    corresponding reference dimension, in the style of Pro/ENGINEER
+  - stable references between sketches and 3D geometry
+  - additional sketch geometry, constraints and production-level recovery of
+    invalid or conflicting relations
 
 ## 3. Protrusion / Extrusion
 
-**Status: Planned**
+**Status: In progress**
 
+- property-panel workflow with return to the originating editor context
+- sketch and main container-origin selection from feature properties
 - one-sided, two-sided and symmetric extrusion
 - additive and subtractive operations
 - extrusion up to a selected face or plane
