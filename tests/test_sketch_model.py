@@ -13,12 +13,50 @@ from zima_cad.sketch_model import (
     classify_linear_dimension,
 )
 from zima_cad.sketch_geometry import (
+    center_arc_points,
     corner_radius_from_drag,
     evaluate_corner_radius,
 )
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_unlocked_user_dimension_remains_driving_and_unlocked(self):
+        entities = [
+            {"type": "point", "id": "a", "x": 0.0, "y": 0.0},
+            {"type": "point", "id": "b", "x": 10.0, "y": 0.0},
+            {"type": "segment", "id": "line", "point_ids": ["a", "b"]},
+        ]
+        dimensions = [{
+            "id": "d1",
+            "type": "distance",
+            "point_ids": ["a", "b"],
+            "value": 10.0,
+            "locked": False,
+        }]
+
+        sketch = SketchModel.from_editor_data(entities, dimensions)
+        self.assertTrue(sketch.dimensions["d1"].driving)
+        _entities, restored = sketch.to_editor_data()
+        self.assertTrue(restored[0]["driving"])
+        self.assertFalse(restored[0]["locked"])
+
+    def test_center_arc_uses_center_radius_and_two_end_directions(self):
+        points = center_arc_points(
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (0.0, 9.0),
+            segments=8,
+        )
+
+        self.assertEqual(len(points), 9)
+        self.assertAlmostEqual(points[0][0], 5.0)
+        self.assertAlmostEqual(points[0][1], 0.0)
+        self.assertAlmostEqual(points[-1][0], 0.0)
+        self.assertAlmostEqual(points[-1][1], 5.0)
+        self.assertTrue(
+            all(math.isclose(math.hypot(x, y), 5.0) for x, y in points)
+        )
+
     def test_corner_radius_evaluates_tangent_arc_and_drag_is_reversible(self):
         evaluated = evaluate_corner_radius(
             (0.0, 0.0),
@@ -288,6 +326,60 @@ class SketchModelTests(unittest.TestCase):
             restored.constraints["t1"].attributes["circle_geometry_id"],
             "circle",
         )
+
+    def test_circle_resize_preserves_two_tangent_constraints(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("centre", 0.0, 0.0),
+            SketchPoint("a1", -10.0, 5.0),
+            SketchPoint("b1", 10.0, 5.0),
+            SketchPoint("contact1", 0.0, 5.0),
+            SketchPoint("a2", -10.0, -5.0),
+            SketchPoint("b2", 10.0, -5.0),
+            SketchPoint("contact2", 0.0, -5.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry("line1", GeometryType.SEGMENT, ("a1", "b1"))
+        )
+        sketch.add_geometry(
+            SketchGeometry("line2", GeometryType.SEGMENT, ("a2", "b2"))
+        )
+        sketch.add_geometry(
+            SketchGeometry(
+                "circle",
+                GeometryType.CIRCLE,
+                ("centre",),
+                {"radius": 8.0, "dimension_visible": True},
+            )
+        )
+        for index, line_id, contact_id, side in (
+            (1, "line1", "contact1", 1),
+            (2, "line2", "contact2", -1),
+        ):
+            sketch.add_constraint(
+                SketchConstraint(
+                    f"t{index}",
+                    "tangent",
+                    (
+                        f"a{index}",
+                        f"b{index}",
+                        "centre",
+                        contact_id,
+                    ),
+                    attributes={
+                        "line_geometry_id": line_id,
+                        "circle_geometry_id": "circle",
+                        "side": side,
+                        "contact_point_id": contact_id,
+                    },
+                )
+            )
+
+        self.assertTrue(sketch.solve())
+        self.assertEqual(sketch.violated_equations(), ())
+        self.assertEqual(set(sketch.constraints), {"t1", "t2"})
+        self.assertEqual(sketch.geometry["circle"].attributes["radius"], 8.0)
 
     def test_legacy_two_point_circle_loads_as_centre_and_radius(self):
         restored = SketchModel.from_dict({

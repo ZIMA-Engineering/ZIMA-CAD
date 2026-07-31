@@ -39,7 +39,7 @@ from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
-from zima_cad.sketch_geometry import evaluate_corner_radius
+from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -1892,6 +1892,19 @@ def make_sketch_shape(
                         edge_count += 1
                         continue
                 elif entity.get("type") == "arc" and len(points) >= 3:
+                    if entity.get("arc_mode") == "center":
+                        sampled = center_arc_points(
+                            tuple(points[0]),
+                            tuple(points[1]),
+                            tuple(points[2]),
+                        )
+                        if len(sampled) < 3:
+                            continue
+                        points = [
+                            sampled[0],
+                            sampled[len(sampled) // 2],
+                            sampled[-1],
+                        ]
                     curve = GC_MakeArcOfCircle(
                         gp_Pnt(float(points[0][0]), float(points[0][1]), 0.0),
                         gp_Pnt(float(points[1][0]), float(points[1][1]), 0.0),

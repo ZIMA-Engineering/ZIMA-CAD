@@ -6,6 +6,30 @@ from dataclasses import dataclass
 import math
 
 
+def center_arc_points(
+    center: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    segments: int = 32,
+) -> tuple[tuple[float, float], ...]:
+    """Sample the shorter circular arc defined by center/start/end."""
+
+    radius = math.dist(center, start)
+    if radius <= 1.0e-12:
+        return ()
+    start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
+    end_angle = math.atan2(end[1] - center[1], end[0] - center[0])
+    sweep = (end_angle - start_angle + math.pi) % (2.0 * math.pi) - math.pi
+    count = max(2, int(segments))
+    return tuple(
+        (
+            center[0] + radius * math.cos(start_angle + sweep * index / count),
+            center[1] + radius * math.sin(start_angle + sweep * index / count),
+        )
+        for index in range(count + 1)
+    )
+
+
 Point2 = tuple[float, float]
 
 

@@ -497,7 +497,8 @@ class SketchModel:
                     if dimension.point_ids
                     else {}
                 ),
-                "locked": dimension.driving,
+                "driving": dimension.driving,
+                "locked": bool(dimension.attributes.get("locked", False)),
             }
             for dimension_id, dimension in self.dimensions.items()
             if dimension.dimension_type not in {
@@ -1252,6 +1253,7 @@ class SketchModel:
             ("circle_radius", geometry_id, "radius")
             for geometry_id, geometry in self.geometry.items()
             if geometry.geometry_type == GeometryType.CIRCLE
+            and not bool(geometry.attributes.get("dimension_visible", False))
         )
         return variables
 
@@ -1727,10 +1729,12 @@ class SketchModel:
                     dimension_type=dimension_type,
                     value=value,
                     point_ids=point_ids,
+                    # The UI lock only controls editing/appearance. A user
+                    # dimension is driving unless explicitly a reference.
                     driving=bool(
                         dimension.pop(
                             "driving",
-                            dimension.pop("locked", True),
+                            not bool(dimension.get("reference", False)),
                         )
                     ),
                     attributes=dimension,

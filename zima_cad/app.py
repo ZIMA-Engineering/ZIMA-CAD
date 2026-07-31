@@ -10830,21 +10830,26 @@ class MainWindow(QMainWindow):
             )
             return
         if self._sketch_edit_entity_id is not None:
+            corner_radius = self.native_viewer._corner_radius_candidate(
+                QPointF(position)
+            )
+            if corner_radius is not None:
+                self._sketch_selected_corner_radius = corner_radius
             if (
                 self.document is not None
-                and self._sketch_selected_corner_radius is not None
+                and corner_radius is not None
             ):
                 menu = QMenu(self)
                 remove_radius_action = menu.addAction(
                     resource_icon("delete"),
-                    tr("menu.context.remove_radius"),
+                    tr("menu.context.hide_radius"),
                 )
                 action = menu.exec(
                     self.native_viewer.mapToGlobal(position)
                 )
                 if action == remove_radius_action:
                     self._remove_sketch_corner_radius(
-                        *self._sketch_selected_corner_radius
+                        *corner_radius
                     )
                 return
             if (
@@ -13579,7 +13584,8 @@ class MainWindow(QMainWindow):
             if (
                 dimension_type
                 not in ("distance", "distance_x", "distance_y")
-                or not bool(dimension.get("locked", True))
+                or bool(dimension.get("reference", False))
+                or not bool(dimension.get("driving", True))
             ):
                 continue
             point_ids = dimension.get("point_ids", ())
@@ -14649,6 +14655,16 @@ class MainWindow(QMainWindow):
             )
         ):
             return
+        if self._sketch_tool == "arc" and len(self._sketch_pending_points) == 2:
+            center = self._sketch_pending_points[0]
+            start = self._sketch_pending_points[1]
+            radius = math.dist(center, start)
+            dx, dy = x - center[0], y - center[1]
+            distance = math.hypot(dx, dy)
+            if radius <= 1.0e-12 or distance <= 1.0e-12:
+                return
+            x = center[0] + radius * dx / distance
+            y = center[1] + radius * dy / distance
         point, snapped, created = self._ensure_sketch_point(
             sketch,
             (x, y),
@@ -14764,8 +14780,8 @@ class MainWindow(QMainWindow):
         if candidate_id and candidate_id != first_id:
             completed = self._add_sketch_coincident_constraint(
                 sketch,
-                first_id,
                 candidate_id,
+                first_id,
             )
         elif reference_id:
             first_point = next(
@@ -14892,6 +14908,14 @@ class MainWindow(QMainWindow):
                         continue
                     if str(constraint.get("point_id", "")) == constrained_point_id:
                         constraint["point_id"] = target_point_id
+                    point_ids = constraint.get("point_ids")
+                    if isinstance(point_ids, list):
+                        constraint["point_ids"] = [
+                            target_point_id
+                            if str(point_id) == constrained_point_id
+                            else str(point_id)
+                            for point_id in point_ids
+                        ]
                     signature = json.dumps(
                         {
                             key: value
@@ -14909,20 +14933,52 @@ class MainWindow(QMainWindow):
                     entity["constraints"] = unique
                 else:
                     entity.pop("constraints", None)
+                # Point attributes may also carry persistent curve links;
+                # those do not reference another point directly.
                 continue
             point_ids = entity.get("point_ids", ())
-            if not isinstance(point_ids, list):
-                continue
-            entity["point_ids"] = [
-                (
-                    target_point_id
-                    if str(point_id) == constrained_point_id
-                    else str(point_id)
-                )
-                for point_id in point_ids
-            ]
-            if len(set(entity["point_ids"])) != len(entity["point_ids"]):
-                return False
+            if isinstance(point_ids, list):
+                entity["point_ids"] = [
+                    (
+                        target_point_id
+                        if str(point_id) == constrained_point_id
+                        else str(point_id)
+                    )
+                    for point_id in point_ids
+                ]
+                if len(set(entity["point_ids"])) != len(entity["point_ids"]):
+                    return False
+            rim = entity.get("rim_coincident")
+            if (
+                isinstance(rim, dict)
+                and str(rim.get("point_id", "")) == constrained_point_id
+            ):
+                rim["point_id"] = target_point_id
+            records = entity.get("corner_radii", ())
+            if isinstance(records, list):
+                for record in records:
+                    if (
+                        isinstance(record, dict)
+                        and str(record.get("vertex_id", ""))
+                        == constrained_point_id
+                    ):
+                        record["vertex_id"] = target_point_id
+            constraints = entity.get("constraints", ())
+            if isinstance(constraints, list):
+                for constraint in constraints:
+                    if not isinstance(constraint, dict):
+                        continue
+                    for key in ("point_id", "contact_point_id"):
+                        if str(constraint.get(key, "")) == constrained_point_id:
+                            constraint[key] = target_point_id
+                    constraint_point_ids = constraint.get("point_ids")
+                    if isinstance(constraint_point_ids, list):
+                        constraint["point_ids"] = [
+                            target_point_id
+                            if str(point_id) == constrained_point_id
+                            else str(point_id)
+                            for point_id in constraint_point_ids
+                        ]
 
         entities = [
             entity
@@ -14991,6 +15047,49 @@ class MainWindow(QMainWindow):
             if isinstance(raw_constraints, list)
             else []
         )
+        if reference_id.startswith("sketch_circle:"):
+            circle_id = reference_id.split(":", 1)[1]
+            circle = next(
+                (
+                    entity for entity in entities
+                    if entity.get("type") == "circle"
+                    and str(entity.get("id", "")) == circle_id
+                ),
+                None,
+            )
+            center_ids = tuple(map(str, circle.get("point_ids", ()))) if circle else ()
+            center = next(
+                (
+                    entity for entity in entities
+                    if entity.get("type") == "point"
+                    and center_ids
+                    and str(entity.get("id", "")) == center_ids[0]
+                ),
+                None,
+            )
+            if circle is not None and center is not None:
+                cx, cy = self._sketch_point_position(center)
+                px, py = self._sketch_point_position(point)
+                point["curve_attachment"] = {
+                    "type": "circle",
+                    "geometry_id": circle_id,
+                    "angle": math.atan2(py - cy, px - cx),
+                }
+                self._store_sketch_entities(sketch, entities)
+            return point
+        if reference_id.startswith("sketch_radius:"):
+            radius_id = reference_id.removeprefix("sketch_radius:")
+            point["curve_attachment"] = {
+                "type": "radius",
+                "radius_id": radius_id,
+                "fraction": self._sketch_radius_attachment_fraction(
+                    entities,
+                    radius_id,
+                    self._sketch_point_position(point),
+                ),
+            }
+            self._store_sketch_entities(sketch, entities)
+            return point
         if reference_id.startswith("sketch_geometry:"):
             geometry_id = reference_id.split(":", 1)[1]
             geometry = next(
@@ -15069,6 +15168,54 @@ class MainWindow(QMainWindow):
         point["constraints"] = constraints
         self._store_sketch_entities(sketch, entities)
         return point
+
+    @staticmethod
+    def _sketch_radius_attachment_fraction(
+        entities: list[dict[str, Any]],
+        radius_id: str,
+        position: tuple[float, float],
+    ) -> float:
+        geometry = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "segment"
+        }
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        for first_id, first in geometry.items():
+            for record in first.get("corner_radii", ()):
+                if not isinstance(record, dict):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                candidate_id = str(record.get("id") or f"radius:{first_id}:{second_id}:{vertex_id}")
+                if candidate_id != radius_id:
+                    continue
+                first_ids = tuple(map(str, first.get("point_ids", ())))
+                second = geometry.get(second_id)
+                second_ids = tuple(map(str, second.get("point_ids", ()))) if second else ()
+                if len(first_ids) != 2 or len(second_ids) != 2:
+                    return 0.5
+                evaluated = evaluate_corner_radius(
+                    points[vertex_id],
+                    points[next(item for item in first_ids if item != vertex_id)],
+                    points[next(item for item in second_ids if item != vertex_id)],
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is None or len(evaluated.arc_points) < 2:
+                    return 0.5
+                index = min(
+                    range(len(evaluated.arc_points)),
+                    key=lambda item: math.dist(evaluated.arc_points[item], position),
+                )
+                return index / (len(evaluated.arc_points) - 1)
+        return 0.5
 
     def _cancel_current_sketch_entity(self) -> None:
         if self._sketch_edit_entity_id is None:
@@ -15985,15 +16132,15 @@ class MainWindow(QMainWindow):
                 for _geometry_id, grouped_record in grouped_records:
                     grouped_record["radius"] = radius
         elif previous_record is not None:
-            # Dragging the fillet handle back into the sharp vertex hides the
-            # fillet but deliberately preserves all of its data.  Starting a
-            # new drag from the same vertex restores it.
-            previous_record["suppressed"] = True
+            # Suppression is an explicit context-menu operation.  Reaching
+            # the sharp vertex while dragging must leave the last valid
+            # radius intact instead of hiding the fillet unexpectedly.
             other_records.append(previous_record)
         if other_records:
             first["corner_radii"] = other_records
         else:
             first.pop("corner_radii", None)
+        self._apply_sketch_curve_attachments(entities)
         self._store_sketch_entities(sketch, entities)
         self._refresh_sketch_overlay(populate_tree=False)
         if self._sketch_show_all_dimensions:
@@ -16593,6 +16740,46 @@ class MainWindow(QMainWindow):
                 )
             )
             return
+        parallel_lines_geometry = self._unified_parallel_lines_geometry(
+            points
+        )
+        if parallel_lines_geometry is not None:
+            point_position, projection, distance = parallel_lines_geometry
+            frame = self._sketch_frame(sketch)
+            if frame is None or distance <= 1.0e-12:
+                return
+            origin, x_axis, y_axis = frame
+
+            def world_parallel_lines(position):
+                return tuple(
+                    origin[index]
+                    + position[0] * x_axis[index]
+                    + position[1] * y_axis[index]
+                    for index in range(3)
+                )
+
+            direction = tuple(
+                (
+                    (point_position[0] - projection[0]) * x_axis[index]
+                    + (point_position[1] - projection[1]) * y_axis[index]
+                )
+                / distance
+                for index in range(3)
+            )
+            self._sketch_dimension_cursor = (x, y)
+            self._sketch_dimension_preview_type = "distance_lines"
+            self._set_sketch_dimension_preview(
+                LinearDimension(
+                    key="sketch_dimension_preview",
+                    first_point=world_parallel_lines(projection),
+                    second_point=world_parallel_lines(point_position),
+                    first_dimension_point=world_parallel_lines(projection),
+                    second_dimension_point=world_parallel_lines(point_position),
+                    direction=direction,
+                    leader_anchor="second",
+                )
+            )
+            return
         angle_geometry = self._unified_angle_geometry(points)
         if angle_geometry is not None:
             first_position, vertex, second_position, angle = angle_geometry
@@ -16941,6 +17128,42 @@ class MainWindow(QMainWindow):
             projection,
         )
 
+    def _unified_parallel_lines_geometry(
+        self,
+        points: dict[str, dict[str, Any]],
+    ):
+        point_ids = list(self._sketch_dimension_point_ids)
+        if len(point_ids) != 4:
+            return None
+        positions = [
+            self._sketch_point_position(points[point_id])
+            for point_id in point_ids
+            if point_id in points
+        ]
+        if len(positions) != 4:
+            return None
+        first_a, first_b, second_a, second_b = positions
+        first_dx = first_b[0] - first_a[0]
+        first_dy = first_b[1] - first_a[1]
+        second_dx = second_b[0] - second_a[0]
+        second_dy = second_b[1] - second_a[1]
+        first_length = math.hypot(first_dx, first_dy)
+        second_length = math.hypot(second_dx, second_dy)
+        if first_length <= 1.0e-12 or second_length <= 1.0e-12:
+            return None
+        cross = first_dx * second_dy - first_dy * second_dx
+        if abs(cross) > first_length * second_length * 1.0e-7:
+            return None
+        factor = (
+            (first_a[0] - second_a[0]) * second_dx
+            + (first_a[1] - second_a[1]) * second_dy
+        ) / (second_length * second_length)
+        projection = (
+            second_a[0] + factor * second_dx,
+            second_a[1] + factor * second_dy,
+        )
+        return first_a, projection, math.dist(first_a, projection)
+
     def _unified_axis_line_geometry(self, sketch, points):
         reference_id = self._sketch_dimension_reference_id
         if (
@@ -17035,6 +17258,8 @@ class MainWindow(QMainWindow):
             return self._commit_unified_axis_line_dimension()
         if self._sketch_dimension_preview_type == "distance_line":
             return self._commit_unified_point_line_dimension()
+        if self._sketch_dimension_preview_type == "distance_lines":
+            return self._commit_unified_parallel_lines_dimension()
         if self._sketch_dimension_preview_type == "angle":
             return self._commit_unified_angle_dimension()
         if (
@@ -17110,6 +17335,7 @@ class MainWindow(QMainWindow):
             "type": dimension_type,
             "point_ids": [first_id, second_id],
             "value": value,
+            "driving": True,
             "locked": False,
             "placement": list(self._sketch_dimension_cursor),
         }
@@ -17293,6 +17519,7 @@ class MainWindow(QMainWindow):
             "type": "distance_axis",
             "point_ids": point_ids,
             "value": value,
+            "driving": True,
             "locked": False,
             **attributes,
         }
@@ -17366,6 +17593,7 @@ class MainWindow(QMainWindow):
             "type": "distance_line",
             "point_ids": [point_id, *line_ids],
             "value": value,
+            "driving": True,
             "locked": False,
             "placement": list(self._sketch_dimension_cursor),
         }
@@ -17374,6 +17602,84 @@ class MainWindow(QMainWindow):
             dimension_type="distance_line",
             value=value,
             point_ids=tuple(raw_dimension["point_ids"]),
+            driving=True,
+        )
+        if (
+            self._sketch_dimension_independence_model(
+                sketch,
+                self._stored_sketch_entities(sketch),
+                dimensions,
+            ).dimension_dof_reduction(candidate)
+            == 0
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.dimension.overconstrained")
+            )
+            self._clear_unified_dimension_selection(sketch)
+            return False
+        dimensions.append(raw_dimension)
+        self._store_sketch_dimensions(sketch, dimensions)
+        self._clear_unified_dimension_selection()
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self._show_all_sketch_dimensions(sketch)
+        self.statusBar().showMessage(
+            tr("sketch.status.dimension.created")
+        )
+        return True
+
+    def _commit_unified_parallel_lines_dimension(self) -> bool:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_dimension_cursor is None
+        ):
+            return False
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return False
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in self._stored_sketch_entities(sketch)
+            if entity.get("type") == "point"
+        }
+        geometry = self._unified_parallel_lines_geometry(points)
+        selected_ids = list(self._sketch_dimension_point_ids)
+        if geometry is None or len(selected_ids) != 4:
+            return False
+        dimension_point_ids = [selected_ids[0], *selected_ids[2:4]]
+        value = geometry[2]
+        dimensions = self._stored_sketch_dimensions(sketch)
+        if any(
+            str(item.get("type", "")) == "distance_line"
+            and list(map(str, item.get("point_ids", ())))
+            == dimension_point_ids
+            for item in dimensions
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.dimension.already_exists")
+            )
+            self._clear_unified_dimension_selection(sketch)
+            return False
+        used_ids = {str(item.get("id", "")) for item in dimensions}
+        index = 1
+        while f"d{index}" in used_ids:
+            index += 1
+        raw_dimension = {
+            "id": f"d{index}",
+            "type": "distance_line",
+            "point_ids": dimension_point_ids,
+            "value": value,
+            "driving": True,
+            "locked": False,
+            "placement": list(self._sketch_dimension_cursor),
+        }
+        candidate = SketchDimension(
+            dimension_id=raw_dimension["id"],
+            dimension_type="distance_line",
+            value=value,
+            point_ids=tuple(dimension_point_ids),
             driving=True,
         )
         if (
@@ -17449,6 +17755,7 @@ class MainWindow(QMainWindow):
             "type": "angle",
             "point_ids": point_ids,
             "value": value,
+            "driving": True,
             "locked": False,
             **attributes,
         }
@@ -17648,6 +17955,7 @@ class MainWindow(QMainWindow):
             "type": "distance",
             "point_ids": [first_id, entity_id],
             "value": value,
+            "driving": True,
             "locked": False,
         }
         candidate = SketchDimension(
@@ -18065,6 +18373,9 @@ class MainWindow(QMainWindow):
             self._refresh_sketch_overlay()
             return
         solved_entities, solved_dimensions = candidate.to_editor_data()
+        # The numeric solver does not own curve attachments yet. Restore
+        # their exact positions after any solve.
+        self._apply_sketch_curve_attachments(solved_entities)
         self._store_sketch_editor_data(
             sketch,
             solved_entities,
@@ -18427,9 +18738,74 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.tangent.invalid_line")
             )
             return
+        rim_coincident = circle_geometry.attributes.get("rim_coincident")
+        rim_point_id = (
+            str(rim_coincident.get("point_id", ""))
+            if isinstance(rim_coincident, dict)
+            else ""
+        )
+        raw_rim_point = next(
+            (
+                item
+                for item in entities
+                if item.get("type") == "point"
+                and str(item.get("id", "")) == rim_point_id
+            ),
+            None,
+        )
+        line_point_ids = tuple(map(str, line.get("point_ids", ())))
+        rim_on_line = rim_point_id in line_point_ids
+        if raw_rim_point is not None and not rim_on_line:
+            rim_on_line = any(
+                isinstance(constraint, dict)
+                and constraint.get("type") == "point_on_line"
+                and tuple(map(str, constraint.get("point_ids", ())))
+                == line_point_ids
+                for constraint in raw_rim_point.get("constraints", ())
+            )
+        existing_contact = (
+            model.points.get(rim_point_id)
+            if rim_on_line
+            else None
+        )
+        if existing_contact is None:
+            circle_radius = float(circle_geometry.attributes.get("radius", 0.0))
+            contact_ids = set(line_point_ids)
+            contact_ids.update(
+                str(item.get("id", ""))
+                for item in entities
+                if item.get("type") == "point"
+                and any(
+                    isinstance(constraint, dict)
+                    and constraint.get("type") == "point_on_line"
+                    and tuple(map(str, constraint.get("point_ids", ())))
+                    == line_point_ids
+                    for constraint in item.get("constraints", ())
+                )
+            )
+            existing_contact = next(
+                (
+                    model.points[point_id]
+                    for point_id in contact_ids
+                    if point_id in model.points
+                    and math.isclose(
+                        math.hypot(
+                            model.points[point_id].x - centre.x,
+                            model.points[point_id].y - centre.y,
+                        ),
+                        circle_radius,
+                        rel_tol=1.0e-7,
+                        abs_tol=1.0e-7,
+                    )
+                ),
+                None,
+            )
+            if existing_contact is not None:
+                rim_point_id = existing_contact.point_id
+        contact_source = existing_contact or centre
         contact_factor = (
-            (centre.x - first_point.x) * dx
-            + (centre.y - first_point.y) * dy
+            (contact_source.x - first_point.x) * dx
+            + (contact_source.y - first_point.y) * dy
         ) / length_squared
         if not 0.0 <= contact_factor <= 1.0:
             self.statusBar().showMessage(
@@ -18443,20 +18819,26 @@ class MainWindow(QMainWindow):
         side = 1 if cross >= 0.0 else -1
         constraint_id = f"tangent:{line_id}:{circle_id}"
         candidate = copy.deepcopy(model)
-        contact_point_id = self._next_sketch_point_id(entities)
         contact_x = first_point.x + contact_factor * dx
         contact_y = first_point.y + contact_factor * dy
-        candidate.add_point(
-            SketchPoint(
-                contact_point_id,
-                contact_x,
-                contact_y,
-                attributes={
-                    "derived": True,
-                    "role": "tangent_contact",
-                },
-            )
+        contact_point_id = (
+            rim_point_id
+            if existing_contact is not None
+            else ""
         )
+        if contact_point_id not in candidate.points:
+            contact_point_id = self._next_sketch_point_id(entities)
+            candidate.add_point(
+                SketchPoint(
+                    contact_point_id,
+                    contact_x,
+                    contact_y,
+                    attributes={
+                        "derived": True,
+                        "role": "tangent_contact",
+                    },
+                )
+            )
         candidate.add_constraint(
             SketchConstraint(
                 constraint_id,
@@ -18487,6 +18869,11 @@ class MainWindow(QMainWindow):
             self._refresh_sketch_overlay()
             return
         solved_entities, solved_dimensions = candidate.to_editor_data()
+        # Tangency is allowed to move the contact point around the circle.
+        # Preserve the solver's result by updating the stored attachment
+        # parameter instead of snapping the point back to its old angle.
+        self._refresh_sketch_curve_attachment_parameters(solved_entities)
+        self._apply_sketch_curve_attachments(solved_entities)
         self._store_sketch_editor_data(
             sketch,
             solved_entities,
@@ -19348,6 +19735,8 @@ class MainWindow(QMainWindow):
             "type": self._sketch_tool or "segment",
             "point_ids": point_ids,
         }
+        if geometry["type"] == "arc":
+            geometry["arc_mode"] = "center"
         if self._sketch_pending_constraint is not None:
             geometry["constraints"] = [
                 {"type": self._sketch_pending_constraint}
@@ -19563,7 +19952,6 @@ class MainWindow(QMainWindow):
                     ),
                     None,
                 )
-                factor = 0.0
                 if geometry is not None:
                     points = {
                         str(item.get("id", "")): item
@@ -19574,19 +19962,24 @@ class MainWindow(QMainWindow):
                     first = points.get(ids[0]) if len(ids) == 2 else None
                     second = points.get(ids[1]) if len(ids) == 2 else None
                     if first is not None and second is not None:
-                        ax, ay = self._sketch_point_position(first)
-                        bx, by = self._sketch_point_position(second)
-                        squared = (bx - ax) ** 2 + (by - ay) ** 2
-                        if squared > 1.0e-12:
-                            factor = (
-                                (rim_position[0] - ax) * (bx - ax)
-                                + (rim_position[1] - ay) * (by - ay)
-                            ) / squared
-                circle["rim_coincident"] = {
-                    "type": "geometry",
-                    "geometry_id": geometry_id,
-                    "factor": factor,
-                }
+                        rim_point_id = self._next_sketch_point_id(entities)
+                        rim_point = {
+                            "type": "point",
+                            "id": rim_point_id,
+                            "x": float(rim_position[0]),
+                            "y": float(rim_position[1]),
+                            "constraints": [{
+                                "type": "point_on_line",
+                                "point_ids": list(ids),
+                                "bounded": geometry.get("type") == "segment",
+                            }],
+                        }
+                        entities.append(rim_point)
+                        circle["rim_coincident"] = {
+                            "type": "point",
+                            "point_id": rim_point_id,
+                            "geometry_id": geometry_id,
+                        }
         entities.append(circle)
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
@@ -19680,6 +20073,7 @@ class MainWindow(QMainWindow):
             self._apply_sketch_distance_dimensions(sketch, entities)
             self._apply_sketch_coincident_constraints(entities)
             self._apply_sketch_circle_rim_constraints(entities)
+            self._apply_sketch_curve_attachments(entities)
         dimensions = self._stored_sketch_dimensions(sketch)
         candidate = SketchModel.from_editor_data(entities, dimensions)
         if (
@@ -19690,6 +20084,8 @@ class MainWindow(QMainWindow):
             and candidate.solve()
         ):
             entities, dimensions = candidate.to_editor_data()
+            self._refresh_sketch_curve_attachment_parameters(entities)
+            self._apply_sketch_curve_attachments(entities)
         self._store_sketch_editor_data(sketch, entities, dimensions)
         self._mark_model_for_regeneration()
         self.rebuild_view(fit=False)
@@ -19771,6 +20167,108 @@ class MainWindow(QMainWindow):
                 radius = math.hypot(target[0] - cx, target[1] - cy)
                 if radius > 1.0e-12:
                     circle["radius"] = radius
+
+    @staticmethod
+    def _apply_sketch_curve_attachments(
+        entities: list[dict[str, Any]],
+    ) -> None:
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        geometry = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "segment"
+        }
+        circles = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "circle"
+        }
+        radius_arcs: dict[str, tuple[tuple[float, float], ...]] = {}
+        for first_id, first in geometry.items():
+            first_ids = tuple(map(str, first.get("point_ids", ())))
+            for record in first.get("corner_radii", ()):
+                if not isinstance(record, dict) or bool(record.get("suppressed", False)):
+                    continue
+                second_id = str(record.get("other_geometry_id", ""))
+                vertex_id = str(record.get("vertex_id", ""))
+                second = geometry.get(second_id)
+                second_ids = tuple(map(str, second.get("point_ids", ()))) if second else ()
+                if len(first_ids) != 2 or len(second_ids) != 2 or vertex_id not in points:
+                    continue
+                evaluated = evaluate_corner_radius(
+                    MainWindow._sketch_point_position(points[vertex_id]),
+                    MainWindow._sketch_point_position(points[next(item for item in first_ids if item != vertex_id)]),
+                    MainWindow._sketch_point_position(points[next(item for item in second_ids if item != vertex_id)]),
+                    float(record.get("radius", 0.0)),
+                )
+                if evaluated is not None:
+                    radius_id = str(record.get("id") or f"radius:{first_id}:{second_id}:{vertex_id}")
+                    radius_arcs[radius_id] = evaluated.arc_points
+        for point in points.values():
+            attachment = point.get("curve_attachment")
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("type") == "circle":
+                circle = circles.get(str(attachment.get("geometry_id", "")))
+                ids = tuple(map(str, circle.get("point_ids", ()))) if circle else ()
+                center = points.get(ids[0]) if ids else None
+                if circle is None or center is None:
+                    continue
+                angle = float(attachment.get("angle", 0.0))
+                radius = float(circle.get("radius", 0.0))
+                cx, cy = MainWindow._sketch_point_position(center)
+                point["x"] = cx + radius * math.cos(angle)
+                point["y"] = cy + radius * math.sin(angle)
+            elif attachment.get("type") == "radius":
+                arc = radius_arcs.get(str(attachment.get("radius_id", "")))
+                if not arc:
+                    continue
+                fraction = max(0.0, min(1.0, float(attachment.get("fraction", 0.5))))
+                scaled = fraction * (len(arc) - 1)
+                lower = int(math.floor(scaled))
+                upper = min(lower + 1, len(arc) - 1)
+                blend = scaled - lower
+                point["x"] = arc[lower][0] + blend * (arc[upper][0] - arc[lower][0])
+                point["y"] = arc[lower][1] + blend * (arc[upper][1] - arc[lower][1])
+
+    @staticmethod
+    def _refresh_sketch_curve_attachment_parameters(
+        entities: list[dict[str, Any]],
+    ) -> None:
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        circles = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "circle"
+        }
+        for point in points.values():
+            attachment = point.get("curve_attachment")
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("type") == "circle":
+                circle = circles.get(str(attachment.get("geometry_id", "")))
+                ids = tuple(map(str, circle.get("point_ids", ()))) if circle else ()
+                center = points.get(ids[0]) if ids else None
+                if center is None:
+                    continue
+                cx, cy = MainWindow._sketch_point_position(center)
+                px, py = MainWindow._sketch_point_position(point)
+                attachment["angle"] = math.atan2(py - cy, px - cx)
+            elif attachment.get("type") == "radius":
+                radius_id = str(attachment.get("radius_id", ""))
+                attachment["fraction"] = MainWindow._sketch_radius_attachment_fraction(
+                    entities,
+                    radius_id,
+                    MainWindow._sketch_point_position(point),
+                )
 
     def _show_sketch_point_dimensions(
         self,
@@ -19966,7 +20464,8 @@ class MainWindow(QMainWindow):
                         float(
                             stored_dimension.get("value", display_value)
                         )
-                        if bool(stored_dimension.get("locked", True))
+                        if not bool(stored_dimension.get("reference", False))
+                        and bool(stored_dimension.get("driving", True))
                         else display_value
                     ),
                 )
@@ -19976,7 +20475,8 @@ class MainWindow(QMainWindow):
                     dimension_id,
                     (
                         float(stored_dimension.get("value", display_value))
-                        if bool(stored_dimension.get("locked", True))
+                        if not bool(stored_dimension.get("reference", False))
+                        and bool(stored_dimension.get("driving", True))
                         else display_value
                     ),
                 ))
@@ -20035,7 +20535,8 @@ class MainWindow(QMainWindow):
                     dimension,
                     dimension_id,
                     float(stored_dimension.get("value", display_value))
-                    if bool(stored_dimension.get("locked", False))
+                    if not bool(stored_dimension.get("reference", False))
+                    and bool(stored_dimension.get("driving", True))
                     else display_value,
                 ))
                 continue
@@ -20090,7 +20591,8 @@ class MainWindow(QMainWindow):
                     dimension_id,
                     (
                         float(stored_dimension.get("value", display_value))
-                        if bool(stored_dimension.get("locked", True))
+                        if not bool(stored_dimension.get("reference", False))
+                        and bool(stored_dimension.get("driving", True))
                         else display_value
                     ),
                 ))
@@ -20171,7 +20673,8 @@ class MainWindow(QMainWindow):
                     dimension_id,
                     (
                         float(stored_dimension.get("value", display_value))
-                        if bool(stored_dimension.get("locked", True))
+                        if not bool(stored_dimension.get("reference", False))
+                        and bool(stored_dimension.get("driving", True))
                         else display_value
                     ),
                 )
@@ -21406,12 +21909,15 @@ class MainWindow(QMainWindow):
         if (
             self.document is None
             or self._sketch_edit_entity_id != sketch_id
-            or not self._sketch_show_all_dimensions
         ):
             return
         sketch = self.document.find_entity(sketch_id)
         if sketch is None:
             return
+        # Committing one value must never collapse the sketch back to a
+        # single selected dimension.  A rebuild can transiently alter the
+        # display state, so restore the all-dimensions mode explicitly.
+        self._sketch_show_all_dimensions = True
         self._show_all_sketch_dimensions(sketch)
         self.native_viewer.set_selected_dimension(None)
         for overlay in self._dimension_overlays.values():
@@ -21612,6 +22118,7 @@ class MainWindow(QMainWindow):
         elif binding[0] == "sketch_circle_radius":
             circle_id = str(binding[1])
             entities = self._stored_sketch_entities(entity)
+            dimensions = self._stored_sketch_dimensions(entity)
             circle = next(
                 (
                     item
@@ -21629,7 +22136,31 @@ class MainWindow(QMainWindow):
                 == "diameter"
                 else value
             )
-            self._store_sketch_entities(entity, entities)
+            self._apply_sketch_curve_attachments(entities)
+            candidate = SketchModel.from_editor_data(entities, dimensions)
+            has_tangencies = any(
+                constraint.constraint_type == "tangent"
+                and str(constraint.attributes.get("circle_geometry_id", ""))
+                == circle_id
+                for constraint in candidate.constraints.values()
+            )
+            if has_tangencies:
+                if not candidate.solve():
+                    self.statusBar().showMessage(
+                        tr("sketch.status.tangent.overconstrained")
+                    )
+                    self._show_all_sketch_dimensions(entity)
+                    return
+                entities, dimensions = candidate.to_editor_data()
+                self._refresh_sketch_curve_attachment_parameters(entities)
+                self._apply_sketch_curve_attachments(entities)
+                self._store_sketch_editor_data(
+                    entity,
+                    entities,
+                    dimensions,
+                )
+            else:
+                self._store_sketch_entities(entity, entities)
         elif binding[0] == "sketch_radius":
             radius_id = str(binding[1])
             entities = self._stored_sketch_entities(entity)
@@ -21720,6 +22251,7 @@ class MainWindow(QMainWindow):
                     return
             for _first_id, record in affected:
                 record["radius"] = radius_value
+            self._apply_sketch_curve_attachments(entities)
             self._store_sketch_entities(entity, entities)
         elif binding[0] == "sketch_distance":
             dimension_id = str(binding[1])
@@ -21841,10 +22373,12 @@ class MainWindow(QMainWindow):
                 candidate_model.to_editor_data()
             )
             for solved_dimension in solved_dimensions:
+                solved_id = str(solved_dimension.get("id", ""))
                 solved_dimension["locked"] = original_dimension_locks.get(
-                    str(solved_dimension.get("id", "")),
+                    solved_id,
                     False,
                 )
+                solved_dimension["driving"] = True
             for solved_point in entities:
                 if solved_point.get("type") != "point":
                     continue
