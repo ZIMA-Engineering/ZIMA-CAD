@@ -903,6 +903,19 @@ class PartDocument:
         """Build an automatic solid result from an explicit object sequence."""
         if self.body_is_suppressed():
             return None
+        if self.document_settings.get("type") == "assembly":
+            result_shape = None
+            for obj in objects:
+                if obj.container_type != ContainerType.COMPONENT:
+                    continue
+                shape = self.build_assembly_component_shape(obj, objects)
+                if shape is None:
+                    continue
+                result_shape = (
+                    shape if result_shape is None
+                    else BRepAlgoAPI_Fuse(result_shape, shape).Shape()
+                )
+            return result_shape
         result_shape = None
         for obj in objects:
             result_shape = apply_object_to_shape(
@@ -913,6 +926,41 @@ class PartDocument:
             )
 
         return result_shape
+
+    def build_assembly_component_shape(
+        self,
+        component: ZimaEntity,
+        objects: list[ZimaEntity] | None = None,
+    ):
+        """Evaluate one component with later assembly-only cuts applied."""
+        shape = self.build_standalone_shape(component)
+        if shape is None:
+            return None
+        history = self.history_objects() if objects is None else objects
+        component_index = next(
+            (index for index, obj in enumerate(history) if obj is component),
+            -1,
+        )
+        if component_index < 0:
+            return shape
+        for feature in history[component_index + 1:]:
+            if feature.container_type not in (
+                ContainerType.PROTRUSION,
+                ContainerType.REVOLVE,
+            ):
+                continue
+            try:
+                target_ids = json.loads(
+                    str(feature.parameters.get("assembly_target_ids", "[]"))
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                target_ids = []
+            if component.entity_id not in target_ids:
+                continue
+            tool = self.build_standalone_shape(feature)
+            if tool is not None:
+                shape = BRepAlgoAPI_Cut(shape, tool).Shape()
+        return shape
 
     def build_standalone_shape(self, obj: ZimaEntity):
         """Build one history object for source inspection, ignoring its first sign."""

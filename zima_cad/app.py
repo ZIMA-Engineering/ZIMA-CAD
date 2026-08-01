@@ -55,6 +55,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
@@ -66,6 +67,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -109,6 +111,7 @@ from zima_cad.model import (
     multiply_transforms,
     entity_world_transform,
     make_sketch_shape,
+    transform_shape,
     transform_point,
 )
 from zima_cad.sketch_model import (
@@ -444,6 +447,8 @@ class HistoryTreeWidget(QTreeWidget):
         Qt.ItemDataRole.UserRole
     ) + 8
     SKETCH_DIMENSION_ROLE = int(Qt.ItemDataRole.UserRole) + 9
+    COMPONENT_INSTANCE_ROLE = int(Qt.ItemDataRole.UserRole) + 10
+    COMPONENT_SOURCE_ENTITY_ROLE = int(Qt.ItemDataRole.UserRole) + 11
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -2665,6 +2670,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         initial_sketch_id: str = "",
         feature_kind: EntityKind = EntityKind.PROTRUSION,
         container_type: ContainerType = ContainerType.PROTRUSION,
+        subtract_only: bool = False,
         reference_exists_callback=None,
         reference_kind_callback=None,
     ) -> None:
@@ -2678,6 +2684,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             reference_kind_callback=reference_kind_callback,
         )
         self._feature_kind = feature_kind
+        self._subtract_only = subtract_only
         self._set_container_type(container_type)
         self.length_spin.setVisible(False)
         if self.length_label is not None:
@@ -2841,6 +2848,10 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         )
         operation_form = QFormLayout()
         operation_form.addRow(tr("dialog.properties.operation"), operation_widget)
+        operation_widget.setVisible(not subtract_only)
+        operation_form.labelForField(operation_widget).setVisible(not subtract_only)
+        if subtract_only:
+            self._set_protrusion_operation(CombineMode.SUBTRACT)
         buttons = self.findChild(QDialogButtonBox)
         dialog_layout = self.layout()
         if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
@@ -2848,6 +2859,18 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             dialog_layout.insertLayout(dialog_layout.indexOf(buttons), feature_form)
         self.extent_mode_combo.currentIndexChanged.connect(
             self._update_extent_controls
+        )
+        self.forward_length_spin.valueChanged.connect(
+            lambda value: self._synchronize_symmetric_length(
+                self.reverse_length_spin,
+                value,
+            )
+        )
+        self.reverse_length_spin.valueChanged.connect(
+            lambda value: self._synchronize_symmetric_length(
+                self.forward_length_spin,
+                value,
+            )
         )
         self._update_extent_controls()
         if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
@@ -2875,11 +2898,30 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
 
     def _update_extent_controls(self, _index: int = -1) -> None:
         mode = self.extent_mode_combo.currentData()
-        two_sides = mode == "two_sides"
-        self.reverse_length_spin.setVisible(two_sides)
+        show_both_lengths = mode in ("two_sides", "symmetric")
+        self.reverse_length_spin.setVisible(show_both_lengths)
         if self.reverse_length_label is not None:
-            self.reverse_length_label.setVisible(two_sides)
+            self.reverse_length_label.setVisible(show_both_lengths)
+        if mode == "symmetric":
+            self._synchronize_symmetric_length(
+                self.reverse_length_spin,
+                self.forward_length_spin.value(),
+            )
         self.protrusion_direction_combo.setVisible(True)
+
+    def _synchronize_symmetric_length(
+        self,
+        target: QDoubleSpinBox,
+        value: float,
+    ) -> None:
+        if self.extent_mode_combo.currentData() != "symmetric":
+            self.definitionChanged.emit()
+            return
+        if not math.isclose(target.value(), value, abs_tol=1.0e-12):
+            target.blockSignals(True)
+            target.setValue(value)
+            target.blockSignals(False)
+        self.definitionChanged.emit()
 
     def _profile_pick_toggled(self, active: bool) -> None:
         self.profile_pick_button.setStyleSheet(
@@ -2991,6 +3033,7 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
         initial_sketch_id: str = "",
         reference_exists_callback=None,
         reference_kind_callback=None,
+        subtract_only: bool = False,
     ) -> None:
         super().__init__(
             solve_callback,
@@ -3001,6 +3044,7 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
             initial_sketch_id=initial_sketch_id,
             feature_kind=EntityKind.REVOLVE,
             container_type=ContainerType.REVOLVE,
+            subtract_only=subtract_only,
             reference_exists_callback=reference_exists_callback,
             reference_kind_callback=reference_kind_callback,
         )
@@ -3134,8 +3178,12 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             reference_exists_callback=lambda _entity_id: True,
         )
         self.component = component
-        self.resize(760, 560)
-        self.setMinimumSize(680, 500)
+        self.source_choices = tuple(source_choices)
+        self.target_choices = tuple(target_choices)
+        available_height = self.screen().availableGeometry().height()
+        dialog_height = min(780, max(640, available_height - 48))
+        self.resize(820, dialog_height)
+        self.setMinimumSize(720, min(680, dialog_height))
         self.setWindowTitle(tr("assembly.properties.title", name=component.name))
         self.reference_list.clearContents()
         self.reference_list.setRowCount(3)
@@ -3185,6 +3233,38 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.reference_list.verticalHeader().setDefaultSectionSize(42)
         self.reference_status_label.setText(tr("assembly.properties.instructions"))
         self._update_pick_highlight()
+
+    def accept_assembly_origin(self) -> bool:
+        """Fill a complete component-to-assembly origin alignment."""
+        labels = {
+            descriptor: label
+            for label, descriptor, _point, _normal
+            in (*self.source_choices, *self.target_choices)
+        }
+        pairs = [
+            (
+                f"{self.component.entity_id}:plane:{plane}",
+                f"assembly:{plane}",
+            )
+            for plane in ("XY", "YZ", "XZ")
+        ]
+        if any(source not in labels or target not in labels for source, target in pairs):
+            return False
+        for row, (source_reference, target_reference) in enumerate(pairs):
+            source, target, offset, flip = self.rows[row]
+            source.setProperty("reference", source_reference)
+            source.setText(labels[source_reference])
+            target.setProperty("reference", target_reference)
+            target.setText(labels[target_reference])
+            offset.setValue(0.0)
+            # Equal origin frames need equally oriented plane normals.
+            flip.setChecked(True)
+        self.active_pick = (0, "source")
+        self._update_pick_highlight()
+        self.reference_status_label.setText(
+            tr("assembly.properties.origin_aligned")
+        )
+        return True
 
     def _activate_pick(self, row: int, side: str) -> None:
         self.active_pick = (row, side)
@@ -4987,10 +5067,22 @@ class MainWindow(QMainWindow):
         self.document: PartDocument | None = None
         self.current_file_path: Path | None = None
         self.working_directory = self.startup_context.working_directory
+        self._active_component_return_document: PartDocument | None = None
+        self._active_component_document: PartDocument | None = None
+        self._active_component_entity_id: str | None = None
+        self._active_component_return_file_path: Path | None = None
+        self._active_component_return_selection: str | None = None
+        self._active_component_return_application: ApplicationMode | None = None
+        self._pending_assembly_cut_targets: list[str] = []
+        self._assembly_part_documents: dict[Path, PartDocument] = {}
+        self._dirty_assembly_part_paths: set[Path] = set()
 
         self.tree = HistoryTreeWidget()
+        self.tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.tree.setColumnCount(1)
-        self.tree.setHeaderLabels(["PART"])
+        self.tree.setHeaderLabels([tr("tree.document.part")])
         self.tree.setMinimumWidth(280)
         self.tree.setStyleSheet(
             """
@@ -5440,6 +5532,18 @@ class MainWindow(QMainWindow):
         self.document_tabs.setMovable(False)
         self.document_tabs.setExpanding(False)
         self.document_tabs.setUsesScrollButtons(True)
+        self.document_tabs.setIconSize(QSize(18, 18))
+        self.document_tabs.setStyleSheet(
+            "QTabBar::tab { padding: 7px 12px; margin-right: 2px;"
+            " border: 1px solid rgba(255,255,255,35);"
+            " border-bottom: none; border-top-left-radius: 5px;"
+            " border-top-right-radius: 5px; }"
+            "QTabBar::tab:selected { background: rgba(77,216,17,145);"
+            " color: #FFFFFF; font-weight: 700;"
+            " border-color: #4DD811; }"
+            "QTabBar::tab:!selected { background: rgba(255,255,255,18); }"
+            "QTabBar::tab:hover:!selected { background: rgba(77,216,17,55); }"
+        )
         self.document_tabs.hide()
         self.document_splitter.hide()
 
@@ -5503,7 +5607,7 @@ class MainWindow(QMainWindow):
 
     def _on_reference_visibility_changed(self, _checked: bool) -> None:
         if hasattr(self, "_viewer_initialized"):
-            self.rebuild_view(fit=False, rebuild_geometry=False)
+            self.rebuild_view(fit=False)
 
     def set_view_selection_enabled(self, enabled: bool) -> None:
         self.view_selection_enabled = enabled
@@ -5520,6 +5624,9 @@ class MainWindow(QMainWindow):
     def set_active_application(self, mode: ApplicationMode) -> None:
         if self.document is None:
             return
+        if not self._application_mode_available(mode):
+            self._sync_application_actions()
+            return
         self.active_application = mode
         if 0 <= self.active_document_index < len(self.document_sessions):
             self.document_sessions[
@@ -5529,10 +5636,33 @@ class MainWindow(QMainWindow):
         self._rebuild_application_toolbar()
 
     def _sync_application_actions(self) -> None:
+        if (
+            self.document is not None
+            and not self._application_mode_available(self.active_application)
+        ):
+            self.active_application = (
+                ApplicationMode.ASSEMBLY
+                if self.document.document_settings.get("type") == "assembly"
+                and self._active_component_return_document is None
+                else ApplicationMode.MODELING
+            )
         for mode, action in getattr(self, "application_actions", {}).items():
             action.blockSignals(True)
             action.setChecked(mode == self.active_application)
+            action.setEnabled(
+                self.document is not None
+                and self._application_mode_available(mode)
+            )
             action.blockSignals(False)
+
+    def _application_mode_available(self, mode: ApplicationMode) -> bool:
+        if self.document is None:
+            return False
+        if self._active_component_return_document is not None:
+            return mode == ApplicationMode.MODELING
+        if self.document.document_settings.get("type") == "assembly":
+            return mode == ApplicationMode.ASSEMBLY
+        return True
 
     def _rebuild_application_toolbar(self) -> None:
         if not hasattr(self, "tools_toolbar"):
@@ -5668,6 +5798,14 @@ class MainWindow(QMainWindow):
                     "color: white; font-weight: 700;"
                 )
         elif self.active_application == ApplicationMode.MODELING:
+            if self._active_component_return_document is not None:
+                return_action = self.tools_toolbar.addAction(
+                    tr("assembly.command.return")
+                )
+                return_action.setIcon(resource_icon("assembly"))
+                self._mark_application_command(return_action)
+                return_action.triggered.connect(self._return_to_assembly)
+                self.tools_toolbar.addSeparator()
             new_container_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_container")
             )
@@ -5698,12 +5836,14 @@ class MainWindow(QMainWindow):
                 tr("protrusion.command")
             )
             protrusion_action.setIcon(resource_icon("protrusion"))
+            protrusion_action.setToolTip(tr("assembly.cut.targets.tooltip"))
             self._mark_application_command(protrusion_action)
             protrusion_action.triggered.connect(self._create_protrusion)
             revolve_action = self.tools_toolbar.addAction(
                 tr("revolve.command")
             )
             revolve_action.setIcon(resource_icon("revolve"))
+            revolve_action.setToolTip(tr("assembly.cut.targets.tooltip"))
             self._mark_application_command(revolve_action)
             revolve_action.triggered.connect(self._create_revolve)
             self.tools_toolbar.addSeparator()
@@ -5747,6 +5887,38 @@ class MainWindow(QMainWindow):
             insert_action.setIcon(resource_icon("assembly"))
             self._mark_application_command(insert_action)
             insert_action.triggered.connect(self._insert_assembly_component)
+            self.tools_toolbar.addSeparator()
+            point_action = self.tools_toolbar.addAction(tr("primitive.point"))
+            point_action.setIcon(resource_icon("point"))
+            self._mark_application_command(point_action)
+            point_action.triggered.connect(self._create_point_object)
+            axis_action = self.tools_toolbar.addAction(tr("primitive.axis"))
+            axis_action.setIcon(resource_icon("axis"))
+            self._mark_application_command(axis_action)
+            axis_action.triggered.connect(self._create_axis_object)
+            plane_action = self.tools_toolbar.addAction(tr("primitive.plane"))
+            plane_action.setIcon(resource_icon("plane"))
+            self._mark_application_command(plane_action)
+            plane_action.triggered.connect(self._create_plane_object)
+            sketch_action = self.tools_toolbar.addAction(
+                tr("menu.context.create_sketch")
+            )
+            sketch_action.setIcon(resource_icon("sketch"))
+            self._mark_application_command(sketch_action)
+            sketch_action.triggered.connect(self._create_sketch_from_selection)
+            self.tools_toolbar.addSeparator()
+            protrusion_action = self.tools_toolbar.addAction(
+                tr("assembly.command.protrusion_cut")
+            )
+            protrusion_action.setIcon(resource_icon("protrusion"))
+            self._mark_application_command(protrusion_action)
+            protrusion_action.triggered.connect(self._create_protrusion)
+            revolve_action = self.tools_toolbar.addAction(
+                tr("assembly.command.revolve_cut")
+            )
+            revolve_action.setIcon(resource_icon("revolve"))
+            self._mark_application_command(revolve_action)
+            revolve_action.triggered.connect(self._create_revolve)
         else:
             placeholder = self.tools_toolbar.addAction(
                 tr(f"application.placeholder.{self.active_application.value}")
@@ -5902,6 +6074,33 @@ class MainWindow(QMainWindow):
         visit(self.document.root)
         return result
 
+    def _assembly_cut_target_ids(self) -> list[str]:
+        if self.document is None:
+            return []
+        selected_ids: list[str] = []
+        for item in self.tree.selectedItems():
+            selected = self._object_from_tree_item(item)
+            if selected is None:
+                continue
+            selected_component = (
+                selected
+                if selected.container_type == ContainerType.COMPONENT
+                else self.document.find_owning_object(selected.entity_id)
+            )
+            if (
+                selected_component is not None
+                and selected_component.container_type == ContainerType.COMPONENT
+                and selected_component.entity_id not in selected_ids
+            ):
+                selected_ids.append(selected_component.entity_id)
+        if selected_ids:
+            return selected_ids
+        return [
+            obj.entity_id
+            for obj in self.document.history_objects()
+            if obj.container_type == ContainerType.COMPONENT
+        ]
+
     def _create_protrusion(self) -> None:
         if self.document is None:
             return
@@ -5923,14 +6122,25 @@ class MainWindow(QMainWindow):
                     ),
                     "",
                 )
+        is_assembly_cut = (
+            self.document.document_settings.get("type") == "assembly"
+        )
+        self._pending_assembly_cut_targets = (
+            self._assembly_cut_target_ids() if is_assembly_cut else []
+        )
         dialog = ProtrusionConstraintDialog(
             self._solve_point_constraints,
             self._available_profile_sketches(),
             self,
             suggested_name=self.document.next_container_name(
-                tr("protrusion.default_name")
+                tr(
+                    "assembly.command.protrusion_cut"
+                    if is_assembly_cut
+                    else "protrusion.default_name"
+                )
             ),
             initial_sketch_id=initial_id,
+            subtract_only=is_assembly_cut,
             reference_exists_callback=lambda entity_id: (
                 self.document is not None
                 and self.document.find_entity(entity_id) is not None
@@ -5999,14 +6209,25 @@ class MainWindow(QMainWindow):
                     ),
                     "",
                 )
+        is_assembly_cut = (
+            self.document.document_settings.get("type") == "assembly"
+        )
+        self._pending_assembly_cut_targets = (
+            self._assembly_cut_target_ids() if is_assembly_cut else []
+        )
         dialog = RevolveConstraintDialog(
             self._solve_point_constraints,
             self._available_profile_sketches(),
             self,
             suggested_name=self.document.next_container_name(
-                tr("revolve.default_name")
+                tr(
+                    "assembly.command.revolve_cut"
+                    if is_assembly_cut
+                    else "revolve.default_name"
+                )
             ),
             initial_sketch_id=initial_id,
+            subtract_only=is_assembly_cut,
             reference_exists_callback=lambda entity_id: (
                 self.document is not None
                 and self.document.find_entity(entity_id) is not None
@@ -6055,11 +6276,16 @@ class MainWindow(QMainWindow):
     def _edit_revolve(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
             return
+        is_assembly_cut = (
+            self.document.document_settings.get("type") == "assembly"
+        )
+        self._pending_assembly_cut_targets = []
         dialog = RevolveConstraintDialog(
             self._solve_point_constraints,
             self._available_profile_sketches(),
             self,
             revolve=obj,
+            subtract_only=is_assembly_cut,
             reference_exists_callback=lambda entity_id: (
                 self.document is not None
                 and self.document.find_entity(entity_id) is not None
@@ -6099,11 +6325,16 @@ class MainWindow(QMainWindow):
     def _edit_protrusion(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
             return
+        is_assembly_cut = (
+            self.document.document_settings.get("type") == "assembly"
+        )
+        self._pending_assembly_cut_targets = []
         dialog = ProtrusionConstraintDialog(
             self._solve_point_constraints,
             self._available_profile_sketches(),
             self,
             protrusion=obj,
+            subtract_only=is_assembly_cut,
             reference_exists_callback=lambda entity_id: (
                 self.document is not None
                 and self.document.find_entity(entity_id) is not None
@@ -6258,6 +6489,12 @@ class MainWindow(QMainWindow):
                 "rotation_offset_z": f"{rotation[2]:.12g}",
             }
         )
+        if self.document.document_settings.get("type") == "assembly":
+            feature.parameters["operation"] = CombineMode.SUBTRACT.value
+            obj.parameters["assembly_target_ids"] = json.dumps(
+                self._pending_assembly_cut_targets
+                or json.loads(obj.parameters.get("assembly_target_ids", "[]"))
+            )
         return True
 
     def _apply_new_revolve(
@@ -6379,6 +6616,12 @@ class MainWindow(QMainWindow):
                 "rotation_offset_z": f"{rotation[2]:.12g}",
             }
         )
+        if self.document.document_settings.get("type") == "assembly":
+            feature.parameters["operation"] = CombineMode.SUBTRACT.value
+            obj.parameters["assembly_target_ids"] = json.dumps(
+                self._pending_assembly_cut_targets
+                or json.loads(obj.parameters.get("assembly_target_ids", "[]"))
+            )
         return True
 
     def _queue_protrusion_sketch_edit(
@@ -6605,6 +6848,7 @@ class MainWindow(QMainWindow):
 
     def _point_constraint_dialog_finished(self, _result: int) -> None:
         self.point_constraint_dialog = None
+        self._pending_assembly_cut_targets = []
         self._point_constraint_cycle_keys = ()
         self._point_constraint_cycle_index = -1
         self._point_constraint_preview = None
@@ -8216,6 +8460,9 @@ class MainWindow(QMainWindow):
         )
         save_as_action.triggered.connect(self.save_document_as)
 
+        rename_action = file_menu.addAction(tr("menu.file.rename"))
+        rename_action.triggered.connect(self.rename_document_file)
+
         self.delete_file_menu = file_menu.addMenu(tr("menu.file.delete"))
         self.delete_old_versions_action = self.delete_file_menu.addAction(
             tr("menu.file.delete.old_versions")
@@ -8394,8 +8641,28 @@ class MainWindow(QMainWindow):
         return QSettings("ZIMA-Engineering", "ZIMA-CAD")
 
     def _choose_body_color(self) -> None:
+        initial_color = QColor("#B9C2CC")
+        if self.document is not None:
+            if self._active_component_return_document is not None:
+                initial_color = QColor(str(
+                    self.document.document_settings.get(
+                        "body_color", "#B9C2CC"
+                    )
+                ))
+            elif self.document.document_settings.get("type") == "assembly":
+                selected = self._selected_object()
+                if selected is not None and selected.container_type == ContainerType.COMPONENT:
+                    initial_color = QColor(str(
+                        selected.parameters.get("body_color", "#B9C2CC")
+                    ))
+            else:
+                initial_color = QColor(str(
+                    self.document.document_settings.get(
+                        "body_color", "#B9C2CC"
+                    )
+                ))
         color = QColorDialog.getColor(
-            self.native_viewer.surface_color(),
+            initial_color,
             self,
             tr("dialog.body_color.title"),
         )
@@ -8410,8 +8677,57 @@ class MainWindow(QMainWindow):
         color = QColor(color)
         if not color.isValid():
             return
-        self.native_viewer.set_surface_color(color)
-        self._window_settings().setValue("view/body_color", color.name())
+        if self.document is None:
+            return
+        if self._active_component_return_document is not None:
+            self.document.document_settings["body_color"] = color.name()
+            component = self._active_component_return_document.find_entity(
+                self._active_component_entity_id or ""
+            )
+            if component is not None:
+                component.parameters["body_color"] = color.name()
+            if self.current_file_path is not None:
+                self._propagate_part_color(
+                    self.current_file_path,
+                    color.name(),
+                )
+        elif self.document.document_settings.get("type") == "assembly":
+            component = self._selected_object()
+            if component is None or component.container_type != ContainerType.COMPONENT:
+                return
+            component.parameters["body_color"] = color.name()
+        else:
+            self.document.document_settings["body_color"] = color.name()
+            if self.current_file_path is not None:
+                self._propagate_part_color(
+                    self.current_file_path,
+                    color.name(),
+                )
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _propagate_part_color(self, part_path: Path, color: str) -> None:
+        canonical_part_path = canonical_document_path(part_path)
+        for session in self.document_sessions:
+            assembly = session.document
+            if assembly.document_settings.get("type") != "assembly":
+                continue
+            for component in assembly.history_objects():
+                if component.container_type != ContainerType.COMPONENT:
+                    continue
+                raw_path = str(
+                    component.parameters.get("source_path", "")
+                ).strip()
+                if not raw_path:
+                    continue
+                source_path = Path(raw_path)
+                if not source_path.is_absolute():
+                    assembly_path = assembly.source_file_path
+                    if assembly_path is None:
+                        continue
+                    source_path = assembly_path.parent / source_path
+                if canonical_document_path(source_path) == canonical_part_path:
+                    component.parameters["body_color"] = color
 
     @staticmethod
     def _color_swatch_icon(color: QColor | str) -> QIcon:
@@ -8472,12 +8788,15 @@ class MainWindow(QMainWindow):
             self.rebuild_view()
 
     def _populate_tree(self) -> None:
+        editing_document = self.document
+        tree_document = self._active_component_return_document or editing_document
+        self.document = tree_document
         signals_were_blocked = self.tree.blockSignals(True)
         try:
             self.tree.clear()
             self._update_document_area_visibility()
             if self.document is None:
-                self.tree.setHeaderLabels(["PART"])
+                self.tree.setHeaderLabels([tr("tree.document.part")])
                 return
             if self._sketch_edit_entity_id is not None:
                 sketch = self.document.find_entity(
@@ -8488,7 +8807,9 @@ class MainWindow(QMainWindow):
                     return
 
             is_assembly = self.document.document_settings.get("type") == "assembly"
-            self.tree.setHeaderLabels(["ASSEMBLY" if is_assembly else "PART"])
+            self.tree.setHeaderLabels([
+                self._document_tree_header(self.document)
+            ])
 
             origins = [
                 obj for obj in self.document.root.children
@@ -8521,12 +8842,33 @@ class MainWindow(QMainWindow):
             self.tree.resizeColumnToContents(0)
         finally:
             self.tree.blockSignals(signals_were_blocked)
+            self.document = editing_document
 
     def _component_source_document(
         self,
         component: ZimaEntity,
     ) -> PartDocument | None:
-        if self.document is None:
+        source_path = self._component_source_path(component)
+        if source_path is None:
+            return None
+        if (
+            self._active_component_document is not None
+            and component.entity_id == self._active_component_entity_id
+        ):
+            return self._active_component_document
+        try:
+            return load_part_document(source_path)
+        except Exception:
+            return None
+
+    def _component_source_path(
+        self,
+        component: ZimaEntity,
+    ) -> Path | None:
+        if (
+            self.document is None
+            or component.container_type != ContainerType.COMPONENT
+        ):
             return None
         raw_path = str(component.parameters.get("source_path", "")).strip()
         if not raw_path:
@@ -8537,10 +8879,89 @@ class MainWindow(QMainWindow):
             if assembly_path is None:
                 return None
             source_path = assembly_path.parent / source_path
+        return source_path.resolve()
+
+    def _open_assembly_component(self, component: ZimaEntity) -> None:
+        source_path = self._component_source_path(component)
+        if source_path is None:
+            QMessageBox.critical(
+                self,
+                tr("message.open_failed"),
+                tr("assembly.component.source_missing"),
+            )
+            return
+        self.open_document_path(source_path)
+
+    def _activate_assembly_component(self, component: ZimaEntity) -> None:
+        if (
+            self.document is None
+            or self.document.document_settings.get("type") != "assembly"
+        ):
+            return
+        source_path = self._component_source_path(component)
+        if source_path is None:
+            QMessageBox.critical(
+                self,
+                tr("message.open_failed"),
+                tr("assembly.component.source_missing"),
+            )
+            return
         try:
-            return load_part_document(source_path.resolve())
-        except Exception:
-            return None
+            component_document = next(
+                (
+                    session.document
+                    for session in self.document_sessions
+                    if session.file_path is not None
+                    and canonical_document_path(session.file_path) == source_path
+                ),
+                None,
+            ) or load_part_document(source_path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.open_failed"), str(exc))
+            return
+
+        self._active_component_return_document = self.document
+        self._active_component_document = component_document
+        self._active_component_entity_id = component.entity_id
+        self._active_component_return_file_path = self.current_file_path
+        self._active_component_return_selection = self.selected_object_id
+        self._active_component_return_application = self.active_application
+        self._assembly_part_documents[source_path] = component_document
+        self.document = component_document
+        self.current_file_path = source_path
+        self.selected_object_id = None
+        self.active_application = ApplicationMode.MODELING
+        self._sync_application_actions()
+        self._rebuild_application_toolbar()
+        self.rebuild_view(fit=False)
+
+    def _return_to_assembly(self) -> None:
+        self._leave_active_component_context(refresh=True)
+
+    def _leave_active_component_context(self, *, refresh: bool) -> None:
+        assembly_document = self._active_component_return_document
+        if assembly_document is None:
+            return
+        self.document = assembly_document
+        self.current_file_path = self._active_component_return_file_path
+        self.selected_object_id = self._active_component_return_selection
+        self.active_application = (
+            self._active_component_return_application
+            or ApplicationMode.ASSEMBLY
+        )
+        self._active_component_return_document = None
+        self._active_component_document = None
+        self._active_component_entity_id = None
+        self._active_component_return_file_path = None
+        self._active_component_return_selection = None
+        self._active_component_return_application = None
+        if refresh:
+            self._sync_application_actions()
+            self._rebuild_application_toolbar()
+            self._populate_tree()
+            if self.selected_object_id is not None:
+                self._select_tree_object(self.selected_object_id)
+            self.rebuild_view(fit=False)
 
     def _populate_component_tree_item(
         self,
@@ -8549,18 +8970,6 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Show the referenced part tree without merging it into the assembly model."""
         component_item.takeChildren()
-        instance_origin = next(
-            (
-                child
-                for child in component.children
-                if child.kind == EntityKind.ORIGIN
-            ),
-            None,
-        )
-        if instance_origin is not None:
-            origin_item = self._create_tree_item(instance_origin)
-            if origin_item is not None:
-                component_item.addChild(origin_item)
         source_document = self._component_source_document(component)
         if source_document is None:
             missing = QTreeWidgetItem([tr("tree.sketch.missing_reference")])
@@ -8568,15 +8977,17 @@ class MainWindow(QMainWindow):
             component_item.addChild(missing)
             return
         for source_object in source_document.root.children:
-            if source_object.kind == EntityKind.ORIGIN:
-                continue
-            source_item = self._create_referenced_part_tree_item(source_object)
+            source_item = self._create_referenced_part_tree_item(
+                source_object,
+                component.entity_id,
+            )
             if source_item is not None:
                 component_item.addChild(source_item)
 
     def _create_referenced_part_tree_item(
         self,
         obj: ZimaEntity,
+        component_id: str,
     ) -> QTreeWidgetItem | None:
         if obj.tree_exposure == TreeExposure.HIDDEN:
             return None
@@ -8586,22 +8997,36 @@ class MainWindow(QMainWindow):
             label = obj.name
         item = QTreeWidgetItem([label])
         icon_name = TREE_ICON_NAMES.get(obj.kind)
-        if obj.kind == EntityKind.CONTAINER and obj.container_type in (
-            ContainerType.PROTRUSION,
-            ContainerType.REVOLVE,
-        ):
-            icon_name = (
-                "revolve"
-                if obj.container_type == ContainerType.REVOLVE
-                else "protrusion"
-            )
+        if obj.kind == EntityKind.CONTAINER:
+            icon_name = {
+                ContainerType.POINT: "point",
+                ContainerType.AXIS: "axis",
+                ContainerType.PLANE: "plane",
+                ContainerType.SKETCH: "sketch",
+                ContainerType.PROTRUSION: "protrusion",
+                ContainerType.REVOLVE: "revolve",
+            }.get(obj.container_type, icon_name)
         if icon_name is not None:
             item.setIcon(0, resource_icon(icon_name))
-        # Referenced nodes describe the source part. The selectable owner in
-        # the assembly remains the component instance above them.
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        item.setData(0, Qt.ItemDataRole.UserRole, obj.entity_id)
+        item.setData(
+            0,
+            HistoryTreeWidget.COMPONENT_INSTANCE_ROLE,
+            component_id,
+        )
+        item.setData(
+            0,
+            HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
+            obj.entity_id,
+        )
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        )
         for child in obj.children:
-            child_item = self._create_referenced_part_tree_item(child)
+            child_item = self._create_referenced_part_tree_item(
+                child,
+                component_id,
+            )
             if child_item is not None:
                 item.addChild(child_item)
         return item
@@ -8655,11 +9080,15 @@ class MainWindow(QMainWindow):
                 self.tree.setCurrentItem(selected_reference_item)
         external_references = self._stored_sketch_external_references(sketch)
         if external_references:
+            resolved_references = self._resolved_sketch_external_references(
+                sketch
+            )
+            external_references = self._stored_sketch_external_references(
+                sketch
+            )
             resolved_by_id = {
                 str(reference.get("id", "")): reference
-                for reference in self._resolved_sketch_external_references(
-                    sketch
-                )
+                for reference in resolved_references
             }
             references_item = QTreeWidgetItem(
                 [tr("tree.sketch.references")]
@@ -8672,13 +9101,7 @@ class MainWindow(QMainWindow):
             selected_external_item = None
             for reference in external_references:
                 reference_id = str(reference.get("id", ""))
-                source = (
-                    self.document.find_entity(
-                        str(reference.get("owner_id", ""))
-                    )
-                    if self.document is not None
-                    else None
-                )
+                source = self._external_reference_source(reference)
                 source_name = (
                     source.name
                     if source is not None
@@ -9047,14 +9470,18 @@ class MainWindow(QMainWindow):
                 action.setEnabled(has_document)
         if hasattr(self, "view_selection_action"):
             self.view_selection_action.setEnabled(has_document)
-        for action in getattr(self, "application_actions", {}).values():
-            action.setEnabled(has_document)
+        for mode, action in getattr(self, "application_actions", {}).items():
+            action.setEnabled(
+                has_document and self._application_mode_available(mode)
+            )
 
     def _store_active_session(self) -> None:
         if 0 <= self.active_document_index < len(self.document_sessions):
             if self.document is None:
                 return
             session = self.document_sessions[self.active_document_index]
+            if self._active_component_return_document is not None:
+                return
             session.document = self.document
             session.file_path = self.current_file_path
             session.selected_object_id = self.selected_object_id
@@ -9069,6 +9496,7 @@ class MainWindow(QMainWindow):
             self.document_tabs.removeTab(0)
         for session in self.document_sessions:
             self.document_tabs.addTab(
+                self._document_tab_icon(session.document),
                 self._file_label(session.file_path, session.document)
             )
         self.document_tabs.blockSignals(False)
@@ -9131,7 +9559,10 @@ class MainWindow(QMainWindow):
             active_application=initial_application,
         )
         self.document_sessions.append(session)
-        self.document_tabs.addTab(self._file_label(file_path, document))
+        self.document_tabs.addTab(
+            self._document_tab_icon(document),
+            self._file_label(file_path, document),
+        )
         new_index = len(self.document_sessions) - 1
         self.document_tabs.setCurrentIndex(new_index)
         if self.active_document_index != new_index:
@@ -9142,6 +9573,9 @@ class MainWindow(QMainWindow):
     def _on_document_tab_changed(self, index: int) -> None:
         if index == self.active_document_index:
             return
+
+        if self._active_component_return_document is not None:
+            self._leave_active_component_context(refresh=False)
 
         if self._dimension_overlays:
             self._clear_dimension_overlays()
@@ -9349,10 +9783,203 @@ class MainWindow(QMainWindow):
 
         return self._save_to_path(file_path)
 
+    def rename_document_file(self) -> None:
+        if self.document is None or self.current_file_path is None:
+            return
+        old_path = canonical_document_path(self.current_file_path)
+        new_name, accepted = QInputDialog.getText(
+            self,
+            tr("dialog.rename.title"),
+            tr("dialog.rename.label"),
+            text=old_path.name,
+        )
+        if not accepted:
+            return
+        new_name = Path(new_name.strip()).name
+        if not new_name:
+            return
+        if Path(new_name).suffix.lower() != old_path.suffix.lower():
+            new_name = f"{Path(new_name).stem}{old_path.suffix}"
+        new_path = old_path.with_name(new_name)
+        if new_path == old_path:
+            return
+        if new_path.exists():
+            QMessageBox.information(
+                self,
+                tr("dialog.rename.title"),
+                tr("message.file_already_exists", file=new_path.name),
+            )
+            return
+
+        documents: dict[Path, PartDocument] = {}
+        for session in self.document_sessions:
+            if session.file_path is not None:
+                documents[
+                    canonical_document_path(session.file_path)
+                ] = session.document
+        documents.update(self._assembly_part_documents)
+        candidate_paths = set(old_path.parent.iterdir())
+        if self.working_directory.is_dir():
+            candidate_paths.update(self.working_directory.rglob("*.asmz"))
+            candidate_paths.update(self.working_directory.rglob("*.prtz"))
+        for candidate in candidate_paths:
+            if candidate.suffix.lower() not in (".asmz", ".prtz"):
+                continue
+            candidate = canonical_document_path(candidate)
+            if candidate in documents:
+                continue
+            try:
+                documents[candidate] = load_part_document(candidate)
+            except Exception:
+                continue
+
+        changed_paths: set[Path] = set()
+        for document_path, document in documents.items():
+            if self._rewrite_document_file_links(
+                document,
+                document_path,
+                old_path,
+                new_path,
+            ):
+                changed_paths.add(document_path)
+        try:
+            old_path.rename(new_path)
+            for document_path in changed_paths | {old_path}:
+                document = documents.get(document_path)
+                if document is None:
+                    continue
+                save_part_document(
+                    document,
+                    new_path if document_path == old_path else document_path,
+                )
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.save_failed"), str(exc))
+            return
+
+        for session in self.document_sessions:
+            if (
+                session.file_path is not None
+                and canonical_document_path(session.file_path) == old_path
+            ):
+                session.file_path = new_path
+                session.document.source_file_path = new_path
+        if canonical_document_path(self.current_file_path) == old_path:
+            self.current_file_path = new_path
+        if old_path in self._assembly_part_documents:
+            part_document = self._assembly_part_documents.pop(old_path)
+            self._assembly_part_documents[new_path] = part_document
+        if old_path in self._dirty_assembly_part_paths:
+            self._dirty_assembly_part_paths.remove(old_path)
+            self._dirty_assembly_part_paths.add(new_path)
+        self._active_component_return_file_path = (
+            new_path
+            if self._active_component_return_file_path is not None
+            and canonical_document_path(
+                self._active_component_return_file_path
+            ) == old_path
+            else self._active_component_return_file_path
+        )
+        for index, session in enumerate(self.document_sessions):
+            self.document_tabs.setTabText(
+                index,
+                self._file_label(session.file_path, session.document),
+            )
+        self._update_window_title()
+        self._populate_tree()
+        self.rebuild_view(fit=False)
+        self.workspace.sessionsChanged.emit(self)
+
+    def _rewrite_document_file_links(
+        self,
+        document: PartDocument,
+        document_path: Path,
+        old_path: Path,
+        new_path: Path,
+    ) -> bool:
+        changed = False
+
+        def visit(entity: ZimaEntity):
+            yield entity
+            for child in entity.children:
+                yield from visit(child)
+
+        for entity in visit(document.root):
+            if entity.container_type == ContainerType.COMPONENT:
+                raw_source = str(
+                    entity.parameters.get("source_path", "")
+                ).strip()
+                if raw_source:
+                    source_path = Path(raw_source)
+                    if not source_path.is_absolute():
+                        source_path = document_path.parent / source_path
+                    if canonical_document_path(source_path) == old_path:
+                        entity.parameters["source_path"] = os.path.relpath(
+                            new_path,
+                            document_path.parent,
+                        )
+                        if entity.name == old_path.name:
+                            entity.name = new_path.name
+                        changed = True
+            raw_references = entity.parameters.get("external_references")
+            if raw_references is None:
+                continue
+            try:
+                references = json.loads(str(raw_references))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(references, list):
+                continue
+            references_changed = False
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                raw_assembly = str(reference.get("assembly_path", ""))
+                if (
+                    raw_assembly
+                    and canonical_document_path(Path(raw_assembly)) == old_path
+                ):
+                    reference["assembly_path"] = str(new_path)
+                    references_changed = True
+                raw_component_source = str(
+                    reference.get("component_source_path", "")
+                )
+                assembly_path = Path(str(
+                    reference.get("assembly_path", "")
+                ))
+                if raw_component_source and reference.get("assembly_path"):
+                    component_source = Path(raw_component_source)
+                    if not component_source.is_absolute():
+                        component_source = (
+                            assembly_path.parent / component_source
+                        )
+                    if canonical_document_path(component_source) == old_path:
+                        reference["component_source_path"] = os.path.relpath(
+                            new_path,
+                            assembly_path.parent,
+                        )
+                        references_changed = True
+            if references_changed:
+                entity.parameters["external_references"] = json.dumps(
+                    references,
+                    ensure_ascii=False,
+                )
+                changed = True
+        return changed
+
     def _save_to_path(self, file_path: Path) -> bool:
         try:
             if self.document is None:
                 return False
+            if self.document.document_settings.get("type") == "assembly":
+                for part_path in sorted(
+                    self._dirty_assembly_part_paths,
+                    key=str,
+                ):
+                    part_document = self._assembly_part_documents.get(
+                        part_path
+                    )
+                    if part_document is not None:
+                        save_part_document(part_document, part_path)
             save_part_document(self.document, file_path)
         except ContainerEntityLimitError as exc:
             QMessageBox.critical(
@@ -9370,8 +9997,15 @@ class MainWindow(QMainWindow):
             return False
 
         self.current_file_path = file_path
+        if self.document.document_settings.get("type") == "assembly":
+            self._dirty_assembly_part_paths.clear()
+        else:
+            self._dirty_assembly_part_paths.discard(
+                canonical_document_path(file_path)
+            )
         if 0 <= self.active_document_index < len(self.document_sessions):
-            self.document_sessions[self.active_document_index].file_path = file_path
+            if self._active_component_return_document is None:
+                self.document_sessions[self.active_document_index].file_path = file_path
         self._update_window_title()
         self.workspace.sessionsChanged.emit(self)
         self.statusBar().showMessage(
@@ -9534,8 +10168,36 @@ class MainWindow(QMainWindow):
             f"{tr('app.title')} — {file_label}"
         )
         if 0 <= self.active_document_index < self.document_tabs.count():
-            self.document_tabs.setTabText(self.active_document_index, file_label)
+            session = self.document_sessions[self.active_document_index]
+            self.document_tabs.setTabText(
+                self.active_document_index,
+                self._file_label(session.file_path, session.document),
+            )
+            self.document_tabs.setTabIcon(
+                self.active_document_index,
+                self._document_tab_icon(session.document),
+            )
         self._refresh_window_menu()
+
+    @staticmethod
+    def _document_type(document: PartDocument | None) -> str:
+        if document is None:
+            return "part"
+        document_type = str(document.document_settings.get("type", "part"))
+        return document_type if document_type in ("part", "assembly", "drawing") else "part"
+
+    def _document_tab_icon(self, document: PartDocument | None) -> QIcon:
+        return resource_icon(self._document_type(document))
+
+    def _document_tree_header(self, document: PartDocument) -> str:
+        document_type = self._document_type(document)
+        source_path = document.source_file_path
+        document_name = (
+            source_path.stem
+            if source_path is not None
+            else document.root.name
+        )
+        return f"{tr(f'tree.document.{document_type}')}-{document_name}"
 
     def _file_label(
         self,
@@ -9794,16 +10456,15 @@ class MainWindow(QMainWindow):
         )
         item = QTreeWidgetItem([name])
         icon_name = TREE_ICON_NAMES.get(obj.kind)
-        if (
-            obj.kind == EntityKind.CONTAINER
-            and obj.container_type
-            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
-        ):
-            icon_name = (
-                "revolve"
-                if obj.container_type == ContainerType.REVOLVE
-                else "protrusion"
-            )
+        if obj.kind == EntityKind.CONTAINER:
+            icon_name = {
+                ContainerType.POINT: "point",
+                ContainerType.AXIS: "axis",
+                ContainerType.PLANE: "plane",
+                ContainerType.SKETCH: "sketch",
+                ContainerType.PROTRUSION: "protrusion",
+                ContainerType.REVOLVE: "revolve",
+            }.get(obj.container_type, icon_name)
         if icon_name is not None:
             item.setIcon(0, resource_icon(icon_name))
         item.setData(0, Qt.ItemDataRole.UserRole, obj.entity_id)
@@ -10411,7 +11072,14 @@ class MainWindow(QMainWindow):
             and not self._sketch_reference_mode
         ):
             return
-        obj = self.document.find_entity(owner_id)
+        if (
+            owner_id == self._active_component_entity_id
+            and self._active_component_document is not None
+        ):
+            obj = self._active_component_document.root
+            owner_id = obj.entity_id
+        else:
+            obj = self.document.find_entity(owner_id)
         if obj is None:
             return
         if self._try_pick_protrusion_profile(obj):
@@ -10571,7 +11239,37 @@ class MainWindow(QMainWindow):
                 self._select_sketch_entity(str(sketch_entity_id))
                 return
             self.selected_object_id = selected[0].data(0, Qt.ItemDataRole.UserRole)
+            component_id = selected[0].data(
+                0,
+                HistoryTreeWidget.COMPONENT_INSTANCE_ROLE,
+            )
+            source_entity_id = selected[0].data(
+                0,
+                HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
+            )
+            if component_id is not None:
+                self.selected_object_id = (
+                    source_entity_id
+                    if component_id == self._active_component_entity_id
+                    else component_id
+                )
             self._view_selection_confirmed = self.selected_object_id is not None
+            assembly_dialog = self.assembly_component_dialog
+            if (
+                assembly_dialog is not None
+                and assembly_dialog.isVisible()
+                and self.document is not None
+            ):
+                reference = self.document.find_entity(self.selected_object_id)
+                if (
+                    reference is not None
+                    and reference.kind == EntityKind.ORIGIN
+                    and reference.origin_scope == OriginScope.ASSEMBLY
+                    and assembly_dialog.accept_assembly_origin()
+                ):
+                    assembly_dialog.matesSubmitted.emit(assembly_dialog.mate_rows())
+                    self.rebuild_view(fit=False, rebuild_geometry=False)
+                    return
             if (
                 self.point_constraint_dialog is not None
                 and self.point_constraint_dialog.isVisible()
@@ -11299,6 +11997,8 @@ class MainWindow(QMainWindow):
         add_action = None
         subtract_action = None
         auxiliary_visibility_action = None
+        open_component_action = None
+        activate_component_action = None
 
         if (
             item is not None
@@ -11337,6 +12037,16 @@ class MainWindow(QMainWindow):
                 )
                 menu.addSeparator()
             if obj.kind == EntityKind.CONTAINER:
+                if obj.container_type == ContainerType.COMPONENT:
+                    activate_component_action = menu.addAction(
+                        resource_icon("part"),
+                        tr("menu.context.activate_component"),
+                    )
+                    open_component_action = menu.addAction(
+                        resource_icon("open"),
+                        tr("menu.context.open_component"),
+                    )
+                    menu.addSeparator()
                 is_generic = (
                     obj.parameters.get("experimental_container") == "true"
                     and obj.container_type != ContainerType.COMPONENT
@@ -11409,7 +12119,11 @@ class MainWindow(QMainWindow):
                     )
                 delete_action = menu.addAction(tr("menu.context.delete_entity"))
             operation_target = self._operation_target(obj)
-            if operation_target is not None:
+            if (
+                operation_target is not None
+                and self.document is not None
+                and self.document.document_settings.get("type") != "assembly"
+            ):
                 operation_menu = menu.addMenu(tr("menu.context.operation"))
                 add_action = operation_menu.addAction(tr("menu.context.operation.add"))
                 subtract_action = operation_menu.addAction(
@@ -11439,6 +12153,18 @@ class MainWindow(QMainWindow):
 
         if attach_action is not None and action == attach_action and obj is not None:
             self._begin_plane_attachment(obj.entity_id)
+        elif (
+            activate_component_action is not None
+            and action == activate_component_action
+            and obj is not None
+        ):
+            self._activate_assembly_component(obj)
+        elif (
+            open_component_action is not None
+            and action == open_component_action
+            and obj is not None
+        ):
+            self._open_assembly_component(obj)
         elif create_action is not None and action == create_action:
             self.create_new_container()
         elif (
@@ -11775,40 +12501,167 @@ class MainWindow(QMainWindow):
                 )
             )
             source_meshes: dict[str, ViewerMesh] = {}
-            if (
+            assembly_cycle_meshes: dict[tuple[str, str], ViewerMesh] = {}
+            is_assembly = (
+                self.document.document_settings.get("type") == "assembly"
+            )
+            root_candidate = (
                 "object",
                 self.document.root.entity_id,
                 0,
-            ) in candidates:
-                insert_at = candidates.index(
-                    ("object", self.document.root.entity_id, 0)
-                ) + 1
-                for source in self.document.history_objects_at(
-                    self._definition_history_boundary()
-                ):
-                    source_shape = self.document.build_standalone_shape(source)
-                    if source_shape is None:
-                        continue
-                    source_mesh = triangulate_shape(
-                        source_shape,
-                        owner_id=source.entity_id,
+            )
+            insert_at = next(
+                (
+                    index + 1
+                    for index, candidate in enumerate(candidates)
+                    if candidate[0] == "object"
+                ),
+                0,
+            )
+            active_component_transform = None
+            if (
+                self._active_component_return_document is not None
+                and self._active_component_entity_id is not None
+            ):
+                active_component = (
+                    self._active_component_return_document.find_entity(
+                        self._active_component_entity_id
                     )
-                    if self.native_viewer.mesh_is_under_cursor(
+                )
+                if active_component is not None:
+                    active_component_transform = coordinate_system_transform(
+                        active_component.coordinate_system
+                    )
+                    candidates = [
+                        candidate
+                        for candidate in candidates
+                        if candidate[1] != self._active_component_entity_id
+                    ]
+                    insert_at = 0
+            history_objects = self.document.history_objects_at(
+                self._definition_history_boundary()
+            )
+            if is_assembly:
+                component_ids = {
+                    obj.entity_id
+                    for obj in history_objects
+                    if obj.container_type == ContainerType.COMPONENT
+                }
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if not (
+                        candidate[0] == "object"
+                        and candidate[1] in component_ids
+                    )
+                ]
+                paired_candidates = []
+                for component in history_objects:
+                    if component.container_type != ContainerType.COMPONENT:
+                        continue
+                    affected = False
+                    component_index = history_objects.index(component)
+                    for feature in history_objects[component_index + 1:]:
+                        if feature.container_type not in (
+                            ContainerType.PROTRUSION,
+                            ContainerType.REVOLVE,
+                        ):
+                            continue
+                        try:
+                            target_ids = json.loads(str(
+                                feature.parameters.get(
+                                    "assembly_target_ids",
+                                    "[]",
+                                )
+                            ))
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            target_ids = []
+                        if component.entity_id in target_ids:
+                            affected = True
+                            break
+                    states = [(
+                        "assembly-result",
+                        self.document.build_assembly_component_shape(
+                            component,
+                            history_objects,
+                        ),
+                    )]
+                    if affected:
+                        states.append((
+                            "assembly-source",
+                            self.document.build_standalone_shape(component),
+                        ))
+                    for state_kind, state_shape in states:
+                        if state_shape is None:
+                            continue
+                        state_mesh = triangulate_shape(
+                            state_shape,
+                            owner_id=component.entity_id,
+                        )
+                        if self.native_viewer.mesh_is_under_cursor(
+                            state_mesh,
+                            QPointF(position),
+                        ):
+                            paired_candidates.append((
+                                state_kind,
+                                component.entity_id,
+                                0,
+                            ))
+                            assembly_cycle_meshes[(
+                                state_kind,
+                                component.entity_id,
+                            )] = state_mesh
+                candidates = paired_candidates + candidates
+            for source in ([] if is_assembly else history_objects):
+                source_shape = self.document.build_standalone_shape(source)
+                if source_shape is None:
+                    continue
+                if active_component_transform is not None:
+                    source_shape = transform_shape(
+                        source_shape,
+                        active_component_transform,
+                    )
+                source_mesh = triangulate_shape(
+                    source_shape,
+                    owner_id=source.entity_id,
+                )
+                source_candidate = ("object", source.entity_id, 0)
+                if (
+                    source_candidate not in candidates
+                    and self.native_viewer.mesh_is_under_cursor(
                         source_mesh,
                         QPointF(position),
+                    )
+                ):
+                    candidates.insert(insert_at, source_candidate)
+                    insert_at += 1
+                source_meshes[source.entity_id] = source_mesh
+            if active_component_transform is not None:
+                active_result_shape = self.document.build_shape_at(
+                    self._definition_history_boundary()
+                )
+                if active_result_shape is not None:
+                    active_result_shape = transform_shape(
+                        active_result_shape,
+                        active_component_transform,
+                    )
+                    active_result_mesh = triangulate_shape(
+                        active_result_shape,
+                        owner_id=self.document.root.entity_id,
+                    )
+                    if self.native_viewer.mesh_is_under_cursor(
+                        active_result_mesh,
+                        QPointF(position),
                     ):
-                        candidates.insert(
-                            insert_at,
-                            ("object", source.entity_id, 0),
-                        )
-                        source_meshes[source.entity_id] = source_mesh
-                        insert_at += 1
+                        candidates.append(root_candidate)
+                        source_meshes[
+                            self.document.root.entity_id
+                        ] = active_result_mesh
+            if root_candidate in candidates:
                 candidates.remove(
-                    ("object", self.document.root.entity_id, 0)
+                    root_candidate
                 )
-                candidates.append(
-                    ("object", self.document.root.entity_id, 0)
-                )
+                candidates.append(root_candidate)
             if not candidates:
                 self._clear_view_selection()
                 return
@@ -11833,8 +12686,17 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_hover()
             self.native_viewer._set_hovered_object(None)
             self.native_viewer.set_object_overlay(None)
-            if kind == "object":
-                if selected_owner_id == self.document.root.entity_id:
+            if kind in (
+                "object",
+                "assembly-result",
+                "assembly-source",
+            ):
+                if kind.startswith("assembly-"):
+                    tree_object_id = selected_owner_id
+                    selected_mesh = assembly_cycle_meshes.get(
+                        (kind, selected_owner_id)
+                    )
+                elif selected_owner_id == self.document.root.entity_id:
                     bodies = self.document.root.body_children()
                     tree_object_id = (
                         bodies[-1].entity_id
@@ -11844,6 +12706,14 @@ class MainWindow(QMainWindow):
                     selected_shape = self.document.build_shape_at(
                         self._definition_history_boundary()
                     )
+                    if (
+                        selected_shape is not None
+                        and active_component_transform is not None
+                    ):
+                        selected_shape = transform_shape(
+                            selected_shape,
+                            active_component_transform,
+                        )
                     selected_mesh = (
                         triangulate_shape(
                             selected_shape,
@@ -12043,6 +12913,8 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         normal_view_action = None
+        open_component_action = None
+        activate_component_action = None
 
         if self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
@@ -12052,6 +12924,16 @@ class MainWindow(QMainWindow):
                 create_sketch_actions = self._add_sketch_role_menu(menu, obj)
         elif obj.kind != EntityKind.PART:
             if obj.kind == EntityKind.CONTAINER:
+                if obj.container_type == ContainerType.COMPONENT:
+                    activate_component_action = menu.addAction(
+                        resource_icon("part"),
+                        tr("menu.context.activate_component"),
+                    )
+                    open_component_action = menu.addAction(
+                        resource_icon("open"),
+                        tr("menu.context.open_component"),
+                    )
+                    menu.addSeparator()
                 if obj.parameters.get("experimental_container") == "true":
                     create_axis_action = menu.addAction(
                         tr("menu.context.create_axis")
@@ -12119,7 +13001,17 @@ class MainWindow(QMainWindow):
         if menu.isEmpty():
             return
         action = menu.exec(global_position)
-        if attach_action is not None and action == attach_action:
+        if (
+            activate_component_action is not None
+            and action == activate_component_action
+        ):
+            self._activate_assembly_component(obj)
+        elif (
+            open_component_action is not None
+            and action == open_component_action
+        ):
+            self._open_assembly_component(obj)
+        elif attach_action is not None and action == attach_action:
             self._begin_plane_attachment(obj.entity_id)
         elif normal_view_action is not None and action == normal_view_action:
             if obj.kind == EntityKind.PLANE:
@@ -12458,6 +13350,11 @@ class MainWindow(QMainWindow):
                 "source_name": source_document.root.name,
                 "fixed": str(len(self.document.history_objects()) == 1).lower(),
                 "experimental_container": "true",
+                "body_color": str(
+                    source_document.document_settings.get(
+                        "body_color", "#B9C2CC"
+                    )
+                ),
             }
         )
         self.selected_object_id = component.entity_id
@@ -12465,6 +13362,7 @@ class MainWindow(QMainWindow):
         self._select_tree_object(component.entity_id)
         self.rebuild_view(fit=True)
         self.workspace.documentChanged.emit(self, self.document)
+        self._edit_assembly_component(component)
 
     @staticmethod
     def _shape_bounds(shape) -> tuple[float, float, float, float, float, float] | None:
@@ -12741,6 +13639,12 @@ class MainWindow(QMainWindow):
         return choices
 
     def _edit_assembly_component(self, component: ZimaEntity) -> None:
+        committed_state = {
+            "name": component.name,
+            "origin": tuple(component.coordinate_system.origin),
+            "rotation": tuple(component.coordinate_system.rotation),
+            "mates": str(component.parameters.get("assembly_mates", "[]")),
+        }
         source_choices = self._assembly_plane_choices(component, True)
         target_choices = self._assembly_plane_choices(component, False)
         dialog = AssemblyComponentPropertiesDialog(
@@ -12850,28 +13754,74 @@ class MainWindow(QMainWindow):
                 for _label, descriptor, point, normal in refreshed
             })
 
+        def capture_committed_state() -> None:
+            committed_state.update({
+                "name": component.name,
+                "origin": tuple(component.coordinate_system.origin),
+                "rotation": tuple(component.coordinate_system.rotation),
+                "mates": str(component.parameters.get("assembly_mates", "[]")),
+            })
+
+        def preview_component_placement() -> None:
+            component.coordinate_system.origin = tuple(
+                edit.value() for edit in dialog.coordinate_edits
+            )
+            component.coordinate_system.rotation = tuple(
+                edit.value() for edit in dialog.rotation_edits
+            )
+            self.rebuild_view(fit=False)
+
         dialog.matesSubmitted.connect(apply_mates)
+        dialog.matesSubmitted.connect(
+            lambda _rows: capture_committed_state()
+        )
+        dialog.definitionChanged.connect(preview_component_placement)
         self.assembly_component_dialog = dialog
         previous_filter_index = self.selection_filter_combo.currentIndex()
         previous_selection_enabled = self.view_selection_enabled
-        face_filter_index = self.selection_filter_combo.findData(
-            ViewSelectionFilter.FACE.value
+        previous_origins_visible = self.show_origins_action.isChecked()
+        previous_points_visible = self.show_points_action.isChecked()
+        previous_axes_visible = self.show_axes_action.isChecked()
+        previous_planes_visible = self.show_planes_action.isChecked()
+        self.show_origins_action.setChecked(True)
+        self.show_points_action.setChecked(True)
+        self.show_axes_action.setChecked(True)
+        self.show_planes_action.setChecked(True)
+        reference_filter_index = self.selection_filter_combo.findData(
+            ViewSelectionFilter.ALL.value
         )
-        if face_filter_index >= 0:
-            self.selection_filter_combo.setCurrentIndex(face_filter_index)
+        if reference_filter_index >= 0:
+            self.selection_filter_combo.setCurrentIndex(reference_filter_index)
         if not self.view_selection_enabled:
             self.view_selection_action.setChecked(True)
 
-        def finish_component_edit(_result) -> None:
+        def finish_component_edit(result) -> None:
+            if result != QDialog.DialogCode.Accepted:
+                component.name = str(committed_state["name"])
+                component.coordinate_system.origin = tuple(
+                    committed_state["origin"]
+                )
+                component.coordinate_system.rotation = tuple(
+                    committed_state["rotation"]
+                )
+                component.parameters["assembly_mates"] = str(
+                    committed_state["mates"]
+                )
             if self.assembly_component_dialog is dialog:
                 self.assembly_component_dialog = None
             self.selection_filter_combo.setCurrentIndex(previous_filter_index)
             if not previous_selection_enabled:
                 self.view_selection_action.setChecked(False)
+            self.show_origins_action.setChecked(previous_origins_visible)
+            self.show_points_action.setChecked(previous_points_visible)
+            self.show_axes_action.setChecked(previous_axes_visible)
+            self.show_planes_action.setChecked(previous_planes_visible)
+            self.rebuild_view(fit=False)
 
         dialog.finished.connect(finish_component_edit)
         dialog.show()
         position_dialog_top_right_after_show(dialog)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _edit_generic_object(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
@@ -13259,6 +14209,31 @@ class MainWindow(QMainWindow):
             else []
         )
 
+    def _external_reference_source(
+        self,
+        reference: dict[str, Any],
+    ) -> ZimaEntity | None:
+        owner_id = str(reference.get("owner_id", ""))
+        if self.document is not None:
+            source = self.document.find_entity(owner_id)
+            if source is not None:
+                return source
+        if reference.get("reference_scope") != "assembly_component":
+            return None
+        component_id = str(reference.get("component_id", owner_id))
+        if self._active_component_return_document is not None:
+            return self._active_component_return_document.find_entity(
+                component_id
+            )
+        assembly_path = Path(str(reference.get("assembly_path", "")))
+        if not assembly_path.is_file():
+            return None
+        try:
+            assembly = load_part_document(assembly_path)
+        except Exception:
+            return None
+        return assembly.find_entity(component_id)
+
     def _add_sketch_external_reference(
         self,
         source_kind: str,
@@ -13276,21 +14251,49 @@ class MainWindow(QMainWindow):
             "owner_id": owner_id,
             "element_index": element_index,
         }
-        if owner_id == self.document.root.entity_id:
+        assembly_document = self._active_component_return_document
+        if assembly_document is not None:
+            external_component = assembly_document.find_entity(owner_id)
+            if (
+                external_component is not None
+                and external_component.container_type
+                == ContainerType.COMPONENT
+                and owner_id != self._active_component_entity_id
+            ):
+                descriptor.update({
+                    "reference_scope": "assembly_component",
+                    "assembly_path": str(
+                        assembly_document.source_file_path or ""
+                    ),
+                    "component_id": owner_id,
+                    "component_source_path": str(
+                        external_component.parameters.get(
+                            "source_path",
+                            "",
+                        )
+                    ),
+                })
+        if (
+            owner_id == self.document.root.entity_id
+            and descriptor.get("reference_scope")
+            != "assembly_component"
+        ):
             descriptor["reference_scope"] = "history_result"
         geometry = self._project_sketch_external_reference(
             sketch,
             descriptor,
         )
         geometry = self._infinite_sketch_reference_geometry(geometry)
+        geometry = self._deduplicate_external_reference_geometry(geometry)
         if geometry is None:
             self.statusBar().showMessage(
                 tr("sketch.status.reference_unsupported")
             )
             return
         references = self._stored_sketch_external_references(sketch)
+        descriptor_key = self._external_reference_key(descriptor)
         if any(
-            reference.get("id") == descriptor["id"]
+            self._external_reference_key(reference) == descriptor_key
             for reference in references
         ):
             return
@@ -13319,13 +14322,50 @@ class MainWindow(QMainWindow):
     ) -> list[dict[str, Any]]:
         references = self._stored_sketch_external_references(sketch)
         changed = False
+        seen_reference_keys = set()
+        for reference in list(references):
+            if (
+                reference.get("assembly_path")
+                and reference.get("component_id")
+                and reference.get("reference_scope")
+                != "assembly_component"
+            ):
+                reference["reference_scope"] = "assembly_component"
+                reference["owner_id"] = str(reference["component_id"])
+                reference["id"] = (
+                    f"{reference.get('source_kind', '')}:"
+                    f"{reference['component_id']}:"
+                    f"{reference.get('element_index', 0)}"
+                )
+                changed = True
+            reference_key = self._external_reference_key(reference)
+            if reference_key in seen_reference_keys:
+                references.remove(reference)
+                changed = True
+                continue
+            seen_reference_keys.add(reference_key)
         resolved: list[dict[str, Any]] = []
-        for reference in references:
+        for reference in list(references):
             geometry = self._project_sketch_external_reference(
                 sketch,
                 reference,
             )
             geometry = self._infinite_sketch_reference_geometry(geometry)
+            geometry = self._deduplicate_external_reference_geometry(
+                geometry
+            )
+            if (
+                geometry is None
+                and reference.get("reference_scope")
+                == "assembly_component"
+                and self._active_component_return_document is not None
+                and self._active_component_return_document.find_entity(
+                    str(reference.get("component_id", ""))
+                ) is None
+            ):
+                references.remove(reference)
+                changed = True
+                continue
             broken = geometry is None
             if geometry is None:
                 geometry = self._infinite_sketch_reference_geometry(
@@ -13336,6 +14376,14 @@ class MainWindow(QMainWindow):
                     )
                     else None
                 )
+                geometry = self._deduplicate_external_reference_geometry(
+                    geometry
+                )
+                if (
+                    geometry is not None
+                    and self._external_reference_source(reference) is not None
+                ):
+                    broken = False
             elif geometry != reference.get("cached_geometry"):
                 reference["cached_geometry"] = geometry
                 changed = True
@@ -13389,6 +14437,46 @@ class MainWindow(QMainWindow):
                 ensure_ascii=False,
             )
         return resolved
+
+    @staticmethod
+    def _external_reference_key(reference: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            str(reference.get("reference_scope", "local")),
+            str(reference.get("assembly_path", "")),
+            str(reference.get("component_id", reference.get("owner_id", ""))),
+            str(reference.get("source_kind", "")),
+            int(reference.get("element_index", 0)),
+        )
+
+    @staticmethod
+    def _deduplicate_external_reference_geometry(
+        geometry: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if geometry is None or geometry.get("type") != "lines":
+            return geometry
+        unique = []
+        keys = set()
+        for line in geometry.get("lines", ()):
+            if not isinstance(line, dict):
+                continue
+            point = line.get("point", (0.0, 0.0))
+            direction = line.get("direction", (0.0, 0.0))
+            if len(point) < 2 or len(direction) < 2:
+                continue
+            dx, dy = float(direction[0]), float(direction[1])
+            if dx < -1.0e-9 or (abs(dx) <= 1.0e-9 and dy < 0.0):
+                dx, dy = -dx, -dy
+            normal_offset = -dy * float(point[0]) + dx * float(point[1])
+            key = (round(dx, 9), round(dy, 9), round(normal_offset, 7))
+            if key in keys:
+                continue
+            keys.add(key)
+            unique.append(line)
+        if not unique:
+            return None
+        if len(unique) == 1:
+            return unique[0]
+        return {"type": "lines", "lines": unique}
 
     @staticmethod
     def _infinite_sketch_reference_geometry(
@@ -13498,16 +14586,23 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             element_index = 0
         owner = self.document.find_entity(owner_id)
-        if owner is None:
+        if (
+            owner is None
+            and self._active_component_return_document is not None
+        ):
+            owner = self._active_component_return_document.find_entity(
+                owner_id
+            )
+        if owner is None and source_kind not in ("face", "edge", "point"):
             return None
 
         coordinate_entity = None
-        if source_kind == "plane":
+        if owner is not None and source_kind == "plane":
             coordinate_entity = self._plane_entity_from_view_key(
                 owner_id,
                 element_index,
             )
-        elif source_kind in ("axis", "edge") and owner.kind in (
+        elif owner is not None and source_kind in ("axis", "edge") and owner.kind in (
             EntityKind.ORIGIN,
             EntityKind.AXIS,
         ):
@@ -15082,7 +16177,22 @@ class MainWindow(QMainWindow):
         owner = self.document.find_owning_object(sketch.entity_id)
         if owner is None:
             return None
-        transform = coordinate_system_transform(owner.coordinate_system)
+        transform = (
+            entity_world_transform(self.document, owner.entity_id)
+            or coordinate_system_transform(owner.coordinate_system)
+        )
+        if (
+            self._active_component_return_document is not None
+            and self._active_component_entity_id is not None
+        ):
+            component = self._active_component_return_document.find_entity(
+                self._active_component_entity_id
+            )
+            if component is not None:
+                transform = multiply_transforms(
+                    coordinate_system_transform(component.coordinate_system),
+                    transform,
+                )
         origin = transform_point(transform, (0.0, 0.0, 0.0))
         x_axis = tuple(transform[row][0] for row in range(3))
         y_axis = tuple(transform[row][1] for row in range(3))
@@ -22598,6 +23708,14 @@ class MainWindow(QMainWindow):
     def _mark_model_for_regeneration(self) -> None:
         if self.document is not None:
             self.document.regeneration_required = True
+        if (
+            self._active_component_return_document is not None
+            and self.document is not None
+            and self.current_file_path is not None
+        ):
+            part_path = canonical_document_path(self.current_file_path)
+            self._assembly_part_documents[part_path] = self.document
+            self._dirty_assembly_part_paths.add(part_path)
 
     def _add_sketch_role_menu(
         self,
@@ -22672,12 +23790,41 @@ class MainWindow(QMainWindow):
     def _object_from_tree_item(self, item: QTreeWidgetItem | None) -> ZimaEntity | None:
         if item is None:
             return None
+        component_id = item.data(
+            0,
+            HistoryTreeWidget.COMPONENT_INSTANCE_ROLE,
+        )
+        source_entity_id = item.data(
+            0,
+            HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
+        )
+        if component_id is not None:
+            if (
+                component_id == self._active_component_entity_id
+                and self._active_component_document is not None
+            ):
+                return self._active_component_document.find_entity(
+                    str(source_entity_id)
+                )
+            assembly_document = (
+                self._active_component_return_document or self.document
+            )
+            return (
+                assembly_document.find_entity(str(component_id))
+                if assembly_document is not None
+                else None
+            )
         entity_id = item.data(0, Qt.ItemDataRole.UserRole)
         if entity_id is None:
             return None
         if self.document is None:
             return None
-        return self.document.find_entity(entity_id)
+        obj = self.document.find_entity(entity_id)
+        if obj is not None:
+            return obj
+        if self._active_component_return_document is not None:
+            return self._active_component_return_document.find_entity(entity_id)
+        return None
 
     def _select_tree_object(self, entity_id: str) -> None:
         root = self.tree.invisibleRootItem()
@@ -22699,7 +23846,18 @@ class MainWindow(QMainWindow):
     def _find_tree_item(self, parent: QTreeWidgetItem, entity_id: str):
         for index in range(parent.childCount()):
             child = parent.child(index)
-            if child.data(0, Qt.ItemDataRole.UserRole) == entity_id:
+            component_id = child.data(
+                0,
+                HistoryTreeWidget.COMPONENT_INSTANCE_ROLE,
+            )
+            if (
+                child.data(0, Qt.ItemDataRole.UserRole) == entity_id
+                and (
+                    component_id is None
+                    or self._active_component_entity_id is None
+                    or component_id == self._active_component_entity_id
+                )
+            ):
                 return child
             found = self._find_tree_item(child, entity_id)
             if found is not None:
@@ -24589,18 +25747,31 @@ class MainWindow(QMainWindow):
         )
         if (
             self.document is not None
+            and self._active_component_return_document is None
             and self._cached_history_boundary != history_boundary
         ):
             self._populate_tree()
 
-        self._cached_document = self.document
+        editing_document = self.document
+        display_document = self._active_component_return_document or editing_document
+        self._cached_document = editing_document
         self._cached_history_boundary = history_boundary
-        self._rebuild_native_view(history_boundary, fit)
+        if display_document is editing_document:
+            self._rebuild_native_view(history_boundary, fit)
+        else:
+            self.document = display_document
+            try:
+                self._rebuild_native_view(
+                    len(display_document.history_objects()),
+                    fit,
+                )
+            finally:
+                self.document = editing_document
         if (
-            self.document is not None
+            editing_document is not None
             and not self._handling_workspace_update
         ):
-            self.workspace.documentChanged.emit(self, self.document)
+            self.workspace.documentChanged.emit(self, editing_document)
 
     def _rebuild_native_view(
         self,
@@ -24640,6 +25811,15 @@ class MainWindow(QMainWindow):
                 if editing_object is not None
                 else None
             ),
+            uncut_component_id=self._active_component_entity_id,
+            uncut_component_shape=(
+                self._active_component_document.build_active_shape()
+                if self._active_component_document is not None
+                else None
+            ),
+        )
+        self.native_viewer.set_surface_colors(
+            self._native_viewer_scene.surface_colors_by_owner_id
         )
         self._selectable_model_shapes = list(
             (

@@ -275,6 +275,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_top = QColor("#3B4654")
         self._background_bottom = QColor("#171B21")
         self._surface_color = QColor("#B9C2CC")
+        self._surface_colors_by_owner_id: dict[str, QColor] = {}
         self._last_mouse_position: QPoint | None = None
         self._middle_press_position: QPoint | None = None
         self._middle_dragged = False
@@ -383,6 +384,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def surface_color(self) -> QColor:
         return QColor(self._surface_color)
+
+    def set_surface_colors(self, colors: dict[str, str]) -> None:
+        self._surface_colors_by_owner_id = {
+            owner_id: color
+            for owner_id, value in colors.items()
+            if (color := QColor(value)).isValid()
+        }
+        self.update()
 
     def set_sketch_overlay(
         self,
@@ -2097,7 +2106,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         program.setAttributeBuffer(1, 0x1406, 12, 3, 24)
         gl.glEnable(GL_POLYGON_OFFSET_FILL)
         gl.glPolygonOffset(1.0, 1.0)
-        gl.glDrawArrays(GL_TRIANGLES, 0, self._surface_vertex_count)
+        if self._face_ranges:
+            for owner_id, _face, start, count in self._face_ranges:
+                owner_color = self._surface_colors_by_owner_id.get(
+                    owner_id,
+                    self._surface_color,
+                )
+                program.setUniformValue(
+                    "surfaceColor",
+                    QVector3D(
+                        owner_color.redF(),
+                        owner_color.greenF(),
+                        owner_color.blueF(),
+                    ),
+                )
+                gl.glDrawArrays(GL_TRIANGLES, start, count)
+        else:
+            gl.glDrawArrays(GL_TRIANGLES, 0, self._surface_vertex_count)
         gl.glDisable(GL_POLYGON_OFFSET_FILL)
         if self._interaction_mode == "topology":
             gl.glDisable(GL_DEPTH_TEST)
@@ -5845,7 +5870,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         triangle_records = []
         positions = mesh.triangle_positions
         normals = mesh.triangle_normals
-        for offset in range(0, len(positions), 9):
+        for triangle_index, offset in enumerate(range(0, len(positions), 9)):
             world_points = [
                 (
                     positions[offset + vertex * 3],
@@ -5872,15 +5897,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             )
             depth = sum(point[2] for point in camera_points) / 3.0
-            triangle_records.append((depth, polygon, normal))
+            triangle_records.append((
+                depth,
+                polygon,
+                normal,
+                mesh.triangle_owner_ids[triangle_index],
+            ))
 
         surface_color = self._surface_color
         light = (0.25, -0.35, 0.902)
         painter.setPen(Qt.PenStyle.NoPen)
-        for _depth, polygon, normal in sorted(
+        for _depth, polygon, normal, owner_id in sorted(
             triangle_records,
             key=lambda record: record[0],
         ):
+            surface_color = self._surface_colors_by_owner_id.get(
+                owner_id,
+                self._surface_color,
+            )
             intensity = max(
                 0.0,
                 normal[0] * light[0]

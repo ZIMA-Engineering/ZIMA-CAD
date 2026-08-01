@@ -14,6 +14,7 @@ from zima_cad.model import (
     make_sketch_shape,
     make_datum_axis_shape,
     multiply_transforms,
+    transform_shape,
 )
 from zima_cad.viewer_mesh import (
     BROWN,
@@ -35,6 +36,7 @@ SKETCH_COLOR = (1.0, 0.843, 0.251)
 class DocumentViewerScene:
     mesh: ViewerMesh
     shapes_by_owner_id: dict[str, Any]
+    surface_colors_by_owner_id: dict[str, str]
 
     def resolve_topology(
         self,
@@ -77,6 +79,8 @@ def build_document_viewer_scene_data(
     show_user_axes: bool = False,
     show_user_planes: bool = False,
     editing_object_id: str | None = None,
+    uncut_component_id: str | None = None,
+    uncut_component_shape: Any | None = None,
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -87,15 +91,34 @@ def build_document_viewer_scene_data(
     document.resolve_attachments()
     layers: list[ViewerMesh] = []
     shapes_by_owner_id: dict[str, Any] = {}
+    surface_colors_by_owner_id: dict[str, str] = {}
 
     is_assembly = document.document_settings.get("type") == "assembly"
     if is_assembly:
-        for obj in document.history_objects_at(boundary):
+        assembly_objects = document.history_objects_at(boundary)
+        for obj in assembly_objects:
             if not document.is_effectively_visible(obj.entity_id):
                 continue
-            shape = document.build_standalone_shape(obj)
+            if obj.container_type != ContainerType.COMPONENT:
+                continue
+            if (
+                obj.entity_id == uncut_component_id
+                and uncut_component_shape is not None
+            ):
+                shape = transform_shape(
+                    uncut_component_shape,
+                    coordinate_system_transform(obj.coordinate_system),
+                )
+            else:
+                shape = document.build_assembly_component_shape(
+                    obj,
+                    assembly_objects,
+                )
             if shape is not None:
                 shapes_by_owner_id[obj.entity_id] = shape
+                surface_colors_by_owner_id[obj.entity_id] = str(
+                    obj.parameters.get("body_color", "#B9C2CC")
+                )
                 layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
     elif document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
@@ -104,6 +127,11 @@ def build_document_viewer_scene_data(
             shape = document.build_standalone_shape(obj)
             if shape is not None:
                 shapes_by_owner_id[obj.entity_id] = shape
+                surface_colors_by_owner_id[obj.entity_id] = str(
+                    document.document_settings.get(
+                        "body_color", "#B9C2CC"
+                    )
+                )
                 layers.append(
                     triangulate_shape(shape, owner_id=obj.entity_id)
                 )
@@ -111,6 +139,9 @@ def build_document_viewer_scene_data(
         shape = document.build_shape_at(boundary)
         if shape is not None and document.body_is_visible():
             shapes_by_owner_id[document.root.entity_id] = shape
+            surface_colors_by_owner_id[document.root.entity_id] = str(
+                document.document_settings.get("body_color", "#B9C2CC")
+            )
             layers.append(
                 triangulate_shape(
                     shape,
@@ -171,6 +202,7 @@ def build_document_viewer_scene_data(
     return DocumentViewerScene(
         mesh=combine_viewer_meshes(tuple(layers)),
         shapes_by_owner_id=shapes_by_owner_id,
+        surface_colors_by_owner_id=surface_colors_by_owner_id,
     )
 
 
@@ -314,10 +346,14 @@ def _append_object_origins(
                 world_transform,
             )
         )
-    if (
-        origin is not None
-        and obj.show_auxiliary_geometry
-        and show_object_origins
+    show_component_origin = (
+        obj.container_type == ContainerType.COMPONENT
+        and document.document_settings.get("type") == "assembly"
+    )
+    if origin is not None and (
+        show_component_origin
+        or (obj.show_auxiliary_geometry and show_object_origins)
+        or obj.entity_id == editing_object_id
     ):
         reference_size = max(reference_scene_size * 0.075, 2.5)
         layers.append(
@@ -348,38 +384,6 @@ def _append_object_origins(
                         world_transform,
                     )
                 )
-    elif (
-        origin is not None
-        and obj.entity_id == editing_object_id
-    ):
-        reference_size = max(reference_scene_size * 0.075, 2.5)
-        layers.append(
-            transform_viewer_mesh(
-                origin_axes_mesh(
-                    owner_id=origin.entity_id,
-                    length=reference_size,
-                    point_label=f"{obj.name} · Origin",
-                ),
-                world_transform,
-            )
-        )
-        for plane_index, plane_name in enumerate(
-            ("xy", "yz", "xz"),
-            start=1,
-        ):
-            layers.append(
-                transform_viewer_mesh(
-                    datum_plane_mesh(
-                        owner_id=origin.entity_id,
-                        plane_index=plane_index,
-                        size=max(reference_scene_size * 0.12, 4.0),
-                        plane=plane_name,
-                        label=plane_name.upper(),
-                        screen_constant=True,
-                    ),
-                    world_transform,
-                )
-            )
     for child in obj.children:
         if not child.locked:
             _append_object_origins(
