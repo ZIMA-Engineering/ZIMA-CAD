@@ -75,6 +75,7 @@ def build_document_viewer_scene_data(
     show_document_planes: bool = False,
     show_object_planes: bool = False,
     show_object_origins: bool = False,
+    show_component_origins: bool = False,
     show_user_points: bool = False,
     show_user_axes: bool = False,
     show_user_planes: bool = False,
@@ -169,6 +170,7 @@ def build_document_viewer_scene_data(
             layers,
             show_object_planes,
             show_object_origins,
+            show_component_origins,
             show_user_points,
             editing_object_id,
             reference_scene_size,
@@ -317,6 +319,7 @@ def _append_object_origins(
     layers: list[ViewerMesh],
     show_object_planes: bool,
     show_object_origins: bool,
+    show_component_origins: bool,
     show_user_points: bool,
     editing_object_id: str | None,
     reference_scene_size: float,
@@ -349,10 +352,15 @@ def _append_object_origins(
     show_component_origin = (
         obj.container_type == ContainerType.COMPONENT
         and document.document_settings.get("type") == "assembly"
+        and show_component_origins
     )
     if origin is not None and (
         show_component_origin
-        or (obj.show_auxiliary_geometry and show_object_origins)
+        or (
+            obj.container_type != ContainerType.COMPONENT
+            and obj.show_auxiliary_geometry
+            and show_object_origins
+        )
         or obj.entity_id == editing_object_id
     ):
         reference_size = max(reference_scene_size * 0.075, 2.5)
@@ -393,6 +401,7 @@ def _append_object_origins(
                 layers,
                 show_object_planes,
                 show_object_origins,
+                show_component_origins,
                 show_user_points,
                 editing_object_id,
                 reference_scene_size,

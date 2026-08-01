@@ -321,10 +321,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_point: TopologyKey | None = None
         self._hovered_plane: TopologyKey | None = None
         self._selected_plane: TopologyKey | None = None
+        self._assembly_reference_faces: frozenset[TopologyKey] = frozenset()
+        self._assembly_reference_planes: frozenset[TopologyKey] = frozenset()
         self._hovered_object_id: str | None = None
         self._selected_object_id: str | None = None
         self._interaction_mode = "object"
         self._selection_filter = "all"
+        self._topology_owner_filter: frozenset[str] | None = None
         self._display_mode = "shaded_with_edges"
         self._selection_enabled = True
         self._outline_face_highlights = False
@@ -764,6 +767,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._constraint_reference_positions = tuple(positions)
         self.update()
 
+    def set_assembly_reference_highlights(
+        self,
+        *,
+        faces: set[TopologyKey],
+        planes: set[TopologyKey],
+    ) -> None:
+        self._assembly_reference_faces = frozenset(faces)
+        self._assembly_reference_planes = frozenset(planes)
+        self.update()
+
     def set_selected_container_origin(self, origin_id: str | None) -> None:
         self._selected_container_origin_id = origin_id
         self.update()
@@ -945,7 +958,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_selection_filter(self, selection_filter: str) -> None:
         if selection_filter not in {
-            "all", "face", "point", "axis", "plane", "normal",
+            "all", "face", "point", "axis", "plane", "normal", "surface",
         }:
             raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
         if selection_filter == self._selection_filter:
@@ -960,6 +973,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._set_hovered_plane(None)
         self._set_selected_plane(None)
         self.selectionFilterChanged.emit(selection_filter)
+
+    def set_topology_owner_filter(self, owner_ids: set[str] | None) -> None:
+        self._topology_owner_filter = (
+            None if owner_ids is None else frozenset(owner_ids)
+        )
+        self._clear_topology_hover()
 
     def set_interaction_mode(self, interaction_mode: str) -> None:
         if interaction_mode not in {"object", "topology"}:
@@ -1090,7 +1109,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         mesh = self._mesh
         if not self._outline_face_highlights or mesh is None:
             return
-        highlights = (
+        highlights = [
             (
                 self._hovered_face,
                 QColor.fromRgbF(1.0, 0.48, 0.0),
@@ -1099,6 +1118,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._selected_face,
                 QColor.fromRgbF(0.0, 0.82, 1.0),
             ),
+        ]
+        highlights.extend(
+            (face, QColor.fromRgbF(0.0, 0.82, 1.0))
+            for face in self._assembly_reference_faces
+            if face != self._selected_face
         )
         if not any(face is not None for face, _color in highlights):
             return
@@ -5333,7 +5357,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 candidates.append(
                     ("plane", plane.owner_id, plane.plane_index)
                 )
-        return tuple(dict.fromkeys(candidates))
+        unique_candidates = tuple(dict.fromkeys(candidates))
+        if self._topology_owner_filter is None:
+            return unique_candidates
+        return tuple(
+            candidate for candidate in unique_candidates
+            if candidate[1] in self._topology_owner_filter
+        )
 
     def topology_candidates_at(
         self,
@@ -5415,7 +5445,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         face_index,
                     )
                 )
-        return tuple(dict.fromkeys(candidates))
+        unique_candidates = tuple(dict.fromkeys(candidates))
+        if self._topology_owner_filter is None:
+            return unique_candidates
+        return tuple(
+            candidate for candidate in unique_candidates
+            if candidate[1] in self._topology_owner_filter
+        )
 
     def preview_topology_candidate(
         self,
@@ -5445,6 +5481,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if (
                 key == self._selected_plane
                 or key in self._constraint_reference_planes
+                or key in self._assembly_reference_planes
             ):
                 color = (0.0, 0.82, 1.0)
             if (
@@ -5487,7 +5524,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def _pick_plane(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "plane", "normal"}:
+        if self._selection_filter not in {"all", "plane", "normal", "surface"}:
             return None
         mesh = self._mesh
         if mesh is None:
@@ -5495,6 +5532,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hits: list[tuple[float, float, str, int]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for plane in mesh.planes:
+            if (
+                self._topology_owner_filter is not None
+                and plane.owner_id not in self._topology_owner_filter
+            ):
+                continue
             camera_points = [
                 self._camera_point(point)
                 for point in self._display_plane_corners(plane)
@@ -5688,7 +5730,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return selected[2], selected[3]
 
     def _pick_face(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "face", "normal"}:
+        if self._selection_filter not in {"all", "face", "normal", "surface"}:
             return None
         mesh = self._mesh
         if mesh is None or not mesh.triangle_face_indices:
@@ -5698,6 +5740,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for triangle_index, face_index in enumerate(
             mesh.triangle_face_indices
         ):
+            if (
+                self._topology_owner_filter is not None
+                and mesh.triangle_owner_ids[triangle_index]
+                not in self._topology_owner_filter
+            ):
+                continue
             offset = triangle_index * 9
             camera_points = [
                 self._camera_point(

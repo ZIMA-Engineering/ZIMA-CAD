@@ -3167,6 +3167,7 @@ class PlaneAttachmentDialog(QDialog):
 
 class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
     matesSubmitted = Signal(list)
+    activeReferenceChanged = Signal(str)
 
     def __init__(self, solve_callback, component, source_choices, target_choices, parent=None):
         super().__init__(
@@ -3193,11 +3194,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             tr("assembly.properties.offset"),
             tr("assembly.properties.flip"),
         ))
-        self.reference_list.setVerticalHeaderLabels((
-            "Front / Back",
-            "Top / Bottom",
-            tr("dialog.point_constraints.orientation.none"),
-        ))
+        self.reference_list.verticalHeader().hide()
         self.rows = []
         self.active_pick = (0, "source")
         self.selection_paused = False
@@ -3219,13 +3216,28 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             )
             source_button = QPushButton(tr("assembly.properties.pick_face"))
             target_button = QPushButton(tr("assembly.properties.pick_face"))
+            source_button.setCheckable(True)
+            target_button.setCheckable(True)
+            for side, button in (("source", source_button), ("target", target_button)):
+                button.setContextMenuPolicy(
+                    Qt.ContextMenuPolicy.CustomContextMenu
+                )
+                button.customContextMenuRequested.connect(
+                    lambda position, index=row, field=side, reference_button=button:
+                    self._show_reference_context_menu(
+                        index,
+                        field,
+                        reference_button,
+                        position,
+                    )
+                )
             source_button.clicked.connect(
-                lambda _checked=False, index=row:
-                self._activate_pick(index, "source")
+                lambda checked=False, index=row:
+                self._reference_button_clicked(index, "source", checked)
             )
             target_button.clicked.connect(
-                lambda _checked=False, index=row:
-                self._activate_pick(index, "target")
+                lambda checked=False, index=row:
+                self._reference_button_clicked(index, "target", checked)
             )
             offset = QDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
@@ -3234,6 +3246,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             values = stored[row] if row < len(stored) and isinstance(stored[row], dict) else {}
             source_button.setProperty("reference", values.get("source"))
             target_button.setProperty("reference", values.get("target"))
+            source_button.setChecked(values.get("source") is not None)
+            target_button.setChecked(values.get("target") is not None)
             labels = {descriptor: label for label, descriptor, _point, _normal in (*source_choices, *target_choices)}
             if values.get("source") in labels:
                 source_button.setText(labels[values["source"]])
@@ -3241,6 +3255,12 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 target_button.setText(labels[values["target"]])
             offset.setValue(float(values.get("offset", 0.0)))
             flip.setChecked(bool(values.get("flip", False)))
+            offset.valueChanged.connect(
+                lambda _value: self.matesSubmitted.emit(self.mate_rows())
+            )
+            flip.toggled.connect(
+                lambda _checked: self.matesSubmitted.emit(self.mate_rows())
+            )
             self.reference_list.setCellWidget(row, 0, remove_button)
             self.reference_list.setCellWidget(row, 1, source_button)
             self.reference_list.setCellWidget(row, 2, target_button)
@@ -3258,6 +3278,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.reference_list.verticalHeader().setDefaultSectionSize(42)
+        for row in range(self.reference_list.rowCount()):
+            self.reference_list.setRowHeight(row, 42)
         self.reference_status_label.setText(tr("assembly.properties.instructions"))
         self._update_pick_highlight()
 
@@ -3280,21 +3302,46 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             source.setText(labels[source_reference])
             target.setProperty("reference", target_reference)
             target.setText(labels[target_reference])
+            source.setChecked(True)
+            target.setChecked(True)
+            offset.blockSignals(True)
+            flip.blockSignals(True)
             offset.setValue(0.0)
             flip.setChecked(True)
+            offset.blockSignals(False)
+            flip.blockSignals(False)
         self.reference_status_label.setText(
             tr("assembly.properties.origin_aligned")
         )
+        self.selection_paused = True
+        self._update_pick_highlight()
         return True
 
     def _activate_pick(self, row: int, side: str) -> None:
         self.selection_paused = False
         self.active_pick = (row, side)
         self.reference_list.setRowHidden(row, False)
+        button = self.rows[row][0 if side == "source" else 1]
+        if button.property("reference") is None:
+            button.setChecked(False)
         self._update_pick_highlight()
         self.reference_status_label.setText(
             tr("assembly.properties.instructions")
         )
+
+    def _reference_button_clicked(
+        self,
+        row: int,
+        side: str,
+        _checked: bool,
+    ) -> None:
+        button = self.rows[row][0 if side == "source" else 1]
+        if button.property("reference") is None:
+            self._activate_pick(row, side)
+            return
+        self.active_pick = (row, side)
+        self.selection_paused = True
+        self._update_pick_highlight()
 
     def _remove_mate_row(self, row: int) -> None:
         values = []
@@ -3315,16 +3362,28 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 source.setText(source_text)
                 target.setProperty("reference", target_ref)
                 target.setText(target_text)
+                source.setChecked(source_ref is not None)
+                target.setChecked(target_ref is not None)
+                offset.blockSignals(True)
+                flip.blockSignals(True)
                 offset.setValue(shift)
                 flip.setChecked(flipped)
+                offset.blockSignals(False)
+                flip.blockSignals(False)
                 self.reference_list.setRowHidden(index, False)
             else:
                 source.setProperty("reference", None)
                 target.setProperty("reference", None)
+                source.setChecked(False)
+                target.setChecked(False)
                 source.setText(tr("assembly.properties.pick_face"))
                 target.setText(tr("assembly.properties.pick_face"))
+                offset.blockSignals(True)
+                flip.blockSignals(True)
                 offset.setValue(0.0)
                 flip.setChecked(False)
+                offset.blockSignals(False)
+                flip.blockSignals(False)
                 self.reference_list.setRowHidden(index, True)
         self.active_pick = (min(len(values), 2), "source")
         self.selection_paused = False
@@ -3332,6 +3391,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.matesSubmitted.emit(self.mate_rows())
 
     def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Delete:
+            row, side = self.active_pick
+            self._clear_reference(row, side)
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape:
             row, side = self.active_pick
             source, target, _offset, _flip = self.rows[row]
@@ -3346,6 +3410,32 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             return
         super().keyPressEvent(event)
 
+    def _show_reference_context_menu(
+        self,
+        row: int,
+        side: str,
+        button: QPushButton,
+        position: QPoint,
+    ) -> None:
+        self._activate_pick(row, side)
+        menu = QMenu(button)
+        delete_action = menu.addAction(tr("menu.context.delete_reference"))
+        delete_action.setEnabled(button.property("reference") is not None)
+        if menu.exec(button.mapToGlobal(position)) == delete_action:
+            self._clear_reference(row, side)
+
+    def _clear_reference(self, row: int, side: str) -> None:
+        button = self.rows[row][0 if side == "source" else 1]
+        if button.property("reference") is None:
+            return
+        button.setProperty("reference", None)
+        button.setChecked(False)
+        button.setText(tr("assembly.properties.pick_face"))
+        self.active_pick = (row, side)
+        self.selection_paused = False
+        self._update_pick_highlight()
+        self.matesSubmitted.emit(self.mate_rows())
+
     def _choose_reference(
         self,
         row: int,
@@ -3356,22 +3446,61 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.reference_list.setRowHidden(row, False)
         button = self.rows[row][0 if side == "source" else 1]
         button.setProperty("reference", descriptor)
+        button.setChecked(True)
         button.setText(label)
-        self.active_pick = (
-            (row, "target") if side == "source"
-            else (min(row + 1, 2), "source")
-        )
+        self._advance_pick(row, side)
         self._update_pick_highlight()
+
+    def _advance_pick(self, row: int, side: str) -> None:
+        if side == "source":
+            self.active_pick = (row, "target")
+            return
+        next_row = row + 1
+        if next_row >= len(self.rows):
+            self.active_pick = (row, "target")
+            self.selection_paused = True
+            return
+        self.reference_list.setRowHidden(next_row, False)
+        self.active_pick = (next_row, "source")
 
     def _update_pick_highlight(self) -> None:
         for row, (source, target, _offset, _flip) in enumerate(self.rows):
             for side, button in (("source", source), ("target", target)):
                 button.setStyleSheet(
-                    "border: 2px solid #4DD811;"
-                    if not self.selection_paused
-                    and (row, side) == self.active_pick
-                    else ""
+                    (
+                        "background-color: rgba(0, 209, 255, 110);"
+                        if button.isChecked()
+                        else ""
+                    )
+                    + (
+                        "border: 2px solid #4DD811;"
+                        if not self.selection_paused
+                        and (row, side) == self.active_pick
+                        else ""
+                    )
                 )
+        row, side = self.active_pick
+        button = self.rows[row][0 if side == "source" else 1]
+        descriptor = (
+            None
+            if self.selection_paused or not button.isChecked()
+            else button.property("reference")
+        )
+        self.activeReferenceChanged.emit(
+            str(descriptor) if descriptor is not None else ""
+        )
+
+    def active_reference_descriptor(self) -> str:
+        if self.selection_paused:
+            return ""
+        row, side = self.active_pick
+        button = self.rows[row][0 if side == "source" else 1]
+        descriptor = button.property("reference")
+        return (
+            str(descriptor)
+            if descriptor is not None and button.isChecked()
+            else ""
+        )
 
     def accept_face(self, owner_id: str, face_index: int, owner_name: str) -> bool:
         if self.selection_paused:
@@ -3384,11 +3513,9 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.reference_list.setRowHidden(row, False)
         button = self.rows[row][0 if side == "source" else 1]
         button.setProperty("reference", f"{owner_id}:face:{face_index}")
+        button.setChecked(True)
         button.setText(f"{owner_name} / Face {face_index}")
-        self.active_pick = (
-            (row, "target") if side == "source"
-            else (min(row + 1, 2), "source")
-        )
+        self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
             self.matesSubmitted.emit(self.mate_rows())
@@ -3408,11 +3535,9 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.reference_list.setRowHidden(row, False)
         button = self.rows[row][0 if side == "source" else 1]
         button.setProperty("reference", descriptor)
+        button.setChecked(True)
         button.setText(label)
-        self.active_pick = (
-            (row, "target") if side == "source"
-            else (min(row + 1, 2), "source")
-        )
+        self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
             self.matesSubmitted.emit(self.mate_rows())
@@ -11539,7 +11664,11 @@ class MainWindow(QMainWindow):
         if not owner_id or face_index <= 0:
             return
         assembly_dialog = self.assembly_component_dialog
-        if assembly_dialog is not None and assembly_dialog.isVisible():
+        if (
+            assembly_dialog is not None
+            and assembly_dialog.isVisible()
+            and not assembly_dialog.selection_paused
+        ):
             owner = self.document.find_entity(owner_id) if self.document is not None else None
             scene = self._native_viewer_scene
             selected_shape = (
@@ -13107,6 +13236,94 @@ class MainWindow(QMainWindow):
                 )
             )
             return
+        assembly_dialog = self.assembly_component_dialog
+        if (
+            assembly_dialog is not None
+            and assembly_dialog.isVisible()
+            and not assembly_dialog.selection_paused
+        ):
+            scene = self._native_viewer_scene
+            if scene is None:
+                return
+            _row, side = assembly_dialog.active_pick
+            allowed_planes = {
+                descriptor
+                for _label, descriptor, _point, _normal in (
+                    assembly_dialog.source_choices
+                    if side == "source"
+                    else assembly_dialog.target_choices
+                )
+            }
+            candidates: list[tuple[str, str, int]] = []
+            for kind, owner_id, element_index in (
+                self.native_viewer.topology_candidates_at(QPointF(position))
+            ):
+                if kind == "face":
+                    if (
+                        (side == "source")
+                        != (owner_id == assembly_dialog.component.entity_id)
+                    ):
+                        continue
+                    shape = scene.resolve_topology(
+                        owner_id,
+                        "face",
+                        element_index,
+                    )
+                    if (
+                        shape is not None
+                        and BRepAdaptor_Surface(shape).GetType()
+                        == GeomAbs_Plane
+                    ):
+                        candidates.append((kind, owner_id, element_index))
+                    continue
+                if kind != "plane":
+                    continue
+                plane = self._plane_entity_from_view_key(
+                    owner_id,
+                    element_index,
+                )
+                if plane is None:
+                    continue
+                plane_name = str(
+                    plane.parameters.get("plane", "xy")
+                ).upper()
+                owner = self.document.find_owning_object(plane.entity_id)
+                descriptor = (
+                    f"{owner.entity_id}:plane:{plane_name}"
+                    if owner is not None
+                    and owner.container_type == ContainerType.COMPONENT
+                    else f"assembly:{plane_name}"
+                )
+                if descriptor in allowed_planes:
+                    candidates.append((kind, owner_id, element_index))
+            candidates = list(dict.fromkeys(candidates))
+            if not candidates:
+                self._view_candidate_cycle_ids = ()
+                self._view_candidate_cycle_index = -1
+                self.native_viewer._cycled_topology_candidate = None
+                self.native_viewer._clear_topology_hover()
+                return
+            cycle_ids = tuple(
+                f"{kind}:{owner_id}:{element_index}"
+                for kind, owner_id, element_index in candidates
+            )
+            if cycle_ids != self._view_candidate_cycle_ids:
+                self._view_candidate_cycle_index = 0
+            else:
+                self._view_candidate_cycle_index = (
+                    self._view_candidate_cycle_index + 1
+                ) % len(candidates)
+            self._view_candidate_cycle_ids = cycle_ids
+            self.native_viewer.preview_topology_candidate(
+                candidates[self._view_candidate_cycle_index]
+            )
+            self.statusBar().showMessage(
+                tr(
+                    "selection.status.cycled_container",
+                    rank=self._view_candidate_cycle_index + 1,
+                )
+            )
+            return
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
@@ -14311,6 +14528,132 @@ class MainWindow(QMainWindow):
             in (*source_choices, *target_choices)
         }
 
+        def sync_filled_reference_highlights() -> None:
+            faces: set[tuple[str, int]] = set()
+            planes: set[tuple[str, int]] = set()
+            for source, target, _offset, _flip in dialog.rows:
+                for button in (source, target):
+                    descriptor = button.property("reference")
+                    if descriptor is None or not button.isChecked():
+                        continue
+                    parts = str(descriptor).split(":")
+                    if len(parts) == 3 and parts[1] == "face":
+                        try:
+                            faces.add((parts[0], int(parts[2])))
+                        except ValueError:
+                            pass
+                        continue
+                    if len(parts) == 2 and parts[0] == "assembly":
+                        owner = self.document.root if self.document is not None else None
+                        plane_name = parts[1].lower()
+                    elif len(parts) == 3 and parts[1] == "plane":
+                        owner = (
+                            self.document.find_entity(parts[0])
+                            if self.document is not None
+                            else None
+                        )
+                        plane_name = parts[2].lower()
+                    else:
+                        continue
+                    origin = next(
+                        (
+                            child for child in owner.children
+                            if child.kind == EntityKind.ORIGIN
+                        ),
+                        None,
+                    ) if owner is not None else None
+                    plane_index = {"xy": 1, "yz": 2, "xz": 3}.get(
+                        plane_name
+                    )
+                    if origin is not None and plane_index is not None:
+                        planes.add((origin.entity_id, plane_index))
+            self.native_viewer.set_assembly_reference_highlights(
+                faces=faces,
+                planes=planes,
+            )
+
+        def highlight_active_reference(descriptor: str) -> None:
+            sync_filled_reference_highlights()
+            choices = (
+                dialog.source_choices
+                if dialog.active_pick[1] == "source"
+                else dialog.target_choices
+            )
+            allowed_owner_ids: set[str] = set()
+            if not dialog.selection_paused:
+                for _label, reference, _point, _normal in choices:
+                    parts = reference.split(":")
+                    if len(parts) == 3 and parts[1] == "face":
+                        allowed_owner_ids.add(parts[0])
+                        continue
+                    owner = (
+                        self.document.root
+                        if len(parts) == 2 and parts[0] == "assembly"
+                        else (
+                            self.document.find_entity(parts[0])
+                            if len(parts) == 3
+                            and parts[1] == "plane"
+                            and self.document is not None
+                            else None
+                        )
+                    )
+                    if owner is not None:
+                        origin = next(
+                            (
+                                child for child in owner.children
+                                if child.kind == EntityKind.ORIGIN
+                            ),
+                            None,
+                        )
+                        if origin is not None:
+                            allowed_owner_ids.add(origin.entity_id)
+            self.native_viewer.set_selection_filter("surface")
+            self.native_viewer.set_topology_owner_filter(allowed_owner_ids)
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._clear_topology_selection()
+                self.native_viewer.set_object_overlay(None)
+                self.native_viewer.set_selected_reference_owner(None)
+                self.native_viewer.set_selected_container_origin(None)
+                self.native_viewer.set_selected_container_contents(set())
+                if not descriptor:
+                    return
+                parts = descriptor.split(":")
+                if len(parts) == 3 and parts[1] == "face":
+                    try:
+                        face_index = int(parts[2])
+                    except ValueError:
+                        return
+                    self.native_viewer._set_selected_face((parts[0], face_index))
+                    return
+                if len(parts) == 2 and parts[0] == "assembly":
+                    owner = self.document.root if self.document is not None else None
+                    plane_name = parts[1].lower()
+                elif len(parts) == 3 and parts[1] == "plane":
+                    owner = (
+                        self.document.find_entity(parts[0])
+                        if self.document is not None
+                        else None
+                    )
+                    plane_name = parts[2].lower()
+                else:
+                    return
+                origin = next(
+                    (
+                        child for child in owner.children
+                        if child.kind == EntityKind.ORIGIN
+                    ),
+                    None,
+                ) if owner is not None else None
+                plane_index = {"xy": 1, "yz": 2, "xz": 3}.get(plane_name)
+                if origin is not None and plane_index is not None:
+                    self.native_viewer._set_selected_plane(
+                        (origin.entity_id, plane_index)
+                    )
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+                self.native_viewer.update()
+
         def apply_mates(rows) -> None:
             valid = [row for row in rows if row["source"] in frames and row["target"] in frames]
             if not valid:
@@ -14420,6 +14763,7 @@ class MainWindow(QMainWindow):
                 descriptor: (point, normal)
                 for _label, descriptor, point, normal in refreshed
             })
+            highlight_active_reference(dialog.active_reference_descriptor())
 
         def capture_committed_state() -> None:
             committed_state.update({
@@ -14443,6 +14787,7 @@ class MainWindow(QMainWindow):
             lambda _rows: capture_committed_state()
         )
         dialog.definitionChanged.connect(preview_component_placement)
+        dialog.activeReferenceChanged.connect(highlight_active_reference)
         self.assembly_component_dialog = dialog
         previous_filter_index = self.selection_filter_combo.currentIndex()
         previous_selection_enabled = self.view_selection_enabled
@@ -14476,6 +14821,11 @@ class MainWindow(QMainWindow):
                 )
             if self.assembly_component_dialog is dialog:
                 self.assembly_component_dialog = None
+            self.native_viewer.set_assembly_reference_highlights(
+                faces=set(),
+                planes=set(),
+            )
+            self.native_viewer.set_topology_owner_filter(None)
             self.selection_filter_combo.setCurrentIndex(previous_filter_index)
             if not previous_selection_enabled:
                 self.view_selection_action.setChecked(False)
@@ -14489,6 +14839,7 @@ class MainWindow(QMainWindow):
         dialog.show()
         position_dialog_top_right_after_show(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        highlight_active_reference(dialog.active_reference_descriptor())
 
     def _edit_generic_object(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
@@ -26599,6 +26950,10 @@ class MainWindow(QMainWindow):
             show_document_planes=self.show_planes_action.isChecked(),
             show_object_planes=self.show_planes_action.isChecked(),
             show_object_origins=self.show_origins_action.isChecked(),
+            show_component_origins=(
+                self.assembly_component_dialog is not None
+                and self.assembly_component_dialog.isVisible()
+            ),
             show_user_points=self.show_points_action.isChecked(),
             show_user_axes=self.show_axes_action.isChecked(),
             show_user_planes=self.show_planes_action.isChecked(),
@@ -26650,7 +27005,12 @@ class MainWindow(QMainWindow):
             }[self.view_display_mode]
         )
         self.native_viewer.set_selection_filter(
-            {
+            "surface"
+            if (
+                self.assembly_component_dialog is not None
+                and self.assembly_component_dialog.isVisible()
+            )
+            else {
                 ViewSelectionFilter.ALL: "all",
                 ViewSelectionFilter.FACE: "face",
                 ViewSelectionFilter.POINT: "point",
