@@ -237,7 +237,10 @@ def _append_object_sketches(
         )
     for child in obj.children:
         if child.kind == EntityKind.SKETCH:
-            if obj.container_type == ContainerType.PROTRUSION:
+            if obj.container_type in (
+                ContainerType.PROTRUSION,
+                ContainerType.REVOLVE,
+            ):
                 continue
             if not document.is_effectively_visible(child.entity_id):
                 continue

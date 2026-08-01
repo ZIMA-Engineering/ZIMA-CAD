@@ -274,6 +274,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.camera = CameraState()
         self._background_top = QColor("#3B4654")
         self._background_bottom = QColor("#171B21")
+        self._surface_color = QColor("#B9C2CC")
         self._last_mouse_position: QPoint | None = None
         self._middle_press_position: QPoint | None = None
         self._middle_dragged = False
@@ -372,6 +373,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_top = QColor(top)
         self._background_bottom = QColor(bottom)
         self.update()
+
+    def set_surface_color(self, color: QColor | str) -> None:
+        selected = QColor(color)
+        if not selected.isValid():
+            return
+        self._surface_color = selected
+        self.update()
+
+    def surface_color(self) -> QColor:
+        return QColor(self._surface_color)
 
     def set_sketch_overlay(
         self,
@@ -2073,7 +2084,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         program.setUniformValue("mvp", mvp)
         program.setUniformValue(
             "surfaceColor",
-            QVector3D(0.725, 0.761, 0.8),
+            QVector3D(
+                self._surface_color.redF(),
+                self._surface_color.greenF(),
+                self._surface_color.blueF(),
+            ),
         )
         buffer.bind()
         program.enableAttributeArray(0)
@@ -5859,7 +5874,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             depth = sum(point[2] for point in camera_points) / 3.0
             triangle_records.append((depth, polygon, normal))
 
-        surface_color = QColor("#B9C2CC")
+        surface_color = self._surface_color
         light = (0.25, -0.35, 0.902)
         painter.setPen(Qt.PenStyle.NoPen)
         for _depth, polygon, normal in sorted(

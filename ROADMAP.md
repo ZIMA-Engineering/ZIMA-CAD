@@ -75,11 +75,12 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 4. Revolve
 
-**Status: Planned**
+**Status: Basic implementation**
 
 - full and partial revolution
-- selectable revolution axis
+- first sketch construction line used as the revolution axis
 - additive and subtractive operations
+- shared line, arc and spline profile builder with Protrusion
 - revolved thin features
 
 ## 5. Sweep

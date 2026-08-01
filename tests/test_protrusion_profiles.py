@@ -9,6 +9,7 @@ from zima_cad.model import (
     ZimaEntity,
     create_empty_part,
     make_protrusion_shape,
+    make_revolve_shape,
 )
 from zima_cad.sketch_model import SketchModel
 
@@ -82,6 +83,66 @@ class ProtrusionProfileTests(unittest.TestCase):
             {"id": "top", "type": "segment", "point_ids": ["rt", "lt"]},
             {"id": "left", "type": "segment", "point_ids": ["lt", "a"]},
         ]))
+
+    def test_closed_profile_revolves_around_first_construction_line(self):
+        entities = [
+            {"id": "axis_a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis_b", "type": "point", "x": 0.0, "y": 20.0},
+            {"id": "axis2_a", "type": "point", "x": -5.0, "y": 30.0},
+            {"id": "axis2_b", "type": "point", "x": 25.0, "y": 30.0},
+            {"id": "a", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 10.0},
+            {"id": "d", "type": "point", "x": 10.0, "y": 10.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis_a", "axis_b"],
+            },
+            {
+                "id": "ignored_axis",
+                "type": "construction",
+                "point_ids": ["axis2_a", "axis2_b"],
+            },
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        document = create_empty_part()
+        container = ZimaEntity("Revolve001", EntityKind.CONTAINER)
+        sketch = ZimaEntity(
+            "Sketch001",
+            EntityKind.SKETCH,
+            parameters={
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "Revolve",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "360",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        shape = make_revolve_shape(document, container)
+        self.assertHasVolume(shape)
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(shape, properties)
+        self.assertAlmostEqual(
+            abs(float(properties.Mass())),
+            3000.0 * 3.141592653589793,
+            places=5,
+        )
 
 
 if __name__ == "__main__":

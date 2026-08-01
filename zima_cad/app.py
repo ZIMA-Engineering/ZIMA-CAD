@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
+    QColorDialog,
     QDoubleSpinBox,
     QComboBox,
     QDialog,
@@ -201,6 +202,7 @@ TREE_ICON_NAMES = {
     EntityKind.PLANE: "plane",
     EntityKind.SKETCH: "sketch",
     EntityKind.PROTRUSION: "protrusion",
+    EntityKind.REVOLVE: "revolve",
     EntityKind.BOX: "box",
     EntityKind.SPHERE: "sphere",
     EntityKind.CYLINDER: "cylinder",
@@ -2653,6 +2655,8 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         protrusion: ZimaEntity | None = None,
         suggested_name: str = "",
         initial_sketch_id: str = "",
+        feature_kind: EntityKind = EntityKind.PROTRUSION,
+        container_type: ContainerType = ContainerType.PROTRUSION,
         reference_exists_callback=None,
         reference_kind_callback=None,
     ) -> None:
@@ -2665,7 +2669,8 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             reference_exists_callback=reference_exists_callback,
             reference_kind_callback=reference_kind_callback,
         )
-        self._set_container_type(ContainerType.PROTRUSION)
+        self._feature_kind = feature_kind
+        self._set_container_type(container_type)
         self.length_spin.setVisible(False)
         if self.length_label is not None:
             self.length_label.setVisible(False)
@@ -2674,7 +2679,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             next(
                 (
                     child for child in protrusion.children
-                    if child.kind == EntityKind.PROTRUSION
+                    if child.kind == feature_kind
                 ),
                 protrusion,
             )
@@ -2741,6 +2746,9 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             max(0, self.extent_mode_combo.findData(extent_mode))
         )
         feature_form.addRow(tr("protrusion.extent"), self.extent_mode_combo)
+        self.extent_mode_label = feature_form.labelForField(
+            self.extent_mode_combo
+        )
         self.protrusion_direction_combo = QComboBox()
         self.protrusion_direction_combo.addItem("↑", "forward")
         self.protrusion_direction_combo.addItem("↓", "reverse")
@@ -2771,6 +2779,9 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         )
         feature_form.addRow(
             tr("protrusion.length_forward"), self.forward_length_spin
+        )
+        self.forward_length_label = feature_form.labelForField(
+            self.forward_length_spin
         )
         feature_form.addRow(
             tr("protrusion.length_reverse"), self.reverse_length_spin
@@ -2950,6 +2961,111 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.updateProtrusionRequested.emit(*arguments)
         else:
             self.createProtrusionRequested.emit(*arguments)
+        return True
+
+
+class RevolveConstraintDialog(ProtrusionConstraintDialog):
+    createRevolveRequested = Signal(
+        list, tuple, str, bool, bool, tuple, str, str, float, str, str
+    )
+    updateRevolveRequested = Signal(
+        list, tuple, str, bool, bool, tuple, str, str, float, str, str
+    )
+
+    def __init__(
+        self,
+        solve_callback,
+        sketches: list[tuple[str, str]],
+        parent=None,
+        *,
+        revolve: ZimaEntity | None = None,
+        suggested_name: str = "",
+        initial_sketch_id: str = "",
+        reference_exists_callback=None,
+        reference_kind_callback=None,
+    ) -> None:
+        super().__init__(
+            solve_callback,
+            sketches,
+            parent,
+            protrusion=revolve,
+            suggested_name=suggested_name,
+            initial_sketch_id=initial_sketch_id,
+            feature_kind=EntityKind.REVOLVE,
+            container_type=ContainerType.REVOLVE,
+            reference_exists_callback=reference_exists_callback,
+            reference_kind_callback=reference_kind_callback,
+        )
+        feature = (
+            next(
+                (
+                    child for child in revolve.children
+                    if child.kind == EntityKind.REVOLVE
+                ),
+                None,
+            )
+            if revolve is not None
+            else None
+        )
+        parameters = feature.parameters if feature is not None else {}
+        self.extent_mode_combo.setVisible(False)
+        if self.extent_mode_label is not None:
+            self.extent_mode_label.setVisible(False)
+        self.reverse_length_spin.setVisible(False)
+        if self.reverse_length_label is not None:
+            self.reverse_length_label.setVisible(False)
+        self.forward_length_spin.setRange(0.001, 360.0)
+        self.forward_length_spin.setSuffix("°")
+        self.forward_length_spin.setValue(
+            float(parameters.get("angle", 360.0))
+        )
+        if self.forward_length_label is not None:
+            self.forward_length_label.setText(tr("revolve.angle"))
+        self.protrusion_direction_combo.clear()
+        self.protrusion_direction_combo.addItem("↻", "forward")
+        self.protrusion_direction_combo.addItem("↺", "reverse")
+        self.protrusion_direction_combo.setCurrentIndex(
+            max(
+                0,
+                self.protrusion_direction_combo.findData(
+                    str(parameters.get("direction", "forward"))
+                ),
+            )
+        )
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        source_mode = self._profile_source
+        sketch_id = (
+            self._profile_sketch_id
+            if source_mode == "external"
+            else ""
+        )
+        if self.solution is None or not name or (
+            source_mode == "external" and not sketch_id
+        ):
+            return False
+        arguments = (
+            self.references,
+            tuple(edit.value() for edit in self.coordinate_edits),
+            name,
+            True,
+            self._show_auxiliary_geometry(),
+            tuple(edit.value() for edit in self.rotation_edits),
+            source_mode,
+            sketch_id,
+            self.forward_length_spin.value(),
+            str(self.protrusion_direction_combo.currentData()),
+            (
+                CombineMode.SUBTRACT.value
+                if self.subtract_operation_button.isChecked()
+                else CombineMode.ADD.value
+            ),
+        )
+        if self.edit_mode:
+            self.updateRevolveRequested.emit(*arguments)
+        else:
+            self.createRevolveRequested.emit(*arguments)
         return True
 
 
@@ -4856,6 +4972,11 @@ class MainWindow(QMainWindow):
         self.addAction(self._sketch_delete_action)
 
         self.native_viewer = ZimaOpenGLViewer(self)
+        stored_body_color = self._window_settings().value(
+            "view/body_color",
+            "#B9C2CC",
+        )
+        self.native_viewer.set_surface_color(str(stored_body_color))
         self._native_viewer_scene: DocumentViewerScene | None = None
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
@@ -5453,6 +5574,12 @@ class MainWindow(QMainWindow):
             protrusion_action.setIcon(resource_icon("protrusion"))
             self._mark_application_command(protrusion_action)
             protrusion_action.triggered.connect(self._create_protrusion)
+            revolve_action = self.tools_toolbar.addAction(
+                tr("revolve.command")
+            )
+            revolve_action.setIcon(resource_icon("revolve"))
+            self._mark_application_command(revolve_action)
+            revolve_action.triggered.connect(self._create_revolve)
             self.tools_toolbar.addSeparator()
             for kind, text_key in (
                 (EntityKind.BOX, "primitive.box"),
@@ -5718,6 +5845,124 @@ class MainWindow(QMainWindow):
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
+    def _create_revolve(self) -> None:
+        if self.document is None:
+            return
+        if self.point_constraint_dialog is not None:
+            self.point_constraint_dialog.raise_()
+            self.point_constraint_dialog.activateWindow()
+            return
+        selected = self._selected_object()
+        initial_id = ""
+        if selected is not None:
+            if selected.kind == EntityKind.SKETCH:
+                initial_id = selected.entity_id
+            elif selected.kind == EntityKind.CONTAINER:
+                initial_id = next(
+                    (
+                        child.entity_id for child in selected.children
+                        if child.kind == EntityKind.SKETCH
+                        and child.sketch_role() == SketchRole.PROFILE
+                    ),
+                    "",
+                )
+        dialog = RevolveConstraintDialog(
+            self._solve_point_constraints,
+            self._available_profile_sketches(),
+            self,
+            suggested_name=self.document.next_container_name(
+                tr("revolve.default_name")
+            ),
+            initial_sketch_id=initial_id,
+            reference_exists_callback=lambda entity_id: (
+                self.document is not None
+                and self.document.find_entity(entity_id) is not None
+            ),
+            reference_kind_callback=lambda entity_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_entity(entity_id))
+                is not None
+                else None
+            ),
+        )
+        dialog.createRevolveRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, source_mode, sketch_id, angle, direction, operation:
+            self._apply_new_revolve(
+                dialog, references, fallback, name, show_internal,
+                show_auxiliary, rotation, source_mode, sketch_id, angle,
+                direction, operation,
+            )
+        )
+        dialog.updateRevolveRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, source_mode, sketch_id, angle, direction, operation:
+            self._update_revolve(
+                dialog.point_object, references, fallback, name,
+                show_internal, show_auxiliary, rotation, source_mode,
+                sketch_id, angle, direction, operation,
+            ) if dialog.point_object is not None else None
+        )
+        dialog.editSketchRequested.connect(
+            lambda sketch_id: self._queue_protrusion_sketch_edit(
+                dialog,
+                sketch_id,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        self._show_properties_dialog(dialog)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _edit_revolve(self, obj: ZimaEntity) -> None:
+        if self.document is None or self.point_constraint_dialog is not None:
+            return
+        dialog = RevolveConstraintDialog(
+            self._solve_point_constraints,
+            self._available_profile_sketches(),
+            self,
+            revolve=obj,
+            reference_exists_callback=lambda entity_id: (
+                self.document is not None
+                and self.document.find_entity(entity_id) is not None
+            ),
+            reference_kind_callback=lambda entity_id: (
+                reference.kind
+                if self.document is not None
+                and (reference := self.document.find_entity(entity_id))
+                is not None
+                else None
+            ),
+        )
+        dialog.updateRevolveRequested.connect(
+            lambda references, fallback, name, show_internal, show_auxiliary,
+            rotation, source_mode, sketch_id, angle, direction, operation:
+            self._update_revolve(
+                obj, references, fallback, name, show_internal,
+                show_auxiliary, rotation, source_mode, sketch_id, angle,
+                direction, operation,
+            )
+        )
+        dialog.editSketchRequested.connect(
+            lambda sketch_id: self._queue_protrusion_sketch_edit(
+                dialog,
+                sketch_id,
+            )
+        )
+        dialog.referenceActivated.connect(self._activate_point_reference)
+        dialog.definitionChanged.connect(
+            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+        )
+        dialog.finished.connect(self._point_constraint_dialog_finished)
+        self.point_constraint_dialog = dialog
+        self._show_properties_dialog(dialog)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
     def _edit_protrusion(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
             return
@@ -5870,6 +6115,127 @@ class MainWindow(QMainWindow):
             {
                 "container_type": ContainerType.PROTRUSION.value,
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
+                "constraint_type": "linear_entities",
+                "fallback_x": f"{fallback[0]:.12g}",
+                "fallback_y": f"{fallback[1]:.12g}",
+                "fallback_z": f"{fallback[2]:.12g}",
+                "reference_orientation": "true",
+                "rotation_offset_x": f"{rotation[0]:.12g}",
+                "rotation_offset_y": f"{rotation[1]:.12g}",
+                "rotation_offset_z": f"{rotation[2]:.12g}",
+            }
+        )
+        return True
+
+    def _apply_new_revolve(
+        self, dialog, references, fallback, name, show_internal,
+        show_auxiliary, rotation, source_mode, sketch_id, angle,
+        direction, operation,
+    ) -> None:
+        if self.document is None:
+            return
+        obj = self.document.create_container(
+            tr("revolve.default_name"),
+            ContainerType.REVOLVE,
+        )
+        if not self._set_revolve_definition(
+            obj, references, fallback, name, show_internal, show_auxiliary,
+            rotation, source_mode, sketch_id, angle, direction, operation,
+        ):
+            self.document.delete_container(obj.entity_id)
+            return
+        dialog.adopt_created_entity(obj, obj)
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.entity_id)
+        self.rebuild_view(fit=False)
+
+    def _update_revolve(
+        self, obj, references, fallback, name, show_internal,
+        show_auxiliary, rotation, source_mode, sketch_id, angle,
+        direction, operation,
+    ) -> None:
+        if obj is None:
+            return
+        if self._set_revolve_definition(
+            obj, references, fallback, name, show_internal, show_auxiliary,
+            rotation, source_mode, sketch_id, angle, direction, operation,
+        ):
+            self._refresh_object_properties(obj)
+
+    def _set_revolve_definition(
+        self, obj, references, fallback, name, show_internal,
+        show_auxiliary, rotation, source_mode, sketch_id, angle,
+        direction, operation,
+    ) -> bool:
+        if self.document is None:
+            return False
+        solution, _dof, _status, _constrained = (
+            self._solve_point_constraints(references, fallback)
+        )
+        if solution is None:
+            return False
+        if source_mode == "internal":
+            internal = next(
+                (
+                    child for child in obj.children
+                    if child.kind == EntityKind.SKETCH and not child.locked
+                ),
+                None,
+            )
+            if internal is None:
+                internal = self.document.create_sketch(
+                    obj.entity_id,
+                    plane="xy",
+                    role=SketchRole.PROFILE,
+                    name_prefix=tr("container.type.sketch"),
+                )
+            if internal is None:
+                return False
+            sketch_id = internal.entity_id
+        elif (
+            not sketch_id
+            or (sketch := self.document.find_entity(sketch_id)) is None
+            or sketch.kind != EntityKind.SKETCH
+        ):
+            return False
+        base_rotation = self._plane_reference_rotation(references)
+        obj.name = name
+        obj.coordinate_system.origin = solution
+        obj.coordinate_system.rotation = tuple(
+            base_rotation[index] + rotation[index] for index in range(3)
+        )
+        obj.show_internal_entities = show_internal
+        obj.show_auxiliary_geometry = show_auxiliary
+        feature = next(
+            (
+                child for child in obj.children
+                if child.kind == EntityKind.REVOLVE and not child.locked
+            ),
+            None,
+        )
+        if feature is None:
+            feature = ZimaEntity(
+                name=tr("revolve.command"),
+                kind=EntityKind.REVOLVE,
+                combine_mode=CombineMode.NONE,
+            )
+            obj.add_child(feature)
+        feature.parameters.update(
+            {
+                "profile_source": source_mode,
+                "sketch_id": sketch_id,
+                "angle": f"{angle:.12g}",
+                "direction": direction,
+                "operation": operation,
+            }
+        )
+        obj.parameters.update(
+            {
+                "container_type": ContainerType.REVOLVE.value,
+                "constraint_refs": json.dumps(
+                    references,
+                    ensure_ascii=False,
+                ),
                 "constraint_type": "linear_entities",
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
@@ -7746,9 +8112,11 @@ class MainWindow(QMainWindow):
         self.edit_menu = self.menuBar().addMenu(tr("menu.edit"))
         self.edit_menu.addAction(self.regenerate_action)
 
-        view_menu = self.menuBar().addMenu(tr("menu.view"))
-        view_menu.addAction(self.reset_view_action)
-        standard_views_menu = view_menu.addMenu(tr("toolbar.standard_views"))
+        self.view_menu = self.menuBar().addMenu(tr("menu.view"))
+        self.view_menu.addAction(self.reset_view_action)
+        standard_views_menu = self.view_menu.addMenu(
+            tr("toolbar.standard_views")
+        )
         for text_key, view_name in (
             ("toolbar.view.default", "default"),
             ("toolbar.view.front", "front"),
@@ -7763,17 +8131,49 @@ class MainWindow(QMainWindow):
                 lambda _checked=False, selected_view=view_name:
                 self._set_standard_view(selected_view)
             )
-        view_menu.addSeparator()
-        view_menu.addAction(self.view_selection_action)
-        view_menu.addSeparator()
-        view_menu.addAction(self.wire_action)
-        view_menu.addAction(self.edges_action)
-        view_menu.addAction(self.shaded_action)
-        view_menu.addSeparator()
-        view_menu.addAction(self.show_origins_action)
-        view_menu.addAction(self.show_points_action)
-        view_menu.addAction(self.show_axes_action)
-        view_menu.addAction(self.show_planes_action)
+        self.view_menu.addSeparator()
+        self.view_menu.addAction(self.view_selection_action)
+        self.view_menu.addSeparator()
+        self.view_menu.addAction(self.wire_action)
+        self.view_menu.addAction(self.edges_action)
+        self.view_menu.addAction(self.shaded_action)
+        self.view_menu.addSeparator()
+        self.view_menu.addAction(self.show_origins_action)
+        self.view_menu.addAction(self.show_points_action)
+        self.view_menu.addAction(self.show_axes_action)
+        self.view_menu.addAction(self.show_planes_action)
+        self.view_menu.addSeparator()
+        self.colors_menu = self.view_menu.addMenu(tr("menu.view.colors"))
+        preset_colors = (
+            ("white", "#ECEFF1"),
+            ("graphite", "#30343B"),
+            ("silver", "#B9C2CC"),
+            ("blue", "#3F6F9F"),
+            ("green", "#3F7652"),
+            ("violet", "#6B5A8E"),
+            ("burgundy", "#7A4654"),
+            ("sand", "#B59A68"),
+        )
+        for color_name, color_value in preset_colors:
+            action = self.colors_menu.addAction(
+                self._color_swatch_icon(color_value),
+                tr(f"menu.view.colors.{color_name}"),
+            )
+            action.triggered.connect(
+                lambda _checked=False, selected=color_value:
+                self._set_body_color(selected)
+            )
+        self.colors_menu.addSeparator()
+        body_color_action = self.colors_menu.addAction(
+            tr("menu.view.colors.body")
+        )
+        body_color_action.triggered.connect(self._choose_body_color)
+        reset_body_color_action = self.colors_menu.addAction(
+            tr("menu.view.colors.body_reset")
+        )
+        reset_body_color_action.triggered.connect(
+            self._reset_body_color
+        )
 
         self.applications_menu = self.menuBar().addMenu(tr("menu.applications"))
         self.application_action_group = QActionGroup(self)
@@ -7859,6 +8259,38 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _window_settings() -> QSettings:
         return QSettings("ZIMA-Engineering", "ZIMA-CAD")
+
+    def _choose_body_color(self) -> None:
+        color = QColorDialog.getColor(
+            self.native_viewer.surface_color(),
+            self,
+            tr("dialog.body_color.title"),
+        )
+        if not color.isValid():
+            return
+        self._set_body_color(color)
+
+    def _reset_body_color(self) -> None:
+        self._set_body_color("#B9C2CC")
+
+    def _set_body_color(self, color: QColor | str) -> None:
+        color = QColor(color)
+        if not color.isValid():
+            return
+        self.native_viewer.set_surface_color(color)
+        self._window_settings().setValue("view/body_color", color.name())
+
+    @staticmethod
+    def _color_swatch_icon(color: QColor | str) -> QIcon:
+        pixmap = QPixmap(18, 18)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor("#707780"), 1.0))
+        painter.setBrush(QBrush(QColor(color)))
+        painter.drawRoundedRect(1, 1, 16, 16, 3, 3)
+        painter.end()
+        return QIcon(pixmap)
 
     def _restore_window_layout(self) -> None:
         settings = self._window_settings()
@@ -9101,13 +9533,13 @@ class MainWindow(QMainWindow):
             name = f"{operation} {name}".strip()
         elif (
             obj.kind == EntityKind.CONTAINER
-            and obj.parameters.get("container_type")
-            == ContainerType.PROTRUSION.value
+            and obj.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
             feature = next(
                 (
                     child for child in obj.children
-                    if child.kind == EntityKind.PROTRUSION
+                    if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
                 ),
                 None,
             )
@@ -9128,10 +9560,14 @@ class MainWindow(QMainWindow):
         icon_name = TREE_ICON_NAMES.get(obj.kind)
         if (
             obj.kind == EntityKind.CONTAINER
-            and obj.parameters.get("container_type")
-            == ContainerType.PROTRUSION.value
+            and obj.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
-            icon_name = "protrusion"
+            icon_name = (
+                "revolve"
+                if obj.container_type == ContainerType.REVOLVE
+                else "protrusion"
+            )
         if icon_name is not None:
             item.setIcon(0, resource_icon(icon_name))
         item.setData(0, Qt.ItemDataRole.UserRole, obj.entity_id)
@@ -10698,6 +11134,7 @@ class MainWindow(QMainWindow):
                     EntityKind.PLANE,
                     EntityKind.SKETCH,
                     EntityKind.PROTRUSION,
+                    EntityKind.REVOLVE,
                 ):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
@@ -11465,6 +11902,7 @@ class MainWindow(QMainWindow):
             ContainerType.PYRAMID: "pyramid",
             ContainerType.WEDGE: "wedge",
             ContainerType.PROTRUSION: "protrusion",
+            ContainerType.REVOLVE: "revolve",
         }.get(obj.container_type)
         return tr(
             f"menu.context.delete_{key}"
@@ -11861,6 +12299,12 @@ class MainWindow(QMainWindow):
         return target
 
     def show_object_properties(self, obj: ZimaEntity) -> None:
+        if (
+            obj.parameters.get("container_type")
+            == ContainerType.REVOLVE.value
+        ):
+            self._edit_revolve(obj)
+            return
         if (
             obj.parameters.get("container_type")
             == ContainerType.PROTRUSION.value
@@ -13632,6 +14076,13 @@ class MainWindow(QMainWindow):
                         locked.add("y")
                     elif reference_id == "sketch_axis:y":
                         locked.add("x")
+                    elif reference_id:
+                        # The simple dimension pass cannot express motion
+                        # constrained along an arbitrary external line. Keep
+                        # the attached point fixed here; the reference
+                        # projection pass remains responsible for its exact
+                        # position on that line.
+                        locked.update(("x", "y"))
             return locked
 
         def set_group_position(
@@ -14142,6 +14593,12 @@ class MainWindow(QMainWindow):
         self._sketch_return_properties_id = return_properties_id
         self._clear_dimension_overlays()
         self._ensure_sketch_entity_ids(sketch)
+        # Reconnect and enforce external references before taking the edit
+        # baseline. A loaded history-result reference receives a fresh
+        # runtime owner ID, and its attached points must be projected before
+        # the sketch is first displayed or the constraint can look present
+        # while its geometry remains visibly detached.
+        self._regenerate_active_sketch_constraints(sketch)
         self._sketch_edit_entity_id = sketch.entity_id
         self._sketch_previous_camera = copy.deepcopy(self.native_viewer.camera)
         self._sketch_baseline_parameters = copy.deepcopy(sketch.parameters)
@@ -20441,11 +20898,27 @@ class MainWindow(QMainWindow):
         entities = self._stored_sketch_entities(sketch)
         for _pass in range(3):
             self._apply_sketch_midpoint_constraints(entities)
+            for point in entities:
+                if point.get("type") == "point":
+                    self._apply_sketch_point_reference_constraints(
+                        sketch,
+                        point,
+                    )
             self._apply_sketch_geometry_constraints(entities, sketch)
             self._apply_sketch_distance_dimensions(sketch, entities)
             self._apply_sketch_coincident_constraints(entities)
             self._apply_sketch_circle_rim_constraints(entities)
             self._apply_sketch_curve_attachments(entities)
+            # Dimensions and direction relations must not leave an endpoint
+            # merely labelled as attached while it is geometrically off the
+            # external reference. Re-project references at the end of every
+            # regeneration pass as the final positional authority.
+            for point in entities:
+                if point.get("type") == "point":
+                    self._apply_sketch_point_reference_constraints(
+                        sketch,
+                        point,
+                    )
         dimensions = self._stored_sketch_dimensions(sketch)
         candidate = SketchModel.from_editor_data(entities, dimensions)
         requires_numeric_solve = (
@@ -21560,9 +22033,13 @@ class MainWindow(QMainWindow):
             for index, obj in enumerate(self.document.history_objects()):
                 if (
                     obj.kind == EntityKind.CONTAINER
-                    and obj.container_type == ContainerType.PROTRUSION
+                    and obj.container_type
+                    in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
                     and any(
-                        child.kind == EntityKind.PROTRUSION
+                        child.kind in (
+                            EntityKind.PROTRUSION,
+                            EntityKind.REVOLVE,
+                        )
                         and str(child.parameters.get("sketch_id", ""))
                         == self._sketch_edit_entity_id
                         for child in obj.children
@@ -21592,6 +22069,10 @@ class MainWindow(QMainWindow):
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:
                 self._edit_protrusion(owner)
+        elif obj.kind == EntityKind.REVOLVE and self.document is not None:
+            owner = self.document.find_owning_object(obj.entity_id)
+            if owner is not None:
+                self._edit_revolve(owner)
         elif obj.kind == EntityKind.POINT and self.document is not None:
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:
@@ -21728,7 +22209,11 @@ class MainWindow(QMainWindow):
             return False
         dimensions = (
             self._primitive_dimensions(entity)
-            if entity.kind in (*SOLID_KINDS, EntityKind.PROTRUSION)
+            if entity.kind in (
+                *SOLID_KINDS,
+                EntityKind.PROTRUSION,
+                EntityKind.REVOLVE,
+            )
             else self._construction_entity_dimensions(entity)
         )
         dimensions = (*dimensions, *self._reference_dimensions(entity))
@@ -23448,10 +23933,15 @@ class MainWindow(QMainWindow):
                 EntityKind.AXIS,
                 EntityKind.PLANE,
                 EntityKind.PROTRUSION,
+                EntityKind.REVOLVE,
                 *SOLID_KINDS,
             )
             and (
-                obj.kind in (*SOLID_KINDS, EntityKind.PROTRUSION)
+                obj.kind in (
+                    *SOLID_KINDS,
+                    EntityKind.PROTRUSION,
+                    EntityKind.REVOLVE,
+                )
                 or "constraint_refs" in obj.parameters
             )
         ):

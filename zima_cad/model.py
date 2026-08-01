@@ -30,11 +30,12 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
     BRepPrimAPI_MakeCone,
     BRepPrimAPI_MakeCylinder,
+    BRepPrimAPI_MakeRevol,
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeWedge,
     BRepPrimAPI_MakePrism,
 )
-from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 
@@ -166,6 +167,7 @@ class EntityKind(str, Enum):
     PLANE = "plane"
     SKETCH = "sketch"
     PROTRUSION = "protrusion"
+    REVOLVE = "revolve"
     BOX = "box"
     SPHERE = "sphere"
     CYLINDER = "cylinder"
@@ -187,6 +189,7 @@ class ContainerType(str, Enum):
     PYRAMID = "PYRAMID"
     WEDGE = "WEDGE"
     PROTRUSION = "PROTRUSION"
+    REVOLVE = "REVOLVE"
 
 
 class TreeExposure(str, Enum):
@@ -216,6 +219,7 @@ ENTITY_KINDS = frozenset(
         EntityKind.PLANE,
         EntityKind.SKETCH,
         EntityKind.PROTRUSION,
+        EntityKind.REVOLVE,
         EntityKind.BOX,
         EntityKind.SPHERE,
         EntityKind.CYLINDER,
@@ -337,15 +341,16 @@ class ZimaEntity:
         axes = [entity for entity in entities if entity.kind == EntityKind.AXIS]
         planes = [entity for entity in entities if entity.kind == EntityKind.PLANE]
         sketches = [entity for entity in entities if entity.kind == EntityKind.SKETCH]
-        protrusions = [
-            entity for entity in entities if entity.kind == EntityKind.PROTRUSION
+        features = [
+            entity for entity in entities
+            if entity.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
         ]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
         if (
             len(points) > 1
             or len(axes) > 1
             or len(planes) > 1
-            or len(protrusions) > 1
+            or len(features) > 1
             or len(solids) > 1
         ):
             return False
@@ -354,7 +359,7 @@ class ZimaEntity:
             + len(axes)
             + len(planes)
             + len(sketches)
-            + len(protrusions)
+            + len(features)
             + len(solids)
             != len(entities)
         ):
@@ -365,7 +370,7 @@ class ZimaEntity:
             return False
         if planes and len(entities) != 1:
             return False
-        if protrusions and any((points, axes, planes, solids)):
+        if features and any((points, axes, planes, solids)):
             return False
         roles = [sketch.sketch_role() for sketch in sketches]
         if any(role is None for role in roles):
@@ -389,6 +394,7 @@ class ZimaEntity:
                 EntityKind.AXIS,
                 EntityKind.SKETCH,
                 EntityKind.PROTRUSION,
+                EntityKind.REVOLVE,
                 EntityKind.BOX,
                 EntityKind.SPHERE,
                 EntityKind.CYLINDER,
@@ -1013,36 +1019,48 @@ def apply_object_to_shape(
         parent_transform,
         coordinate_system_transform(obj.coordinate_system),
     )
+    feature_type = str(obj.parameters.get("container_type", ""))
     is_protrusion = (
         obj.kind == EntityKind.CONTAINER
-        and obj.parameters.get("container_type") == ContainerType.PROTRUSION.value
+        and feature_type == ContainerType.PROTRUSION.value
     )
-    shape = make_protrusion_shape(document, obj) if is_protrusion else make_shape(obj)
+    is_revolve = (
+        obj.kind == EntityKind.CONTAINER
+        and feature_type == ContainerType.REVOLVE.value
+    )
+    shape = (
+        make_protrusion_shape(document, obj)
+        if is_protrusion
+        else make_revolve_shape(document, obj)
+        if is_revolve
+        else make_shape(obj)
+    )
 
     if shape is not None:
-        if not is_protrusion:
+        if not is_protrusion and not is_revolve:
             shape = transform_shape(shape, world_transform)
-        protrusion_feature = (
+        solid_feature = (
             next(
                 (
                     child for child in obj.children
-                    if child.kind == EntityKind.PROTRUSION and not child.locked
+                    if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+                    and not child.locked
                 ),
                 None,
             )
-            if is_protrusion else None
+            if is_protrusion or is_revolve else None
         )
         operation = (
             CombineMode(
                 str(
                     (
-                        protrusion_feature.parameters
-                        if protrusion_feature is not None
+                        solid_feature.parameters
+                        if solid_feature is not None
                         else obj.parameters
                     ).get("operation", CombineMode.ADD.value)
                 )
             )
-            if is_protrusion
+            if is_protrusion or is_revolve
             else obj.combine_mode
         )
         if operation == CombineMode.ADD or (
@@ -1069,22 +1087,8 @@ def apply_object_to_shape(
     return result_shape
 
 
-def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
-    """Build a straight extrusion from the closed profile of a referenced sketch."""
-    if document is None:
-        return None
-    feature = next(
-        (
-            child for child in obj.children
-            if child.kind == EntityKind.PROTRUSION and not child.locked
-        ),
-        None,
-    )
-    parameters = feature.parameters if feature is not None else obj.parameters
-    sketch = document.find_entity(str(parameters.get("sketch_id", "")))
-    if sketch is None or sketch.kind != EntityKind.SKETCH:
-        return None
-
+def _make_sketch_profile_faces(sketch: ZimaEntity):
+    """Build planar faces for every closed non-construction sketch loop."""
     wires = []
     if sketch.parameters.get("profile") == "circle":
         radius = max(1.0e-9, float(sketch.parameters.get("diameter", 10.0)) / 2.0)
@@ -1358,6 +1362,28 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     if not wires:
         return None
 
+    return [BRepBuilderAPI_MakeFace(wire).Face() for wire in wires]
+
+
+def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
+    """Build a straight extrusion from the closed profile of a referenced sketch."""
+    if document is None:
+        return None
+    feature = next(
+        (
+            child for child in obj.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ),
+        None,
+    )
+    parameters = feature.parameters if feature is not None else obj.parameters
+    sketch = document.find_entity(str(parameters.get("sketch_id", "")))
+    if sketch is None or sketch.kind != EntityKind.SKETCH:
+        return None
+    faces = _make_sketch_profile_faces(sketch)
+    if not faces:
+        return None
+
     forward = max(0.0, float(parameters.get("length_forward", parameters.get("length", 10.0))))
     reverse = max(0.0, float(parameters.get("length_reverse", 0.0)))
     extent_mode = str(parameters.get("extent_mode", "one_side"))
@@ -1385,8 +1411,7 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         ),
     )
     solids = []
-    for wire in wires:
-        face = BRepBuilderAPI_MakeFace(wire).Face()
+    for face in faces:
         local = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, length)).Shape()
         solids.append(transform_shape(local, translated))
     def solid_volume(shape) -> float:
@@ -1417,6 +1442,116 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         else:
             result = BRepAlgoAPI_Fuse(result, solid).Shape()
     return result
+
+
+def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
+    """Revolve a closed sketch profile around its first construction line."""
+    if document is None:
+        return None
+    feature = next(
+        (
+            child for child in obj.children
+            if child.kind == EntityKind.REVOLVE and not child.locked
+        ),
+        None,
+    )
+    parameters = feature.parameters if feature is not None else obj.parameters
+    sketch = document.find_entity(str(parameters.get("sketch_id", "")))
+    if sketch is None or sketch.kind != EntityKind.SKETCH:
+        return None
+    faces = _make_sketch_profile_faces(sketch)
+    if not faces:
+        return None
+    try:
+        sketch_model = SketchModel.from_dict(
+            json.loads(str(sketch.parameters.get("sketch_data", "{}")))
+        )
+        entities, _dimensions = sketch_model.to_editor_data()
+    except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+        return None
+    points = {
+        str(entity.get("id", "")): (
+            float(entity.get("x", 0.0)),
+            float(entity.get("y", 0.0)),
+        )
+        for entity in entities
+        if isinstance(entity, dict) and entity.get("type") == "point"
+    }
+    axis_geometry = next(
+        (
+            entity for entity in entities
+            if isinstance(entity, dict)
+            and entity.get("type") == "construction"
+            and len(entity.get("point_ids", ())) == 2
+        ),
+        None,
+    )
+    if axis_geometry is None:
+        return None
+    axis_ids = tuple(map(str, axis_geometry.get("point_ids", ())))
+    if any(point_id not in points for point_id in axis_ids):
+        return None
+    first = points[axis_ids[0]]
+    second = points[axis_ids[1]]
+    direction = (second[0] - first[0], second[1] - first[1])
+    if math.hypot(*direction) <= 1.0e-9:
+        return None
+    angle = max(1.0e-6, min(360.0, float(parameters.get("angle", 360.0))))
+    if str(parameters.get("direction", "forward")) == "reverse":
+        angle = -angle
+    axis = gp_Ax1(
+        gp_Pnt(first[0], first[1], 0.0),
+        gp_Dir(direction[0], direction[1], 0.0),
+    )
+    local_solids = []
+    try:
+        for face in faces:
+            local_solids.append(
+                BRepPrimAPI_MakeRevol(
+                    face,
+                    axis,
+                    math.radians(angle),
+                    True,
+                ).Shape()
+            )
+    except (RuntimeError, TypeError, ValueError):
+        return None
+
+    def solid_volume(shape) -> float:
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(shape, properties)
+        return abs(float(properties.Mass()))
+
+    profiled_solids = sorted(
+        ((solid_volume(solid), solid) for solid in local_solids),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    result = None
+    for index, (volume, solid) in enumerate(profiled_solids):
+        nesting_depth = 0
+        if volume > 1.0e-12:
+            for outer_volume, outer_solid in profiled_solids[:index]:
+                if outer_volume <= volume:
+                    continue
+                common = BRepAlgoAPI_Common(outer_solid, solid).Shape()
+                common_volume = solid_volume(common)
+                if common_volume >= volume - max(
+                    volume * 1.0e-7,
+                    1.0e-9,
+                ):
+                    nesting_depth += 1
+        if result is None:
+            result = solid
+        elif nesting_depth % 2:
+            result = BRepAlgoAPI_Cut(result, solid).Shape()
+        else:
+            result = BRepAlgoAPI_Fuse(result, solid).Shape()
+    return (
+        transform_shape(result, coordinate_system_transform(obj.coordinate_system))
+        if result is not None
+        else None
+    )
 
 
 def make_shape(obj: ZimaEntity):

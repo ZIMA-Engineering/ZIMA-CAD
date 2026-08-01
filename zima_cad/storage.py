@@ -216,6 +216,7 @@ def reconnect_history_result_references(document: PartDocument) -> None:
         if not isinstance(external_references, list):
             continue
         external_changed = False
+        reference_id_remap: dict[str, str] = {}
         for reference in external_references:
             if not isinstance(reference, dict):
                 continue
@@ -236,6 +237,7 @@ def reconnect_history_result_references(document: PartDocument) -> None:
                 is_history_result = True
             if not is_history_result:
                 continue
+            old_reference_id = str(reference.get("id", ""))
             reference["owner_id"] = document.root.entity_id
             source_kind = str(reference.get("source_kind", "reference"))
             try:
@@ -245,12 +247,47 @@ def reconnect_history_result_references(document: PartDocument) -> None:
             reference["id"] = (
                 f"{source_kind}:{document.root.entity_id}:{element_index}"
             )
+            if old_reference_id and old_reference_id != reference["id"]:
+                reference_id_remap[old_reference_id] = reference["id"]
             external_changed = True
         if external_changed:
             obj.parameters["external_references"] = json.dumps(
                 external_references,
                 ensure_ascii=False,
             )
+        if reference_id_remap and obj.kind == EntityKind.SKETCH:
+            try:
+                sketch_data = json.loads(
+                    str(obj.parameters.get("sketch_data", "{}"))
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                sketch_data = None
+            if isinstance(sketch_data, dict):
+                constraints = sketch_data.get("constraints", {})
+                if isinstance(constraints, dict):
+                    for constraint in constraints.values():
+                        if not isinstance(constraint, dict):
+                            continue
+                        references = constraint.get("references")
+                        if isinstance(references, list):
+                            constraint["references"] = [
+                                reference_id_remap.get(
+                                    str(reference_id),
+                                    reference_id,
+                                )
+                                for reference_id in references
+                            ]
+                        reference_id = str(
+                            constraint.get("reference_id", "")
+                        )
+                        if reference_id in reference_id_remap:
+                            constraint["reference_id"] = (
+                                reference_id_remap[reference_id]
+                            )
+                obj.parameters["sketch_data"] = json.dumps(
+                    sketch_data,
+                    ensure_ascii=False,
+                )
 
 
 def migrate_missing_system_references(document: PartDocument) -> None:
