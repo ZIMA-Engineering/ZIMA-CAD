@@ -90,3 +90,16 @@ pojmenováním plochy.
 - Historie, undo/redo a verzování kontejnerů.
 - Obecné topologické pojmenování mimo jednoduché parametrické tvary.
 - Přesná hranice mezi kontejnerem, feature a výsledným body/solidem.
+
+## Aktuální prototyp sestav
+
+- Sestava používá samostatný dokument `.asmz`, ale sdílí metadata, jednotky,
+  přesnost a uživatelské parametry s dokumentem Part.
+- Vložený díl je instance odkazující relativní cestou na zdrojový `.prtz`.
+  Transformace instance patří sestavě a nesmí měnit zdrojový díl.
+- Strom instance zobrazuje read-only strom zdrojového dílu a samostatný lokální
+  počátek instance použitelný pro budoucí vazby.
+- První prototyp ustavení používá až tři dvojice rovinných ploch, Offset a Flip.
+- Aktuální `Face N` je pouze dočasná topologická reference. Před rozšířením
+  sestavových vazeb je nutné zavést stabilní sémantické pojmenování ploch a
+  diagnostiku ztracených či konfliktních vazeb.

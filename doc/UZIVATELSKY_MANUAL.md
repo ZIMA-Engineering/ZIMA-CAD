@@ -158,3 +158,30 @@ položkou **Počátek** příslušného kontejneru:
 - **Odkrýt** pomocnou geometrii.
 
 Nastavení je součástí dokumentu.
+
+## Základní práce se sestavou
+
+Nový dokument typu **Sestava** používá příponu `.asmz` a automaticky otevře
+aplikaci **Sestava**. Tlačítko **Vložit** v pravém panelu vloží existující díl
+`.prtz`. První díl se vloží do počátku a další díly se podle skutečných rozměrů
+automaticky rozloží vedle dosavadní sestavy.
+
+Každý vložený soubor je ve stromu samostatná instance pojmenovaná podle
+zdrojového souboru. Po rozbalení ukazuje read-only strom zdrojového dílu a
+lokální počátek instance. Poloha instance patří pouze sestavě; změna polohy
+nemění zdrojový `.prtz`.
+
+Pravým tlačítkem nad instancí zvolte **Vlastnosti**. Okno vychází z vlastností
+kontejneru v Partu a obsahuje tři řádky ustavení:
+
+`plocha dílu ↔ plocha druhého dílu | Posunutí | Flip`
+
+Klikněte na první zeleně označené pole a vyberte rovinnou plochu umisťovaného
+dílu přímo ve 3D pohledu. Potom vyberte protější rovinnou plochu druhého dílu.
+Aktivní výběr automaticky pokračuje další dvojicí. **Posunutí** nastavuje
+vzdálenost podél normály a **Flip** obrací orientaci. Zakřivené plochy zatím
+nejsou pro tuto vazbu podporované.
+
+Sestavové vazby jsou v současnosti prototyp. Identita ploch je dočasně založená
+na jejich pořadí, a proto se po významné změně geometrie zdrojového dílu může
+vazba ztratit nebo ukazovat na jinou plochu.

@@ -46,10 +46,17 @@ The first prototype opens one main window:
 - OpenCascade 3D viewer on the right
 - empty startup with no open document
 - part files with the `.prtz` extension
+- assembly files with the `.asmz` extension and inserted `.prtz` instances
 - container tree with Origin, entities, sketches and first test solids
 
 Current mouse controls, reference selection and the Properties workflow are
 described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
+
+The current Assembly foundation supports inserting multiple parts, automatic
+initial separation, per-instance transforms and up to three planar face mates
+with Offset and Flip. Assembly face references are still an early prototype;
+stable semantic topology naming remains required before they are production
+safe.
 
 ## Container Model
 

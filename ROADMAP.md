@@ -24,6 +24,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 - implemented foundation:
   - interactive points, segments, rectangles, circles and construction geometry
+  - centre/start/end arcs up to an intentionally open full circle and editable
+    spline geometry
   - selectable, draggable and editable linear, angular, radius and diameter
     dimensions
   - driving dimensions retain their values in the parametric solver regardless
@@ -45,9 +47,13 @@ as the document model, geometric kernel integration and user workflows evolve.
     value editing in both Select and Dimension modes
   - sketch dimensions shown when a sketch is opened by double-clicking it in
     the 3D view
+  - point-on-arc and point-on-circle relations, coincident endpoints and
+    tangent line/circle and line/arc workflows
+  - sketch references from model faces with selectable, deletable dashed
+    representation
 - remaining work:
-  - close the basic feature set with robust centre/start/end arcs and stable
-    spline editing; Trim is deliberately deferred
+  - finish the basic geometry set with ellipse support and further stabilize
+    arc and spline editing; Trim is deliberately deferred
   - complete coverage and stabilization of the parametric constraint solver
   - consolidate constraints into independently identified records and solve
     constraints and driving dimensions as one equation/residual system
@@ -127,13 +133,27 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 9. Assemblies
 
-**Status: Planned**
+**Status: Basic implementation**
 
-- insertion of parts and subassemblies
-- assembly constraints
-- degrees-of-freedom visualization
-- interference and collision checking
-- bill of materials
+- `.asmz` document creation, loading and versioned saving
+- Assembly application with part insertion from `.prtz`
+- inserted components shown as separately selectable instances and expanded
+  source-part trees
+- automatic non-overlapping initial placement; first component marked fixed
+- component properties derived from Part container properties
+- three planar face-to-face mate rows with offset and Flip, selected directly
+  in the 3D view
+- assembly origin and component-local origins represented in the assembly tree
+- relative source-file paths for portable projects
+- remaining work:
+  - stabilize multi-mate solving, diagnostics and invalid/redundant mate recovery
+  - replace temporary face-index references with stable semantic topology IDs
+  - add explicit plane selection from the assembly and component trees
+  - add axis/concentric mates and component grounding controls
+  - insertion and nesting of subassemblies
+  - degrees-of-freedom visualization
+  - interference and collision checking
+  - bill of materials
 
 ## 10. Drawing
 

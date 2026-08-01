@@ -1,5 +1,31 @@
 # Next Work
 
+## Current Priority: Stabilize Assembly Placement
+
+- Exercise the new `.asmz` workflow on real two- and three-component examples.
+- Refine the three paired planar-mate rows in component properties:
+  - face-to-face and plane-to-face selection in the 3D view;
+  - predictable Offset and Flip behavior;
+  - preservation of the nearest valid component pose;
+  - clear feedback for incompatible, redundant and unresolved mate sets.
+- Make assembly and component Origin planes directly selectable as either side
+  of a mate.
+- Replace persisted `Face N` indices with stable semantic face references before
+  assembly constraints are considered production-safe.
+- Add grounding/un-grounding of components and visualize remaining component
+  degrees of freedom.
+- Keep component source trees read-only; assembly placement belongs to the
+  instance, never to the referenced `.prtz` document.
+
+## Basic Sketcher Completion
+
+- Add ellipse geometry.
+- Continue stabilization of centre arcs and spline editing.
+- Keep Trim deferred until topology-changing operations have central ID
+  remapping and reference recovery.
+- After the geometry and interaction rules are settled, evaluate replacing the
+  current incremental solver with one unified equation/residual system.
+
 ## Critical: Finish OCCT Viewer Removal
 
 - Follow the staged inventory and acceptance criteria in
