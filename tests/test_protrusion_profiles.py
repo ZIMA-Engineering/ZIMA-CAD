@@ -2,6 +2,8 @@ import json
 import unittest
 
 from OCC.Core.BRepGProp import brepgprop
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
 
 from zima_cad.model import (
@@ -23,6 +25,7 @@ class ProtrusionProfileTests(unittest.TestCase):
             "Sketch001",
             EntityKind.SKETCH,
             parameters={
+                "plane": "xz",
                 "profile": "entities",
                 "sketch_data": json.dumps(
                     SketchModel.from_editor_data(entities).to_dict()
@@ -84,6 +87,27 @@ class ProtrusionProfileTests(unittest.TestCase):
             {"id": "left", "type": "segment", "point_ids": ["lt", "a"]},
         ]))
 
+    def test_front_xz_profile_extrudes_in_positive_y(self):
+        shape = self._build_profile([
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 10.0, "y": 20.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 20.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ])
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        xmin, ymin, zmin, xmax, ymax, zmax = bounds.Get()
+        self.assertAlmostEqual(xmin, 0.0, places=6)
+        self.assertAlmostEqual(xmax, 10.0, places=6)
+        self.assertAlmostEqual(ymin, 0.0, places=6)
+        self.assertAlmostEqual(ymax, 10.0, places=6)
+        self.assertAlmostEqual(zmin, 0.0, places=6)
+        self.assertAlmostEqual(zmax, 20.0, places=6)
+
     def test_closed_profile_revolves_around_first_construction_line(self):
         entities = [
             {"id": "axis_a", "type": "point", "x": 0.0, "y": -10.0},
@@ -115,6 +139,7 @@ class ProtrusionProfileTests(unittest.TestCase):
             "Sketch001",
             EntityKind.SKETCH,
             parameters={
+                "plane": "xz",
                 "profile": "entities",
                 "sketch_data": json.dumps(
                     SketchModel.from_editor_data(entities).to_dict()
@@ -140,6 +165,21 @@ class ProtrusionProfileTests(unittest.TestCase):
         brepgprop.VolumeProperties(shape, properties)
         self.assertAlmostEqual(
             abs(float(properties.Mass())),
+            3000.0 * 3.141592653589793,
+            places=5,
+        )
+
+        feature.parameters.update({
+            "angle": "180",
+            "angle_reverse": "180",
+            "extent_mode": "symmetric",
+        })
+        symmetric_shape = make_revolve_shape(document, container)
+        self.assertHasVolume(symmetric_shape)
+        symmetric_properties = GProp_GProps()
+        brepgprop.VolumeProperties(symmetric_shape, symmetric_properties)
+        self.assertAlmostEqual(
+            abs(float(symmetric_properties.Mass())),
             3000.0 * 3.141592653589793,
             places=5,
         )

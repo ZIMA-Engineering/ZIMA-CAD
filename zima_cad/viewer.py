@@ -201,11 +201,26 @@ void main() {
 """
 
 
+# Standard camera convention shared by direct and animated view changes.
+# The front view looks from +Y towards -Y, so +X appears left and +Z up.
+STANDARD_VIEW_ORIENTATIONS: dict[str, tuple[float, float]] = {
+    "default": (215.264, -45.0),
+    "front": (180.0, -90.0),
+    "back": (0.0, -90.0),
+    "left": (-90.0, -90.0),
+    "right": (90.0, -90.0),
+    "top": (180.0, 0.0),
+    "bottom": (180.0, 180.0),
+}
+
+
 @dataclass
 class CameraState:
     """Viewer-owned camera state, independent from OCCT presentation classes."""
 
-    yaw_degrees: float = 35.264
+    # Default isometric view follows the drawing convention: +X is shown on
+    # the left, +Y on the right and +Z points up.
+    yaw_degrees: float = 215.264
     pitch_degrees: float = -45.0
     pan_x: float = 0.0
     pan_y: float = 0.0
@@ -490,18 +505,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.update()
 
     def set_standard_view(self, view_name: str) -> None:
-        orientations = {
-            "default": (35.264, -45.0),
-            "front": (0.0, -90.0),
-            "back": (0.0, 90.0),
-            "left": (-90.0, -90.0),
-            "right": (90.0, -90.0),
-            "top": (0.0, 0.0),
-            "bottom": (0.0, 180.0),
-        }
-        if view_name not in orientations:
+        if view_name not in STANDARD_VIEW_ORIENTATIONS:
             raise ValueError(f"Unknown standard view: {view_name}")
-        yaw, pitch = orientations[view_name]
+        yaw, pitch = STANDARD_VIEW_ORIENTATIONS[view_name]
         self.camera.yaw_degrees = yaw
         self.camera.pitch_degrees = pitch
         self.camera.pan_x = 0.0
@@ -516,18 +522,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         duration_ms: int = 650,
         fit: bool = False,
     ) -> None:
-        orientations = {
-            "default": (35.264, -45.0),
-            "front": (0.0, -90.0),
-            "back": (0.0, 90.0),
-            "left": (-90.0, -90.0),
-            "right": (90.0, -90.0),
-            "top": (0.0, 0.0),
-            "bottom": (0.0, 180.0),
-        }
-        if view_name not in orientations:
+        if view_name not in STANDARD_VIEW_ORIENTATIONS:
             raise ValueError(f"Unknown standard view: {view_name}")
-        target_yaw, target_pitch = orientations[view_name]
+        target_yaw, target_pitch = STANDARD_VIEW_ORIENTATIONS[view_name]
 
         self._stop_camera_animation()
         start_yaw = self.camera.yaw_degrees

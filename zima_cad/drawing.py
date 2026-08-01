@@ -23,6 +23,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -48,6 +49,8 @@ def default_sheet(index: int = 1) -> dict:
         "id": str(uuid4()),
         "name": f"List {index}",
         "format": "A4",
+        "default_scale_numerator": 1.0,
+        "default_scale": 1.0,
         "orientation": "portrait",
         "views": [],
     }
@@ -79,22 +82,24 @@ def project_polylines(
     orientation: str,
 ) -> list[list[list[float]]]:
     result: list[list[list[float]]] = []
-    iso_yaw = radians(35.264)
+    # Keep drawing projections aligned with the native viewer: +X appears on
+    # the left in the front/top/isometric views.
+    iso_yaw = radians(215.264)
     iso_pitch = radians(-45.0)
     for polyline in polylines:
         projected: list[list[float]] = []
         for x, y, z in polyline:
             if orientation == "top":
-                u, v = x, y
+                u, v = -x, -y
             elif orientation == "right":
-                u, v = y, z
+                u, v = -y, z
             elif orientation == "isometric":
                 yaw_x = cos(iso_yaw) * x - sin(iso_yaw) * y
                 yaw_y = sin(iso_yaw) * x + cos(iso_yaw) * y
                 u = yaw_x
                 v = cos(iso_pitch) * yaw_y - sin(iso_pitch) * z
             else:
-                u, v = x, z
+                u, v = -x, z
             projected.append([float(u), float(v)])
         if len(projected) >= 2:
             result.append(projected)
@@ -332,6 +337,15 @@ class DrawingWorkspace(QWidget):
         self.format_combo = QComboBox()
         self.format_combo.addItems(SHEET_FORMATS)
         self.format_combo.currentTextChanged.connect(self._change_format)
+        self.default_scale_numerator_spin = QDoubleSpinBox()
+        self.default_scale_spin = QDoubleSpinBox()
+        for spin in (
+            self.default_scale_numerator_spin,
+            self.default_scale_spin,
+        ):
+            spin.setRange(0.001, 1000.0)
+            spin.setDecimals(3)
+            spin.valueChanged.connect(self._change_default_scale)
 
         bottom = QHBoxLayout()
         bottom.setContentsMargins(6, 3, 6, 3)
@@ -339,6 +353,10 @@ class DrawingWorkspace(QWidget):
         bottom.addWidget(add_button)
         bottom.addWidget(remove_button)
         bottom.addSpacing(16)
+        bottom.addWidget(QLabel("Měřítko:"))
+        bottom.addWidget(self.default_scale_numerator_spin)
+        bottom.addWidget(QLabel(":"))
+        bottom.addWidget(self.default_scale_spin)
         bottom.addWidget(QLabel("Formát:"))
         bottom.addWidget(self.format_combo)
         layout = QVBoxLayout(self)
@@ -376,6 +394,14 @@ class DrawingWorkspace(QWidget):
         self.format_combo.blockSignals(True)
         self.format_combo.setCurrentText(str(sheet.get("format", "A4")))
         self.format_combo.blockSignals(False)
+        self.default_scale_numerator_spin.blockSignals(True)
+        self.default_scale_spin.blockSignals(True)
+        numerator = float(sheet.get("default_scale_numerator", 1.0))
+        denominator = float(sheet.get("default_scale", 1.0))
+        self.default_scale_numerator_spin.setValue(numerator)
+        self.default_scale_spin.setValue(denominator)
+        self.default_scale_numerator_spin.blockSignals(False)
+        self.default_scale_spin.blockSignals(False)
         self.canvas.set_sheet(sheet, fit=fit)
 
     def _store(self) -> None:
@@ -416,9 +442,27 @@ class DrawingWorkspace(QWidget):
         self.canvas.set_sheet(sheet, fit=True)
         self._store()
 
+    def _change_default_scale(self, _value: float) -> None:
+        sheet = self.active_sheet()
+        if sheet is None:
+            return
+        sheet["default_scale_numerator"] = (
+            self.default_scale_numerator_spin.value()
+        )
+        sheet["default_scale"] = self.default_scale_spin.value()
+        self._store()
+
     def begin_view_placement(self, view: dict) -> None:
-        self._pending_view = view
-        self.canvas.begin_placement(view)
+        pending = dict(view)
+        sheet = self.active_sheet()
+        numerator = (
+            float(sheet.get("default_scale_numerator", 1.0))
+            if sheet else 1.0
+        )
+        denominator = float(sheet.get("default_scale", 1.0)) if sheet else 1.0
+        pending["scale"] = numerator / max(denominator, 0.001)
+        self._pending_view = pending
+        self.canvas.begin_placement(pending)
 
     def _place_pending_view(self, x: float, y: float) -> None:
         sheet = self.active_sheet()

@@ -654,7 +654,7 @@ class PartDocument:
     def create_sketch(
         self,
         parent_id: str,
-        plane: str = "xy",
+        plane: str = "xz",
         role: SketchRole = SketchRole.PROFILE,
         name_prefix: str = "Sketch",
     ) -> ZimaEntity | None:
@@ -1490,19 +1490,30 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     start = -reverse
     # An external sketch lends its 2D geometry, not its placement.  The
     # Protrusion container's plane/reference frame owns the resulting feature.
+    plane = str(sketch.parameters.get("plane", "xz"))
+    plane_transform = sketch_plane_transform(plane)
+    extrusion_direction = {
+        "xy": (0.0, 0.0, 1.0),
+        "xz": (0.0, 1.0, 0.0),
+        "yz": (1.0, 0.0, 0.0),
+    }.get(plane, (0.0, 1.0, 0.0))
     profile_transform = coordinate_system_transform(obj.coordinate_system)
     translated = multiply_transforms(
         profile_transform,
         (
-            (1.0, 0.0, 0.0, 0.0),
-            (0.0, 1.0, 0.0, 0.0),
-            (0.0, 0.0, 1.0, start),
+            (1.0, 0.0, 0.0, extrusion_direction[0] * start),
+            (0.0, 1.0, 0.0, extrusion_direction[1] * start),
+            (0.0, 0.0, 1.0, extrusion_direction[2] * start),
             (0.0, 0.0, 0.0, 1.0),
         ),
     )
     solids = []
     for face in faces:
-        local = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, length)).Shape()
+        embedded_face = transform_shape(face, plane_transform)
+        local = BRepPrimAPI_MakePrism(
+            embedded_face,
+            gp_Vec(*(value * length for value in extrusion_direction)),
+        ).Shape()
         solids.append(transform_shape(local, translated))
     def solid_volume(shape) -> float:
         properties = GProp_GProps()
@@ -1587,23 +1598,53 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
     if math.hypot(*direction) <= 1.0e-9:
         return None
     angle = max(1.0e-6, min(360.0, float(parameters.get("angle", 360.0))))
-    if str(parameters.get("direction", "forward")) == "reverse":
-        angle = -angle
-    axis = gp_Ax1(
-        gp_Pnt(first[0], first[1], 0.0),
-        gp_Dir(direction[0], direction[1], 0.0),
+    reverse_angle = max(
+        1.0e-6,
+        min(360.0, float(parameters.get("angle_reverse", angle))),
     )
+    extent_mode = str(parameters.get("extent_mode", "one_side"))
+    rotation_direction = str(parameters.get("direction", "forward"))
+    if extent_mode == "symmetric":
+        half_angle = min(angle, 180.0)
+        signed_angles = (half_angle, -half_angle)
+    elif extent_mode == "two_sides":
+        reverse_angle = min(reverse_angle, max(0.0, 360.0 - angle))
+        signed_angles = (
+            (angle, -reverse_angle) if reverse_angle > 1.0e-6 else (angle,)
+        )
+    else:
+        signed_angles = (
+            (-angle,) if rotation_direction == "reverse" else (angle,)
+        )
+    plane_transform = sketch_plane_transform(
+        str(sketch.parameters.get("plane", "xz"))
+    )
+    axis_point = transform_point(
+        plane_transform,
+        (first[0], first[1], 0.0),
+    )
+    axis_end = transform_point(
+        plane_transform,
+        (first[0] + direction[0], first[1] + direction[1], 0.0),
+    )
+    axis_direction = tuple(
+        axis_end[index] - axis_point[index]
+        for index in range(3)
+    )
+    axis = gp_Ax1(gp_Pnt(*axis_point), gp_Dir(*axis_direction))
     local_solids = []
     try:
-        for face in faces:
-            local_solids.append(
-                BRepPrimAPI_MakeRevol(
-                    face,
-                    axis,
-                    math.radians(angle),
-                    True,
-                ).Shape()
-            )
+        for signed_angle in signed_angles:
+            for face in faces:
+                embedded_face = transform_shape(face, plane_transform)
+                local_solids.append(
+                    BRepPrimAPI_MakeRevol(
+                        embedded_face,
+                        axis,
+                        math.radians(signed_angle),
+                        True,
+                    ).Shape()
+                )
     except (RuntimeError, TypeError, ValueError):
         return None
 
@@ -1745,6 +1786,25 @@ def identity_transform() -> tuple[tuple[float, float, float, float], ...]:
         (0.0, 1.0, 0.0, 0.0),
         (0.0, 0.0, 1.0, 0.0),
     )
+
+
+def sketch_plane_transform(
+    plane: str,
+) -> tuple[tuple[float, float, float, float], ...]:
+    """Map 2D sketch coordinates (u, v, 0) into its container plane."""
+    return {
+        "xy": identity_transform(),
+        "xz": (
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+        ),
+        "yz": (
+            (0.0, 0.0, 1.0, 0.0),
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+        ),
+    }.get(plane, identity_transform())
 
 
 def coordinate_system_transform(
@@ -2304,7 +2364,13 @@ def make_sketch_shape(
             parent_transform
             or coordinate_system_transform(parent.coordinate_system)
         )
-        return transform_shape(compound, transform)
+        plane_transform = sketch_plane_transform(
+            str(sketch.parameters.get("plane", "xy"))
+        )
+        return transform_shape(
+            compound,
+            multiply_transforms(transform, plane_transform),
+        )
     if sketch.parameters.get("profile") != "circle":
         return None
 

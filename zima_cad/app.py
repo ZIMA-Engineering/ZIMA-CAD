@@ -113,6 +113,7 @@ from zima_cad.model import (
     multiply_transforms,
     entity_world_transform,
     make_sketch_shape,
+    sketch_plane_transform,
     transform_shape,
     transform_point,
 )
@@ -1072,6 +1073,9 @@ class PointConstraintDialog(QDialog):
         )
         self.edit_mode = point_object is not None and point_entity is not None
         self.references = self._stored_references(point_entity)
+        if type(self) is PointConstraintDialog:
+            for reference in self.references:
+                reference["orientation_role"] = "none"
         self.highlighted_reference_keys = {
             str(reference.get("key", ""))
             for reference in self.references
@@ -1434,7 +1438,7 @@ class PointConstraintDialog(QDialog):
         orientation = QComboBox()
         for role in self._reference_orientation_options(reference):
             orientation.addItem(
-                tr(f"dialog.point_constraints.orientation.{role}"),
+                self._orientation_role_label(reference, role),
                 role,
             )
         role = str(reference.get("orientation_role", "none"))
@@ -1449,10 +1453,31 @@ class PointConstraintDialog(QDialog):
         )
         self.reference_list.setCellWidget(row, 3, orientation)
 
+    def _orientation_role_label(
+        self,
+        reference: dict[str, Any],
+        role: str,
+    ) -> str:
+        view_role = {
+            "normal": "front",
+            "opposite_normal": "back",
+            "up": "top",
+            "down": "bottom",
+            "left": "left",
+            "right": "right",
+        }.get(role)
+        return (
+            tr(f"toolbar.view.{view_role}")
+            if view_role is not None
+            else tr(f"dialog.point_constraints.orientation.{role}")
+        )
+
     def _reference_orientation_options(
         self,
         reference: dict[str, Any],
     ) -> tuple[str, ...]:
+        if type(self) is PointConstraintDialog:
+            return ("none",)
         reference_type = reference.get("type")
         reference_kind = (
             self.reference_kind_callback(
@@ -1472,95 +1497,85 @@ class PointConstraintDialog(QDialog):
                 "left",
             )
         if reference_type == "edge" or reference_kind == EntityKind.AXIS:
-            return ("none", "up", "down", "right", "left")
+            return (
+                "none",
+                "normal",
+                "opposite_normal",
+                "up",
+                "down",
+                "right",
+                "left",
+            )
         return ("none",)
 
     def _normalize_reference_orientation_roles(self) -> None:
-        has_explicit_roles = any(
-            "orientation_role" in reference
-            for reference in self.references
-        )
-        normal_reference = next(
-            (
-                reference
-                for reference in self.references
-                if reference.get("orientation_role")
-                in ("normal", "opposite_normal")
-            ),
-            None,
-        )
-        if normal_reference is None and not has_explicit_roles:
-            normal_reference = next(
-                (
-                    reference
-                    for reference in self.references
-                    if reference.get("plane_role") == "orientation"
-                ),
-                None,
-            )
-        if normal_reference is None:
-            normal_reference = next(
-                (
-                    reference
-                    for reference in self.references
-                    if reference.get("type") == "face"
-                    or (
-                        reference.get("type") == "entity"
-                        and self.reference_kind_callback(
-                            str(reference.get("entity_id", ""))
-                        )
-                        == EntityKind.PLANE
-                    )
-                ),
-                None,
-            )
-        direction_seen = False
+        used_families: set[str] = set()
+        orientation_count = 0
+        role_family = {
+            "left": "x",
+            "right": "x",
+            "normal": "y",
+            "opposite_normal": "y",
+            "up": "z",
+            "down": "z",
+        }
         for reference in self.references:
             role = str(reference.get("orientation_role", "none"))
-            if reference is normal_reference:
-                role = (
-                    role
-                    if role in ("normal", "opposite_normal")
-                    else "normal"
-                )
-            elif role in ("normal", "opposite_normal"):
+            family = role_family.get(role)
+            if family is not None and (
+                family in used_families or orientation_count >= 2
+            ):
                 role = "none"
-            if role in ("normal", "opposite_normal"):
-                reference["plane_role"] = "orientation"
-            else:
-                reference.pop("plane_role", None)
-            if role in ("up", "down", "right", "left"):
-                if direction_seen:
-                    role = "none"
-                else:
-                    direction_seen = True
+                family = None
+            if family is not None:
+                used_families.add(family)
+                orientation_count += 1
+            reference.pop("plane_role", None)
             reference["orientation_role"] = role
+            reference["orientation_semantics"] = "standard_views"
 
     def _set_reference_orientation_role(
         self,
         reference: dict[str, Any],
         role: str,
     ) -> None:
-        normal_roles = {"normal", "opposite_normal"}
-        direction_roles = {"up", "down", "right", "left"}
-        if role in normal_roles:
+        role_family = {
+            "left": "x",
+            "right": "x",
+            "normal": "y",
+            "opposite_normal": "y",
+            "up": "z",
+            "down": "z",
+        }
+        family = role_family.get(role)
+        was_oriented = role_family.get(
+            str(reference.get("orientation_role", "none"))
+        ) is not None
+        active_others = sum(
+            role_family.get(str(existing.get("orientation_role", "none")))
+            is not None
+            for existing in self.references
+            if existing is not reference
+        )
+        if family is not None and not was_oriented and active_others >= 2:
+            role = "none"
+            family = None
+            self.reference_status_label.setStyleSheet(
+                "color: #edb21f; font-weight: 700;"
+            )
+            self.reference_status_label.setText(
+                tr("dialog.point_constraints.orientation_limit")
+            )
+        if family is not None:
             for existing in self.references:
-                if existing is not reference and str(
-                    existing.get("orientation_role", "none")
-                ) in normal_roles:
+                existing_role = str(existing.get("orientation_role", "none"))
+                same_family = role_family.get(existing_role) == family
+                if existing is not reference and same_family:
                     existing["orientation_role"] = "none"
                     existing.pop("plane_role", None)
-        elif role in direction_roles:
-            for existing in self.references:
-                if existing is not reference and str(
-                    existing.get("orientation_role", "none")
-                ) in direction_roles:
-                    existing["orientation_role"] = "none"
         reference["orientation_role"] = role
-        if role in normal_roles:
-            reference["plane_role"] = "orientation"
-        else:
-            reference.pop("plane_role", None)
+        reference["orientation_semantics"] = "standard_views"
+        reference.pop("plane_role", None)
         self._refresh_reference_orientation_combos()
         self._update_solution()
 
@@ -1671,14 +1686,19 @@ class PointConstraintDialog(QDialog):
             EntityKind.PLANE,
         ):
             return
-        self._add_reference(
-            {
-                "type": "entity",
-                "key": f"entity:{reference.entity_id}",
-                "entity_id": reference.entity_id,
-                "label": reference.name,
-            }
-        )
+        descriptor = {
+            "type": "entity",
+            "key": f"entity:{reference.entity_id}",
+            "entity_id": reference.entity_id,
+            "label": reference.name,
+            "orientation_role": "none",
+            "orientation_semantics": "standard_views",
+        }
+        if reference.kind == EntityKind.PLANE:
+            descriptor["reference_plane"] = str(
+                reference.parameters.get("plane", "")
+            ).lower()
+        self._add_reference(descriptor)
 
     def add_shape_reference(
         self,
@@ -1696,6 +1716,8 @@ class PointConstraintDialog(QDialog):
             "label": label,
             "equations": equations,
             "topology_key": topology_key,
+            "orientation_role": "none",
+            "orientation_semantics": "standard_views",
         }
         if metadata is not None:
             descriptor.update(metadata)
@@ -1719,20 +1741,6 @@ class PointConstraintDialog(QDialog):
                 == EntityKind.PLANE
             )
         )
-        is_first_surface_reference = (
-            is_surface_reference
-            and not any(
-                existing.get("type") == "face"
-                or (
-                    existing.get("type") == "entity"
-                    and self.reference_kind_callback(
-                        str(existing.get("entity_id", ""))
-                    )
-                    == EntityKind.PLANE
-                )
-                for existing in self.references
-            )
-        )
         is_orientation_candidate = (
             is_surface_reference
             or reference.get("type") == "edge"
@@ -1744,9 +1752,6 @@ class PointConstraintDialog(QDialog):
                 == EntityKind.AXIS
             )
         )
-        if is_first_surface_reference:
-            reference["plane_role"] = "orientation"
-            reference["orientation_role"] = "normal"
         fallback = tuple(edit.value() for edit in self.coordinate_edits)
         trial_solution, trial_dof, _status, _constrained = (
             self.solve_callback(
@@ -2173,42 +2178,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self._refresh_reference_orientation_combos()
 
     def _add_reference(self, reference: dict[str, Any]) -> None:
-        if type(self) is not PlaneConstraintDialog:
-            super()._add_reference(reference)
-            return
-        is_first_orientation = (
-            self._is_orientation_reference(reference)
-            and not any(
-                existing.get("plane_role") == "orientation"
-                for existing in self.references
-            )
-        )
-        if is_first_orientation:
-            reference["plane_role"] = "orientation"
-            reference["orientation_role"] = "normal"
-        previous_count = len(self.references)
         super()._add_reference(reference)
-        if len(self.references) != previous_count:
-            return
-        if not is_first_orientation:
-            reference.pop("plane_role", None)
-            if reference.get("orientation_role") in (
-                "normal",
-                "opposite_normal",
-            ):
-                reference["orientation_role"] = "none"
-            return
-
-        # A plane's first surface reference also carries orientation.  If its
-        # origin is already fully located (for example by a point), retain the
-        # surface as an orientation-only reference instead of rejecting it as
-        # a redundant or conflicting positional equation.
-        reference["position_role"] = "orientation_only"
-        self.references.append(reference)
-        self.highlighted_reference_keys.add(str(reference.get("key", "")))
-        self._append_reference_row(reference)
-        self._refresh_reference_item_warnings()
-        self._update_solution()
 
     def _remove_reference_at(self, row: int) -> None:
         if type(self) is not PlaneConstraintDialog:
@@ -2225,10 +2195,8 @@ class PlaneConstraintDialog(AxisConstraintDialog):
 
     def add_reference(self, reference: ZimaEntity) -> None:
         if reference.kind == EntityKind.ORIGIN:
-            # Treat an Origin as its complete coordinate system in every
-            # container-properties dialog.  The shared point implementation
-            # expands it into its datum planes; this supplies both position
-            # and orientation to plane-, sketch- and feature-based containers.
+            # Expand Origin into its datum planes for complete placement.
+            # Orientation stays global until the user assigns view roles.
             super().add_reference(reference)
             return
         super().add_reference(reference)
@@ -2613,6 +2581,22 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             self.sketch_button.clicked.connect(self._submit_and_enter_sketch)
             self._update_solution()
         self._update_window_title()
+
+    def add_reference(self, reference: ZimaEntity) -> None:
+        if reference.kind != EntityKind.ORIGIN:
+            super().add_reference(reference)
+            return
+        # Keep the origin references in the same order as the user's default
+        # view: Front/XZ first, followed by Top/XY and Left/YZ.
+        planes = {
+            str(child.parameters.get("plane", "")): child
+            for child in reference.children
+            if child.kind == EntityKind.PLANE
+        }
+        for plane_name in ("xz", "xy", "yz"):
+            plane = planes.get(plane_name)
+            if plane is not None:
+                super().add_reference(plane)
 
     def _update_solution(self, _value: float | None = None) -> None:
         super()._update_solution(_value)
@@ -3025,10 +3009,12 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
 
 class RevolveConstraintDialog(ProtrusionConstraintDialog):
     createRevolveRequested = Signal(
-        list, tuple, str, bool, bool, tuple, str, str, float, str, str
+        list, tuple, str, bool, bool, tuple, str, str, float, float,
+        str, str, str
     )
     updateRevolveRequested = Signal(
-        list, tuple, str, bool, bool, tuple, str, str, float, str, str
+        list, tuple, str, bool, bool, tuple, str, str, float, float,
+        str, str, str
     )
 
     def __init__(
@@ -3069,19 +3055,20 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
             else None
         )
         parameters = feature.parameters if feature is not None else {}
-        self.extent_mode_combo.setVisible(False)
-        if self.extent_mode_label is not None:
-            self.extent_mode_label.setVisible(False)
-        self.reverse_length_spin.setVisible(False)
-        if self.reverse_length_label is not None:
-            self.reverse_length_label.setVisible(False)
         self.forward_length_spin.setRange(0.001, 360.0)
+        self.reverse_length_spin.setRange(0.001, 360.0)
         self.forward_length_spin.setSuffix("°")
+        self.reverse_length_spin.setSuffix("°")
         self.forward_length_spin.setValue(
             float(parameters.get("angle", 360.0))
         )
+        self.reverse_length_spin.setValue(
+            float(parameters.get("angle_reverse", parameters.get("angle", 360.0)))
+        )
         if self.forward_length_label is not None:
             self.forward_length_label.setText(tr("revolve.angle"))
+        if self.reverse_length_label is not None:
+            self.reverse_length_label.setText(tr("revolve.angle_reverse"))
         self.protrusion_direction_combo.clear()
         self.protrusion_direction_combo.addItem("↻", "forward")
         self.protrusion_direction_combo.addItem("↺", "reverse")
@@ -3116,6 +3103,8 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
             source_mode,
             sketch_id,
             self.forward_length_spin.value(),
+            self.reverse_length_spin.value(),
+            str(self.extent_mode_combo.currentData()),
             str(self.protrusion_direction_combo.currentData()),
             (
                 CombineMode.SUBTRACT.value
@@ -3196,23 +3185,48 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.setWindowTitle(tr("assembly.properties.title", name=component.name))
         self.reference_list.clearContents()
         self.reference_list.setRowCount(3)
-        self.reference_list.setColumnCount(4)
+        self.reference_list.setColumnCount(5)
         self.reference_list.setHorizontalHeaderLabels((
+            "",
             tr("assembly.properties.component_reference"),
             tr("assembly.properties.target_reference"),
             tr("assembly.properties.offset"),
             tr("assembly.properties.flip"),
         ))
+        self.reference_list.setVerticalHeaderLabels((
+            "Front / Back",
+            "Top / Bottom",
+            tr("dialog.point_constraints.orientation.none"),
+        ))
         self.rows = []
         self.active_pick = (0, "source")
+        self.selection_paused = False
         stored = []
         try:
             stored = json.loads(str(component.parameters.get("assembly_mates", "[]")))
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
         for row in range(3):
+            remove_button = QPushButton("×")
+            remove_button.setFixedSize(28, 26)
+            remove_button.setStyleSheet(
+                "QPushButton { color: white; background: #8b2424;"
+                " border: 1px solid #b94a4a; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; }"
+            )
+            remove_button.clicked.connect(
+                lambda _checked=False, index=row: self._remove_mate_row(index)
+            )
             source_button = QPushButton(tr("assembly.properties.pick_face"))
             target_button = QPushButton(tr("assembly.properties.pick_face"))
+            source_button.clicked.connect(
+                lambda _checked=False, index=row:
+                self._activate_pick(index, "source")
+            )
+            target_button.clicked.connect(
+                lambda _checked=False, index=row:
+                self._activate_pick(index, "target")
+            )
             offset = QDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
             offset.setSuffix(" mm")
@@ -3225,73 +3239,149 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 source_button.setText(labels[values["source"]])
             if values.get("target") in labels:
                 target_button.setText(labels[values["target"]])
-            source_button.clicked.connect(lambda _checked=False, index=row: self._activate_pick(index, "source"))
-            target_button.clicked.connect(lambda _checked=False, index=row: self._activate_pick(index, "target"))
             offset.setValue(float(values.get("offset", 0.0)))
             flip.setChecked(bool(values.get("flip", False)))
-            self.reference_list.setCellWidget(row, 0, source_button)
-            self.reference_list.setCellWidget(row, 1, target_button)
-            self.reference_list.setCellWidget(row, 2, offset)
-            self.reference_list.setCellWidget(row, 3, flip)
+            self.reference_list.setCellWidget(row, 0, remove_button)
+            self.reference_list.setCellWidget(row, 1, source_button)
+            self.reference_list.setCellWidget(row, 2, target_button)
+            self.reference_list.setCellWidget(row, 3, offset)
+            self.reference_list.setCellWidget(row, 4, flip)
             self.rows.append((source_button, target_button, offset, flip))
+            self.reference_list.setRowHidden(
+                row,
+                not bool(values.get("source") or values.get("target")),
+            )
         header = self.reference_list.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.reference_list.verticalHeader().setDefaultSectionSize(42)
         self.reference_status_label.setText(tr("assembly.properties.instructions"))
         self._update_pick_highlight()
 
     def accept_assembly_origin(self) -> bool:
-        """Fill a complete component-to-assembly origin alignment."""
         labels = {
             descriptor: label
             for label, descriptor, _point, _normal
             in (*self.source_choices, *self.target_choices)
         }
         pairs = [
-            (
-                f"{self.component.entity_id}:plane:{plane}",
-                f"assembly:{plane}",
-            )
-            for plane in ("XY", "YZ", "XZ")
+            (f"{self.component.entity_id}:plane:{plane}", f"assembly:{plane}")
+            for plane in ("XZ", "XY", "YZ")
         ]
         if any(source not in labels or target not in labels for source, target in pairs):
             return False
         for row, (source_reference, target_reference) in enumerate(pairs):
+            self.reference_list.setRowHidden(row, False)
             source, target, offset, flip = self.rows[row]
             source.setProperty("reference", source_reference)
             source.setText(labels[source_reference])
             target.setProperty("reference", target_reference)
             target.setText(labels[target_reference])
             offset.setValue(0.0)
-            # Equal origin frames need equally oriented plane normals.
             flip.setChecked(True)
-        self.active_pick = (0, "source")
-        self._update_pick_highlight()
         self.reference_status_label.setText(
             tr("assembly.properties.origin_aligned")
         )
         return True
 
     def _activate_pick(self, row: int, side: str) -> None:
+        self.selection_paused = False
         self.active_pick = (row, side)
+        self.reference_list.setRowHidden(row, False)
+        self._update_pick_highlight()
+        self.reference_status_label.setText(
+            tr("assembly.properties.instructions")
+        )
+
+    def _remove_mate_row(self, row: int) -> None:
+        values = []
+        for index, (source, target, offset, flip) in enumerate(self.rows):
+            if index != row and (
+                source.property("reference") is not None
+                or target.property("reference") is not None
+            ):
+                values.append((
+                    source.property("reference"), source.text(),
+                    target.property("reference"), target.text(),
+                    offset.value(), flip.isChecked(),
+                ))
+        for index, (source, target, offset, flip) in enumerate(self.rows):
+            if index < len(values):
+                source_ref, source_text, target_ref, target_text, shift, flipped = values[index]
+                source.setProperty("reference", source_ref)
+                source.setText(source_text)
+                target.setProperty("reference", target_ref)
+                target.setText(target_text)
+                offset.setValue(shift)
+                flip.setChecked(flipped)
+                self.reference_list.setRowHidden(index, False)
+            else:
+                source.setProperty("reference", None)
+                target.setProperty("reference", None)
+                source.setText(tr("assembly.properties.pick_face"))
+                target.setText(tr("assembly.properties.pick_face"))
+                offset.setValue(0.0)
+                flip.setChecked(False)
+                self.reference_list.setRowHidden(index, True)
+        self.active_pick = (min(len(values), 2), "source")
+        self.selection_paused = False
+        self._update_pick_highlight()
+        self.matesSubmitted.emit(self.mate_rows())
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            row, side = self.active_pick
+            source, target, _offset, _flip = self.rows[row]
+            if side == "target" and target.property("reference") is None:
+                source.setProperty("reference", None)
+                source.setText(tr("assembly.properties.pick_face"))
+                self.reference_list.setRowHidden(row, True)
+                self.active_pick = (row, "source")
+            self.selection_paused = True
+            self._update_pick_highlight()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _choose_reference(
+        self,
+        row: int,
+        side: str,
+        descriptor: str,
+        label: str,
+    ) -> None:
+        self.reference_list.setRowHidden(row, False)
+        button = self.rows[row][0 if side == "source" else 1]
+        button.setProperty("reference", descriptor)
+        button.setText(label)
+        self.active_pick = (
+            (row, "target") if side == "source"
+            else (min(row + 1, 2), "source")
+        )
         self._update_pick_highlight()
 
     def _update_pick_highlight(self) -> None:
         for row, (source, target, _offset, _flip) in enumerate(self.rows):
             for side, button in (("source", source), ("target", target)):
                 button.setStyleSheet(
-                    "border: 2px solid #4DD811;" if (row, side) == self.active_pick else ""
+                    "border: 2px solid #4DD811;"
+                    if not self.selection_paused
+                    and (row, side) == self.active_pick
+                    else ""
                 )
 
     def accept_face(self, owner_id: str, face_index: int, owner_name: str) -> bool:
+        if self.selection_paused:
+            return False
         row, side = self.active_pick
         if side == "source" and owner_id != self.component.entity_id:
             return False
         if side == "target" and owner_id == self.component.entity_id:
             return False
+        self.reference_list.setRowHidden(row, False)
         button = self.rows[row][0 if side == "source" else 1]
         button.setProperty("reference", f"{owner_id}:face:{face_index}")
         button.setText(f"{owner_name} / Face {face_index}")
@@ -3300,6 +3390,32 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             else (min(row + 1, 2), "source")
         )
         self._update_pick_highlight()
+        if side == "target":
+            self.matesSubmitted.emit(self.mate_rows())
+        return True
+
+    def accept_plane(self, descriptor: str) -> bool:
+        if self.selection_paused:
+            return False
+        row, side = self.active_pick
+        choices = self.source_choices if side == "source" else self.target_choices
+        label = next(
+            (label for label, key, _point, _normal in choices if key == descriptor),
+            None,
+        )
+        if label is None:
+            return False
+        self.reference_list.setRowHidden(row, False)
+        button = self.rows[row][0 if side == "source" else 1]
+        button.setProperty("reference", descriptor)
+        button.setText(label)
+        self.active_pick = (
+            (row, "target") if side == "source"
+            else (min(row + 1, 2), "source")
+        )
+        self._update_pick_highlight()
+        if side == "target":
+            self.matesSubmitted.emit(self.mate_rows())
         return True
 
     def mate_rows(self):
@@ -3309,9 +3425,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 "target": target.property("reference"),
                 "offset": offset.value(),
                 "flip": flip.isChecked(),
+                "orientation": index < 2,
             }
-            for source, target, offset, flip in self.rows
-            if source.property("reference") is not None and target.property("reference") is not None
+            for index, (source, target, offset, flip) in enumerate(self.rows)
+            if source.property("reference") is not None
+            and target.property("reference") is not None
         ]
 
     def _submit(self) -> bool:
@@ -6272,20 +6390,23 @@ class MainWindow(QMainWindow):
         )
         dialog.createRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, source_mode, sketch_id, angle, direction, operation:
+            rotation, source_mode, sketch_id, angle, angle_reverse,
+            extent_mode, direction, operation:
             self._apply_new_revolve(
                 dialog, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id, angle,
-                direction, operation,
+                angle_reverse, extent_mode, direction, operation,
             )
         )
         dialog.updateRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, source_mode, sketch_id, angle, direction, operation:
+            rotation, source_mode, sketch_id, angle, angle_reverse,
+            extent_mode, direction, operation:
             self._update_revolve(
                 dialog.point_object, references, fallback, name,
                 show_internal, show_auxiliary, rotation, source_mode,
-                sketch_id, angle, direction, operation,
+                sketch_id, angle, angle_reverse, extent_mode, direction,
+                operation,
             ) if dialog.point_object is not None else None
         )
         dialog.editSketchRequested.connect(
@@ -6330,11 +6451,12 @@ class MainWindow(QMainWindow):
         )
         dialog.updateRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
-            rotation, source_mode, sketch_id, angle, direction, operation:
+            rotation, source_mode, sketch_id, angle, angle_reverse,
+            extent_mode, direction, operation:
             self._update_revolve(
                 obj, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id, angle,
-                direction, operation,
+                angle_reverse, extent_mode, direction, operation,
             )
         )
         dialog.editSketchRequested.connect(
@@ -6459,12 +6581,17 @@ class MainWindow(QMainWindow):
             if internal is None:
                 internal = self.document.create_sketch(
                     obj.entity_id,
-                    plane="xy",
+                    plane="xz",
                     role=SketchRole.PROFILE,
                     name_prefix=tr("container.type.sketch"),
                 )
             if internal is None:
                 return False
+            sketch_plane, base_rotation = self._datum_plane_frame(
+                references,
+                str(internal.parameters.get("plane", "xz")),
+            )
+            internal.parameters["plane"] = sketch_plane
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -6472,7 +6599,8 @@ class MainWindow(QMainWindow):
             or sketch.kind != EntityKind.SKETCH
         ):
             return False
-        base_rotation = self._plane_reference_rotation(references)
+        else:
+            base_rotation = self._plane_reference_rotation(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = tuple(
@@ -6530,7 +6658,7 @@ class MainWindow(QMainWindow):
     def _apply_new_revolve(
         self, dialog, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        direction, operation,
+        angle_reverse, extent_mode, direction, operation,
     ) -> None:
         if self.document is None:
             return
@@ -6540,7 +6668,8 @@ class MainWindow(QMainWindow):
         )
         if not self._set_revolve_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
-            rotation, source_mode, sketch_id, angle, direction, operation,
+            rotation, source_mode, sketch_id, angle, angle_reverse,
+            extent_mode, direction, operation,
         ):
             self.document.delete_container(obj.entity_id)
             return
@@ -6552,20 +6681,21 @@ class MainWindow(QMainWindow):
     def _update_revolve(
         self, obj, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        direction, operation,
+        angle_reverse, extent_mode, direction, operation,
     ) -> None:
         if obj is None:
             return
         if self._set_revolve_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
-            rotation, source_mode, sketch_id, angle, direction, operation,
+            rotation, source_mode, sketch_id, angle, angle_reverse,
+            extent_mode, direction, operation,
         ):
             self._refresh_object_properties(obj)
 
     def _set_revolve_definition(
         self, obj, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        direction, operation,
+        angle_reverse, extent_mode, direction, operation,
     ) -> bool:
         if self.document is None:
             return False
@@ -6585,12 +6715,17 @@ class MainWindow(QMainWindow):
             if internal is None:
                 internal = self.document.create_sketch(
                     obj.entity_id,
-                    plane="xy",
+                    plane="xz",
                     role=SketchRole.PROFILE,
                     name_prefix=tr("container.type.sketch"),
                 )
             if internal is None:
                 return False
+            sketch_plane, base_rotation = self._datum_plane_frame(
+                references,
+                str(internal.parameters.get("plane", "xz")),
+            )
+            internal.parameters["plane"] = sketch_plane
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -6598,7 +6733,8 @@ class MainWindow(QMainWindow):
             or sketch.kind != EntityKind.SKETCH
         ):
             return False
-        base_rotation = self._plane_reference_rotation(references)
+        else:
+            base_rotation = self._plane_reference_rotation(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = tuple(
@@ -6625,6 +6761,8 @@ class MainWindow(QMainWindow):
                 "profile_source": source_mode,
                 "sketch_id": sketch_id,
                 "angle": f"{angle:.12g}",
+                "angle_reverse": f"{angle_reverse:.12g}",
+                "extent_mode": extent_mode,
                 "direction": direction,
                 "operation": operation,
             }
@@ -6906,9 +7044,7 @@ class MainWindow(QMainWindow):
         )
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = self._plane_reference_rotation(
-            constraint_references
-        )
+        obj.coordinate_system.rotation = (0.0, 0.0, 0.0)
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
         origin = next(
@@ -6940,7 +7076,7 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
-                "reference_orientation": "true",
+                "reference_orientation": "false",
             }
         )
         self._populate_tree()
@@ -7135,9 +7271,7 @@ class MainWindow(QMainWindow):
             return
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = self._plane_reference_rotation(
-            constraint_references
-        )
+        obj.coordinate_system.rotation = (0.0, 0.0, 0.0)
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
         if not point.locked:
@@ -7152,7 +7286,7 @@ class MainWindow(QMainWindow):
                 "fallback_x": f"{fallback[0]:.12g}",
                 "fallback_y": f"{fallback[1]:.12g}",
                 "fallback_z": f"{fallback[2]:.12g}",
-                "reference_orientation": "true",
+                "reference_orientation": "false",
             }
         )
         self._refresh_object_properties(obj)
@@ -7919,7 +8053,7 @@ class MainWindow(QMainWindow):
         size,
         solution,
     ) -> None:
-        base_rotation = self._plane_reference_rotation(references)
+        plane, base_rotation = self._datum_plane_frame(references, plane)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = tuple(
@@ -7933,7 +8067,7 @@ class MainWindow(QMainWindow):
         entity.parameters.update(
             {
                 "display_style": "datum",
-                "plane": "xy",
+                "plane": plane,
                 "size": f"{size:.12g}",
                 "unit": "mm",
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
@@ -7947,96 +8081,145 @@ class MainWindow(QMainWindow):
             }
         )
 
+    @staticmethod
+    def _local_plane_for_normal(
+        direction: tuple[float, float, float],
+        fallback: str,
+    ) -> tuple[str, str]:
+        """Return the global-like local plane and its positive normal role."""
+        magnitudes = tuple(abs(value) for value in direction)
+        if max(magnitudes, default=0.0) <= 1e-12:
+            return fallback, "none"
+        axis_index = max(range(3), key=magnitudes.__getitem__)
+        return (
+            (("yz", "left"), ("xz", "normal"), ("xy", "up"))[axis_index]
+        )
+
+    def _datum_plane_frame(
+        self,
+        references: list[dict[str, Any]],
+        fallback: str,
+    ) -> tuple[str, tuple[float, float, float]]:
+        """Keep datum axes global-like while placing it on the selected plane."""
+        oriented = [
+            descriptor
+            for descriptor in references
+            if str(descriptor.get("orientation_role", "none")) != "none"
+        ]
+        if not oriented:
+            return fallback, (0.0, 0.0, 0.0)
+
+        primary = oriented[0]
+        direction = self._normalized_vector(
+            self._orientation_reference_vector(
+                primary,
+                allow_frame_fallback=False,
+            )
+        )
+        plane, normal_role = self._local_plane_for_normal(direction, fallback)
+        frame_references = [dict(descriptor) for descriptor in references]
+        primary_index = references.index(primary)
+        # FRONT/BACK selects the viewing side; it must not force the selected
+        # geometry to become the container's local XZ plane. Use the nearest
+        # global local plane for the geometric frame instead.
+        frame_references[primary_index]["orientation_role"] = normal_role
+        return plane, self._plane_reference_rotation(frame_references)
+
     def _plane_reference_rotation(
         self,
         references: list[dict[str, Any]],
     ) -> tuple[float, float, float]:
-        normal = None
-        has_explicit_roles = any(
-            "orientation_role" in reference
-            for reference in references
-        )
-        ordered_references = sorted(
-            enumerate(references),
-            key=lambda item: (
-                item[1].get("orientation_role")
-                not in ("normal", "opposite_normal")
-                and item[1].get("plane_role") != "orientation",
-                item[0],
-            ),
-        )
-        for _index, descriptor in ordered_references:
-            if (
-                has_explicit_roles
-                and descriptor.get("orientation_role")
-                not in ("normal", "opposite_normal")
-            ):
+        role_axes = {
+            "left": (0, 1.0),
+            "right": (0, -1.0),
+            "normal": (1, 1.0),
+            "opposite_normal": (1, -1.0),
+            "up": (2, 1.0),
+            "down": (2, -1.0),
+        }
+        axes: dict[int, tuple[float, float, float]] = {}
+        for descriptor in references:
+            role = str(descriptor.get("orientation_role", "none"))
+            assignment = role_axes.get(role)
+            if assignment is None:
                 continue
-            normal = self._orientation_reference_vector(
+            axis_index, sign = assignment
+            direction = self._orientation_reference_vector(
                 descriptor,
-                allow_frame_fallback=True,
+                allow_frame_fallback=False,
             )
-            if normal != (0.0, 0.0, 0.0):
-                if (
-                    descriptor.get("orientation_role")
-                    == "opposite_normal"
-                ):
-                    normal = tuple(-value for value in normal)
-                break
-        if normal is None:
-            return (0.0, 0.0, 0.0)
-        nx, ny, nz = self._normalized_vector(normal)
-        # The datum plane is locally XY, therefore its normal is local +Z.
-        # With our Rz * Ry * Rx transform and Rz fixed to zero, transformed
-        # +Z is (sin(ry) cos(rx), -sin(rx), cos(ry) cos(rx)).
-        # Solve those equations directly; the previous atan2-based RX formula
-        # failed for vertical planes whose normal has nz == 0 (notably the
-        # sloped face of a wedge).
-        rx = math.degrees(math.asin(max(-1.0, min(1.0, -ny))))
-        ry = (
-            0.0
-            if math.hypot(nx, nz) <= 1e-12
-            else math.degrees(math.atan2(nx, nz))
-        )
-        direction_descriptor = next(
-            (
-                descriptor
-                for descriptor in references
-                if descriptor.get("orientation_role")
-                in ("up", "down", "right", "left")
-            ),
-            None,
-        )
-        if direction_descriptor is None:
-            return (rx, ry, 0.0)
-        direction = self._orientation_reference_vector(
-            direction_descriptor,
-            allow_frame_fallback=False,
-        )
-        dot = sum(direction[index] * (nx, ny, nz)[index] for index in range(3))
-        projected = self._normalized_vector(
-            tuple(
-                direction[index] - dot * (nx, ny, nz)[index]
+            direction = self._normalized_vector(direction)
+            if direction == (0.0, 0.0, 0.0):
+                continue
+            # A plane normal (and usually an edge direction) has two equally
+            # valid geometric senses. Pick the one closest to the matching
+            # global axis so a standard role preserves the global frame as
+            # much as possible. The opposite role deliberately reverses it.
+            global_axis = tuple(
+                1.0 if index == axis_index else 0.0
                 for index in range(3)
             )
-        )
-        if projected == (0.0, 0.0, 0.0):
-            return (rx, ry, 0.0)
+            alignment = sum(
+                direction[index] * global_axis[index]
+                for index in range(3)
+            )
+            if alignment < -1e-10:
+                direction = tuple(-value for value in direction)
+            axes[axis_index] = tuple(sign * value for value in direction)
 
-        role = str(direction_descriptor.get("orientation_role"))
-        if role in ("down", "left"):
-            projected = tuple(-value for value in projected)
-        z_axis = (nx, ny, nz)
-        if role in ("up", "down"):
-            y_axis = projected
-            x_axis = self._normalized_vector(
-                self._cross_product(y_axis, z_axis)
+        if not axes:
+            return (0.0, 0.0, 0.0)
+
+        def project_perpendicular(vector, fixed):
+            dot = sum(vector[index] * fixed[index] for index in range(3))
+            return self._normalized_vector(
+                tuple(vector[index] - dot * fixed[index] for index in range(3))
             )
+
+        if len(axes) == 1:
+            fixed_index, fixed_axis = next(iter(axes.items()))
+            if fixed_index == 0:
+                x_axis = fixed_axis
+                z_axis = project_perpendicular((0.0, 0.0, 1.0), x_axis)
+                if z_axis == (0.0, 0.0, 0.0):
+                    z_axis = project_perpendicular((0.0, 1.0, 0.0), x_axis)
+                y_axis = self._normalized_vector(self._cross_product(z_axis, x_axis))
+                z_axis = self._normalized_vector(self._cross_product(x_axis, y_axis))
+            elif fixed_index == 1:
+                y_axis = fixed_axis
+                z_axis = project_perpendicular((0.0, 0.0, 1.0), y_axis)
+                if z_axis == (0.0, 0.0, 0.0):
+                    z_axis = project_perpendicular((1.0, 0.0, 0.0), y_axis)
+                x_axis = self._normalized_vector(self._cross_product(y_axis, z_axis))
+                z_axis = self._normalized_vector(self._cross_product(x_axis, y_axis))
+            else:
+                z_axis = fixed_axis
+                x_axis = project_perpendicular((1.0, 0.0, 0.0), z_axis)
+                if x_axis == (0.0, 0.0, 0.0):
+                    x_axis = project_perpendicular((0.0, 1.0, 0.0), z_axis)
+                y_axis = self._normalized_vector(self._cross_product(z_axis, x_axis))
+                x_axis = self._normalized_vector(self._cross_product(y_axis, z_axis))
+        elif 0 in axes and 1 in axes:
+            x_axis = axes[0]
+            y_axis = project_perpendicular(axes[1], x_axis)
+            if y_axis == (0.0, 0.0, 0.0):
+                return (0.0, 0.0, 0.0)
+            z_axis = self._normalized_vector(self._cross_product(x_axis, y_axis))
+            y_axis = self._normalized_vector(self._cross_product(z_axis, x_axis))
+        elif 0 in axes and 2 in axes:
+            x_axis = axes[0]
+            z_axis = project_perpendicular(axes[2], x_axis)
+            if z_axis == (0.0, 0.0, 0.0):
+                return (0.0, 0.0, 0.0)
+            y_axis = self._normalized_vector(self._cross_product(z_axis, x_axis))
+            z_axis = self._normalized_vector(self._cross_product(x_axis, y_axis))
         else:
-            x_axis = projected
-            y_axis = self._normalized_vector(
-                self._cross_product(z_axis, x_axis)
-            )
+            y_axis = axes[1]
+            z_axis = project_perpendicular(axes[2], y_axis)
+            if z_axis == (0.0, 0.0, 0.0):
+                return (0.0, 0.0, 0.0)
+            x_axis = self._normalized_vector(self._cross_product(y_axis, z_axis))
+            z_axis = self._normalized_vector(self._cross_product(x_axis, y_axis))
 
         # Columns are the transformed local X/Y/Z basis. Extract Euler angles
         # for the application's Rz * Ry * Rx convention.
@@ -8368,7 +8551,7 @@ class MainWindow(QMainWindow):
         )
         sketch = self.document.create_sketch(
             obj.entity_id,
-            plane="xy",
+            plane="xz",
             role=SketchRole.PROFILE,
             name_prefix=tr("container.type.sketch"),
         )
@@ -8433,7 +8616,7 @@ class MainWindow(QMainWindow):
         sketch.tree_exposure = TreeExposure.INTERNAL
         sketch.parameters.update(
             {
-                "plane": "xy",
+                "plane": "xz",
                 "profile": str(
                     sketch.parameters.get("profile", "entities")
                 ),
@@ -11201,7 +11384,8 @@ class MainWindow(QMainWindow):
             self._show_all_sketch_dimensions(target)
         elif (
             target.kind == EntityKind.CONTAINER
-            and target.container_type == ContainerType.PROTRUSION
+            and target.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
             self._show_protrusion_profile_overlay(target)
         else:
@@ -11217,14 +11401,17 @@ class MainWindow(QMainWindow):
         if (
             self.document is None
             or obj.kind != EntityKind.CONTAINER
-            or obj.container_type != ContainerType.PROTRUSION
+            or obj.container_type
+            not in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
             return
         feature = next(
             (
                 child
                 for child in obj.children
-                if child.kind == EntityKind.PROTRUSION and not child.locked
+                if child.kind
+                in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+                and not child.locked
             ),
             None,
         )
@@ -11303,7 +11490,10 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
         feature = self.document.find_entity(feature_id)
-        if feature is None or feature.kind != EntityKind.PROTRUSION:
+        if feature is None or feature.kind not in (
+            EntityKind.PROTRUSION,
+            EntityKind.REVOLVE,
+        ):
             return
         try:
             value = float(str(raw_value).replace(",", "."))
@@ -11322,6 +11512,13 @@ class MainWindow(QMainWindow):
             # the user edits in the 3D view.
             feature.parameters["length_forward"] = formatted_value
             feature.parameters["length_reverse"] = formatted_value
+        elif (
+            key in {"angle", "angle_reverse"}
+            and str(feature.parameters.get("extent_mode", "one_side"))
+            == "symmetric"
+        ):
+            feature.parameters["angle"] = formatted_value
+            feature.parameters["angle_reverse"] = formatted_value
         else:
             feature.parameters[key] = formatted_value
         owner = self.document.find_owning_object(feature.entity_id)
@@ -11329,7 +11526,8 @@ class MainWindow(QMainWindow):
         self.regenerate_model()
         if (
             owner is not None
-            and owner.container_type == ContainerType.PROTRUSION
+            and owner.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
             self._show_protrusion_profile_overlay(owner)
 
@@ -11455,6 +11653,28 @@ class MainWindow(QMainWindow):
                 if child is not None:
                     selected_id = child.entity_id
         selected_reference = self.document.find_entity(selected_id)
+        assembly_dialog = self.assembly_component_dialog
+        if (
+            assembly_dialog is not None
+            and assembly_dialog.isVisible()
+            and selected_reference is not None
+            and selected_reference.kind == EntityKind.PLANE
+        ):
+            plane = str(
+                selected_reference.parameters.get("plane", "xy")
+            ).upper()
+            owner = self.document.find_owning_object(
+                selected_reference.entity_id
+            )
+            descriptor = (
+                f"{owner.entity_id}:plane:{plane}"
+                if owner is not None
+                and owner.container_type == ContainerType.COMPONENT
+                else f"assembly:{plane}"
+            )
+            if assembly_dialog.accept_plane(descriptor):
+                self._select_native_tree_object(selected_id)
+                return
         if (
             selected_reference is not None
             and selected_reference.kind in (
@@ -11689,6 +11909,18 @@ class MainWindow(QMainWindow):
                     assembly_dialog.matesSubmitted.emit(assembly_dialog.mate_rows())
                     self.rebuild_view(fit=False, rebuild_geometry=False)
                     return
+                if reference is not None and reference.kind == EntityKind.PLANE:
+                    plane = str(reference.parameters.get("plane", "xy")).upper()
+                    owner = self.document.find_owning_object(reference.entity_id)
+                    descriptor = (
+                        f"{owner.entity_id}:plane:{plane}"
+                        if owner is not None
+                        and owner.container_type == ContainerType.COMPONENT
+                        else f"assembly:{plane}"
+                    )
+                    if assembly_dialog.accept_plane(descriptor):
+                        self.rebuild_view(fit=False, rebuild_geometry=False)
+                        return
             if (
                 self.point_constraint_dialog is not None
                 and self.point_constraint_dialog.isVisible()
@@ -13835,7 +14067,7 @@ class MainWindow(QMainWindow):
         elif kind == EntityKind.SKETCH:
             entity = self.document.create_sketch(
                 owner.entity_id,
-                plane="xy",
+                plane="xz",
                 role=SketchRole.PROFILE,
                 name_prefix=tr("container.type.sketch"),
             )
@@ -14084,15 +14316,27 @@ class MainWindow(QMainWindow):
             if not valid:
                 component.parameters["assembly_mates"] = "[]"
                 return
-            source_normals = np.array([frames[row["source"]][1] for row in valid], dtype=float)
-            target_normals = np.array([
+            all_source_normals = np.array(
+                [frames[row["source"]][1] for row in valid],
+                dtype=float,
+            )
+            all_target_normals = np.array([
                 np.array(frames[row["target"]][1], dtype=float)
                 * (1.0 if row["flip"] else -1.0)
                 for row in valid
             ])
+            orientation_indices = [
+                index
+                for index, row in enumerate(valid)
+                if bool(row.get("orientation", index < 2))
+            ][:2]
+            source_normals = all_source_normals[orientation_indices]
+            target_normals = all_target_normals[orientation_indices]
             source_normals /= np.linalg.norm(source_normals, axis=1)[:, None]
             target_normals /= np.linalg.norm(target_normals, axis=1)[:, None]
-            if len(valid) == 1:
+            if len(orientation_indices) == 0:
+                rotation_delta = np.eye(3)
+            elif len(orientation_indices) == 1:
                 source_normal = source_normals[0]
                 target_normal = target_normals[0]
                 cross = np.cross(source_normal, target_normal)
@@ -14128,7 +14372,11 @@ class MainWindow(QMainWindow):
             origin = np.array(component.coordinate_system.origin, dtype=float)
             equations = []
             values = []
-            for row, desired_normal in zip(valid, target_normals):
+            normalized_targets = all_target_normals / np.linalg.norm(
+                all_target_normals,
+                axis=1,
+            )[:, None]
+            for row, desired_normal in zip(valid, normalized_targets):
                 source_point = np.array(frames[row["source"]][0], dtype=float)
                 target_point = np.array(frames[row["target"]][0], dtype=float)
                 rotated_relative = rotation_delta @ (source_point - origin)
@@ -16612,9 +16860,21 @@ class MainWindow(QMainWindow):
                     coordinate_system_transform(component.coordinate_system),
                     transform,
                 )
+        plane = str(sketch.parameters.get("plane", "xy"))
+        local_x_axis, local_y_axis = {
+            "xy": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+            "xz": ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            "yz": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        }.get(plane, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
         origin = transform_point(transform, (0.0, 0.0, 0.0))
-        x_axis = tuple(transform[row][0] for row in range(3))
-        y_axis = tuple(transform[row][1] for row in range(3))
+        x_axis = tuple(
+            sum(transform[row][column] * local_x_axis[column] for column in range(3))
+            for row in range(3)
+        )
+        y_axis = tuple(
+            sum(transform[row][column] * local_y_axis[column] for column in range(3))
+            for row in range(3)
+        )
         return origin, x_axis, y_axis
 
     def _enter_sketch_edit(
@@ -16710,52 +16970,14 @@ class MainWindow(QMainWindow):
         frame = self._sketch_frame(sketch)
         if frame is None:
             return
-        normal = self._normalized_vector(
+        frame_normal = self._normalized_vector(
             self._cross_product(frame[1], frame[2])
         )
-        # Keep the sketch-frame normal for datum planes. For a face-backed
-        # sketch the viewer's camera convention requires the opposite
-        # hemisphere from the face's signed outward normal.
-        try:
-            references = json.loads(
-                str(sketch.parameters.get("constraint_refs", "[]"))
-            )
-        except (TypeError, ValueError, json.JSONDecodeError):
-            references = []
-        if isinstance(references, list):
-            ordered_references = sorted(
-                (
-                    reference
-                    for reference in references
-                    if isinstance(reference, dict)
-                    and reference.get("type") == "face"
-                ),
-                key=lambda reference: (
-                    reference.get("orientation_role")
-                    not in ("normal", "opposite_normal")
-                    and reference.get("plane_role") != "orientation"
-                ),
-            )
-            for reference in ordered_references:
-                equations = self._resolved_shape_reference_equations(
-                    reference
-                )
-                if not equations:
-                    equations = [
-                        list(row)
-                        for row in reference.get("equations", ())
-                        if isinstance(row, (list, tuple))
-                        and len(row) >= 3
-                    ]
-                if not equations:
-                    continue
-                # The camera looks toward the sketch plane. Keeping its view
-                # direction opposite to the frame normal preserves the
-                # exterior-side default while allowing Opposite normal to
-                # deliberately select the other side.
-                normal = tuple(-value for value in normal)
-                break
-        self.native_viewer.animate_view_normal(normal, frame[0])
+        # The camera looks towards the plane from its positive-normal side.
+        # With the agreed convention this opens XZ as Front (+X left, +Z up),
+        # while an opposite orientation naturally opens Back.
+        view_direction = tuple(-value for value in frame_normal)
+        self.native_viewer.animate_view_normal(view_direction, frame[0])
 
     def _set_sketch_tool(self, tool: str) -> None:
         if self._sketch_edit_entity_id is None:
@@ -25760,7 +25982,7 @@ class MainWindow(QMainWindow):
     def _primitive_dimensions(
         self,
         primitive: ZimaEntity,
-    ) -> tuple[LinearDimension, ...]:
+    ) -> tuple[LinearDimension | AngularDimension, ...]:
         if self.document is None:
             return ()
         transform = entity_world_transform(
@@ -25775,6 +25997,107 @@ class MainWindow(QMainWindow):
                 return float(primitive.parameters.get(key, fallback))
             except (TypeError, ValueError):
                 return fallback
+
+        if primitive.kind == EntityKind.REVOLVE:
+            sketch = self.document.find_entity(
+                str(primitive.parameters.get("sketch_id", ""))
+            )
+            if sketch is None or sketch.kind != EntityKind.SKETCH:
+                return ()
+            try:
+                model = SketchModel.from_dict(json.loads(str(
+                    sketch.parameters.get("sketch_data", "{}")
+                )))
+                entities, _ = model.to_editor_data()
+            except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+                return ()
+            points = {
+                str(item.get("id")): (float(item["x"]), float(item["y"]))
+                for item in entities
+                if item.get("type") == "point"
+            }
+            axis_item = next((
+                item for item in entities
+                if item.get("type") == "construction"
+                and len(item.get("point_ids", ())) == 2
+            ), None)
+            if axis_item is None:
+                return ()
+            ids = tuple(map(str, axis_item.get("point_ids", ())))
+            if any(item_id not in points for item_id in ids):
+                return ()
+            vertex_2d, axis_end_2d = points[ids[0]], points[ids[1]]
+            dx = axis_end_2d[0] - vertex_2d[0]
+            dy = axis_end_2d[1] - vertex_2d[1]
+            axis_length = math.hypot(dx, dy)
+            if axis_length <= 1.0e-9:
+                return ()
+            radius = max(10.0, axis_length * 0.45)
+            radial_2d = (-dy / axis_length * radius, dx / axis_length * radius)
+            plane_transform = sketch_plane_transform(
+                str(sketch.parameters.get("plane", "xz"))
+            )
+
+            def embedded(point_2d):
+                return transform_point(
+                    plane_transform,
+                    (point_2d[0], point_2d[1], 0.0),
+                )
+
+            vertex = embedded(vertex_2d)
+            axis_end = embedded(axis_end_2d)
+            first = embedded((
+                vertex_2d[0] + radial_2d[0],
+                vertex_2d[1] + radial_2d[1],
+            ))
+            axis_vector = self._normalized_vector(tuple(
+                axis_end[index] - vertex[index] for index in range(3)
+            ))
+            radial = tuple(first[index] - vertex[index] for index in range(3))
+
+            def rotated(sweep: float):
+                radians_value = math.radians(sweep)
+                cosine, sine = math.cos(radians_value), math.sin(radians_value)
+                cross = self._cross_product(axis_vector, radial)
+                dot = sum(axis_vector[i] * radial[i] for i in range(3))
+                return tuple(
+                    vertex[i] + radial[i] * cosine + cross[i] * sine
+                    + axis_vector[i] * dot * (1.0 - cosine)
+                    for i in range(3)
+                )
+
+            extent_mode = str(primitive.parameters.get("extent_mode", "one_side"))
+            angle = number("angle", 360.0)
+            reverse_angle = number("angle_reverse", angle)
+            direction = str(primitive.parameters.get("direction", "forward"))
+            sweeps = (
+                (("angle", min(angle, 180.0)),
+                 ("angle_reverse", -min(angle, 180.0)))
+                if extent_mode == "symmetric"
+                else (("angle", angle),
+                      ("angle_reverse", -min(
+                          reverse_angle,
+                          max(0.0, 360.0 - angle),
+                      )))
+                if extent_mode == "two_sides"
+                else (("angle", -angle if direction == "reverse" else angle),)
+            )
+
+            def world(point):
+                return transform_point(transform, point)
+
+            return tuple(
+                AngularDimension(
+                    key=key,
+                    vertex=world(vertex),
+                    first_direction_point=world(first),
+                    second_direction_point=world(rotated(sweep)),
+                    arc_point=world(rotated(sweep / 2.0)),
+                    sweep_degrees=sweep,
+                )
+                for key, sweep in sweeps
+                if abs(sweep) > 1.0e-6
+            )
 
         length = number("length", 40.0)
         width = number("width", 30.0)
@@ -25846,17 +26169,17 @@ class MainWindow(QMainWindow):
                 specifications.append((
                     "length_forward",
                     (0.0, 0.0, 0.0),
-                    (0.0, 0.0, forward),
+                    (0.0, forward, 0.0),
                     (margin, 0.0, 0.0),
-                    (0.0, 0.0, 1.0),
+                    (0.0, 1.0, 0.0),
                 ))
             if reverse > 1.0e-9:
                 specifications.append((
                     "length_reverse",
                     (0.0, 0.0, 0.0),
-                    (0.0, 0.0, -reverse),
+                    (0.0, -reverse, 0.0),
                     (-margin, 0.0, 0.0),
-                    (0.0, 0.0, -1.0),
+                    (0.0, -1.0, 0.0),
                 ))
         elif primitive.kind in (EntityKind.PYRAMID, EntityKind.WEDGE):
             specifications.extend(
@@ -26108,6 +26431,8 @@ class MainWindow(QMainWindow):
                 unresolved_entities += 1
                 continue
             obj.coordinate_system.origin = solution
+            if entity.kind == EntityKind.POINT:
+                obj.coordinate_system.rotation = (0.0, 0.0, 0.0)
             if (
                 entity.kind in (EntityKind.PLANE, EntityKind.SKETCH)
                 or str(
@@ -26118,7 +26443,51 @@ class MainWindow(QMainWindow):
                 ).lower()
                 == "true"
             ):
-                base_rotation = self._plane_reference_rotation(references)
+                if entity.kind == EntityKind.SKETCH:
+                    entity.parameters["plane"] = "xz"
+                    base_rotation = self._plane_reference_rotation(references)
+                elif entity.kind == EntityKind.PLANE:
+                    current_plane = str(entity.parameters.get("plane", "xz"))
+                    plane, base_rotation = self._datum_plane_frame(
+                        references,
+                        current_plane,
+                    )
+                    entity.parameters["plane"] = plane
+                elif obj.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                ):
+                    feature_kind = (
+                        EntityKind.PROTRUSION
+                        if obj.container_type == ContainerType.PROTRUSION
+                        else EntityKind.REVOLVE
+                    )
+                    feature = next((
+                        child for child in obj.children
+                        if child.kind == feature_kind and not child.locked
+                    ), None)
+                    internal = next((
+                        child for child in obj.children
+                        if child.kind == EntityKind.SKETCH and not child.locked
+                    ), None)
+                    if (
+                        feature is not None
+                        and internal is not None
+                        and str(feature.parameters.get(
+                            "profile_source", "internal"
+                        )) == "internal"
+                    ):
+                        plane, base_rotation = self._datum_plane_frame(
+                            references,
+                            str(internal.parameters.get("plane", "xz")),
+                        )
+                        internal.parameters["plane"] = plane
+                    else:
+                        base_rotation = self._plane_reference_rotation(
+                            references
+                        )
+                else:
+                    base_rotation = self._plane_reference_rotation(references)
                 offsets = tuple(
                     float(
                         entity.parameters.get(
@@ -26293,14 +26662,21 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
         )
+        assembly_references_active = (
+            self.assembly_component_dialog is not None
+            and self.assembly_component_dialog.isVisible()
+        )
+        topology_selection_active = (
+            point_constraints_active or assembly_references_active
+        )
         self.native_viewer.set_outline_face_highlights(
-            point_constraints_active
+            topology_selection_active
         )
         self.native_viewer.set_interaction_mode(
             "object"
             if (
                 self.view_selection_filter == ViewSelectionFilter.ALL
-                and not point_constraints_active
+                and not topology_selection_active
             )
             else "topology"
         )
