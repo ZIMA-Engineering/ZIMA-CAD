@@ -5,13 +5,34 @@ from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 
 from zima_cad.app import MainWindow
-from zima_cad.drawing import project_polylines
-from zima_cad.model import ContainerType, create_empty_part, make_sketch_shape
+from zima_cad.drawing import drawing_sheets, project_polylines
+from zima_cad.model import (
+    ContainerType,
+    create_empty_drawing,
+    create_empty_part,
+    make_sketch_shape,
+)
 from zima_cad.sketch_model import SketchModel
 from zima_cad.viewer import CameraState, STANDARD_VIEW_ORIENTATIONS
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_legacy_sheet_without_scale_defaults_to_one_to_one(self) -> None:
+        document = create_empty_drawing()
+        document.document_settings["drawing_sheets"] = json.dumps([
+            {
+                "id": "legacy-sheet",
+                "name": "List 1",
+                "format": "A4",
+                "views": [],
+            }
+        ])
+
+        sheet = drawing_sheets(document)[0]
+
+        self.assertEqual(sheet["default_scale_numerator"], 1.0)
+        self.assertEqual(sheet["default_scale"], 1.0)
+
     @staticmethod
     def projected_axis(
         orientation: str, endpoint: tuple[float, float, float]

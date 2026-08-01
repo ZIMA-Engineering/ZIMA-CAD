@@ -3119,6 +3119,73 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
         return True
 
 
+class DrawingViewPropertiesDialog(QDialog):
+    insertRequested = Signal(str, float)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+            self.setStyleSheet(
+                "QDialog { background: palette(window);"
+                " border: 1px solid palette(mid); border-radius: 5px; }"
+            )
+        self.setWindowTitle(tr("drawing.view.properties.title"))
+        self.setModal(False)
+        self.resize(360, 150)
+        layout = QFormLayout(self)
+        self.orientation_combo = QComboBox()
+        for key, value in (
+            ("toolbar.view.front", "front"),
+            ("toolbar.view.top", "top"),
+            ("toolbar.view.right", "right"),
+            ("toolbar.view.default", "isometric"),
+        ):
+            self.orientation_combo.addItem(tr(key), value)
+        self.scale_spin = QDoubleSpinBox()
+        self.scale_spin.setRange(0.001, 1000.0)
+        self.scale_spin.setDecimals(3)
+        self.scale_spin.setValue(1.0)
+        layout.addRow(tr("drawing.insert_view.orientation"), self.orientation_combo)
+        layout.addRow(tr("drawing.insert_view.scale"), self.scale_spin)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        self.insert_button = buttons.button(
+            QDialogButtonBox.StandardButton.Apply
+        )
+        self.insert_button.setText(tr("drawing.command.insert_view"))
+        self.insert_button.clicked.connect(self.request_insert)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def request_insert(self) -> None:
+        if not self.insert_button.isEnabled():
+            return
+        self.insertRequested.emit(
+            str(self.orientation_combo.currentData()),
+            self.scale_spin.value(),
+        )
+
+    def mark_inserted(self) -> None:
+        self.insert_button.setEnabled(False)
+        self.orientation_combo.setEnabled(False)
+        self.scale_spin.setEnabled(False)
+
+    def accept(self) -> None:
+        super().accept()
+
+
 class PlaneAttachmentDialog(QDialog):
     def __init__(self, source_name: str, target_name: str, face_role: str, parent=None):
         super().__init__(parent)
@@ -9175,6 +9242,12 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._position_drawings_button)
 
             if document_type == "drawing":
+                origin_item = QTreeWidgetItem([
+                    tr("drawing.tree.origin")
+                ])
+                origin_item.setIcon(0, resource_icon("origin"))
+                origin_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self.tree.addTopLevelItem(origin_item)
                 for index, sheet in enumerate(
                     self.drawing_workspace.sheets or drawing_sheets(self.document)
                 ):
@@ -10924,7 +10997,7 @@ class MainWindow(QMainWindow):
         if drawing_path is None:
             return
         sheets = drawing_sheets(drawing)
-        mesh_cache: dict[Path, ViewerMesh] = {}
+        source_cache: dict[Path, PartDocument] = {}
         changed = False
         for sheet in sheets:
             for view in sheet.get("views", []):
@@ -10942,8 +11015,8 @@ class MainWindow(QMainWindow):
                 if not source_path.is_file():
                     continue
                 try:
-                    mesh = mesh_cache.get(source_path)
-                    if mesh is None:
+                    source_document = source_cache.get(source_path)
+                    if source_document is None:
                         source_document = next(
                             (
                                 session.document
@@ -10954,13 +11027,9 @@ class MainWindow(QMainWindow):
                             ),
                             None,
                         ) or load_part_document(source_path)
-                        mesh = triangulate_shape(
-                            source_document.build_active_shape(),
-                            edge_color=(1.0, 1.0, 1.0),
-                        )
-                        mesh_cache[source_path] = mesh
-                    refreshed = project_polylines(
-                        [list(edge.points) for edge in mesh.edges],
+                        source_cache[source_path] = source_document
+                    refreshed = self._drawing_projection_polylines(
+                        source_document,
                         str(view.get("orientation", "front")),
                     )
                 except Exception:
@@ -10970,6 +11039,50 @@ class MainWindow(QMainWindow):
                     changed = True
         if changed:
             store_drawing_sheets(drawing, sheets)
+
+    @staticmethod
+    def _drawing_projection_polylines(
+        source_document: PartDocument,
+        orientation: str,
+    ) -> list[list[list[float]]]:
+        edge_polylines: list[list[tuple[float, float, float]]] = []
+        if source_document.document_settings.get("type") == "assembly":
+            objects = source_document.history_objects_at(
+                source_document.history_cursor()
+            )
+            for component in objects:
+                if (
+                    component.container_type != ContainerType.COMPONENT
+                    or not source_document.is_effectively_visible(
+                        component.entity_id
+                    )
+                ):
+                    continue
+                shape = source_document.build_assembly_component_shape(
+                    component,
+                    objects,
+                )
+                if shape is None:
+                    continue
+                mesh = triangulate_shape(
+                    shape,
+                    owner_id=component.entity_id,
+                    edge_color=(1.0, 1.0, 1.0),
+                )
+                edge_polylines.extend(
+                    list(edge.points) for edge in mesh.edges
+                )
+        else:
+            shape = source_document.build_active_shape()
+            if shape is not None:
+                mesh = triangulate_shape(
+                    shape,
+                    edge_color=(1.0, 1.0, 1.0),
+                )
+                edge_polylines.extend(
+                    list(edge.points) for edge in mesh.edges
+                )
+        return project_polylines(edge_polylines, orientation)
 
     def open_or_create_drawing(self) -> None:
         if self.document is None or self._document_type(self.document) not in ("part", "assembly"):
@@ -11034,51 +11147,66 @@ class MainWindow(QMainWindow):
         )
         try:
             source_document = source_document or load_part_document(source_path)
-            shape = source_document.build_active_shape()
-            mesh = triangulate_shape(shape, edge_color=(1.0, 1.0, 1.0))
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
-        orientation_labels = [
-            tr("toolbar.view.front"),
-            tr("toolbar.view.top"),
-            tr("toolbar.view.right"),
-            tr("toolbar.view.default"),
-        ]
-        orientation_values = ["front", "top", "right", "isometric"]
-        label, accepted = QInputDialog.getItem(
-            self,
-            tr("drawing.insert_view.title"),
-            tr("drawing.insert_view.orientation"),
-            orientation_labels,
-            0,
-            False,
-        )
-        if not accepted:
+        existing = getattr(self, "drawing_view_properties_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
             return
-        scale, accepted = QInputDialog.getDouble(
-            self,
-            tr("drawing.insert_view.title"),
-            tr("drawing.insert_view.scale"),
-            1.0,
-            0.001,
-            1000.0,
-            3,
-        )
-        if not accepted:
-            return
-        orientation = orientation_values[orientation_labels.index(label)]
-        polylines = project_polylines(
-            [list(edge.points) for edge in mesh.edges], orientation
-        )
-        self.drawing_workspace.begin_view_placement({
-            "id": str(uuid4()),
-            "source_path": os.path.relpath(source_path, self.current_file_path.parent),
-            "orientation": orientation,
-            "scale": scale,
-            "polylines": polylines,
-        })
-        self.statusBar().showMessage(tr("drawing.insert_view.place"))
+        dialog = DrawingViewPropertiesDialog(self)
+        self.drawing_view_properties_dialog = dialog
+        view_id = str(uuid4())
+
+        def begin_pending_view(orientation: str, scale: float) -> None:
+            polylines = self._drawing_projection_polylines(
+                source_document,
+                orientation,
+            )
+            if not polylines:
+                QMessageBox.critical(
+                    self,
+                    tr("message.open_failed"),
+                    tr("drawing.source.empty"),
+                )
+                return
+            self.drawing_workspace.begin_view_placement({
+                "id": view_id,
+                "source_path": os.path.relpath(
+                    source_path,
+                    self.current_file_path.parent,
+                ),
+                "orientation": orientation,
+                "scale": scale,
+                "polylines": polylines,
+            })
+            self.statusBar().showMessage(tr("drawing.insert_view.place"))
+
+        def view_placed() -> None:
+            dialog.mark_inserted()
+
+        def finish_view_properties(_result: int) -> None:
+            self.drawing_workspace.canvas.cancel_placement()
+            self.drawing_workspace.viewPlaced.disconnect(view_placed)
+            application = QApplication.instance()
+            if (
+                application is not None
+                and getattr(application, "_middle_confirmation_target", None)
+                is dialog
+            ):
+                application._middle_confirmation_target = None
+            if getattr(self, "drawing_view_properties_dialog", None) is dialog:
+                self.drawing_view_properties_dialog = None
+
+        dialog.insertRequested.connect(begin_pending_view)
+        dialog.finished.connect(finish_view_properties)
+        self.drawing_workspace.viewPlaced.connect(view_placed)
+        dialog.show()
+        application = QApplication.instance()
+        if application is not None:
+            application._middle_confirmation_target = dialog
+        position_dialog_top_right_after_show(dialog)
 
     def set_view_display_mode(self, display_mode: ViewDisplayMode) -> None:
         self.view_display_mode = display_mode

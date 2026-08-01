@@ -230,7 +230,7 @@ přejmenovaný model stejně pojmenovaný `.drwz`, přejmenuje se s ním.
 
 Výkres používá příponu `.drwz` a je navázaný na zdrojový díl `.prtz` nebo
 sestavu `.asmz`. Lze jej založit přes **Soubor → Nový → Výkres**, nebo
-tlačítkem **Výkresy** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko
+tlačítkem **Výkres** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko
 nejprve otevře již existující stejně pojmenovaný výkres a teprve pokud
 neexistuje, vytvoří nový.
 

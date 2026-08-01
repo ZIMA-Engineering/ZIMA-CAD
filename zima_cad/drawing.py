@@ -68,6 +68,8 @@ def drawing_sheets(document: PartDocument) -> list[dict]:
         sheet["orientation"] = (
             "portrait" if sheet_format == "A4" else "landscape"
         )
+        sheet.setdefault("default_scale_numerator", 1.0)
+        sheet.setdefault("default_scale", 1.0)
     return sheets
 
 
@@ -200,7 +202,6 @@ class DrawingCanvas(QWidget):
     def begin_placement(self, view: dict) -> None:
         self._pending_view = view
         self.setFocus()
-        self.setCursor(Qt.CursorShape.CrossCursor)
         self.update()
 
     def cancel_placement(self) -> None:
@@ -244,12 +245,37 @@ class DrawingCanvas(QWidget):
             abs(lower_right.x() - upper_left.x()),
             abs(lower_right.y() - upper_left.y()),
         ))
+        self._draw_origin_indicator(painter)
         for view in self._sheet.get("views", []):
             self._draw_view(painter, view, QColor("#FFFFFF"))
         if self._pending_view is not None and self._cursor_sheet_position is not None:
             preview = dict(self._pending_view)
             preview["x"], preview["y"] = self._cursor_sheet_position
             self._draw_view(painter, preview, QColor("#4DD811"))
+
+    def _draw_origin_indicator(self, painter: QPainter) -> None:
+        origin = self._screen_point(15.0, 15.0)
+        axis_length = 24.0
+        color = QColor("#4DD811")
+        painter.setPen(QPen(color, 1.4))
+        painter.setBrush(color)
+        x_end = QPointF(origin.x() - axis_length, origin.y())
+        y_end = QPointF(origin.x(), origin.y() - axis_length)
+        painter.drawLine(origin, x_end)
+        painter.drawLine(origin, y_end)
+        painter.drawPolygon(QPolygonF((
+            x_end,
+            QPointF(x_end.x() + 6.0, x_end.y() - 3.5),
+            QPointF(x_end.x() + 6.0, x_end.y() + 3.5),
+        )))
+        painter.drawPolygon(QPolygonF((
+            y_end,
+            QPointF(y_end.x() - 3.5, y_end.y() + 6.0),
+            QPointF(y_end.x() + 3.5, y_end.y() + 6.0),
+        )))
+        painter.drawEllipse(origin, 2.5, 2.5)
+        painter.drawText(QPointF(x_end.x() - 11.0, x_end.y() + 4.0), "X")
+        painter.drawText(QPointF(y_end.x() + 5.0, y_end.y() + 4.0), "Y")
 
     def _draw_view(self, painter: QPainter, view: dict, color: QColor) -> None:
         painter.setPen(QPen(color, 1.0))
@@ -315,6 +341,7 @@ class DrawingCanvas(QWidget):
 class DrawingWorkspace(QWidget):
     changed = Signal()
     activeSheetChanged = Signal()
+    viewPlaced = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -343,15 +370,17 @@ class DrawingWorkspace(QWidget):
             self.default_scale_numerator_spin,
             self.default_scale_spin,
         ):
-            spin.setRange(0.001, 1000.0)
-            spin.setDecimals(3)
+            spin.setRange(1.0, 1000.0)
+            spin.setDecimals(0)
+            spin.setSingleStep(1.0)
+            spin.setValue(1.0)
             spin.valueChanged.connect(self._change_default_scale)
 
         bottom = QHBoxLayout()
         bottom.setContentsMargins(6, 3, 6, 3)
         bottom.addWidget(self.sheet_tabs, 1)
-        bottom.addWidget(add_button)
         bottom.addWidget(remove_button)
+        bottom.addWidget(add_button)
         bottom.addSpacing(16)
         bottom.addWidget(QLabel("Měřítko:"))
         bottom.addWidget(self.default_scale_numerator_spin)
@@ -475,7 +504,11 @@ class DrawingWorkspace(QWidget):
         self._pending_view = None
         self.canvas.cancel_placement()
         self._store()
-        self.canvas.update()
+        # Rebind the active sheet after the first placement as well.  A plain
+        # repaint can leave a freshly created, previously empty sheet showing
+        # only its old canvas state until the document is reopened.
+        self.canvas.set_sheet(sheet, fit=False)
+        self.viewPlaced.emit()
 
     def fit_sheet(self) -> None:
         self.canvas.fit_sheet()
