@@ -18,6 +18,7 @@ from zima_cad.model import (
     TreeExposure,
     ZimaEntity,
     add_coordinate_system_children,
+    create_empty_assembly,
     create_empty_part,
     default_user_parameter_labels,
 )
@@ -36,6 +37,7 @@ class ContainerEntityLimitError(ValueError):
 
 
 def save_part_document(document: PartDocument, file_path: Path) -> None:
+    document.source_file_path = file_path.resolve()
     validate_container_entities(document)
     validate_sketch_data(document)
     config = configparser.ConfigParser(interpolation=None)
@@ -92,7 +94,13 @@ def load_part_document(file_path: Path) -> PartDocument:
             f"{DOCUMENT_FORMAT_VERSION}."
         )
 
-    document = create_empty_part()
+    document_type = config.get("Document", "type", fallback="part")
+    document = (
+        create_empty_assembly()
+        if document_type == "assembly"
+        else create_empty_part()
+    )
+    document.source_file_path = file_path.resolve()
     if config.has_section("Document"):
         document.document_settings.update(dict(config["Document"]))
         legacy_unit_names = {

@@ -88,7 +88,16 @@ def build_document_viewer_scene_data(
     layers: list[ViewerMesh] = []
     shapes_by_owner_id: dict[str, Any] = {}
 
-    if document.body_is_suppressed():
+    is_assembly = document.document_settings.get("type") == "assembly"
+    if is_assembly:
+        for obj in document.history_objects_at(boundary):
+            if not document.is_effectively_visible(obj.entity_id):
+                continue
+            shape = document.build_standalone_shape(obj)
+            if shape is not None:
+                shapes_by_owner_id[obj.entity_id] = shape
+                layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
+    elif document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
             if not document.is_effectively_visible(obj.entity_id):
                 continue

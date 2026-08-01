@@ -4,6 +4,7 @@ import math
 import json
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -190,6 +191,7 @@ class ContainerType(str, Enum):
     WEDGE = "WEDGE"
     PROTRUSION = "PROTRUSION"
     REVOLVE = "REVOLVE"
+    COMPONENT = "COMPONENT"
 
 
 class TreeExposure(str, Enum):
@@ -421,6 +423,7 @@ class ZimaEntity:
 @dataclass
 class PartDocument:
     regeneration_required: bool = False
+    source_file_path: Path | None = field(default=None, repr=False, compare=False)
     document_settings: dict[str, str] = field(default_factory=default_document_settings)
     document_units: dict[str, str] = field(default_factory=default_document_units)
     document_precision: dict[str, str] = field(default_factory=default_document_precision)
@@ -447,9 +450,14 @@ class PartDocument:
 
     def __post_init__(self) -> None:
         if not any(child.kind == EntityKind.ORIGIN for child in self.root.children):
+            scope = (
+                OriginScope.ASSEMBLY
+                if self.document_settings.get("type") == "assembly"
+                else OriginScope.PART
+            )
             self.root.children.insert(
                 0,
-                create_origin_object("document", OriginScope.PART),
+                create_origin_object("document", scope),
             )
 
     def visible_objects(self) -> list[ZimaEntity]:
@@ -1006,6 +1014,33 @@ class PartDocument:
             resolve_entity_attachments(self, obj)
 
 
+def make_component_shape(
+    document: PartDocument | None,
+    component: ZimaEntity,
+):
+    """Load the referenced part and return its evaluated body shape."""
+    raw_path = str(component.parameters.get("source_path", "")).strip()
+    if not raw_path:
+        return None
+    source_path = Path(raw_path)
+    if not source_path.is_absolute():
+        base_path = document.source_file_path if document is not None else None
+        if base_path is None:
+            return None
+        source_path = base_path.parent / source_path
+    try:
+        # Local import avoids coupling the document model to its serializer at
+        # module import time.
+        from zima_cad.storage import load_part_document
+
+        source_document = load_part_document(source_path.resolve())
+        if source_document.document_settings.get("type", "part") != "part":
+            return None
+        return source_document.build_active_shape()
+    except (OSError, ValueError):
+        return None
+
+
 def apply_object_to_shape(
     result_shape,
     obj: ZimaEntity,
@@ -1028,8 +1063,14 @@ def apply_object_to_shape(
         obj.kind == EntityKind.CONTAINER
         and feature_type == ContainerType.REVOLVE.value
     )
+    is_component = (
+        obj.kind == EntityKind.CONTAINER
+        and feature_type == ContainerType.COMPONENT.value
+    )
     shape = (
-        make_protrusion_shape(document, obj)
+        make_component_shape(document, obj)
+        if is_component
+        else make_protrusion_shape(document, obj)
         if is_protrusion
         else make_revolve_shape(document, obj)
         if is_revolve
@@ -2493,3 +2534,17 @@ def make_plane_wire(points: list[gp_Pnt]):
 
 def create_empty_part() -> PartDocument:
     return PartDocument()
+
+
+def create_empty_assembly() -> PartDocument:
+    settings = default_document_settings()
+    settings["type"] = "assembly"
+    settings["body_visible"] = "true"
+    return PartDocument(
+        document_settings=settings,
+        root=ZimaEntity(
+            name="Assembly001",
+            kind=EntityKind.PART,
+            combine_mode=CombineMode.NONE,
+        ),
+    )

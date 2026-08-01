@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import sys
+import os
 import copy
 import configparser
 import io
 import json
 import math
+import numpy as np
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
 from OCC.Core.gp import gp_Pnt
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRep import BRep_Tool
+from OCC.Core.BRepGProp import brepgprop
+from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GeomAbs import (
     GeomAbs_Line,
@@ -98,6 +104,7 @@ from zima_cad.model import (
     solid_face_frames,
     coordinate_system_transform,
     create_empty_part,
+    create_empty_assembly,
     identity_transform,
     multiply_transforms,
     entity_world_transform,
@@ -630,6 +637,7 @@ class ViewSelectionFilter(str, Enum):
 
 class ApplicationMode(str, Enum):
     MODELING = "modeling"
+    ASSEMBLY = "assembly"
     SHEET_METAL = "sheet_metal"
     SURFACE = "surface"
     PIPING = "piping"
@@ -3115,6 +3123,123 @@ class PlaneAttachmentDialog(QDialog):
         return str(self.secondary_combo.currentData())
 
 
+class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
+    matesSubmitted = Signal(list)
+
+    def __init__(self, solve_callback, component, source_choices, target_choices, parent=None):
+        super().__init__(
+            solve_callback,
+            parent,
+            edited_object=component,
+            reference_exists_callback=lambda _entity_id: True,
+        )
+        self.component = component
+        self.resize(760, 560)
+        self.setMinimumSize(680, 500)
+        self.setWindowTitle(tr("assembly.properties.title", name=component.name))
+        self.reference_list.clearContents()
+        self.reference_list.setRowCount(3)
+        self.reference_list.setColumnCount(4)
+        self.reference_list.setHorizontalHeaderLabels((
+            tr("assembly.properties.component_reference"),
+            tr("assembly.properties.target_reference"),
+            tr("assembly.properties.offset"),
+            tr("assembly.properties.flip"),
+        ))
+        self.rows = []
+        self.active_pick = (0, "source")
+        stored = []
+        try:
+            stored = json.loads(str(component.parameters.get("assembly_mates", "[]")))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        for row in range(3):
+            source_button = QPushButton(tr("assembly.properties.pick_face"))
+            target_button = QPushButton(tr("assembly.properties.pick_face"))
+            offset = QDoubleSpinBox()
+            offset.setRange(-1_000_000.0, 1_000_000.0)
+            offset.setSuffix(" mm")
+            flip = QCheckBox()
+            values = stored[row] if row < len(stored) and isinstance(stored[row], dict) else {}
+            source_button.setProperty("reference", values.get("source"))
+            target_button.setProperty("reference", values.get("target"))
+            labels = {descriptor: label for label, descriptor, _point, _normal in (*source_choices, *target_choices)}
+            if values.get("source") in labels:
+                source_button.setText(labels[values["source"]])
+            if values.get("target") in labels:
+                target_button.setText(labels[values["target"]])
+            source_button.clicked.connect(lambda _checked=False, index=row: self._activate_pick(index, "source"))
+            target_button.clicked.connect(lambda _checked=False, index=row: self._activate_pick(index, "target"))
+            offset.setValue(float(values.get("offset", 0.0)))
+            flip.setChecked(bool(values.get("flip", False)))
+            self.reference_list.setCellWidget(row, 0, source_button)
+            self.reference_list.setCellWidget(row, 1, target_button)
+            self.reference_list.setCellWidget(row, 2, offset)
+            self.reference_list.setCellWidget(row, 3, flip)
+            self.rows.append((source_button, target_button, offset, flip))
+        header = self.reference_list.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.reference_list.verticalHeader().setDefaultSectionSize(42)
+        self.reference_status_label.setText(tr("assembly.properties.instructions"))
+        self._update_pick_highlight()
+
+    def _activate_pick(self, row: int, side: str) -> None:
+        self.active_pick = (row, side)
+        self._update_pick_highlight()
+
+    def _update_pick_highlight(self) -> None:
+        for row, (source, target, _offset, _flip) in enumerate(self.rows):
+            for side, button in (("source", source), ("target", target)):
+                button.setStyleSheet(
+                    "border: 2px solid #4DD811;" if (row, side) == self.active_pick else ""
+                )
+
+    def accept_face(self, owner_id: str, face_index: int, owner_name: str) -> bool:
+        row, side = self.active_pick
+        if side == "source" and owner_id != self.component.entity_id:
+            return False
+        if side == "target" and owner_id == self.component.entity_id:
+            return False
+        button = self.rows[row][0 if side == "source" else 1]
+        button.setProperty("reference", f"{owner_id}:face:{face_index}")
+        button.setText(f"{owner_name} / Face {face_index}")
+        self.active_pick = (
+            (row, "target") if side == "source"
+            else (min(row + 1, 2), "source")
+        )
+        self._update_pick_highlight()
+        return True
+
+    def mate_rows(self):
+        return [
+            {
+                "source": source.property("reference"),
+                "target": target.property("reference"),
+                "offset": offset.value(),
+                "flip": flip.isChecked(),
+            }
+            for source, target, offset, flip in self.rows
+            if source.property("reference") is not None and target.property("reference") is not None
+        ]
+
+    def _submit(self) -> bool:
+        name = self.name_edit.text().strip()
+        if not name:
+            return False
+        self.component.name = name
+        self.component.coordinate_system.origin = tuple(
+            edit.value() for edit in self.coordinate_edits
+        )
+        self.component.coordinate_system.rotation = tuple(
+            edit.value() for edit in self.rotation_edits
+        )
+        self.matesSubmitted.emit(self.mate_rows())
+        return True
+
+
 class UserParametersDialog(QDialog):
     KEY_COLUMN = 0
     SHARED_COLUMN = 1
@@ -4916,6 +5041,7 @@ class MainWindow(QMainWindow):
         self._point_constraint_cycle_index = -1
         self._point_constraint_preview: tuple[str, Any] | None = None
         self.point_constraint_dialog: PointConstraintDialog | None = None
+        self.assembly_component_dialog: AssemblyComponentPropertiesDialog | None = None
         self._definition_dialog_depth = 0
         self._definition_edit_objects: list[ZimaEntity] = []
         self._pending_attachment_plane_id: str | None = None
@@ -5614,6 +5740,13 @@ class MainWindow(QMainWindow):
                 tr("application.command.profile_on_geometry.tooltip")
             )
             profile_action.setEnabled(False)
+        elif self.active_application == ApplicationMode.ASSEMBLY:
+            insert_action = self.tools_toolbar.addAction(
+                tr("assembly.command.insert")
+            )
+            insert_action.setIcon(resource_icon("assembly"))
+            self._mark_application_command(insert_action)
+            insert_action.triggered.connect(self._insert_assembly_component)
         else:
             placeholder = self.tools_toolbar.addAction(
                 tr(f"application.placeholder.{self.active_application.value}")
@@ -8354,7 +8487,8 @@ class MainWindow(QMainWindow):
                     self._populate_sketch_tree(sketch)
                     return
 
-            self.tree.setHeaderLabels(["PART"])
+            is_assembly = self.document.document_settings.get("type") == "assembly"
+            self.tree.setHeaderLabels(["ASSEMBLY" if is_assembly else "PART"])
 
             origins = [
                 obj for obj in self.document.root.children
@@ -8368,23 +8502,109 @@ class MainWindow(QMainWindow):
             history = self.document.history_objects()
             cursor = self._definition_history_boundary()
             for index, obj in enumerate(history):
-                if index == cursor:
+                if not is_assembly and index == cursor:
                     self.tree.addTopLevelItem(self._create_rollback_item())
                 item = self._create_tree_item(obj)
                 if item is not None:
+                    if obj.container_type == ContainerType.COMPONENT:
+                        self._populate_component_tree_item(item, obj)
                     item.setData(
                         0,
                         HistoryTreeWidget.HISTORY_OBJECT_ROLE,
                         True,
                     )
                     self.tree.addTopLevelItem(item)
-            if cursor == len(history):
+            if not is_assembly and cursor == len(history):
                 self.tree.addTopLevelItem(self._create_rollback_item())
 
             self.tree.collapseAll()
             self.tree.resizeColumnToContents(0)
         finally:
             self.tree.blockSignals(signals_were_blocked)
+
+    def _component_source_document(
+        self,
+        component: ZimaEntity,
+    ) -> PartDocument | None:
+        if self.document is None:
+            return None
+        raw_path = str(component.parameters.get("source_path", "")).strip()
+        if not raw_path:
+            return None
+        source_path = Path(raw_path)
+        if not source_path.is_absolute():
+            assembly_path = self.document.source_file_path
+            if assembly_path is None:
+                return None
+            source_path = assembly_path.parent / source_path
+        try:
+            return load_part_document(source_path.resolve())
+        except Exception:
+            return None
+
+    def _populate_component_tree_item(
+        self,
+        component_item: QTreeWidgetItem,
+        component: ZimaEntity,
+    ) -> None:
+        """Show the referenced part tree without merging it into the assembly model."""
+        component_item.takeChildren()
+        instance_origin = next(
+            (
+                child
+                for child in component.children
+                if child.kind == EntityKind.ORIGIN
+            ),
+            None,
+        )
+        if instance_origin is not None:
+            origin_item = self._create_tree_item(instance_origin)
+            if origin_item is not None:
+                component_item.addChild(origin_item)
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            missing = QTreeWidgetItem([tr("tree.sketch.missing_reference")])
+            missing.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            component_item.addChild(missing)
+            return
+        for source_object in source_document.root.children:
+            if source_object.kind == EntityKind.ORIGIN:
+                continue
+            source_item = self._create_referenced_part_tree_item(source_object)
+            if source_item is not None:
+                component_item.addChild(source_item)
+
+    def _create_referenced_part_tree_item(
+        self,
+        obj: ZimaEntity,
+    ) -> QTreeWidgetItem | None:
+        if obj.tree_exposure == TreeExposure.HIDDEN:
+            return None
+        if obj.kind == EntityKind.ORIGIN:
+            label = tr("tree.origin.part")
+        else:
+            label = obj.name
+        item = QTreeWidgetItem([label])
+        icon_name = TREE_ICON_NAMES.get(obj.kind)
+        if obj.kind == EntityKind.CONTAINER and obj.container_type in (
+            ContainerType.PROTRUSION,
+            ContainerType.REVOLVE,
+        ):
+            icon_name = (
+                "revolve"
+                if obj.container_type == ContainerType.REVOLVE
+                else "protrusion"
+            )
+        if icon_name is not None:
+            item.setIcon(0, resource_icon(icon_name))
+        # Referenced nodes describe the source part. The selectable owner in
+        # the assembly remains the component instance above them.
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        for child in obj.children:
+            child_item = self._create_referenced_part_tree_item(child)
+            if child_item is not None:
+                item.addChild(child_item)
+        return item
 
     def _populate_sketch_tree(self, sketch: ZimaEntity) -> None:
         self.tree.setHeaderLabels([f"SKETCHER — {sketch.name}"])
@@ -8899,7 +9119,17 @@ class MainWindow(QMainWindow):
         file_path: Path | None,
     ) -> None:
         self._store_active_session()
-        session = DocumentSession(document=document, file_path=file_path)
+        document.source_file_path = file_path.resolve() if file_path is not None else None
+        initial_application = (
+            ApplicationMode.ASSEMBLY
+            if document.document_settings.get("type") == "assembly"
+            else ApplicationMode.MODELING
+        )
+        session = DocumentSession(
+            document=document,
+            file_path=file_path,
+            active_application=initial_application,
+        )
         self.document_sessions.append(session)
         self.document_tabs.addTab(self._file_label(file_path, document))
         new_index = len(self.document_sessions) - 1
@@ -8994,7 +9224,7 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-        if document_type != "part":
+        if document_type == "drawing":
             QMessageBox.information(
                 self,
                 tr("dialog.new.title"),
@@ -9002,7 +9232,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        document = create_empty_part()
+        document = (
+            create_empty_assembly()
+            if document_type == "assembly"
+            else create_empty_part()
+        )
         for unit_name in document.document_units:
             if unit_name in self.settings.units:
                 document.document_units[unit_name] = self.settings.units[unit_name]
@@ -9034,9 +9268,9 @@ class MainWindow(QMainWindow):
     def open_document(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(
             self,
-            tr("file.open_part"),
+            tr("file.open_document"),
             str(self.working_directory),
-            tr("file.filter.part"),
+            tr("file.filter.document"),
         )
         if not file_name:
             return
@@ -9097,19 +9331,21 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        default_path = self.working_directory / "part.prtz"
+        is_assembly = self.document.document_settings.get("type") == "assembly"
+        extension = ".asmz" if is_assembly else ".prtz"
+        default_path = self.working_directory / ("assembly.asmz" if is_assembly else "part.prtz")
         file_name, _ = QFileDialog.getSaveFileName(
             self,
-            tr("file.save_part"),
+            tr("file.save_assembly" if is_assembly else "file.save_part"),
             str(default_path),
-            tr("file.filter.part"),
+            tr("file.filter.assembly" if is_assembly else "file.filter.part"),
         )
         if not file_name:
             return False
 
         file_path = Path(file_name)
-        if file_path.suffix.lower() != ".prtz":
-            file_path = file_path.with_suffix(".prtz")
+        if file_path.suffix.lower() != extension:
+            file_path = file_path.with_suffix(extension)
 
         return self._save_to_path(file_path)
 
@@ -10024,6 +10260,29 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or face_index <= 0:
             return
+        assembly_dialog = self.assembly_component_dialog
+        if assembly_dialog is not None and assembly_dialog.isVisible():
+            owner = self.document.find_entity(owner_id) if self.document is not None else None
+            scene = self._native_viewer_scene
+            selected_shape = (
+                scene.resolve_topology(owner_id, "face", face_index)
+                if scene is not None
+                else None
+            )
+            is_planar = (
+                selected_shape is not None
+                and BRepAdaptor_Surface(selected_shape).GetType() == GeomAbs_Plane
+            )
+            if owner is not None and is_planar and assembly_dialog.accept_face(
+                owner_id, face_index, owner.name
+            ):
+                self._apply_native_view_selection(owner_id, selected_shape)
+                return
+            if selected_shape is not None and not is_planar:
+                self.statusBar().showMessage(
+                    tr("assembly.properties.planar_faces_only"), 4000
+                )
+                return
         if self._sketch_reference_mode:
             self._add_sketch_external_reference(
                 "face",
@@ -11078,7 +11337,10 @@ class MainWindow(QMainWindow):
                 )
                 menu.addSeparator()
             if obj.kind == EntityKind.CONTAINER:
-                is_generic = obj.parameters.get("experimental_container") == "true"
+                is_generic = (
+                    obj.parameters.get("experimental_container") == "true"
+                    and obj.container_type != ContainerType.COMPONENT
+                )
                 if is_generic:
                     create_point_action = menu.addAction(
                         tr("menu.context.create_point")
@@ -12144,6 +12406,76 @@ class MainWindow(QMainWindow):
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
+    def _insert_assembly_component(self) -> None:
+        if (
+            self.document is None
+            or self.document.document_settings.get("type") != "assembly"
+        ):
+            return
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("assembly.insert.title"),
+            str(self.working_directory),
+            tr("file.filter.part"),
+        )
+        if not file_name:
+            return
+        source_path = Path(file_name).resolve()
+        try:
+            source_document = load_part_document(source_path)
+            if source_document.document_settings.get("type", "part") != "part":
+                raise ValueError(tr("assembly.insert.not_part"))
+        except Exception as exc:
+            QMessageBox.critical(self, tr("assembly.insert.failed"), str(exc))
+            return
+
+        existing_components = self.document.history_objects()
+        insertion_x = 0.0
+        source_shape = source_document.build_active_shape()
+        if existing_components and source_shape is not None:
+            existing_bounds = self._shape_bounds(self.document.build_active_shape())
+            source_bounds = self._shape_bounds(source_shape)
+            if existing_bounds is not None and source_bounds is not None:
+                source_width = max(0.0, source_bounds[3] - source_bounds[0])
+                gap = max(10.0, source_width * 0.1)
+                insertion_x = existing_bounds[3] + gap - source_bounds[0]
+
+        component = self.document.create_container(
+            "Component",
+            ContainerType.COMPONENT,
+        )
+        component.name = source_path.name
+        component.coordinate_system.origin = (insertion_x, 0.0, 0.0)
+        assembly_path = self.document.source_file_path
+        stored_path = (
+            os.path.relpath(source_path, assembly_path.parent)
+            if assembly_path is not None
+            else str(source_path)
+        )
+        component.parameters.update(
+            {
+                "source_path": stored_path,
+                "source_name": source_document.root.name,
+                "fixed": str(len(self.document.history_objects()) == 1).lower(),
+                "experimental_container": "true",
+            }
+        )
+        self.selected_object_id = component.entity_id
+        self._populate_tree()
+        self._select_tree_object(component.entity_id)
+        self.rebuild_view(fit=True)
+        self.workspace.documentChanged.emit(self, self.document)
+
+    @staticmethod
+    def _shape_bounds(shape) -> tuple[float, float, float, float, float, float] | None:
+        if shape is None:
+            return None
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        if bounds.IsVoid():
+            return None
+        return tuple(float(value) for value in bounds.Get())
+
     def _operation_target(self, obj: ZimaEntity) -> ZimaEntity | None:
         if self.document is None:
             return None
@@ -12299,6 +12631,9 @@ class MainWindow(QMainWindow):
         return target
 
     def show_object_properties(self, obj: ZimaEntity) -> None:
+        if obj.container_type == ContainerType.COMPONENT:
+            self._edit_assembly_component(obj)
+            return
         if (
             obj.parameters.get("container_type")
             == ContainerType.REVOLVE.value
@@ -12360,6 +12695,183 @@ class MainWindow(QMainWindow):
                 self._refresh_object_properties(obj)
         finally:
             self._end_definition_edit()
+
+    def _assembly_plane_choices(self, component: ZimaEntity, own: bool):
+        if self.document is None:
+            return []
+        choices = []
+        candidates = [component] if own else [
+            item for item in self.document.history_objects()
+            if item.container_type == ContainerType.COMPONENT
+            and item.entity_id != component.entity_id
+        ]
+        if not own:
+            for plane, normal in (("XY", (0., 0., 1.)), ("YZ", (1., 0., 0.)), ("XZ", (0., 1., 0.))):
+                choices.append((f"ASSEMBLY / {plane}", f"assembly:{plane}", (0., 0., 0.), normal))
+        for owner in candidates:
+            transform = coordinate_system_transform(owner.coordinate_system)
+            for plane, normal in (("XY", (0., 0., 1.)), ("YZ", (1., 0., 0.)), ("XZ", (0., 1., 0.))):
+                choices.append((
+                    f"{owner.name} / {plane}",
+                    f"{owner.entity_id}:plane:{plane}",
+                    transform_point(transform, (0., 0., 0.)),
+                    tuple(sum(transform[i][j] * normal[j] for j in range(3)) for i in range(3)),
+                ))
+            shape = self.document.build_standalone_shape(owner)
+            if shape is None:
+                continue
+            explorer = TopExp_Explorer(shape, TopAbs_FACE)
+            face_index = 0
+            while explorer.More():
+                face_index += 1
+                face = explorer.Current()
+                adaptor = BRepAdaptor_Surface(face)
+                if adaptor.GetType() == GeomAbs_Plane:
+                    props = GProp_GProps()
+                    brepgprop.SurfaceProperties(face, props)
+                    center = props.CentreOfMass()
+                    axis = adaptor.Plane().Axis().Direction()
+                    choices.append((
+                        f"{owner.name} / Face {face_index}",
+                        f"{owner.entity_id}:face:{face_index}",
+                        (center.X(), center.Y(), center.Z()),
+                        (axis.X(), axis.Y(), axis.Z()),
+                    ))
+                explorer.Next()
+        return choices
+
+    def _edit_assembly_component(self, component: ZimaEntity) -> None:
+        source_choices = self._assembly_plane_choices(component, True)
+        target_choices = self._assembly_plane_choices(component, False)
+        dialog = AssemblyComponentPropertiesDialog(
+            self._solve_point_constraints,
+            component,
+            source_choices,
+            target_choices,
+            self,
+        )
+        frames = {
+            descriptor: (point, normal)
+            for _label, descriptor, point, normal
+            in (*source_choices, *target_choices)
+        }
+
+        def apply_mates(rows) -> None:
+            valid = [row for row in rows if row["source"] in frames and row["target"] in frames]
+            if not valid:
+                component.parameters["assembly_mates"] = "[]"
+                return
+            source_normals = np.array([frames[row["source"]][1] for row in valid], dtype=float)
+            target_normals = np.array([
+                np.array(frames[row["target"]][1], dtype=float)
+                * (1.0 if row["flip"] else -1.0)
+                for row in valid
+            ])
+            source_normals /= np.linalg.norm(source_normals, axis=1)[:, None]
+            target_normals /= np.linalg.norm(target_normals, axis=1)[:, None]
+            if len(valid) == 1:
+                source_normal = source_normals[0]
+                target_normal = target_normals[0]
+                cross = np.cross(source_normal, target_normal)
+                dot = float(np.clip(source_normal @ target_normal, -1.0, 1.0))
+                squared_sine = float(cross @ cross)
+                if squared_sine > 1.0e-16:
+                    skew = np.array((
+                        (0.0, -cross[2], cross[1]),
+                        (cross[2], 0.0, -cross[0]),
+                        (-cross[1], cross[0], 0.0),
+                    ))
+                    rotation_delta = (
+                        np.eye(3) + skew
+                        + skew @ skew * ((1.0 - dot) / squared_sine)
+                    )
+                elif dot > 0.0:
+                    rotation_delta = np.eye(3)
+                else:
+                    trial = np.array((1.0, 0.0, 0.0))
+                    if abs(source_normal @ trial) > 0.9:
+                        trial = np.array((0.0, 1.0, 0.0))
+                    axis = np.cross(source_normal, trial)
+                    axis /= np.linalg.norm(axis)
+                    rotation_delta = 2.0 * np.outer(axis, axis) - np.eye(3)
+            else:
+                u, _singular, vt = np.linalg.svd(source_normals.T @ target_normals)
+                rotation_delta = vt.T @ u.T
+                if np.linalg.det(rotation_delta) < 0:
+                    vt[-1, :] *= -1
+                    rotation_delta = vt.T @ u.T
+            current = np.array(coordinate_system_transform(component.coordinate_system), dtype=float)
+            rotation = rotation_delta @ current[:, :3]
+            origin = np.array(component.coordinate_system.origin, dtype=float)
+            equations = []
+            values = []
+            for row, desired_normal in zip(valid, target_normals):
+                source_point = np.array(frames[row["source"]][0], dtype=float)
+                target_point = np.array(frames[row["target"]][0], dtype=float)
+                rotated_relative = rotation_delta @ (source_point - origin)
+                equations.append(desired_normal)
+                values.append(
+                    desired_normal @ target_point
+                    + float(row["offset"])
+                    - desired_normal @ rotated_relative
+                )
+            equations = np.array(equations)
+            values = np.array(values)
+            correction = values - equations @ origin
+            translation = origin + np.linalg.lstsq(equations, correction, rcond=None)[0]
+            sy = math.sqrt(rotation[0, 0] ** 2 + rotation[1, 0] ** 2)
+            if sy > 1.0e-9:
+                rx = math.atan2(rotation[2, 1], rotation[2, 2])
+                ry = math.atan2(-rotation[2, 0], sy)
+                rz = math.atan2(rotation[1, 0], rotation[0, 0])
+            else:
+                rx = math.atan2(-rotation[1, 2], rotation[1, 1])
+                ry = math.atan2(-rotation[2, 0], sy)
+                rz = 0.0
+            component.coordinate_system.origin = tuple(float(value) for value in translation)
+            component.coordinate_system.rotation = tuple(math.degrees(value) for value in (rx, ry, rz))
+            component.parameters["assembly_mates"] = json.dumps(rows, ensure_ascii=False)
+            for edit, value in zip(dialog.coordinate_edits, component.coordinate_system.origin):
+                edit.blockSignals(True)
+                edit.setValue(value)
+                edit.blockSignals(False)
+            for edit, value in zip(dialog.rotation_edits, component.coordinate_system.rotation):
+                edit.blockSignals(True)
+                edit.setValue(value)
+                edit.blockSignals(False)
+            self._refresh_object_properties(component)
+            refreshed = (
+                *self._assembly_plane_choices(component, True),
+                *self._assembly_plane_choices(component, False),
+            )
+            frames.clear()
+            frames.update({
+                descriptor: (point, normal)
+                for _label, descriptor, point, normal in refreshed
+            })
+
+        dialog.matesSubmitted.connect(apply_mates)
+        self.assembly_component_dialog = dialog
+        previous_filter_index = self.selection_filter_combo.currentIndex()
+        previous_selection_enabled = self.view_selection_enabled
+        face_filter_index = self.selection_filter_combo.findData(
+            ViewSelectionFilter.FACE.value
+        )
+        if face_filter_index >= 0:
+            self.selection_filter_combo.setCurrentIndex(face_filter_index)
+        if not self.view_selection_enabled:
+            self.view_selection_action.setChecked(True)
+
+        def finish_component_edit(_result) -> None:
+            if self.assembly_component_dialog is dialog:
+                self.assembly_component_dialog = None
+            self.selection_filter_combo.setCurrentIndex(previous_filter_index)
+            if not previous_selection_enabled:
+                self.view_selection_action.setChecked(False)
+
+        dialog.finished.connect(finish_component_edit)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def _edit_generic_object(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
