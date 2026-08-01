@@ -40,23 +40,31 @@ Linux launch syntax uses the same arguments:
 ./zima-cad --working-directory /home/user/PRACE
 ```
 
-The first prototype opens one main window:
+The application opens one main window with multiple document tabs:
 
 - container tree on the left
-- OpenCascade 3D viewer on the right
+- native OpenGL 3D viewer or 2D drawing workspace in the centre
 - empty startup with no open document
 - part files with the `.prtz` extension
 - assembly files with the `.asmz` extension and inserted `.prtz` instances
+- drawing files with the `.drwz` extension, multiple sheets and linked model
+  views
 - container tree with Origin, entities, sketches and first test solids
 
 Current mouse controls, reference selection and the Properties workflow are
 described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
 
-The current Assembly foundation supports inserting multiple parts, automatic
-initial separation, per-instance transforms and up to three planar face mates
-with Offset and Flip. Assembly face references are still an early prototype;
-stable semantic topology naming remains required before they are production
-safe.
+The Assembly workflow supports inserted part instances, live placement,
+planar mates, expanded source-part trees, in-context part editing and
+assembly-only extruded or revolved cuts applied to selected components. Part
+geometry remains unchanged by assembly cuts. Stable semantic topology naming
+is still required before assembly references are production-safe.
+
+The initial Drawing workspace supports `.drwz` documents linked to either a
+part or an assembly, multiple independently sized sheets, A4 through A0 paper
+outlines, standard projected views and persistent view placement. A4 is fixed
+to portrait orientation; A3 through A0 are fixed to landscape. Drawing space
+uses a bottom-right origin with positive X to the left and positive Y upward.
 
 ## Container Model
 
@@ -68,9 +76,9 @@ The creation commands and `.prtz` format validation enforce this rule.
 
 ZIMA-CAD always loads its base configuration from the application directory.
 The startup directory, a directory supplied as an argument, or the parent of a
-supplied `.prtz` file becomes the working directory. If that directory contains
-`config.ini`, it is loaded as a local override. A supplied `.prtz` file is also
-opened automatically.
+supplied `.prtz`, `.asmz` or `.drwz` file becomes the working directory. If
+that directory contains `config.ini`, it is loaded as a local override. A
+supplied ZIMA-CAD document is also opened automatically.
 
 Planned application folder:
 
@@ -173,9 +181,9 @@ config.ini.1
 ```
 
 The rule applies to every format written by ZIMA-CAD, including documents,
-configuration, materials and future exports. A newly created file has no
-archive. ZIMA-CAD neither displays nor manages the numeric archive files;
-cleanup is the responsibility of ZIMA-PTC-Cleaner.
+configuration, materials, drawings and future exports. A newly created file
+has no archive. ZIMA-CAD neither displays nor manages the numeric archive
+files; cleanup is the responsibility of ZIMA-PTC-Cleaner.
 
 New contents are first written and validated in the destination directory.
 Only then is the previous file archived and the temporary file atomically

@@ -1,7 +1,7 @@
 # ZIMA-CAD – strojírenské kóty a geometrické symboly
 
 Tento dokument slouží jako návrhový základ pro kóty ve Sketcheru, modelu
-a budoucím Drawing modulu. Vychází z běžné praxe ISO 129, ISO GPS
+a rozpracovaném Drawing modulu. Vychází z běžné praxe ISO 129, ISO GPS
 a ASME Y14.5.
 
 ## Základní pravidlo
@@ -261,7 +261,7 @@ Samostatná vektorová knihovna bude později potřeba také pro:
 - svar po obvodu,
 - svar prováděný na montáži.
 
-Svary se budou řídit požadavky budoucího Drawing modulu a ISO 2553.
+Svary se budou řídit požadavky rozvíjeného Drawing modulu a ISO 2553.
 
 ## Zobrazovací pravidla ZIMA-CAD
 

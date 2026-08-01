@@ -14,6 +14,9 @@
 Po posunu kombinací prostředního a pravého tlačítka se kontextové menu
 neotevře.
 
+Příkazy **Obnovit pohled** a základní pohledy (izometrický, přední, zadní,
+levý, pravý, horní a dolní) používají plynulý animovaný přechod kamery.
+
 ## Pohled kolmo
 
 1. V horní liště pohledu aktivujte tlačítko **Pohled kolmo**.
@@ -167,9 +170,12 @@ aplikaci **Sestava**. Tlačítko **Vložit** v pravém panelu vloží existujíc
 automaticky rozloží vedle dosavadní sestavy.
 
 Každý vložený soubor je ve stromu samostatná instance pojmenovaná podle
-zdrojového souboru. Po rozbalení ukazuje read-only strom zdrojového dílu a
+zdrojového souboru. Po rozbalení ukazuje strom zdrojového dílu a
 lokální počátek instance. Poloha instance patří pouze sestavě; změna polohy
 nemění zdrojový `.prtz`.
+
+Změny polohy ve Vlastnostech se zobrazují živě přímo ve view. Strom sestavy
+zůstává sestavový i při práci s obsahem vložených dílů.
 
 Pravým tlačítkem nad instancí zvolte **Vlastnosti**. Okno vychází z vlastností
 kontejneru v Partu a obsahuje tři řádky ustavení:
@@ -185,3 +191,91 @@ nejsou pro tuto vazbu podporované.
 Sestavové vazby jsou v současnosti prototyp. Identita ploch je dočasně založená
 na jejich pořadí, a proto se po významné změně geometrie zdrojového dílu může
 vazba ztratit nebo ukazovat na jinou plochu.
+
+### Aktivace dílu v sestavě
+
+Příkaz **Aktivovat díl** zpřístupní modelovací nástroje dílu přímo v tabu
+sestavy. Strom zůstane sestavový a ostatní díly lze nadále použít jako zdroje
+externích referencí. Aktivní díl se ve view zobrazuje ve své původní podobě
+před sestavovými řezy.
+
+Skica aktivního dílu používá jeho lokální počátek a transformaci instance,
+nikoliv počátek sestavy. Změny provedené v aktivním dílu se ukládají do jeho
+zdrojového `.prtz`. Tlačítko **Zpět do sestavy** ukončí kontextovou editaci.
+
+Je-li stejný díl otevřený také v samostatném tabu, aplikace používá společný
+aktuální dokumentový stav. Externí reference vytvořená v sestavě uchovává
+identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
+označí jako ztracená reference místo použití nesprávné geometrie.
+
+### Sestavové řezy
+
+V sestavě jsou dostupné operace **Protrusion** a **Revolve** pouze jako
+odečítání materiálu. Řez lze omezit na vybrané díly; bez výběru působí na
+všechny vložené instance. Výsledek se ukládá výhradně v `.asmz` a nemění
+původní soubory dílů.
+
+Při hoveru se pro každou instanci střídá její sestavově upravený a původní
+stav, potom se pokračuje další instancí. Po aktivaci dílu se hover řídí
+pravidly Partu.
+
+### Barvy a přejmenování
+
+Barva nastavená pro vložený díl patří konkrétní instanci a nemění barvy
+ostatních dílů. Příkaz **Soubor → Přejmenovat soubor…** zachová správnou
+příponu a aktualizuje interní odkazy v dílech, sestavách a výkresech. Pokud má
+přejmenovaný model stejně pojmenovaný `.drwz`, přejmenuje se s ním.
+
+## Základní práce s výkresem
+
+Výkres používá příponu `.drwz` a je navázaný na zdrojový díl `.prtz` nebo
+sestavu `.asmz`. Lze jej založit přes **Soubor → Nový → Výkres**, nebo
+tlačítkem **Výkresy** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko
+nejprve otevře již existující stejně pojmenovaný výkres a teprve pokud
+neexistuje, vytvoří nový.
+
+V záhlaví stromu výkresu je opačné tlačítko **Díl** nebo **Sestava**, které
+otevře zdrojový dokument.
+
+### Listy a formáty
+
+Jeden výkres může obsahovat více listů. Záložky listů jsou dole pod výkresovou
+plochou:
+
+- **+** přidá nový list,
+- **−** odebere aktivní list; poslední list nelze odebrat,
+- roletka **Formát** mění pouze aktivní list.
+
+Podporované formáty jsou A4, A3, A2, A1 a A0. A4 je vždy na výšku; A3 až A0
+jsou vždy na šířku. Rozměry odpovídají skutečnému papíru v milimetrech.
+
+Počátek každého listu leží v pravém dolním rohu. Kladná osa X směřuje zprava
+doleva a kladná osa Y zdola nahoru. Při změně formátu se proto list mění
+směrem doleva a nahoru a budoucí razítko může zůstat na místě.
+
+Výkresová plocha má černé pozadí. List nemá barevnou výplň; jeho formát
+znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
+
+### Ovládání výkresové plochy
+
+| Ovládání | Funkce |
+| --- | --- |
+| Kolečko myši | Přiblížení a oddálení kolem kurzoru |
+| Prostřední tlačítko + pohyb | Posun výkresové plochy |
+| Obnovit pohled | Animovaně zobrazit celý aktivní list |
+| Esc | Zrušit právě umisťovaný pohled |
+
+Výkresová plocha je čistě 2D a nepodporuje rotaci.
+
+### Vložení pohledu
+
+V pravém panelu aplikace Výkres je příkaz **Vložit pohled**. Uživatel vybere
+přední, horní, pravý nebo izometrický pohled a zadá měřítko. Náhled se připojí
+ke kurzoru a levým kliknutím se umístí na aktivní list.
+
+Pohled uchovává odkaz na zdrojový model i cache promítnutých čar. Při aktivaci
+tabu výkresu se geometrie obnoví z aktuálního modelu. Cache umožňuje zachovat
+poslední známé zobrazení, pokud zdrojový soubor není právě dostupný.
+
+Rámečky, razítka, skryté hrany, řezy, detaily, výkresové kóty, kusovníky a
+export PDF/DXF jsou další etapy vývoje a v této verzi zatím nejsou dostupné.

@@ -78,7 +78,9 @@ pojmenováním plochy.
 
 - Sketch může být společnou 2D geometrickou vrstvou pro modelování i výkresy.
 - DXF může sloužit jako import/export 2D geometrie Sketch.
-- Drawing může být kontejner obsahující formát, rámeček, razítko, pohledy, řezy,
+- Drawing je samostatný dokument `.drwz`; jeho rozpracovaný základ obsahuje
+  více listů, formát papíru, vazbu na zdrojový model a promítnuté pohledy.
+- Později může být kontejnerem obsahujícím také rámeček, razítko, řezy,
   kóty, poznámky, tabulky a Sketch.
 - Cílem je jeden obecný 2D editor používaný v různých kontextech, nikoli několik
   nesouvisejících editorů.
@@ -97,9 +99,24 @@ pojmenováním plochy.
   přesnost a uživatelské parametry s dokumentem Part.
 - Vložený díl je instance odkazující relativní cestou na zdrojový `.prtz`.
   Transformace instance patří sestavě a nesmí měnit zdrojový díl.
-- Strom instance zobrazuje read-only strom zdrojového dílu a samostatný lokální
-  počátek instance použitelný pro budoucí vazby.
+- Strom instance zobrazuje strom zdrojového dílu. Po aktivaci dílu v kontextu
+  sestavy se jeho podsložky chovají jako v Partu; rozdíl aktivní/neaktivní
+  instance je především ve view a dostupnosti modelovacích nástrojů.
 - První prototyp ustavení používá až tři dvojice rovinných ploch, Offset a Flip.
 - Aktuální `Face N` je pouze dočasná topologická reference. Před rozšířením
   sestavových vazeb je nutné zavést stabilní sémantické pojmenování ploch a
   diagnostiku ztracených či konfliktních vazeb.
+- Protrusion a Revolve v sestavě jsou pouze odečítací operace. Mohou působit na
+  všechny nebo jen vybrané instance, ale nesmějí měnit původní `.prtz`.
+
+## Aktuální základ výkresů
+
+- Jeden `.drwz` obsahuje více listů. Každý list má vlastní formát A4–A0.
+- A4 je vždy na výšku, ostatní podporované formáty vždy na šířku.
+- List je geometrie ve skutečných milimetrech. Počátek je vpravo dole, kladné X
+  směřuje doleva a kladné Y nahoru, aby změna formátu zachovala polohu razítka.
+- Pracovní prostor má černé pozadí bez výplně papíru; hranici listu představuje
+  bílý obdélník.
+- Výkres ukládá relativní cestu a ID zdrojového dílu nebo sestavy. Promítnuté
+  čáry jsou zároveň uloženy jako cache a při aktivaci tabu se obnoví ze zdroje.
+- Rámeček, razítko, kóty, řezy, detaily a kusovník zatím nejsou implementované.

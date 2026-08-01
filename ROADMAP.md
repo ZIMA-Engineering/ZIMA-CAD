@@ -133,7 +133,7 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 9. Assemblies
 
-**Status: Basic implementation**
+**Status: Functional foundation; stabilization in progress**
 
 - `.asmz` document creation, loading and versioned saving
 - Assembly application with part insertion from `.prtz`
@@ -145,6 +145,17 @@ as the document model, geometric kernel integration and user workflows evolve.
   in the 3D view
 - assembly origin and component-local origins represented in the assembly tree
 - relative source-file paths for portable projects
+- in-context activation and editing of a component while the assembly tree and
+  assembly view remain active
+- part tools available only when a component is active; inactive components
+  remain selectable as external-reference sources
+- assembly-only subtractive Protrusion and Revolve operations, optionally
+  restricted to selected component instances
+- uncut source-part geometry displayed while a component is active
+- live component movement while placement values are edited
+- synchronized saving of edited source parts from the assembly workflow
+- component colors stored per instance rather than globally
+- rename workflow updates component and external-reference file links
 - remaining work:
   - stabilize multi-mate solving, diagnostics and invalid/redundant mate recovery
   - replace temporary face-index references with stable semantic topology IDs
@@ -157,12 +168,29 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 10. Drawing
 
-**Status: Planned**
+**Status: Functional foundation; active development**
 
-- projected drawing views
-- sections and detail views
-- dimensions, tolerances and technical symbols
-- title blocks and drawing templates
-- assembly drawings and bills of materials
-- sheet-metal flat-pattern drawings
-- PDF and DXF export
+- `.drwz` document creation, loading, versioned saving and document tabs
+- automatic same-name drawing creation/opening from Part and Assembly tree headers
+- reverse navigation from a drawing to its source part or assembly
+- persistent relative source-model link with document identity metadata
+- multiple sheets with add/remove controls and a separate format per sheet
+- fixed ISO sheet rules: A4 portrait; A3, A2, A1 and A0 landscape
+- paper geometry in real millimetres, using a bottom-right origin with positive
+  X to the left and positive Y upward
+- black 2D workspace with a white paper-format outline and white geometry
+- wheel zoom, middle-button pan, disabled rotation and animated Fit Sheet
+- insertion and cursor placement of front, top, right and isometric projected
+  edge views at an explicit scale
+- cached view geometry for missing-source resilience and regeneration from the
+  live linked model when the drawing tab is activated
+- remaining work:
+  - view selection, movement, deletion and editable view properties
+  - projected child views and view alignment
+  - hidden-line classification and line-style control
+  - sections and detail views
+  - dimensions, tolerances and technical symbols
+  - title blocks and drawing templates
+  - assembly drawings and bills of materials
+  - sheet-metal flat-pattern drawings
+  - PDF and DXF export

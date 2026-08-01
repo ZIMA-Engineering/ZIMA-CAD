@@ -509,6 +509,63 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.navigationChanged.emit(self.camera)
         self.update()
 
+    def animate_standard_view(
+        self,
+        view_name: str,
+        *,
+        duration_ms: int = 650,
+        fit: bool = False,
+    ) -> None:
+        orientations = {
+            "default": (35.264, -45.0),
+            "front": (0.0, -90.0),
+            "back": (0.0, 90.0),
+            "left": (-90.0, -90.0),
+            "right": (90.0, -90.0),
+            "top": (0.0, 0.0),
+            "bottom": (0.0, 180.0),
+        }
+        if view_name not in orientations:
+            raise ValueError(f"Unknown standard view: {view_name}")
+        target_yaw, target_pitch = orientations[view_name]
+
+        self._stop_camera_animation()
+        start_yaw = self.camera.yaw_degrees
+        yaw_delta = ((target_yaw - start_yaw + 180.0) % 360.0) - 180.0
+        start_pitch = self.camera.pitch_degrees
+        start_pan_x = self.camera.pan_x
+        start_pan_y = self.camera.pan_y
+        start_zoom = self.camera.zoom
+        target_zoom = 1.0 if fit else start_zoom
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(max(1, int(duration_ms)))
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        def apply_progress(raw_progress) -> None:
+            progress = float(raw_progress)
+            self.camera.yaw_degrees = start_yaw + yaw_delta * progress
+            self.camera.pitch_degrees = (
+                start_pitch + (target_pitch - start_pitch) * progress
+            )
+            self.camera.pan_x = start_pan_x * (1.0 - progress)
+            self.camera.pan_y = start_pan_y * (1.0 - progress)
+            self.camera.zoom = (
+                start_zoom + (target_zoom - start_zoom) * progress
+            )
+            self.navigationChanged.emit(self.camera)
+            self.update()
+
+        def finish_animation() -> None:
+            if self._camera_animation is animation:
+                self._camera_animation = None
+
+        animation.valueChanged.connect(apply_progress)
+        animation.finished.connect(finish_animation)
+        self._camera_animation = animation
+        animation.start()
+
     def set_view_normal(self, normal: Point3) -> None:
         nx, ny, nz = normal
         length = sqrt(nx * nx + ny * ny + nz * nz)

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from OCC.Core.gp import gp_Pnt
 from OCC.Core.Bnd import Bnd_Box
@@ -107,6 +108,7 @@ from zima_cad.model import (
     coordinate_system_transform,
     create_empty_part,
     create_empty_assembly,
+    create_empty_drawing,
     identity_transform,
     multiply_transforms,
     entity_world_transform,
@@ -148,6 +150,12 @@ from zima_cad.viewer_scene import (
     build_document_viewer_scene_data,
 )
 from zima_cad.viewer_mesh import ViewerMesh, triangulate_shape
+from zima_cad.drawing import (
+    DrawingWorkspace,
+    drawing_sheets,
+    project_polylines,
+    store_drawing_sheets,
+)
 from zima_cad.storage import (
     ContainerEntityLimitError,
     load_part_document,
@@ -646,6 +654,7 @@ class ApplicationMode(str, Enum):
     SHEET_METAL = "sheet_metal"
     SURFACE = "surface"
     PIPING = "piping"
+    DRAWING = "drawing"
 
 
 @dataclass
@@ -5084,6 +5093,12 @@ class MainWindow(QMainWindow):
         self.tree.setColumnCount(1)
         self.tree.setHeaderLabels([tr("tree.document.part")])
         self.tree.setMinimumWidth(280)
+        self.tree.header().setMinimumHeight(38)
+        self.drawings_button = QToolButton(self.tree.header())
+        self.drawings_button.setText(tr("drawing.command.drawings"))
+        self.drawings_button.setToolTip(tr("drawing.command.drawings.tooltip"))
+        self.drawings_button.clicked.connect(self._open_tree_header_document)
+        self.drawings_button.hide()
         self.tree.setStyleSheet(
             """
             QTreeWidget::item:selected,
@@ -5190,6 +5205,9 @@ class MainWindow(QMainWindow):
         self.addAction(self._sketch_delete_action)
 
         self.native_viewer = ZimaOpenGLViewer(self)
+        self.drawing_workspace = DrawingWorkspace(self)
+        self.drawing_workspace.hide()
+        self.drawing_workspace.changed.connect(self._drawing_changed)
         stored_body_color = self._window_settings().value(
             "view/body_color",
             "#B9C2CC",
@@ -5465,6 +5483,7 @@ class MainWindow(QMainWindow):
         view_layout.addWidget(self.view_toolbar)
 
         view_layout.addWidget(self.native_viewer, 1)
+        view_layout.addWidget(self.drawing_workspace, 1)
 
         self.view_panel = QWidget()
         self.view_panel.setLayout(view_layout)
@@ -5660,6 +5679,8 @@ class MainWindow(QMainWindow):
             return False
         if self._active_component_return_document is not None:
             return mode == ApplicationMode.MODELING
+        if self.document.document_settings.get("type") == "drawing":
+            return mode == ApplicationMode.DRAWING
         if self.document.document_settings.get("type") == "assembly":
             return mode == ApplicationMode.ASSEMBLY
         return True
@@ -5672,6 +5693,8 @@ class MainWindow(QMainWindow):
         heading = QLabel(
             tr("application.sketch")
             if self._sketch_edit_entity_id is not None
+            else tr("application.drawing")
+            if self._document_type(self.document) == "drawing"
             else tr(f"application.{self.active_application.value}")
         )
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -5690,7 +5713,14 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.addWidget(heading_separator)
 
         self._sketch_delete_action.setEnabled(False)
-        if self._sketch_edit_entity_id is not None:
+        if self._document_type(self.document) == "drawing":
+            insert_view_action = self.tools_toolbar.addAction(
+                tr("drawing.command.insert_view")
+            )
+            insert_view_action.setIcon(resource_icon("drawing"))
+            self._mark_application_command(insert_view_action)
+            insert_view_action.triggered.connect(self.insert_drawing_view)
+        elif self._sketch_edit_entity_id is not None:
             self._sketch_delete_action.setEnabled(
                 self._sketch_selected_entity_id is not None
                 or bool(self._sketch_selected_entity_ids)
@@ -8797,6 +8827,7 @@ class MainWindow(QMainWindow):
             self._update_document_area_visibility()
             if self.document is None:
                 self.tree.setHeaderLabels([tr("tree.document.part")])
+                self.drawings_button.hide()
                 return
             if self._sketch_edit_entity_id is not None:
                 sketch = self.document.find_entity(
@@ -8810,6 +8841,41 @@ class MainWindow(QMainWindow):
             self.tree.setHeaderLabels([
                 self._document_tree_header(self.document)
             ])
+            document_type = self._document_type(self.document)
+            if document_type == "drawing":
+                source_path = self._drawing_source_path()
+                source_type = (
+                    "assembly"
+                    if source_path is not None
+                    and source_path.suffix.lower() == ".asmz"
+                    else "part"
+                )
+                self.drawings_button.setText(
+                    tr(f"drawing.command.{source_type}")
+                )
+                self.drawings_button.setToolTip(
+                    tr(f"drawing.command.{source_type}.tooltip")
+                )
+            else:
+                self.drawings_button.setText(tr("drawing.command.drawings"))
+                self.drawings_button.setToolTip(
+                    tr("drawing.command.drawings.tooltip")
+                )
+            self.drawings_button.setVisible(
+                document_type in ("part", "assembly", "drawing")
+            )
+            QTimer.singleShot(0, self._position_drawings_button)
+
+            if document_type == "drawing":
+                for index, sheet in enumerate(
+                    self.drawing_workspace.sheets or drawing_sheets(self.document)
+                ):
+                    item = QTreeWidgetItem([str(sheet.get("name", f"List {index + 1}"))])
+                    item.setIcon(0, resource_icon("drawing"))
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    self.tree.addTopLevelItem(item)
+                self.tree.resizeColumnToContents(0)
+                return
 
             origins = [
                 obj for obj in self.document.root.children
@@ -8843,6 +8909,17 @@ class MainWindow(QMainWindow):
         finally:
             self.tree.blockSignals(signals_were_blocked)
             self.document = editing_document
+
+    def _position_drawings_button(self) -> None:
+        if not hasattr(self, "drawings_button"):
+            return
+        header = self.tree.header()
+        hint = self.drawings_button.sizeHint()
+        width = max(78, hint.width() + 8)
+        height = max(30, header.height() - 6)
+        self.drawings_button.setGeometry(
+            max(2, header.width() - width - 5), 3, width, height
+        )
 
     def _component_source_document(
         self,
@@ -9469,7 +9546,9 @@ class MainWindow(QMainWindow):
             if action is not None:
                 action.setEnabled(has_document)
         if hasattr(self, "view_selection_action"):
-            self.view_selection_action.setEnabled(has_document)
+            self.view_selection_action.setEnabled(
+                has_document and self._document_type(self.document) != "drawing"
+            )
         for mode, action in getattr(self, "application_actions", {}).items():
             action.setEnabled(
                 has_document and self._application_mode_available(mode)
@@ -9549,6 +9628,9 @@ class MainWindow(QMainWindow):
         self._store_active_session()
         document.source_file_path = file_path.resolve() if file_path is not None else None
         initial_application = (
+            ApplicationMode.DRAWING
+            if document.document_settings.get("type") == "drawing"
+            else
             ApplicationMode.ASSEMBLY
             if document.document_settings.get("type") == "assembly"
             else ApplicationMode.MODELING
@@ -9593,6 +9675,19 @@ class MainWindow(QMainWindow):
             self.current_file_path = session.file_path
             self.selected_object_id = session.selected_object_id
             self.active_application = session.active_application
+
+        is_drawing = self._document_type(self.document) == "drawing"
+        self.native_viewer.setVisible(not is_drawing)
+        self.drawing_workspace.setVisible(is_drawing)
+        if is_drawing:
+            self._refresh_drawing_geometry(self.document, self.current_file_path)
+        self.drawing_workspace.set_document(self.document if is_drawing else None)
+        self.standard_view_combo.setEnabled(not is_drawing)
+        self.normal_view_action.setEnabled(not is_drawing)
+        self.view_selection_action.setEnabled(not is_drawing)
+        self.selection_filter_combo.setEnabled(not is_drawing)
+        for action in self.display_mode_actions.actions():
+            action.setEnabled(not is_drawing)
 
         self._sync_application_actions()
         self._rebuild_application_toolbar()
@@ -9658,19 +9753,35 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-        if document_type == "drawing":
-            QMessageBox.information(
-                self,
-                tr("dialog.new.title"),
-                tr("message.not_implemented", document_type=document_type.title()),
-            )
-            return
-
         document = (
             create_empty_assembly()
             if document_type == "assembly"
+            else create_empty_drawing()
+            if document_type == "drawing"
             else create_empty_part()
         )
+        if document_type == "drawing":
+            source_path = self._choose_drawing_source_path()
+            if source_path is None:
+                return
+            source_session = next(
+                (
+                    session
+                    for session in self.document_sessions
+                    if session.file_path is not None
+                    and canonical_document_path(session.file_path) == source_path
+                ),
+                None,
+            )
+            if source_session is not None:
+                try:
+                    save_part_document(source_session.document, source_path)
+                except Exception as exc:
+                    QMessageBox.critical(
+                        self, tr("message.save_failed"), str(exc)
+                    )
+                    return
+            self._set_drawing_source(document, file_path, source_path)
         for unit_name in document.document_units:
             if unit_name in self.settings.units:
                 document.document_units[unit_name] = self.settings.units[unit_name]
@@ -9743,7 +9854,8 @@ class MainWindow(QMainWindow):
         # Stored coordinates are only the last evaluated state.  Always
         # resolve parametric references against the freshly built geometry
         # before the opened document is used.
-        self.regenerate_model()
+        if self._document_type(document) != "drawing":
+            self.regenerate_model()
         return True
 
     def save_document(self) -> bool:
@@ -9765,14 +9877,18 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        is_assembly = self.document.document_settings.get("type") == "assembly"
-        extension = ".asmz" if is_assembly else ".prtz"
-        default_path = self.working_directory / ("assembly.asmz" if is_assembly else "part.prtz")
+        document_type = self._document_type(self.document)
+        is_assembly = document_type == "assembly"
+        is_drawing = document_type == "drawing"
+        extension = ".drwz" if is_drawing else ".asmz" if is_assembly else ".prtz"
+        default_path = self.working_directory / (
+            "drawing.drwz" if is_drawing else "assembly.asmz" if is_assembly else "part.prtz"
+        )
         file_name, _ = QFileDialog.getSaveFileName(
             self,
-            tr("file.save_assembly" if is_assembly else "file.save_part"),
+            tr("file.save_drawing" if is_drawing else "file.save_assembly" if is_assembly else "file.save_part"),
             str(default_path),
-            tr("file.filter.assembly" if is_assembly else "file.filter.part"),
+            tr("file.filter.drawing" if is_drawing else "file.filter.assembly" if is_assembly else "file.filter.part"),
         )
         if not file_name:
             return False
@@ -9811,6 +9927,29 @@ class MainWindow(QMainWindow):
             )
             return
 
+        old_drawing_path = (
+            old_path.with_suffix(".drwz")
+            if old_path.suffix.lower() in (".prtz", ".asmz")
+            else None
+        )
+        new_drawing_path = (
+            new_path.with_suffix(".drwz")
+            if old_drawing_path is not None
+            else None
+        )
+        rename_companion_drawing = bool(
+            old_drawing_path is not None
+            and old_drawing_path.is_file()
+            and new_drawing_path is not None
+        )
+        if rename_companion_drawing and new_drawing_path.is_file():
+            QMessageBox.information(
+                self,
+                tr("dialog.rename.title"),
+                tr("message.file_already_exists", file=new_drawing_path.name),
+            )
+            return
+
         documents: dict[Path, PartDocument] = {}
         for session in self.document_sessions:
             if session.file_path is not None:
@@ -9822,8 +9961,9 @@ class MainWindow(QMainWindow):
         if self.working_directory.is_dir():
             candidate_paths.update(self.working_directory.rglob("*.asmz"))
             candidate_paths.update(self.working_directory.rglob("*.prtz"))
+            candidate_paths.update(self.working_directory.rglob("*.drwz"))
         for candidate in candidate_paths:
-            if candidate.suffix.lower() not in (".asmz", ".prtz"):
+            if candidate.suffix.lower() not in (".asmz", ".prtz", ".drwz"):
                 continue
             candidate = canonical_document_path(candidate)
             if candidate in documents:
@@ -9844,25 +9984,38 @@ class MainWindow(QMainWindow):
                 changed_paths.add(document_path)
         try:
             old_path.rename(new_path)
+            if rename_companion_drawing:
+                old_drawing_path.rename(new_drawing_path)
             for document_path in changed_paths | {old_path}:
                 document = documents.get(document_path)
                 if document is None:
                     continue
+                save_path = (
+                    new_path
+                    if document_path == old_path
+                    else new_drawing_path
+                    if rename_companion_drawing
+                    and document_path == old_drawing_path
+                    else document_path
+                )
                 save_part_document(
                     document,
-                    new_path if document_path == old_path else document_path,
+                    save_path,
                 )
         except Exception as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
             return
 
         for session in self.document_sessions:
-            if (
-                session.file_path is not None
-                and canonical_document_path(session.file_path) == old_path
-            ):
+            if session.file_path is None:
+                continue
+            session_path = canonical_document_path(session.file_path)
+            if session_path == old_path:
                 session.file_path = new_path
                 session.document.source_file_path = new_path
+            elif rename_companion_drawing and session_path == old_drawing_path:
+                session.file_path = new_drawing_path
+                session.document.source_file_path = new_drawing_path
         if canonical_document_path(self.current_file_path) == old_path:
             self.current_file_path = new_path
         if old_path in self._assembly_part_documents:
@@ -9897,6 +10050,20 @@ class MainWindow(QMainWindow):
         new_path: Path,
     ) -> bool:
         changed = False
+
+        if self._document_type(document) == "drawing":
+            raw_source = str(
+                document.document_settings.get("drawing_source_path", "")
+            ).strip()
+            if raw_source:
+                source_path = Path(raw_source)
+                if not source_path.is_absolute():
+                    source_path = document_path.parent / source_path
+                if canonical_document_path(source_path) == old_path:
+                    document.document_settings["drawing_source_path"] = os.path.relpath(
+                        new_path, document_path.parent
+                    )
+                    changed = True
 
         def visit(entity: ZimaEntity):
             yield entity
@@ -10348,8 +10515,10 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_viewer_initialized") or self.document is None:
             return
 
-        self.native_viewer.set_standard_view("default")
-        self.native_viewer.fit_all()
+        if self._document_type(self.document) == "drawing":
+            self.drawing_workspace.animate_fit_sheet()
+            return
+        self.native_viewer.animate_standard_view("default", fit=True)
 
     def _on_standard_view_changed(self, index: int) -> None:
         view_name = str(self.standard_view_combo.itemData(index) or "")
@@ -10363,7 +10532,245 @@ class MainWindow(QMainWindow):
     def _set_standard_view(self, view_name: str) -> None:
         if not hasattr(self, "_viewer_initialized"):
             return
-        self.native_viewer.set_standard_view(view_name)
+        self.native_viewer.animate_standard_view(view_name)
+
+    def _drawing_changed(self) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            return
+        self._populate_tree()
+        if not self._handling_workspace_update:
+            self.workspace.documentChanged.emit(self, self.document)
+
+    def _choose_drawing_source_path(self) -> Path | None:
+        candidates = [
+            session
+            for session in self.document_sessions
+            if session.file_path is not None
+            and self._document_type(session.document) in ("part", "assembly")
+        ]
+        if candidates:
+            labels = [session.file_path.name for session in candidates]
+            label, accepted = QInputDialog.getItem(
+                self,
+                tr("drawing.source.title"),
+                tr("drawing.source.label"),
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return None
+            return canonical_document_path(
+                candidates[labels.index(label)].file_path
+            )
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("drawing.source.title"),
+            str(self.working_directory),
+            tr("file.filter.model"),
+        )
+        return canonical_document_path(Path(file_name)) if file_name else None
+
+    def _set_drawing_source(
+        self,
+        drawing: PartDocument,
+        drawing_path: Path,
+        source_path: Path,
+    ) -> None:
+        source_path = canonical_document_path(source_path)
+        drawing.document_settings["drawing_source_path"] = os.path.relpath(
+            source_path, drawing_path.parent
+        )
+        source_document = next(
+            (
+                session.document
+                for session in self.document_sessions
+                if session.file_path is not None
+                and canonical_document_path(session.file_path) == source_path
+            ),
+            None,
+        )
+        if source_document is not None:
+            drawing.document_settings["drawing_source_id"] = str(
+                source_document.document_settings.get("document_id", "")
+            )
+
+    def _drawing_source_path(self) -> Path | None:
+        if self.document is None or self.current_file_path is None:
+            return None
+        raw_path = str(
+            self.document.document_settings.get("drawing_source_path", "")
+        ).strip()
+        if not raw_path:
+            return None
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = self.current_file_path.parent / path
+        return canonical_document_path(path)
+
+    def _refresh_drawing_geometry(
+        self,
+        drawing: PartDocument,
+        drawing_path: Path | None,
+    ) -> None:
+        if drawing_path is None:
+            return
+        sheets = drawing_sheets(drawing)
+        mesh_cache: dict[Path, ViewerMesh] = {}
+        changed = False
+        for sheet in sheets:
+            for view in sheet.get("views", []):
+                raw_source = str(view.get("source_path", "")).strip()
+                if not raw_source:
+                    raw_source = str(
+                        drawing.document_settings.get("drawing_source_path", "")
+                    ).strip()
+                if not raw_source:
+                    continue
+                source_path = Path(raw_source)
+                if not source_path.is_absolute():
+                    source_path = drawing_path.parent / source_path
+                source_path = canonical_document_path(source_path)
+                if not source_path.is_file():
+                    continue
+                try:
+                    mesh = mesh_cache.get(source_path)
+                    if mesh is None:
+                        source_document = next(
+                            (
+                                session.document
+                                for session in self.document_sessions
+                                if session.file_path is not None
+                                and canonical_document_path(session.file_path)
+                                == source_path
+                            ),
+                            None,
+                        ) or load_part_document(source_path)
+                        mesh = triangulate_shape(
+                            source_document.build_active_shape(),
+                            edge_color=(1.0, 1.0, 1.0),
+                        )
+                        mesh_cache[source_path] = mesh
+                    refreshed = project_polylines(
+                        [list(edge.points) for edge in mesh.edges],
+                        str(view.get("orientation", "front")),
+                    )
+                except Exception:
+                    continue
+                if refreshed != view.get("polylines"):
+                    view["polylines"] = refreshed
+                    changed = True
+        if changed:
+            store_drawing_sheets(drawing, sheets)
+
+    def open_or_create_drawing(self) -> None:
+        if self.document is None or self._document_type(self.document) not in ("part", "assembly"):
+            return
+        source_document = self.document
+        source_path = self.current_file_path or source_document.source_file_path
+        if source_path is None:
+            return
+        source_path = canonical_document_path(source_path)
+        try:
+            save_part_document(source_document, source_path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.save_failed"), str(exc))
+            return
+        drawing_path = source_path.with_suffix(".drwz")
+        if drawing_path.is_file():
+            self.open_document_path(drawing_path)
+            return
+        drawing = create_empty_drawing()
+        drawing.root.name = drawing_path.stem
+        self._set_drawing_source(drawing, drawing_path, source_path)
+        try:
+            save_part_document(drawing, drawing_path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.save_failed"), str(exc))
+            return
+        self._add_document_session(drawing, drawing_path)
+
+    def _open_tree_header_document(self) -> None:
+        if self.document is None:
+            return
+        if self._document_type(self.document) == "drawing":
+            source_path = self._drawing_source_path()
+            if source_path is None or not source_path.is_file():
+                QMessageBox.critical(
+                    self,
+                    tr("message.open_failed"),
+                    tr("drawing.source.missing"),
+                )
+                return
+            self.open_document_path(source_path)
+            return
+        self.open_or_create_drawing()
+
+    def insert_drawing_view(self) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            return
+        source_path = self._drawing_source_path()
+        if source_path is None or not source_path.is_file():
+            QMessageBox.critical(
+                self, tr("message.open_failed"), tr("drawing.source.missing")
+            )
+            return
+        source_document = next(
+            (
+                session.document
+                for session in self.document_sessions
+                if session.file_path is not None
+                and canonical_document_path(session.file_path) == source_path
+            ),
+            None,
+        )
+        try:
+            source_document = source_document or load_part_document(source_path)
+            shape = source_document.build_active_shape()
+            mesh = triangulate_shape(shape, edge_color=(1.0, 1.0, 1.0))
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.open_failed"), str(exc))
+            return
+        orientation_labels = [
+            tr("toolbar.view.front"),
+            tr("toolbar.view.top"),
+            tr("toolbar.view.right"),
+            tr("toolbar.view.default"),
+        ]
+        orientation_values = ["front", "top", "right", "isometric"]
+        label, accepted = QInputDialog.getItem(
+            self,
+            tr("drawing.insert_view.title"),
+            tr("drawing.insert_view.orientation"),
+            orientation_labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        scale, accepted = QInputDialog.getDouble(
+            self,
+            tr("drawing.insert_view.title"),
+            tr("drawing.insert_view.scale"),
+            1.0,
+            0.001,
+            1000.0,
+            3,
+        )
+        if not accepted:
+            return
+        orientation = orientation_values[orientation_labels.index(label)]
+        polylines = project_polylines(
+            [list(edge.points) for edge in mesh.edges], orientation
+        )
+        self.drawing_workspace.begin_view_placement({
+            "id": str(uuid4()),
+            "source_path": os.path.relpath(source_path, self.current_file_path.parent),
+            "orientation": orientation,
+            "scale": scale,
+            "polylines": polylines,
+        })
+        self.statusBar().showMessage(tr("drawing.insert_view.place"))
 
     def set_view_display_mode(self, display_mode: ViewDisplayMode) -> None:
         self.view_display_mode = display_mode
@@ -10904,7 +11311,19 @@ class MainWindow(QMainWindow):
             return
         if value <= 1.0e-9:
             return
-        feature.parameters[key] = f"{value:.12g}"
+        formatted_value = f"{value:.12g}"
+        if (
+            key in {"length_forward", "length_reverse"}
+            and str(feature.parameters.get("extent_mode", "one_side"))
+            == "symmetric"
+        ):
+            # Both dimensions describe the same half-length in symmetric mode.
+            # Keep the stored values synchronized regardless of which overlay
+            # the user edits in the 3D view.
+            feature.parameters["length_forward"] = formatted_value
+            feature.parameters["length_reverse"] = formatted_value
+        else:
+            feature.parameters[key] = formatted_value
         owner = self.document.find_owning_object(feature.entity_id)
         self._mark_model_for_regeneration()
         self.regenerate_model()
@@ -25734,6 +26153,14 @@ class MainWindow(QMainWindow):
         )
 
     def rebuild_view(self, fit: bool = True, rebuild_geometry: bool = True) -> None:
+        if self.document is not None and self._document_type(self.document) == "drawing":
+            self.native_viewer.hide()
+            self.drawing_workspace.show()
+            if self.drawing_workspace.document is not self.document:
+                self.drawing_workspace.set_document(self.document)
+            if fit:
+                self.drawing_workspace.fit_sheet()
+            return
         if self.document is not None and not hasattr(self, "_viewer_initialized"):
             self._ensure_viewer_initialized()
 

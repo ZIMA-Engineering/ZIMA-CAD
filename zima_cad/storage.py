@@ -19,6 +19,7 @@ from zima_cad.model import (
     ZimaEntity,
     add_coordinate_system_children,
     create_empty_assembly,
+    create_empty_drawing,
     create_empty_part,
     default_user_parameter_labels,
 )
@@ -98,6 +99,8 @@ def load_part_document(file_path: Path) -> PartDocument:
     document = (
         create_empty_assembly()
         if document_type == "assembly"
+        else create_empty_drawing()
+        if document_type == "drawing"
         else create_empty_part()
     )
     document.source_file_path = file_path.resolve()

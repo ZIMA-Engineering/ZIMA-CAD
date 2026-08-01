@@ -50,6 +50,7 @@ DOCUMENT_FORMAT_VERSION = "8"
 
 def default_document_settings() -> dict[str, str]:
     return {
+        "document_id": str(uuid4()),
         "type": "part",
         "format_version": DOCUMENT_FORMAT_VERSION,
         "body_visible": "true",
@@ -2596,3 +2597,25 @@ def create_empty_assembly() -> PartDocument:
             combine_mode=CombineMode.NONE,
         ),
     )
+
+
+def create_empty_drawing() -> PartDocument:
+    settings = default_document_settings()
+    settings["type"] = "drawing"
+    settings["drawing_sheets"] = json.dumps([{
+        "id": str(uuid4()),
+        "name": "List 1",
+        "format": "A4",
+        "orientation": "portrait",
+        "views": [],
+    }], separators=(",", ":"))
+    document = PartDocument(
+        document_settings=settings,
+        root=ZimaEntity(
+            name="Drawing001",
+            kind=EntityKind.PART,
+            combine_mode=CombineMode.NONE,
+        ),
+    )
+    document.root.children = []
+    return document

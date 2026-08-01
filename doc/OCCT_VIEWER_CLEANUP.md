@@ -27,10 +27,10 @@ have been removed.
 View-normal commands now set the native camera directly. Native selection and
 context menus remain connected to `ZimaOpenGLViewer`.
 
-In-view editable dimensions were never reachable after the native viewer
-switch because they required the absent legacy `_display`. Their AIS
-implementation has been removed; a harmless command placeholder remains until
-native dimension overlays are implemented.
+In-view editable dimensions are implemented in the native overlay layer and
+track camera navigation and viewport resizing. Symmetric Protrusion dimensions
+share one stored value regardless of which side is edited. Standard and reset
+views use native camera animations.
 
 ## Removal sequence
 
@@ -74,7 +74,7 @@ Acceptance:
 - creating and editing a datum axis cannot enter
   `StdPrs_WFShape::Add()` or `StdSelect_BRepOwner::HilightWithColor()`.
 
-### 4. Replace edit overlays — pending
+### 4. Replace edit overlays — complete
 
 - Render dimension lines and endpoint handles in the native overlay layer.
 - Project editable value widgets with the native camera.

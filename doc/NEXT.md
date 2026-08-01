@@ -1,6 +1,20 @@
 # Next Work
 
-## Current Priority: Stabilize Assembly Placement
+## Current Priority: Stabilize the Drawing Foundation
+
+- Exercise `.drwz` creation from both `.prtz` and `.asmz` documents on real
+  projects and verify source-link recovery after move and rename operations.
+- Add selection, drag placement, deletion and editable properties for inserted
+  drawing views.
+- Replace the current sampled-edge projection with technical hidden-line
+  classification and stable projected topology identities.
+- Add aligned projected child views before sections and details.
+- Keep paper-space geometry in millimetres with the bottom-right sheet origin;
+  A4 remains portrait and A3 through A0 remain landscape.
+- Preserve cached projected geometry when the linked source is unavailable,
+  while clearly marking the drawing view as out of date.
+
+## Assembly Stabilization
 
 - Exercise the new `.asmz` workflow on real two- and three-component examples.
 - Refine the three paired planar-mate rows in component properties:
@@ -14,8 +28,10 @@
   assembly constraints are considered production-safe.
 - Add grounding/un-grounding of components and visualize remaining component
   degrees of freedom.
-- Keep component source trees read-only; assembly placement belongs to the
-  instance, never to the referenced `.prtz` document.
+- Keep instance placement in the assembly document. In-context feature edits
+  intentionally modify the referenced `.prtz`, while assembly cuts never do.
+- Exercise in-context component activation, cross-component sketch references,
+  assembly cuts and per-instance colors on larger real projects.
 
 ## Basic Sketcher Completion
 
@@ -33,8 +49,8 @@
 - The hidden legacy viewer, unreachable AIS rebuild path and OCCT presentation
   imports have been removed.
 - Verify native selection and constraint previews across all reference types.
-- Implement native in-view dimension overlays; the unreachable AIS
-  implementation was removed during cleanup.
+- Continue stabilizing the implemented native in-view dimension overlays; the
+  unreachable AIS implementation was removed during cleanup.
 - The axis-editor pointer path can no longer enter OCCT presentation or
   highlighting code.
 
