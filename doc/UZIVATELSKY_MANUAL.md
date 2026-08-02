@@ -175,18 +175,33 @@ lokální počátek instance. Poloha instance patří pouze sestavě; změna pol
 nemění zdrojový `.prtz`.
 
 Změny polohy ve Vlastnostech se zobrazují živě přímo ve view. Strom sestavy
-zůstává sestavový i při práci s obsahem vložených dílů.
+zůstává sestavový i při práci s obsahem vložených dílů. Dvojklik na instanci
+přímo ve 3D view neotevírá Vlastnosti: zobrazí nebo skryje její klikací kóty
+vazeb. Vlastnosti se nadále otevírají dvojklikem ve stromu nebo z kontextového
+menu.
 
 Pravým tlačítkem nad instancí zvolte **Vlastnosti**. Okno vychází z vlastností
 kontejneru v Partu a obsahuje tři řádky ustavení:
 
-`plocha dílu ↔ plocha druhého dílu | Posunutí | Flip`
+`reference dílu ↔ reference sestavy | Typ vazby | Hodnota | Flip`
 
-Klikněte na první zeleně označené pole a vyberte rovinnou plochu umisťovaného
-dílu přímo ve 3D pohledu. Potom vyberte protější rovinnou plochu druhého dílu.
-Aktivní výběr automaticky pokračuje další dvojicí. **Posunutí** nastavuje
-vzdálenost podél normály a **Flip** obrací orientaci. Zakřivené plochy zatím
-nejsou pro tuto vazbu podporované.
+Klikněte na první zeleně označené pole a vyberte plochu, rovinu nebo osu
+umisťovaného dílu přímo ve 3D pohledu. Potom vyberte odpovídající referenci
+druhého dílu nebo sestavy. Aktivní výběr automaticky pokračuje další dvojicí.
+Dialog podle geometrie a zbývajících stupňů volnosti nabízí pouze použitelné
+typy: rovinnou vazbu s posunutím, **Souosost** nebo **Úhel**. Hodnota používá
+`mm` nebo stupně podle typu; **Flip** obrací orientaci. Uživatelské i generované
+osy zdrojového dílu lze vybírat ve view i ve stromu. Zakřivené plochy jako
+rovinné reference podporované nejsou.
+
+Po souososti zůstává volný posun a rotace podél společné osy. Dosednutí čelních
+ploch může uzamknout zbývající posun a následná dvojice bočních rovin pak
+automaticky nabízí úhlovou vazbu. Solver zachovává nejbližší platnou polohu a
+opačnou větev volí pouze pomocí **Flip**.
+
+Kóty zobrazené dvojklikem na díl zahrnují také nulové rovinné a souosé vazby.
+Úhel a rovinné posunutí lze přepsat přímo v kótě a potvrdit Enterem; souosost je
+zobrazená jako zamčená informační vazba.
 
 Sestavové vazby jsou v současnosti prototyp. Identita ploch je dočasně založená
 na jejich pořadí, a proto se po významné změně geometrie zdrojového dílu může

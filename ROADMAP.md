@@ -147,8 +147,14 @@ as the document model, geometric kernel integration and user workflows evolve.
   source-part trees
 - automatic non-overlapping initial placement; first component marked fixed
 - component properties derived from Part container properties
-- three planar face-to-face mate rows with offset and Flip, selected directly
-  in the 3D view
+- three paired mate rows selected directly in the 3D view, with compatible
+  planar/offset, concentric-axis and angular mate types, dynamic `mm`/degree
+  values and Flip
+- component, assembly and source-part datum/generated axes selectable for
+  concentric mates
+- stable nearest-pose orientation solving without branch flipping
+- degree-of-freedom-aware mate choices and editable in-view mate dimensions,
+  including visible zero plane and concentric constraints
 - assembly origin and component-local origins represented in the assembly tree
 - relative source-file paths for portable projects
 - in-context activation and editing of a component while the assembly tree and
@@ -163,10 +169,10 @@ as the document model, geometric kernel integration and user workflows evolve.
 - component colors stored per instance rather than globally
 - rename workflow updates component and external-reference file links
 - remaining work:
-  - stabilize multi-mate solving, diagnostics and invalid/redundant mate recovery
+  - add diagnostics and recovery for invalid, conflicting and redundant mates
   - replace temporary face-index references with stable semantic topology IDs
-  - add explicit plane selection from the assembly and component trees
-  - add axis/concentric mates and component grounding controls
+  - extend explicit tree selection to every supported reference type
+  - add component grounding controls
   - insertion and nesting of subassemblies
   - degrees-of-freedom visualization
   - interference and collision checking

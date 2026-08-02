@@ -55,10 +55,12 @@ Current mouse controls, reference selection and the Properties workflow are
 described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
 
 The Assembly workflow supports inserted part instances, live placement,
-planar mates, expanded source-part trees, in-context part editing and
-assembly-only extruded or revolved cuts applied to selected components. Part
-geometry remains unchanged by assembly cuts. Stable semantic topology naming
-is still required before assembly references are production-safe.
+planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
+types, editable in-view mate dimensions, expanded source-part trees,
+in-context part editing and assembly-only extruded or revolved cuts applied to
+selected components. Part geometry remains unchanged by assembly cuts. Stable
+semantic topology naming is still required before assembly references are
+production-safe.
 
 The initial Drawing workspace supports `.drwz` documents linked to either a
 part or an assembly, multiple independently sized sheets, A4 through A0 paper

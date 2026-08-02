@@ -32,17 +32,18 @@
 ## Assembly Stabilization
 
 - Exercise the new `.asmz` workflow on real two- and three-component examples.
-- Refine the three paired planar-mate rows in component properties:
-  - face-to-face and plane-to-face selection in the 3D view;
-  - predictable Offset and Flip behavior;
-  - preservation of the nearest valid component pose;
-  - clear feedback for incompatible, redundant and unresolved mate sets.
-- Make assembly and component Origin planes directly selectable as either side
-  of a mate.
+- Continue refining the three paired mate rows now that plane/offset,
+  concentric-axis and angular mates, nearest-pose solving and editable in-view
+  dimensions are available:
+  - clear feedback for incompatible, redundant and unresolved mate sets;
+  - explicit reporting of the remaining X/Y/Z/RX/RY/RZ freedoms;
+  - robust recovery after a referenced entity disappears;
+  - wider coverage of axis-to-plane angular combinations and non-origin datum
+    references.
 - Replace persisted `Face N` indices with stable semantic face references before
   assembly constraints are considered production-safe.
 - Add grounding/un-grounding of components and visualize remaining component
-  degrees of freedom.
+  degrees of freedom independently of the mate editor.
 - Keep instance placement in the assembly document. In-context feature edits
   intentionally modify the referenced `.prtz`, while assembly cuts never do.
 - Exercise in-context component activation, cross-component sketch references,

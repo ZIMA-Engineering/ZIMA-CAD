@@ -102,7 +102,12 @@ pojmenováním plochy.
 - Strom instance zobrazuje strom zdrojového dílu. Po aktivaci dílu v kontextu
   sestavy se jeho podsložky chovají jako v Partu; rozdíl aktivní/neaktivní
   instance je především ve view a dostupnosti modelovacích nástrojů.
-- První prototyp ustavení používá až tři dvojice rovinných ploch, Offset a Flip.
+- Ustavení používá až tři dvojice referencí. Podporuje rovinné vazby s offsetem,
+  souosost datumových a generovaných os, úhlové vazby a Flip. Nabídka typu se
+  omezuje podle geometrie a zbývajících stupňů volnosti; stabilní solver vybírá
+  polohu nejbližší současné transformaci.
+- Vazby se ve 3D view zobrazují jako klikací kóty. Hodnotové vazby lze editovat
+  přímo ve view, nulové a souosé vazby zůstávají viditelné jako stav ustavení.
 - Aktuální `Face N` je pouze dočasná topologická reference. Před rozšířením
   sestavových vazeb je nutné zavést stabilní sémantické pojmenování ploch a
   diagnostiku ztracených či konfliktních vazeb.
