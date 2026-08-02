@@ -1,5 +1,7 @@
 import unittest
 import json
+import tempfile
+from pathlib import Path
 
 from PySide6.QtGui import QColor
 from OCC.Core.Bnd import Bnd_Box
@@ -43,6 +45,77 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_sketch_mirror_reflects_point_across_shifted_axis(self) -> None:
+        self.assertEqual(
+            MainWindow._mirrored_sketch_position(
+                (5.0, 3.0),
+                (2.0, 0.0),
+                (0.0, 1.0),
+            ),
+            (-1.0, 3.0),
+        )
+
+    def test_working_directory_cleanup_only_collects_cad_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in (
+                "part.prtz",
+                "part.prtz.1",
+                "part.prtz.3",
+                "machine.asmz.2",
+                "sheet.drwz.4",
+                "notes.txt.1",
+                "part.prtz.tmp",
+            ):
+                (root / name).write_text(name, encoding="utf-8")
+
+            groups = MainWindow._working_directory_archive_groups(root)
+
+            self.assertEqual(
+                {path.name for path in groups},
+                {"part.prtz", "machine.asmz", "sheet.drwz"},
+            )
+            self.assertEqual(
+                [path.name for path in groups[root / "part.prtz"]],
+                ["part.prtz.1", "part.prtz.3"],
+            )
+
+    def test_curved_external_sketch_edge_remains_bounded(self) -> None:
+        geometry = MainWindow._infinite_sketch_reference_geometry({
+            "type": "polyline",
+            "points": [[1.0, 0.0], [0.7, 0.7], [0.0, 1.0]],
+        })
+
+        self.assertIsNotNone(geometry)
+        self.assertEqual(geometry["type"], "polyline")
+        segment = MainWindow._sketch_reference_constraint_line(
+            geometry,
+            {},
+            (0.7, 0.7),
+        )
+        self.assertIsNotNone(segment)
+        self.assertTrue(segment["bounded"])
+
+    def test_straight_external_sketch_edge_remains_infinite(self) -> None:
+        geometry = MainWindow._infinite_sketch_reference_geometry({
+            "type": "polyline",
+            "points": [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+        })
+
+        self.assertIsNotNone(geometry)
+        self.assertEqual(geometry["type"], "line")
+
+    def test_axis_crossing_sketch_is_kept_as_axis_point(self) -> None:
+        geometry = MainWindow._infinite_sketch_reference_geometry({
+            "type": "axis_point",
+            "point": [4.0, -3.0],
+        })
+
+        self.assertEqual(geometry, {
+            "type": "axis_point",
+            "point": [4.0, -3.0],
+        })
+
     def test_orientation_references_reduce_rotational_dof(self) -> None:
         dof_for = AxisConstraintDialog._rotation_degrees_of_freedom
 

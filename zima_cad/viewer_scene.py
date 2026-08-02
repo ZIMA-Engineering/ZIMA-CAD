@@ -120,8 +120,24 @@ def build_document_viewer_scene_data(
                 )
             if shape is not None:
                 shapes_by_owner_id[obj.entity_id] = shape
+                source_document = (component_documents or {}).get(
+                    obj.entity_id
+                )
+                inherited_color = (
+                    source_document.document_settings.get(
+                        "body_color", "#B9C2CC"
+                    )
+                    if source_document is not None
+                    else obj.parameters.get("body_color", "#B9C2CC")
+                )
                 surface_colors_by_owner_id[obj.entity_id] = str(
-                    obj.parameters.get("body_color", "#B9C2CC")
+                    obj.parameters.get("body_color", inherited_color)
+                    if str(
+                        obj.parameters.get(
+                            "body_color_override", "false"
+                        )
+                    ).lower() == "true"
+                    else inherited_color
                 )
                 layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
             source_document = (component_documents or {}).get(obj.entity_id)

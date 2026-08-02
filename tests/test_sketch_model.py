@@ -1344,6 +1344,40 @@ class SketchModelTests(unittest.TestCase):
         self.assertEqual(symmetric["point_id"], "p2")
         self.assertEqual(symmetric["point_ids"], ["a1", "a2"])
 
+    def test_symmetric_constraint_supports_external_axis(self):
+        entities = [
+            {
+                "id": "p1",
+                "type": "point",
+                "x": -3.0,
+                "y": 2.0,
+                "constraints": [{
+                    "type": "symmetric",
+                    "point_id": "p2",
+                    "reference_id": "sketch_axis:y",
+                    "reference_origin": [0.0, 0.0],
+                    "reference_direction": [0.0, 1.0],
+                }],
+            },
+            {"id": "p2", "type": "point", "x": 4.0, "y": 1.0},
+        ]
+        model = SketchModel.from_editor_data(entities, [])
+        self.assertTrue(model.solve())
+        residuals = next(
+            model.constraint_residuals(constraint_id)
+            for constraint_id, constraint in model.constraints.items()
+            if constraint.constraint_type == "symmetric"
+        )
+        self.assertTrue(all(abs(value) < 1.0e-6 for value in residuals))
+        round_tripped, _dimensions = model.to_editor_data()
+        first = next(item for item in round_tripped if item["id"] == "p1")
+        symmetric = next(
+            item for item in first.get("constraints", ())
+            if item.get("type") == "symmetric"
+        )
+        self.assertEqual(symmetric["point_id"], "p2")
+        self.assertEqual(symmetric["reference_id"], "sketch_axis:y")
+
     def test_canonical_constraint_rejects_geometry_operand(self):
         with self.assertRaises(SketchModelError):
             SketchModel.from_dict(

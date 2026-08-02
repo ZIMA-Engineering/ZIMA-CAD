@@ -24,6 +24,7 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GeomAbs import (
+    GeomAbs_Cylinder,
     GeomAbs_Line,
     GeomAbs_Plane,
 )
@@ -6596,6 +6597,9 @@ class MainWindow(QMainWindow):
         self._sketch_circle_dimension_mode = "diameter"
         self._sketch_selected_entity_id: str | None = None
         self._sketch_selected_entity_ids: set[str] = set()
+        self._sketch_mirror_source_ids: set[str] = set()
+        self._sketch_mirror_phase = "objects"
+        self._sketch_mirror_axis: tuple[str, str] | None = None
         self._sketch_selected_corner_radius: tuple[str, str, str] | None = None
         self._sketch_selected_dimension_id: str | None = None
         self._sketch_selected_reference: tuple[str, str, int] | None = None
@@ -7220,6 +7224,16 @@ class MainWindow(QMainWindow):
                 self._toggle_sketch_reference_mode
             )
             self._mark_application_command(reference_action)
+            mirror_action = self.tools_toolbar.addAction(
+                tr("sketch.tool.mirror")
+            )
+            mirror_action.setIcon(resource_icon("sketch-mirror"))
+            mirror_action.setCheckable(True)
+            mirror_action.setChecked(self._sketch_tool == "mirror")
+            mirror_action.triggered.connect(
+                lambda: self._set_sketch_tool("mirror")
+            )
+            self._mark_application_command(mirror_action)
             self.tools_toolbar.addSeparator()
             for tool, text_key, icon_name in (
                 (
@@ -10165,18 +10179,53 @@ class MainWindow(QMainWindow):
         rename_action.triggered.connect(self.rename_document_file)
 
         self.delete_file_menu = file_menu.addMenu(tr("menu.file.delete"))
-        self.delete_old_versions_action = self.delete_file_menu.addAction(
-            tr("menu.file.delete.old_versions")
+        self.delete_current_file_action = self.delete_file_menu.addAction(
+            tr("menu.file.delete.current_file")
         )
-        self.delete_old_versions_action.setIcon(resource_icon("delete"))
-        self.delete_old_versions_action.triggered.connect(
-            self.delete_old_file_versions
+        self.delete_current_file_action.setIcon(resource_icon("delete"))
+        self.delete_current_file_action.triggered.connect(
+            self.delete_current_document_file
         )
         self.delete_all_versions_action = self.delete_file_menu.addAction(
-            tr("menu.file.delete.all_versions")
+            tr("menu.file.delete.current_file_and_versions")
         )
         self.delete_all_versions_action.triggered.connect(
             self.delete_all_file_versions
+        )
+        self.delete_file_menu.addSeparator()
+        self.delete_old_versions_action = self.delete_file_menu.addAction(
+            tr("menu.file.delete.old_versions")
+        )
+        self.delete_old_versions_action.triggered.connect(
+            self.delete_old_file_versions
+        )
+        self.delete_old_versions_keep_latest_action = (
+            self.delete_file_menu.addAction(
+                tr("menu.file.delete.old_versions_keep_latest")
+            )
+        )
+        self.delete_old_versions_keep_latest_action.triggered.connect(
+            self.delete_old_file_versions_keep_latest
+        )
+        self.delete_file_menu.addSeparator()
+        self.delete_working_directory_menu = self.delete_file_menu.addMenu(
+            tr("menu.file.delete.working_directory")
+        )
+        self.delete_working_directory_old_versions_action = (
+            self.delete_working_directory_menu.addAction(
+                tr("menu.file.delete.working_directory_old_versions")
+            )
+        )
+        self.delete_working_directory_old_versions_action.triggered.connect(
+            self.delete_working_directory_old_versions
+        )
+        self.delete_working_directory_keep_latest_action = (
+            self.delete_working_directory_menu.addAction(
+                tr("menu.file.delete.working_directory_keep_latest")
+            )
+        )
+        self.delete_working_directory_keep_latest_action.triggered.connect(
+            self.delete_working_directory_old_versions_keep_latest
         )
         self.delete_file_menu.aboutToShow.connect(
             self._refresh_delete_file_actions
@@ -10355,8 +10404,22 @@ class MainWindow(QMainWindow):
             elif self.document.document_settings.get("type") == "assembly":
                 selected = self._selected_object()
                 if selected is not None and selected.container_type == ContainerType.COMPONENT:
+                    source_document = self._component_source_document(selected)
+                    inherited_color = (
+                        source_document.document_settings.get(
+                            "body_color", "#B9C2CC"
+                        )
+                        if source_document is not None
+                        else selected.parameters.get(
+                            "body_color", "#B9C2CC"
+                        )
+                    )
                     initial_color = QColor(str(
-                        selected.parameters.get("body_color", "#B9C2CC")
+                        selected.parameters.get("body_color", inherited_color)
+                        if str(selected.parameters.get(
+                            "body_color_override", "false"
+                        )).lower() == "true"
+                        else inherited_color
                     ))
             else:
                 initial_color = QColor(str(
@@ -10374,6 +10437,20 @@ class MainWindow(QMainWindow):
         self._set_body_color(color)
 
     def _reset_body_color(self) -> None:
+        if (
+            self.document is not None
+            and self._active_component_return_document is None
+            and self.document.document_settings.get("type") == "assembly"
+        ):
+            component = self._selected_object()
+            if (
+                component is not None
+                and component.container_type == ContainerType.COMPONENT
+            ):
+                component.parameters.pop("body_color_override", None)
+                self._mark_model_for_regeneration()
+                self.rebuild_view(fit=False, rebuild_geometry=False)
+                return
         self._set_body_color("#B9C2CC")
 
     def _set_body_color(self, color: QColor | str) -> None:
@@ -10399,6 +10476,7 @@ class MainWindow(QMainWindow):
             if component is None or component.container_type != ContainerType.COMPONENT:
                 return
             component.parameters["body_color"] = color.name()
+            component.parameters["body_color_override"] = "true"
         else:
             self.document.document_settings["body_color"] = color.name()
             if self.current_file_path is not None:
@@ -11132,6 +11210,8 @@ class MainWindow(QMainWindow):
                         )
                         item.addChild(constraint_item)
             self.tree.addTopLevelItem(item)
+            if entity_id in self._sketch_selected_entity_ids:
+                item.setSelected(True)
             if entity_id == self._sketch_selected_entity_id:
                 selected_item = item
         dimension_counts: dict[str, int] = {}
@@ -11891,6 +11971,57 @@ class MainWindow(QMainWindow):
                     archives.append((int(suffix), candidate))
         return [path for _version, path in sorted(archives)]
 
+    @staticmethod
+    def _working_directory_archive_groups(
+        directory: Path,
+    ) -> dict[Path, list[Path]]:
+        groups: dict[Path, list[tuple[int, Path]]] = {}
+        if not directory.is_dir():
+            return {}
+        for candidate in directory.iterdir():
+            if not candidate.is_file():
+                continue
+            numeric_suffix = candidate.suffix.removeprefix(".")
+            if not numeric_suffix.isdigit():
+                continue
+            document_path = candidate.with_suffix("")
+            if document_path.suffix.lower() not in (
+                ".prtz", ".asmz", ".drwz"
+            ):
+                continue
+            groups.setdefault(document_path, []).append(
+                (int(numeric_suffix), candidate)
+            )
+        return {
+            document_path: [
+                path for _version, path in sorted(archives)
+            ]
+            for document_path, archives in groups.items()
+        }
+
+    @staticmethod
+    def _paths_total_size(paths) -> int:
+        total = 0
+        for path in paths:
+            try:
+                total += path.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    @staticmethod
+    def _format_file_size(size: int) -> str:
+        value = float(max(0, size))
+        for unit in ("B", "kB", "MB", "GB"):
+            if value < 1000.0 or unit == "GB":
+                return (
+                    f"{value:.0f} {unit}"
+                    if unit == "B"
+                    else f"{value:.1f} {unit}"
+                )
+            value /= 1000.0
+        return f"{value:.1f} GB"
+
     def _refresh_delete_file_actions(self) -> None:
         target = (
             canonical_document_path(self.current_file_path)
@@ -11908,7 +12039,178 @@ class MainWindow(QMainWindow):
             else []
         )
         self.delete_old_versions_action.setEnabled(bool(archives))
+        self.delete_old_versions_keep_latest_action.setEnabled(
+            len(archives) > 1
+        )
+        self.delete_current_file_action.setEnabled(has_saved_document)
         self.delete_all_versions_action.setEnabled(has_saved_document)
+        has_working_directory = self.working_directory.is_dir()
+        self.delete_working_directory_old_versions_action.setEnabled(
+            has_working_directory
+        )
+        self.delete_working_directory_keep_latest_action.setEnabled(
+            has_working_directory
+        )
+
+    def _delete_working_directory_archives(
+        self,
+        *,
+        keep_latest: bool,
+    ) -> None:
+        directory = self.working_directory.resolve()
+        groups = self._working_directory_archive_groups(directory)
+        paths = [
+            path
+            for archives in groups.values()
+            for path in (archives[:-1] if keep_latest else archives)
+        ]
+        affected_documents = sum(
+            1
+            for archives in groups.values()
+            if archives and (not keep_latest or len(archives) > 1)
+        )
+        if not paths:
+            QMessageBox.information(
+                self,
+                tr("menu.file.delete.working_directory"),
+                tr(
+                    "message.delete.working_directory.none",
+                    directory=str(directory),
+                ),
+            )
+            return
+        total_size = self._format_file_size(
+            self._paths_total_size(paths)
+        )
+        message_key = (
+            "message.delete.working_directory_keep_latest.confirm"
+            if keep_latest
+            else "message.delete.working_directory_old_versions.confirm"
+        )
+        answer = QMessageBox.warning(
+            self,
+            tr("menu.file.delete.working_directory"),
+            tr(
+                message_key,
+                count=len(paths),
+                documents=affected_documents,
+                size=total_size,
+                directory=str(directory),
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            for path in paths:
+                path.unlink()
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.delete.failed"),
+                str(exc),
+            )
+            return
+        self.statusBar().showMessage(
+            tr(
+                "status.delete.working_directory_versions",
+                count=len(paths),
+                size=total_size,
+                directory=str(directory),
+            ),
+            5000,
+        )
+
+    def delete_working_directory_old_versions(self) -> None:
+        self._delete_working_directory_archives(keep_latest=False)
+
+    def delete_working_directory_old_versions_keep_latest(self) -> None:
+        self._delete_working_directory_archives(keep_latest=True)
+
+    def delete_current_document_file(self) -> None:
+        if self.current_file_path is None:
+            return
+        target = canonical_document_path(self.current_file_path)
+        if not target.is_file():
+            return
+        answer = QMessageBox.warning(
+            self,
+            tr("menu.file.delete.current_file"),
+            tr(
+                "message.delete.current_file.confirm",
+                file=target.name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            target.unlink()
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.delete.failed"),
+                str(exc),
+            )
+            return
+        deleted_name = target.name
+        self.close_document_tab(self.active_document_index)
+        self.statusBar().showMessage(
+            tr("status.delete.current_file", file=deleted_name),
+            5000,
+        )
+
+    def delete_old_file_versions_keep_latest(self) -> None:
+        if self.current_file_path is None:
+            return
+        target = canonical_document_path(self.current_file_path)
+        archives = self._document_archive_paths(target)
+        paths_to_delete = archives[:-1]
+        if not paths_to_delete:
+            QMessageBox.information(
+                self,
+                tr("menu.file.delete.old_versions_keep_latest"),
+                tr(
+                    "message.delete.no_versions_before_latest",
+                    file=target.name,
+                ),
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            tr("menu.file.delete.old_versions_keep_latest"),
+            tr(
+                "message.delete.old_versions_keep_latest.confirm",
+                count=len(paths_to_delete),
+                file=target.name,
+                latest=archives[-1].name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            for archive in paths_to_delete:
+                archive.unlink()
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.delete.failed"),
+                str(exc),
+            )
+            return
+        self.statusBar().showMessage(
+            tr(
+                "status.delete.old_versions_keep_latest",
+                count=len(paths_to_delete),
+                file=target.name,
+                latest=archives[-1].name,
+            ),
+            5000,
+        )
 
     def delete_old_file_versions(self) -> None:
         if self.current_file_path is None:
@@ -11966,7 +12268,7 @@ class MainWindow(QMainWindow):
         ]
         answer = QMessageBox.warning(
             self,
-            tr("menu.file.delete.all_versions"),
+            tr("menu.file.delete.current_file_and_versions"),
             tr(
                 "message.delete.all_versions.confirm",
                 count=len(existing_paths),
@@ -13624,6 +13926,30 @@ class MainWindow(QMainWindow):
             self.selected_object_id = None
             self._view_selection_confirmed = False
         else:
+            sketch_entity_ids = {
+                str(entity_id)
+                for selected_item in selected
+                if selected_item.data(
+                    0, HistoryTreeWidget.SKETCH_CONSTRAINT_ROLE
+                ) is None
+                and selected_item.data(
+                    0, HistoryTreeWidget.SKETCH_GEOMETRY_CONSTRAINT_ROLE
+                ) is None
+                for entity_id in (
+                    selected_item.data(
+                        0, HistoryTreeWidget.SKETCH_ENTITY_ROLE
+                    ),
+                )
+                if entity_id is not None
+            }
+            if (
+                self._sketch_edit_entity_id is not None
+                and len(sketch_entity_ids) > 1
+            ):
+                if self._sketch_tool not in ("select", "mirror"):
+                    self._set_sketch_tool("select")
+                self._select_sketch_entities(sketch_entity_ids)
+                return
             sketch_dimension_id = selected[0].data(
                 0,
                 HistoryTreeWidget.SKETCH_DIMENSION_ROLE,
@@ -13684,6 +14010,14 @@ class MainWindow(QMainWindow):
                 self._sketch_edit_entity_id is not None
                 and external_reference_id is not None
             ):
+                if (
+                    self._sketch_tool == "mirror"
+                    and self._sketch_mirror_phase == "axis"
+                ):
+                    self._select_sketch_mirror_axis(
+                        "reference", str(external_reference_id)
+                    )
+                    return
                 self._select_sketch_external_reference(
                     str(external_reference_id)
                 )
@@ -13697,6 +14031,21 @@ class MainWindow(QMainWindow):
                 and isinstance(sketch_reference, tuple)
                 and len(sketch_reference) == 3
             ):
+                if (
+                    self._sketch_tool == "mirror"
+                    and self._sketch_mirror_phase == "axis"
+                    and str(sketch_reference[0]) == "edge"
+                    and int(sketch_reference[2]) in (1, 2)
+                ):
+                    self._select_sketch_mirror_axis(
+                        "reference",
+                        (
+                            "sketch_axis:x"
+                            if int(sketch_reference[2]) == 1
+                            else "sketch_axis:y"
+                        ),
+                    )
+                    return
                 self._select_sketch_reference(
                     str(sketch_reference[0]),
                     str(sketch_reference[1]),
@@ -14363,6 +14712,38 @@ class MainWindow(QMainWindow):
                 self.tree.clearSelection()
                 self.tree.setCurrentItem(item)
         if self._sketch_edit_entity_id is not None:
+            selected_sketch_entity_ids = {
+                str(entity_id)
+                for selected_item in self.tree.selectedItems()
+                if selected_item.data(
+                    0, HistoryTreeWidget.SKETCH_CONSTRAINT_ROLE
+                ) is None
+                and selected_item.data(
+                    0, HistoryTreeWidget.SKETCH_GEOMETRY_CONSTRAINT_ROLE
+                ) is None
+                for entity_id in (
+                    selected_item.data(
+                        0, HistoryTreeWidget.SKETCH_ENTITY_ROLE
+                    ),
+                )
+                if entity_id is not None
+            }
+            if len(selected_sketch_entity_ids) > 1:
+                menu = QMenu(self)
+                delete_action = menu.addAction(
+                    resource_icon("delete"),
+                    tr("menu.context.delete_selected"),
+                )
+                action = menu.exec(
+                    self.tree.viewport().mapToGlobal(position)
+                )
+                if action == delete_action:
+                    self._sketch_selected_entity_ids = set(
+                        selected_sketch_entity_ids
+                    )
+                    self._sketch_selected_entity_id = None
+                    self._delete_selected_sketch_entity()
+                return
             if sketch_dimension_id is not None:
                 sketch = self.document.find_entity(
                     self._sketch_edit_entity_id
@@ -14466,7 +14847,7 @@ class MainWindow(QMainWindow):
                     if sketch is not None
                     else None
                 )
-                if entity is not None and entity.get("type") != "point":
+                if entity is not None:
                     menu = QMenu(self)
                     line_action = None
                     if entity.get("type") in ("segment", "construction"):
@@ -14488,6 +14869,12 @@ class MainWindow(QMainWindow):
                                 else "menu.context.to_auxiliary"
                             ),
                         )
+                    if line_action is not None or role_action is not None:
+                        menu.addSeparator()
+                    delete_action = menu.addAction(
+                        resource_icon("delete"),
+                        tr("sketch.command.delete"),
+                    )
                     action = menu.exec(
                         self.tree.viewport().mapToGlobal(position)
                     )
@@ -14499,6 +14886,12 @@ class MainWindow(QMainWindow):
                         self._toggle_sketch_geometry_role(
                             str(sketch_entity_id)
                         )
+                    elif action == delete_action:
+                        self._sketch_selected_entity_ids.clear()
+                        self._sketch_selected_entity_id = str(
+                            sketch_entity_id
+                        )
+                        self._delete_selected_sketch_entity()
                     return
             if sketch_external_reference_id is None:
                 return
@@ -16708,6 +17101,10 @@ class MainWindow(QMainWindow):
                 if source_frame is None or target_frame is None:
                     continue
                 mate_type = str(row.get("type", "plane"))
+                # Axis coincidence has no editable scalar value.  Do not
+                # manufacture a locked diameter-zero dimension for it.
+                if mate_type == "axis":
+                    continue
                 vertex = np.array(target_frame[0], dtype=float)
                 first_direction = np.array(source_frame[1], dtype=float)
                 second_direction = np.array(target_frame[1], dtype=float)
@@ -16721,27 +17118,21 @@ class MainWindow(QMainWindow):
                     source_point = np.array(source_frame[0], dtype=float)
                     target_point = np.array(target_frame[0], dtype=float)
                     direction = second_direction
-                    if mate_type == "axis":
-                        delta = source_point - target_point
-                        delta -= direction * (delta @ direction)
-                        if np.linalg.norm(delta) > 1.0e-9:
-                            direction = delta / np.linalg.norm(delta)
-                        else:
-                            trial = np.array((1.0, 0.0, 0.0))
-                            if abs(direction @ trial) > 0.9:
-                                trial = np.array((0.0, 1.0, 0.0))
-                            direction = np.cross(direction, trial)
-                            direction /= np.linalg.norm(direction)
                     trial = np.array((1.0, 0.0, 0.0))
                     if abs(direction @ trial) > 0.9:
                         trial = np.array((0.0, 1.0, 0.0))
                     side = np.cross(direction, trial)
                     side /= np.linalg.norm(side)
-                    display_second = source_point
-                    if np.linalg.norm(display_second - target_point) <= 1.0e-6:
-                        display_second = target_point + direction * max(
-                            2.0, radius * 0.12
-                        )
+                    # Plane centers commonly differ in their tangential
+                    # coordinates.  A symbolic plane-to-plane dimension must
+                    # nevertheless be normal to the planes, so project the
+                    # source center onto the normal through the target.
+                    normal_distance = float(
+                        (source_point - target_point) @ direction
+                    )
+                    display_second = (
+                        target_point + direction * normal_distance
+                    )
                     dimension = LinearDimension(
                         key=f"assembly_mate_{mate_type}:{index}",
                         first_point=tuple(float(value) for value in target_point),
@@ -16753,13 +17144,8 @@ class MainWindow(QMainWindow):
                             float(value) for value in (display_second + side * radius)
                         ),
                         direction=tuple(float(value) for value in direction),
-                        value_prefix="⌀ " if mate_type == "axis" else "",
-                        value_suffix=" mm",
-                        display_text=(
-                            "0"
-                            if mate_type == "axis"
-                            else f"{float(row.get('offset', 0.0)):.3f}"
-                        ),
+                        value_prefix="",
+                        value_suffix="",
                     )
                     dimensions.append(dimension)
                     dimension_bindings.append((dimension, index, mate_type))
@@ -16801,13 +17187,10 @@ class MainWindow(QMainWindow):
                     dimension,
                     dialog.rows[row_index][3].value(),
                 )
-                if mate_type == "axis":
-                    overlay.set_locked(True)
-                else:
-                    overlay.valueCommitted.connect(
-                        lambda raw_value, index=row_index:
-                        commit_mate_value(index, raw_value)
-                    )
+                overlay.valueCommitted.connect(
+                    lambda raw_value, index=row_index:
+                    commit_mate_value(index, raw_value)
+                )
                 overlay.selected.connect(
                     lambda key=dimension.key:
                     self._select_dimension_overlay(key)
@@ -17797,6 +18180,9 @@ class MainWindow(QMainWindow):
         )
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
+        self._sketch_mirror_source_ids.clear()
+        self._sketch_mirror_axis = None
+        self._sketch_mirror_phase = "objects"
         self._sketch_selected_corner_radius = None
         self._sketch_selected_reference = None
         self._mark_model_for_regeneration()
@@ -17974,7 +18360,7 @@ class MainWindow(QMainWindow):
         if geometry is None:
             return None
         geometry_type = geometry.get("type")
-        if geometry_type in ("line", "lines", "point"):
+        if geometry_type in ("line", "lines", "point", "axis_point"):
             return geometry
 
         def infinite_line(raw_points) -> dict[str, Any] | None:
@@ -18006,8 +18392,34 @@ class MainWindow(QMainWindow):
                 "direction": [dx / length, dy / length],
             }
 
+        def line_or_curve(raw_points) -> dict[str, Any] | None:
+            if not isinstance(raw_points, (list, tuple)):
+                return None
+            points = [
+                [float(point[0]), float(point[1])]
+                for point in raw_points
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
+            if len(points) < 2:
+                return None
+            first, last = points[0], points[-1]
+            dx, dy = last[0] - first[0], last[1] - first[1]
+            length = math.hypot(dx, dy)
+            curved = length <= 1.0e-10 or any(
+                abs(
+                    dx * (point[1] - first[1])
+                    - dy * (point[0] - first[0])
+                ) > max(1.0, length) * 1.0e-7
+                for point in points[1:-1]
+            )
+            return (
+                {"type": "polyline", "points": points}
+                if curved
+                else infinite_line(points)
+            )
+
         if geometry_type == "polyline":
-            return infinite_line(geometry.get("points", ()))
+            return line_or_curve(geometry.get("points", ()))
         if geometry_type == "polylines":
             lines = [
                 line
@@ -18064,6 +18476,27 @@ class MainWindow(QMainWindow):
                     local_direction[0] / length,
                     local_direction[1] / length,
                 ],
+            }
+
+        def projected_axis(point, direction):
+            denominator = sum(
+                float(direction[index]) * sketch_normal[index]
+                for index in range(3)
+            )
+            if abs(denominator) <= 1.0e-9:
+                return projected_line(point, direction)
+            factor = sum(
+                (sketch_origin[index] - float(point[index]))
+                * sketch_normal[index]
+                for index in range(3)
+            ) / denominator
+            intersection = tuple(
+                float(point[index]) + factor * float(direction[index])
+                for index in range(3)
+            )
+            return {
+                "type": "axis_point",
+                "point": list(local_point(intersection)),
             }
 
         source_kind = str(descriptor.get("source_kind", ""))
@@ -18126,7 +18559,7 @@ class MainWindow(QMainWindow):
                     str(coordinate_entity.parameters.get("axis", "z")),
                     (0.0, 0.0, 1.0),
                 )
-                return projected_line(
+                return projected_axis(
                     self._reference_origin(coordinate_entity),
                     self._reference_direction(
                         coordinate_entity,
@@ -18176,6 +18609,102 @@ class MainWindow(QMainWindow):
                 ),
             }
         if source_kind == "face":
+            surface = BRepAdaptor_Surface(shape)
+            if surface.GetType() == GeomAbs_Cylinder:
+                cylinder = surface.Cylinder()
+                cylinder_axis = cylinder.Axis()
+                location = cylinder_axis.Location()
+                direction = cylinder_axis.Direction()
+                axis_point = (location.X(), location.Y(), location.Z())
+                axis_direction = (
+                    direction.X(), direction.Y(), direction.Z()
+                )
+                radius = float(cylinder.Radius())
+                denominator = sum(
+                    axis_direction[index] * sketch_normal[index]
+                    for index in range(3)
+                )
+                if abs(denominator) <= 1.0e-8:
+                    signed_distance = sum(
+                        (axis_point[index] - sketch_origin[index])
+                        * sketch_normal[index]
+                        for index in range(3)
+                    )
+                    if abs(signed_distance) > radius + 1.0e-8:
+                        return None
+                    projected_origin = tuple(
+                        axis_point[index]
+                        - signed_distance * sketch_normal[index]
+                        for index in range(3)
+                    )
+                    side = self._normalized_vector(
+                        self._cross_product(
+                            sketch_normal,
+                            axis_direction,
+                        )
+                    )
+                    offset = math.sqrt(max(
+                        0.0,
+                        radius * radius
+                        - signed_distance * signed_distance,
+                    ))
+                    lines = [
+                        projected_line(
+                            tuple(
+                                projected_origin[index]
+                                + sign * offset * side[index]
+                                for index in range(3)
+                            ),
+                            axis_direction,
+                        )
+                        for sign in (-1.0, 1.0)
+                    ]
+                    lines = [line for line in lines if line is not None]
+                    if not lines:
+                        return None
+                    return (
+                        lines[0]
+                        if len(lines) == 1 or offset <= 1.0e-9
+                        else {"type": "lines", "lines": lines}
+                    )
+
+                trial = (
+                    (1.0, 0.0, 0.0)
+                    if abs(axis_direction[0]) < 0.9
+                    else (0.0, 1.0, 0.0)
+                )
+                radial_x = self._normalized_vector(
+                    self._cross_product(axis_direction, trial)
+                )
+                radial_y = self._normalized_vector(
+                    self._cross_product(axis_direction, radial_x)
+                )
+                points = []
+                for sample in range(65):
+                    angle = math.tau * sample / 64.0
+                    radial = tuple(
+                        radius * (
+                            radial_x[index] * math.cos(angle)
+                            + radial_y[index] * math.sin(angle)
+                        )
+                        for index in range(3)
+                    )
+                    surface_point = tuple(
+                        axis_point[index] + radial[index]
+                        for index in range(3)
+                    )
+                    factor = sum(
+                        (sketch_origin[index] - surface_point[index])
+                        * sketch_normal[index]
+                        for index in range(3)
+                    ) / denominator
+                    intersection = tuple(
+                        surface_point[index]
+                        + factor * axis_direction[index]
+                        for index in range(3)
+                    )
+                    points.append(list(local_point(intersection)))
+                return {"type": "polyline", "points": points}
             polylines = []
             explorer = TopExp_Explorer(shape, TopAbs_EDGE)
             seen_edges = []
@@ -18408,7 +18937,7 @@ class MainWindow(QMainWindow):
                 )
                 if (
                     isinstance(geometry, dict)
-                    and geometry.get("type") == "point"
+                    and geometry.get("type") in ("point", "axis_point")
                 ):
                     locked.update(("x", "y"))
                 line = self._sketch_reference_constraint_line(
@@ -19358,6 +19887,28 @@ class MainWindow(QMainWindow):
             return None
         if geometry.get("type") == "line":
             return geometry
+        if geometry.get("type") == "polyline":
+            points = geometry.get("points", ())
+            if not isinstance(points, (list, tuple)):
+                return None
+            lines = []
+            for first, second in zip(points, points[1:]):
+                if not (
+                    isinstance(first, (list, tuple))
+                    and isinstance(second, (list, tuple))
+                    and len(first) >= 2
+                    and len(second) >= 2
+                ):
+                    continue
+                lines.append({
+                    "point": [float(first[0]), float(first[1])],
+                    "direction": [
+                        float(second[0]) - float(first[0]),
+                        float(second[1]) - float(first[1]),
+                    ],
+                    "bounded": True,
+                })
+            geometry = {"type": "lines", "lines": lines}
         if geometry.get("type") != "lines":
             return None
         raw_lines = geometry.get("lines", ())
@@ -19514,7 +20065,7 @@ class MainWindow(QMainWindow):
             if not isinstance(geometry, dict):
                 continue
             geometry_type = geometry.get("type")
-            if geometry_type == "point":
+            if geometry_type in ("point", "axis_point"):
                 raw_point = geometry.get("point")
                 if (
                     isinstance(raw_point, (list, tuple))
@@ -19527,7 +20078,13 @@ class MainWindow(QMainWindow):
                     constraint,
                     (x, y),
                 )
-                projected = project_to_line(line)
+                projected = project_to_line(
+                    line,
+                    bounded=(
+                        isinstance(line, dict)
+                        and bool(line.get("bounded", False))
+                    ),
+                )
                 if projected is not None:
                     x, y = projected
         point["x"] = x
@@ -19751,6 +20308,9 @@ class MainWindow(QMainWindow):
         self._sketch_circle_dimension_mode = "diameter"
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
+        self._sketch_mirror_source_ids.clear()
+        self._sketch_mirror_axis = None
+        self._sketch_mirror_phase = "objects"
         self._sketch_selected_corner_radius = None
         self._sketch_selected_dimension_id = None
         self._sketch_selected_reference = None
@@ -19805,7 +20365,7 @@ class MainWindow(QMainWindow):
         if self._sketch_edit_entity_id is None:
             return
         previous_tool = self._sketch_tool
-        if tool != "select":
+        if tool not in ("select", "mirror"):
             self._sketch_selected_entity_ids.clear()
         if self._sketch_reference_mode:
             self._set_sketch_reference_mode(False)
@@ -19819,6 +20379,19 @@ class MainWindow(QMainWindow):
         ):
             self._commit_pending_sketch_entity()
         self._sketch_tool = tool
+        if tool == "mirror":
+            if self._sketch_selected_entity_id is not None:
+                self._sketch_selected_entity_ids.add(
+                    self._sketch_selected_entity_id
+                )
+                self._sketch_selected_entity_id = None
+            self._sketch_mirror_source_ids = set(
+                self._sketch_selected_entity_ids
+            )
+            self._sketch_mirror_phase = (
+                "axis" if self._sketch_mirror_source_ids else "objects"
+            )
+            self._sketch_mirror_axis = None
         self._sketch_pending_points.clear()
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
@@ -19861,6 +20434,14 @@ class MainWindow(QMainWindow):
             self._sketch_selected_entity_id = None
         self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
+        if tool == "mirror":
+            self.statusBar().showMessage(
+                tr(
+                    "sketch.status.mirror.select_axis"
+                    if self._sketch_mirror_phase == "axis"
+                    else "sketch.status.mirror.select_objects"
+                )
+            )
 
     def _set_sketch_constraint_tool(self, constraint: str) -> None:
         if (
@@ -20030,6 +20611,12 @@ class MainWindow(QMainWindow):
         self,
         reference_id: str,
     ) -> None:
+        if self._sketch_tool == "mirror" and reference_id:
+            if self._sketch_mirror_phase == "axis":
+                self._select_sketch_mirror_axis(
+                    "reference", reference_id
+                )
+            return
         if (
             self._sketch_tool == "dimension"
             and reference_id in ("sketch_axis:x", "sketch_axis:y")
@@ -21058,6 +21645,24 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_tool == "select":
             return
+        if self._sketch_tool == "mirror":
+            if self._sketch_mirror_phase == "objects":
+                if not self._sketch_selected_entity_ids:
+                    return
+                self._sketch_mirror_source_ids = set(
+                    self._sketch_selected_entity_ids
+                )
+                self._sketch_mirror_phase = "axis"
+                self._sketch_selected_entity_ids.clear()
+                self._sketch_selected_entity_id = None
+                self._refresh_sketch_overlay()
+                self.statusBar().showMessage(
+                    tr("sketch.status.mirror.select_axis")
+                )
+                return
+            if self._sketch_mirror_axis is not None:
+                self._apply_sketch_mirror()
+            return
         if self._sketch_tool == "dimension":
             self._commit_unified_dimension()
             return
@@ -21093,6 +21698,9 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
         self._sketch_dimension_first_point_id = None
+        self._sketch_mirror_source_ids.clear()
+        self._sketch_mirror_axis = None
+        self._sketch_mirror_phase = "objects"
         self._set_sketch_tool("select")
 
     def _clear_tree_selection_from_sketch_view(self) -> None:
@@ -21119,7 +21727,7 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_selection()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
-        self._refresh_sketch_overlay(populate_tree=False)
+        self._refresh_sketch_overlay()
         if not self._sketch_show_all_dimensions:
             self._clear_dimension_overlays()
         elif (
@@ -21165,6 +21773,15 @@ class MainWindow(QMainWindow):
         self.rebuild_view(fit=False)
 
     def _select_sketch_entity(self, entity_id: str) -> None:
+        if self._sketch_tool == "mirror":
+            if self._sketch_mirror_phase == "objects":
+                self._sketch_selected_entity_ids = {entity_id}
+                self._sketch_selected_entity_id = None
+                self._refresh_sketch_overlay()
+                self._rebuild_application_toolbar()
+            else:
+                self._select_sketch_mirror_axis("geometry", entity_id)
+            return
         self._sketch_selected_entity_ids.clear()
         self._sketch_selected_corner_radius = None
         self._sketch_selected_dimension_id = None
@@ -21255,11 +21872,15 @@ class MainWindow(QMainWindow):
             self._clear_dimension_overlays()
         self._rebuild_application_toolbar()
 
-    def _select_sketch_entities(self, entity_ids: object) -> None:
+    def _select_sketch_entities(
+        self,
+        entity_ids: object,
+        additive: bool = False,
+    ) -> None:
         if (
             self.document is None
             or self._sketch_edit_entity_id is None
-            or self._sketch_tool != "select"
+            or self._sketch_tool not in ("select", "mirror")
         ):
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
@@ -21268,21 +21889,37 @@ class MainWindow(QMainWindow):
         selectable_ids = {
             str(entity.get("id", ""))
             for entity in self._stored_sketch_entities(sketch)
-            if entity.get("type") != "construction"
-            and entity.get("role") != "construction"
+            if str(entity.get("id", ""))
         }
         requested_ids = (
             {str(entity_id) for entity_id in entity_ids}
             if isinstance(entity_ids, (list, tuple, set, frozenset))
             else set()
         )
-        self._sketch_selected_entity_ids = requested_ids & selectable_ids
+        requested_ids &= selectable_ids
+        if (
+            self._sketch_tool == "mirror"
+            and self._sketch_mirror_phase == "axis"
+        ):
+            if len(requested_ids) == 1:
+                self._select_sketch_mirror_axis(
+                    "geometry", next(iter(requested_ids))
+                )
+            else:
+                self.statusBar().showMessage(
+                    tr("sketch.status.mirror.axis_required")
+                )
+            return
+        if additive:
+            self._sketch_selected_entity_ids ^= requested_ids
+        else:
+            self._sketch_selected_entity_ids = requested_ids
         self._sketch_selected_corner_radius = None
         self._sketch_selected_entity_id = None
         self._sketch_selected_dimension_id = None
         self._sketch_selected_reference = None
         self._sketch_selected_external_reference_id = None
-        self._refresh_sketch_overlay(populate_tree=False)
+        self._refresh_sketch_overlay()
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
         else:
@@ -21293,18 +21930,28 @@ class MainWindow(QMainWindow):
         if (
             self.document is None
             or self._sketch_edit_entity_id is None
-            or self._sketch_tool != "select"
+            or self._sketch_tool not in ("select", "mirror")
         ):
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
+            return
+        if (
+            self._sketch_tool == "mirror"
+            and self._sketch_mirror_phase == "axis"
+        ):
+            self._select_sketch_mirror_axis("geometry", entity_id)
             return
         entity = next(
             (
                 candidate
                 for candidate in self._stored_sketch_entities(sketch)
                 if str(candidate.get("id", "")) == entity_id
-                and candidate.get("type") == "segment"
+                and candidate.get("type")
+                in (
+                    "point", "segment", "construction",
+                    "circle", "arc", "spline",
+                )
             ),
             None,
         )
@@ -21319,12 +21966,266 @@ class MainWindow(QMainWindow):
             self._sketch_selected_entity_ids.remove(entity_id)
         else:
             self._sketch_selected_entity_ids.add(entity_id)
-        self._sketch_selected_entity_ids = set(
-            sorted(self._sketch_selected_entity_ids)[-2:]
-        )
         self._sketch_selected_corner_radius = None
-        self._refresh_sketch_overlay(populate_tree=False)
+        self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
+
+    def _select_sketch_mirror_axis(
+        self,
+        axis_kind: str,
+        axis_id: str,
+    ) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_tool != "mirror"
+            or self._sketch_mirror_phase != "axis"
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        line = self._sketch_mirror_axis_line(
+            sketch, axis_kind, axis_id
+        )
+        if line is None:
+            self.statusBar().showMessage(
+                tr("sketch.status.mirror.axis_required")
+            )
+            return
+        self._sketch_mirror_axis = (axis_kind, axis_id)
+        self._sketch_selected_entity_id = (
+            axis_id if axis_kind == "geometry" else None
+        )
+        self._sketch_selected_external_reference_id = (
+            axis_id
+            if axis_kind == "reference"
+            and axis_id not in ("sketch_axis:x", "sketch_axis:y")
+            else None
+        )
+        self._sketch_selected_entity_ids.clear()
+        self._refresh_sketch_overlay(populate_tree=False)
+        self.statusBar().showMessage(
+            tr("sketch.status.mirror.confirm_axis")
+        )
+
+    def _sketch_mirror_axis_line(
+        self,
+        sketch: ZimaEntity,
+        axis_kind: str,
+        axis_id: str,
+    ) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        if axis_kind == "reference":
+            if axis_id == "sketch_axis:x":
+                return (0.0, 0.0), (1.0, 0.0)
+            if axis_id == "sketch_axis:y":
+                return (0.0, 0.0), (0.0, 1.0)
+            resolved = next(
+                (
+                    item
+                    for item in self._resolved_sketch_external_references(
+                        sketch
+                    )
+                    if str(item.get("id", "")) == axis_id
+                ),
+                None,
+            )
+            geometry = (
+                resolved.get("geometry")
+                if isinstance(resolved, dict)
+                else None
+            )
+            if not isinstance(geometry, dict):
+                return None
+            if geometry.get("type") == "line":
+                raw_line = geometry
+            elif (
+                geometry.get("type") == "lines"
+                and isinstance(geometry.get("lines"), list)
+                and len(geometry["lines"]) == 1
+            ):
+                raw_line = geometry["lines"][0]
+            else:
+                return None
+            point = raw_line.get("point", ())
+            direction = raw_line.get("direction", ())
+            if not (
+                isinstance(point, (list, tuple))
+                and isinstance(direction, (list, tuple))
+                and len(point) >= 2
+                and len(direction) >= 2
+            ):
+                return None
+            return (
+                (float(point[0]), float(point[1])),
+                (float(direction[0]), float(direction[1])),
+            )
+        entities = self._stored_sketch_entities(sketch)
+        points = {
+            str(item.get("id", "")): item
+            for item in entities
+            if item.get("type") == "point"
+        }
+        geometry = next(
+            (
+                item
+                for item in entities
+                if str(item.get("id", "")) == axis_id
+                and item.get("type") in ("segment", "construction")
+            ),
+            None,
+        )
+        if geometry is None or not self._valid_sketch_line(geometry, points):
+            return None
+        point_ids = list(map(str, geometry.get("point_ids", ())))
+        first = self._sketch_point_position(points[point_ids[0]])
+        second = self._sketch_point_position(points[point_ids[1]])
+        return first, (second[0] - first[0], second[1] - first[1])
+
+    def _apply_sketch_mirror(self) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or self._sketch_mirror_axis is None
+            or not self._sketch_mirror_source_ids
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        axis = self._sketch_mirror_axis_line(
+            sketch, *self._sketch_mirror_axis
+        )
+        if axis is None:
+            return
+        axis_point, axis_direction = axis
+        length = math.hypot(*axis_direction)
+        if length <= 1.0e-12:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        by_id = {str(item.get("id", "")): item for item in entities}
+        selected_ids = set(self._sketch_mirror_source_ids)
+        if self._sketch_mirror_axis[0] == "geometry":
+            selected_ids.discard(self._sketch_mirror_axis[1])
+        geometry_sources = [
+            by_id[entity_id]
+            for entity_id in selected_ids
+            if entity_id in by_id and by_id[entity_id].get("type") != "point"
+        ]
+        point_source_ids = {
+            str(point_id)
+            for geometry in geometry_sources
+            for point_id in geometry.get("point_ids", ())
+        }
+        point_source_ids.update(
+            entity_id
+            for entity_id in selected_ids
+            if entity_id in by_id and by_id[entity_id].get("type") == "point"
+        )
+        point_id_map: dict[str, str] = {}
+        new_entities: list[dict[str, Any]] = []
+        for point_id in sorted(point_source_ids):
+            source = by_id.get(point_id)
+            if source is None or source.get("type") != "point":
+                continue
+            px, py = self._sketch_point_position(source)
+            mirrored_x, mirrored_y = self._mirrored_sketch_position(
+                (px, py), axis_point, axis_direction
+            )
+            new_id = self._next_sketch_point_id([*entities, *new_entities])
+            point_id_map[point_id] = new_id
+            copied = copy.deepcopy(source)
+            copied.update({"id": new_id, "x": mirrored_x, "y": mirrored_y})
+            for key in (
+                "constraints", "dimension_locks", "curve_attachment"
+            ):
+                copied.pop(key, None)
+            copied["locked"] = False
+            new_entities.append(copied)
+        new_geometry_ids: set[str] = set()
+        for source in geometry_sources:
+            point_ids = list(map(str, source.get("point_ids", ())))
+            if not point_ids or any(
+                point_id not in point_id_map for point_id in point_ids
+            ):
+                continue
+            new_id = self._next_sketch_geometry_id(
+                [*entities, *new_entities]
+            )
+            copied = copy.deepcopy(source)
+            copied["id"] = new_id
+            copied["point_ids"] = [point_id_map[item] for item in point_ids]
+            if copied.get("type") == "arc" and "clockwise" in copied:
+                copied["clockwise"] = not bool(copied["clockwise"])
+            for key in (
+                "constraints", "corner_radii", "dimension_visible",
+                "dimension_placement", "equal_radius_group",
+                "equal_radius_reference",
+            ):
+                copied.pop(key, None)
+            new_entities.append(copied)
+            new_geometry_ids.add(new_id)
+        if not new_entities:
+            return
+        axis_kind, axis_id = self._sketch_mirror_axis
+        axis_point_ids: list[str] = []
+        if axis_kind == "geometry":
+            axis_geometry = by_id.get(axis_id, {})
+            axis_point_ids = list(
+                map(str, axis_geometry.get("point_ids", ()))
+            )
+        for source_id, mirrored_id in point_id_map.items():
+            source = by_id[source_id]
+            constraints = source.setdefault("constraints", [])
+            if not isinstance(constraints, list):
+                constraints = []
+                source["constraints"] = constraints
+            symmetry: dict[str, Any] = {
+                "type": "symmetric",
+                "point_id": mirrored_id,
+            }
+            if len(axis_point_ids) == 2:
+                symmetry["point_ids"] = axis_point_ids
+            else:
+                symmetry.update({
+                    "reference_id": axis_id,
+                    "reference_origin": list(axis_point),
+                    "reference_direction": list(axis_direction),
+                })
+            constraints.append(symmetry)
+        entities.extend(new_entities)
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_selected_entity_ids = (
+            new_geometry_ids or set(point_id_map.values())
+        )
+        self._sketch_selected_entity_id = None
+        self._sketch_mirror_source_ids.clear()
+        self._sketch_mirror_axis = None
+        self._sketch_mirror_phase = "objects"
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self._rebuild_application_toolbar()
+        self.statusBar().showMessage(
+            tr("sketch.status.mirror.created")
+        )
+
+    @staticmethod
+    def _mirrored_sketch_position(
+        point: tuple[float, float],
+        axis_point: tuple[float, float],
+        axis_direction: tuple[float, float],
+    ) -> tuple[float, float]:
+        length = math.hypot(*axis_direction)
+        if length <= 1.0e-12:
+            return point
+        ux, uy = axis_direction[0] / length, axis_direction[1] / length
+        dx, dy = point[0] - axis_point[0], point[1] - axis_point[1]
+        projection = dx * ux + dy * uy
+        return (
+            axis_point[0] + 2.0 * projection * ux - dx,
+            axis_point[1] + 2.0 * projection * uy - dy,
+        )
 
     def _select_sketch_corner_radius(
         self,
@@ -25588,10 +26489,15 @@ class MainWindow(QMainWindow):
                     if not (
                         isinstance(constraint, dict)
                         and (
-                            (
-                                constraint.get("type") == "coincident"
-                                and str(constraint.get("point_id", ""))
-                                == selected_id
+                            str(constraint.get("point_id", ""))
+                            == selected_id
+                            or (
+                                isinstance(
+                                    constraint.get("point_ids"),
+                                    (list, tuple),
+                                )
+                                and selected_id
+                                in map(str, constraint["point_ids"])
                             )
                             or str(
                                 constraint.get("contact_point_id", "")
@@ -26056,6 +26962,7 @@ class MainWindow(QMainWindow):
             self._sketch_pending_points,
             selection_mode=self._sketch_tool in (
                 "select",
+                "mirror",
                 "horizontal",
                 "vertical",
                 "perpendicular",
@@ -27193,6 +28100,9 @@ class MainWindow(QMainWindow):
         self._sketch_selected_dimension_id = None
         self._sketch_selected_reference = None
         self._sketch_show_all_dimensions = False
+        self._sketch_mirror_source_ids.clear()
+        self._sketch_mirror_axis = None
+        self._sketch_mirror_phase = "objects"
         self._sketch_reference_mode = False
         self._sketch_selected_external_reference_id = None
         self._populate_tree()
@@ -29666,10 +30576,7 @@ class MainWindow(QMainWindow):
                     component
                 )) is not None
             }
-            if (
-                self.show_axes_action.isChecked()
-                and self.document.document_settings.get("type") == "assembly"
-            )
+            if self.document.document_settings.get("type") == "assembly"
             else None,
         )
         self.native_viewer.set_surface_colors(

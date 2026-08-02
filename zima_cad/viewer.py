@@ -8,6 +8,7 @@ from typing import Any
 
 from PySide6.QtCore import (
     QEasingCurve,
+    QLineF,
     QPoint,
     QPointF,
     QRectF,
@@ -273,7 +274,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchViewClicked = Signal()
     sketchEntitySelected = Signal(str)
     sketchEntityAdditiveSelected = Signal(str)
-    sketchEntitiesSelected = Signal(object)
+    sketchEntitiesSelected = Signal(object, bool)
     sketchCornerRadiusSelected = Signal(str, str, str)
     sketchCornerRadiusDragged = Signal(str, float, float, bool)
     sketchDimensionDragged = Signal(str, float, float, bool)
@@ -384,6 +385,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_sketch_corner_radius: tuple[str, str, str] | None = None
         self._hovered_sketch_corner_radius: tuple[str, str, str] | None = None
         self._sketch_box_start: QPointF | None = None
+        self._sketch_box_additive = False
         self._sketch_box_end: QPointF | None = None
         self._sketch_corner_drag_vertex_id: str | None = None
         self._sketch_corner_drag_moved = False
@@ -1440,8 +1442,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     else:
                         self.sketchEntitySelected.emit(selected)
                 elif not self._sketch_constraint_selection_mode:
-                        self._sketch_box_start = event.position()
-                        self._sketch_box_end = event.position()
+                    self._sketch_box_start = event.position()
+                    self._sketch_box_end = event.position()
+                    self._sketch_box_additive = bool(
+                        event.modifiers()
+                        & Qt.KeyboardModifier.ControlModifier
+                    )
                 self._preview_sketch_entity_id = None
                 self._sketch_cycle_ids = ()
                 self._sketch_cycle_index = -1
@@ -1945,7 +1951,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             selected = self._sketch_entities_in_selection_box()
             self._sketch_box_start = None
             self._sketch_box_end = None
-            self.sketchEntitiesSelected.emit(selected)
+            additive = self._sketch_box_additive
+            self._sketch_box_additive = False
+            self.sketchEntitiesSelected.emit(selected, additive)
             self.update()
             event.accept()
             return
@@ -2017,13 +2025,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if entity.get("type") == "point"
         }
         selected: list[str] = []
+        crossing_selection = (
+            self._sketch_box_end.x() < self._sketch_box_start.x()
+        )
+        rectangle_edges = (
+            QLineF(rectangle.topLeft(), rectangle.topRight()),
+            QLineF(rectangle.topRight(), rectangle.bottomRight()),
+            QLineF(rectangle.bottomRight(), rectangle.bottomLeft()),
+            QLineF(rectangle.bottomLeft(), rectangle.topLeft()),
+        )
         for entity in self._sketch_entities:
             entity_id = str(entity.get("id", ""))
             entity_type = str(entity.get("type", ""))
             if (
                 not entity_id
-                or entity_type == "construction"
-                or entity.get("role") == "construction"
             ):
                 continue
             local_points = (
@@ -2035,14 +2050,53 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     if str(point_id) in point_positions
                 ]
             )
-            if local_points and all(
-                rectangle.contains(
-                    self._screen_point(
-                        self._camera_point(self._sketch_world_point(point))
+            if entity_type == "circle" and len(local_points) == 1:
+                center = local_points[0]
+                radius = float(entity.get("radius", 0.0))
+                local_points = [
+                    (
+                        center[0] + radius * cos(2.0 * pi * index / 64.0),
+                        center[1] + radius * sin(2.0 * pi * index / 64.0),
                     )
+                    for index in range(65)
+                ]
+            elif (
+                entity_type == "arc"
+                and entity.get("arc_mode") == "center"
+                and len(local_points) >= 3
+            ):
+                local_points = list(center_arc_points(
+                    tuple(local_points[0]),
+                    tuple(local_points[1]),
+                    tuple(local_points[2]),
+                    clockwise=bool(entity.get("clockwise", False)),
+                ))
+            elif entity_type == "spline" and len(local_points) >= 2:
+                local_points = list(_interpolated_spline_points(
+                    tuple(local_points)
+                ))
+            screen_points = [
+                self._screen_point(
+                    self._camera_point(self._sketch_world_point(point))
                 )
                 for point in local_points
-            ):
+            ]
+            contained = bool(screen_points) and all(
+                rectangle.contains(point) for point in screen_points
+            )
+            crossed = crossing_selection and (
+                any(rectangle.contains(point) for point in screen_points)
+                or any(
+                    segment.intersects(edge)[0]
+                    == QLineF.IntersectionType.BoundedIntersection
+                    for first, second in zip(
+                        screen_points, screen_points[1:]
+                    )
+                    for segment in (QLineF(first, second),)
+                    for edge in rectangle_edges
+                )
+            )
+            if contained or crossed:
                 selected.append(entity_id)
         return selected
 
@@ -3349,6 +3403,37 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(reference_pen)
             painter.setBrush(QBrush(reference_color))
             geometry_type = geometry.get("type")
+            if geometry_type == "axis_point":
+                point = geometry.get("point", ())
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    center = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point(
+                                (float(point[0]), float(point[1]))
+                            )
+                        )
+                    )
+                    marker_radius = 6.0 if reference.get("selected") else 5.0
+                    painter.drawLine(
+                        QPointF(
+                            center.x() - marker_radius,
+                            center.y() - marker_radius,
+                        ),
+                        QPointF(
+                            center.x() + marker_radius,
+                            center.y() + marker_radius,
+                        ),
+                    )
+                    painter.drawLine(
+                        QPointF(
+                            center.x() - marker_radius,
+                            center.y() + marker_radius,
+                        ),
+                        QPointF(
+                            center.x() + marker_radius,
+                            center.y() - marker_radius,
+                        ),
+                    )
             if geometry_type == "line":
                 point = geometry.get("point", (0.0, 0.0))
                 direction = geometry.get("direction", (1.0, 0.0))
@@ -4092,24 +4177,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
 
         for first_id, second_id in symmetric_point_pairs:
-            first_local = point_positions.get(first_id)
-            second_local = point_positions.get(second_id)
-            if first_local is None or second_local is None:
-                continue
-            midpoint = self._screen_point(
-                self._camera_point(
-                    self._sketch_world_point(
-                        (
-                            (first_local[0] + second_local[0]) * 0.5,
-                            (first_local[1] + second_local[1]) * 0.5,
-                        )
+            for point_id in (first_id, second_id):
+                local_point = point_positions.get(point_id)
+                if local_point is None:
+                    continue
+                point = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(local_point)
                     )
                 )
-            )
-            painter.drawText(
-                QPointF(midpoint.x() + 7.0, midpoint.y() - 7.0),
-                "S",
-            )
+                painter.drawText(
+                    QPointF(point.x() + 7.0, point.y() - 7.0),
+                    "S",
+                )
 
         for arc_point in equal_radius_marker_points:
             painter.drawText(
@@ -5244,6 +5324,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 (position.x() - screen_point.x()) * screen_dx
                 + (position.y() - screen_point.y()) * screen_dy
             ) / screen_squared_length
+            if bool(raw_line.get("bounded", False)):
+                factor = max(0.0, min(1.0, factor))
             snapped = (px + factor * dx, py + factor * dy)
             distance = hypot(
                 position.x() - (screen_point.x() + factor * screen_dx),
@@ -5286,6 +5368,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             geometry_type = geometry.get("type")
             if geometry_type == "line":
                 consider_line(reference_id, geometry)
+            elif geometry_type == "polyline":
+                points = geometry.get("points", ())
+                if isinstance(points, (list, tuple)):
+                    for first, second in zip(points, points[1:]):
+                        if not (
+                            isinstance(first, (list, tuple))
+                            and isinstance(second, (list, tuple))
+                            and len(first) >= 2
+                            and len(second) >= 2
+                        ):
+                            continue
+                        consider_line(reference_id, {
+                            "point": first,
+                            "direction": (
+                                float(second[0]) - float(first[0]),
+                                float(second[1]) - float(first[1]),
+                            ),
+                            "bounded": True,
+                        })
             elif geometry_type == "lines":
                 raw_lines = geometry.get("lines", ())
                 if isinstance(raw_lines, (list, tuple)):
@@ -5299,7 +5400,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             f"{reference_id}::line:{source_line_index}",
                             raw_line,
                         )
-            elif geometry_type == "point":
+            elif geometry_type in ("point", "axis_point"):
                 point = geometry.get("point")
                 if (
                     not isinstance(point, (list, tuple))

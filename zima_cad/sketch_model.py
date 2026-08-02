@@ -49,8 +49,8 @@ _CONSTRAINT_POINT_COUNTS = {
     "point_on_reference": 1,
     "point_on_line": 3,
     "midpoint": 3,
-    # Two mirrored points followed by the construction-axis endpoints.
-    "symmetric": 4,
+    # Two mirrored points, optionally followed by sketch-axis endpoints.
+    "symmetric": None,
     # Line start/end, circle centre and the explicit contact point.
     "tangent": 4,
 }
@@ -467,14 +467,15 @@ class SketchModel:
                 owner_id = points[0]
                 raw["point_ids"] = list(points[1:])
             elif constraint.constraint_type == "symmetric":
-                if len(points) != 4:
+                if len(points) not in (2, 4):
                     raise SketchModelError(
                         f"symmetric constraint "
-                        f"{constraint.constraint_id!r} requires 4 points"
+                        f"{constraint.constraint_id!r} requires 2 or 4 points"
                     )
                 owner_id = points[0]
                 raw["point_id"] = points[1]
-                raw["point_ids"] = list(points[2:])
+                if len(points) == 4:
+                    raw["point_ids"] = list(points[2:])
             else:
                 owner_id = points[0]
                 if len(points) > 1:
@@ -621,9 +622,27 @@ class SketchModel:
                 point[1] - (first[1] + second[1]) * 0.5,
             )
         if constraint.constraint_type == "symmetric":
-            first, second, axis_first, axis_second = positions
-            axis_x = axis_second[0] - axis_first[0]
-            axis_y = axis_second[1] - axis_first[1]
+            first, second = positions[:2]
+            if len(positions) == 2:
+                origin = constraint.attributes.get("reference_origin", ())
+                direction = constraint.attributes.get(
+                    "reference_direction", ()
+                )
+                if not (
+                    isinstance(origin, (list, tuple))
+                    and isinstance(direction, (list, tuple))
+                    and len(origin) >= 2
+                    and len(direction) >= 2
+                ):
+                    raise SketchModelError(
+                        "external symmetric constraint has no reference line"
+                    )
+                axis_first = (float(origin[0]), float(origin[1]))
+                axis_x, axis_y = float(direction[0]), float(direction[1])
+            else:
+                axis_first, axis_second = positions[2:]
+                axis_x = axis_second[0] - axis_first[0]
+                axis_y = axis_second[1] - axis_first[1]
             axis_length = math.hypot(axis_x, axis_y)
             if axis_length <= 1.0e-12:
                 raise SketchModelError(
@@ -1571,6 +1590,14 @@ class SketchModel:
                 f"perpendicular constraint "
                 f"{constraint.constraint_id!r} requires 2, 3 or 4 points, "
                 f"got {len(constraint.point_ids)}"
+            )
+        if (
+            constraint.constraint_type == "symmetric"
+            and len(constraint.point_ids) not in (2, 4)
+        ):
+            raise SketchModelError(
+                f"symmetric constraint {constraint.constraint_id!r} "
+                f"requires 2 or 4 points, got {len(constraint.point_ids)}"
             )
         if expected is not None and len(constraint.point_ids) != expected:
             raise SketchModelError(

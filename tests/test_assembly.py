@@ -24,6 +24,46 @@ class AssemblyDocumentTests(unittest.TestCase):
         brepgprop.VolumeProperties(shape, properties)
         return abs(float(properties.Mass()))
 
+    def test_component_inherits_part_color_until_overridden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "colored.prtz"
+            assembly_path = root / "colors.asmz"
+            part = create_empty_part()
+            part.document_settings["body_color"] = "#228844"
+            box = part.create_container("Box", ContainerType.BOX)
+            part.create_primitive(box.entity_id, EntityKind.BOX)
+            save_part_document(part, part_path)
+
+            assembly = create_empty_assembly()
+            assembly.source_file_path = assembly_path
+            component = assembly.create_container(
+                "colored", ContainerType.COMPONENT
+            )
+            component.parameters.update({
+                "source_path": "colored.prtz",
+                "body_color": "#B9C2CC",
+            })
+            scene = build_document_viewer_scene_data(
+                assembly,
+                component_documents={component.entity_id: part},
+            )
+            self.assertEqual(
+                scene.surface_colors_by_owner_id[component.entity_id],
+                "#228844",
+            )
+
+            component.parameters["body_color"] = "#AA2233"
+            component.parameters["body_color_override"] = "true"
+            scene = build_document_viewer_scene_data(
+                assembly,
+                component_documents={component.entity_id: part},
+            )
+            self.assertEqual(
+                scene.surface_colors_by_owner_id[component.entity_id],
+                "#AA2233",
+            )
+
     def test_assembly_round_trip_and_component_geometry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
