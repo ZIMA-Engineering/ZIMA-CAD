@@ -222,6 +222,7 @@ class CameraState:
     # the left, +Y on the right and +Z points up.
     yaw_degrees: float = 215.264
     pitch_degrees: float = -45.0
+    roll_degrees: float = 0.0
     pan_x: float = 0.0
     pan_y: float = 0.0
     zoom: float = 1.0
@@ -513,6 +514,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         yaw, pitch = STANDARD_VIEW_ORIENTATIONS[view_name]
         self.camera.yaw_degrees = yaw
         self.camera.pitch_degrees = pitch
+        self.camera.roll_degrees = 0.0
         self.camera.pan_x = 0.0
         self.camera.pan_y = 0.0
         self.navigationChanged.emit(self.camera)
@@ -533,6 +535,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         start_yaw = self.camera.yaw_degrees
         yaw_delta = ((target_yaw - start_yaw + 180.0) % 360.0) - 180.0
         start_pitch = self.camera.pitch_degrees
+        start_roll = self.camera.roll_degrees
         start_pan_x = self.camera.pan_x
         start_pan_y = self.camera.pan_y
         start_zoom = self.camera.zoom
@@ -549,11 +552,56 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self.camera.pitch_degrees = (
                 start_pitch + (target_pitch - start_pitch) * progress
             )
+            self.camera.roll_degrees = start_roll * (1.0 - progress)
             self.camera.pan_x = start_pan_x * (1.0 - progress)
             self.camera.pan_y = start_pan_y * (1.0 - progress)
             self.camera.zoom = (
                 start_zoom + (target_zoom - start_zoom) * progress
             )
+            self.navigationChanged.emit(self.camera)
+            self.update()
+
+        def finish_animation() -> None:
+            if self._camera_animation is animation:
+                self._camera_animation = None
+
+        animation.valueChanged.connect(apply_progress)
+        animation.finished.connect(finish_animation)
+        self._camera_animation = animation
+        animation.start()
+
+    def animate_camera_state(
+        self,
+        target: CameraState,
+        *,
+        duration_ms: int = 650,
+    ) -> None:
+        """Animate all persisted camera properties to a named view."""
+        self._stop_camera_animation()
+        start = CameraState(
+            yaw_degrees=self.camera.yaw_degrees,
+            pitch_degrees=self.camera.pitch_degrees,
+            roll_degrees=self.camera.roll_degrees,
+            pan_x=self.camera.pan_x,
+            pan_y=self.camera.pan_y,
+            zoom=self.camera.zoom,
+        )
+        yaw_delta = ((target.yaw_degrees - start.yaw_degrees + 180.0) % 360.0) - 180.0
+        roll_delta = ((target.roll_degrees - start.roll_degrees + 180.0) % 360.0) - 180.0
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(max(1, int(duration_ms)))
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        def apply_progress(raw_progress) -> None:
+            progress = float(raw_progress)
+            self.camera.yaw_degrees = start.yaw_degrees + yaw_delta * progress
+            self.camera.pitch_degrees = start.pitch_degrees + (target.pitch_degrees - start.pitch_degrees) * progress
+            self.camera.roll_degrees = start.roll_degrees + roll_delta * progress
+            self.camera.pan_x = start.pan_x + (target.pan_x - start.pan_x) * progress
+            self.camera.pan_y = start.pan_y + (target.pan_y - start.pan_y) * progress
+            self.camera.zoom = start.zoom + (target.zoom - start.zoom) * progress
             self.navigationChanged.emit(self.camera)
             self.update()
 
@@ -577,6 +625,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
         )
         self.camera.pitch_degrees = -degrees(atan2(horizontal, nz))
+        self.camera.roll_degrees = 0.0
         self.camera.pan_x = 0.0
         self.camera.pan_y = 0.0
         self.camera.zoom = 1.0
@@ -588,6 +637,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         normal: Point3,
         center_point: Point3 | None = None,
         *,
+        roll_degrees: float = 0.0,
         duration_ms: int = 1000,
     ) -> None:
         nx, ny, nz = normal
@@ -617,14 +667,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         yaw_y = sin(yaw) * relative[0] + cos(yaw) * relative[1]
         rotated_x = yaw_x
         rotated_y = cos(pitch) * yaw_y - sin(pitch) * relative[2]
+        roll = radians(roll_degrees)
+        rolled_x = cos(roll) * rotated_x - sin(roll) * rotated_y
+        rolled_y = sin(roll) * rotated_x + cos(roll) * rotated_y
         scale = (
             float(self.height())
             * 0.5
             / max(self._scene_radius, 1e-9)
             * target_zoom
         )
-        target_pan_x = -rotated_x * scale
-        target_pan_y = rotated_y * scale
+        target_pan_x = -rolled_x * scale
+        target_pan_y = rolled_y * scale
 
         self._stop_camera_animation()
         start_yaw = self.camera.yaw_degrees
@@ -632,6 +685,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             (target_yaw - start_yaw + 180.0) % 360.0
         ) - 180.0
         start_pitch = self.camera.pitch_degrees
+        start_roll = self.camera.roll_degrees
         start_pan_x = self.camera.pan_x
         start_pan_y = self.camera.pan_y
         start_zoom = self.camera.zoom
@@ -647,6 +701,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self.camera.pitch_degrees = (
                 start_pitch
                 + (target_pitch - start_pitch) * progress
+            )
+            self.camera.roll_degrees = (
+                start_roll + (roll_degrees - start_roll) * progress
             )
             self.camera.pan_x = (
                 start_pan_x
@@ -5943,6 +6000,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             -self.camera.pan_y * units_per_pixel,
             0.0,
         )
+        model_view.rotate(self.camera.roll_degrees, 0.0, 0.0, 1.0)
         model_view.rotate(self.camera.pitch_degrees, 1.0, 0.0, 0.0)
         model_view.rotate(self.camera.yaw_degrees, 0.0, 0.0, 1.0)
         model_view.translate(
@@ -6061,13 +6119,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def _rotate(self, vector: Point3) -> Point3:
         yaw = radians(self.camera.yaw_degrees)
         pitch = radians(self.camera.pitch_degrees)
+        roll = radians(self.camera.roll_degrees)
         yaw_x = cos(yaw) * vector[0] - sin(yaw) * vector[1]
         yaw_y = sin(yaw) * vector[0] + cos(yaw) * vector[1]
         yaw_z = vector[2]
+        pitch_x = yaw_x
+        pitch_y = cos(pitch) * yaw_y - sin(pitch) * yaw_z
+        pitch_z = sin(pitch) * yaw_y + cos(pitch) * yaw_z
         return (
-            yaw_x,
-            cos(pitch) * yaw_y - sin(pitch) * yaw_z,
-            sin(pitch) * yaw_y + cos(pitch) * yaw_z,
+            cos(roll) * pitch_x - sin(roll) * pitch_y,
+            sin(roll) * pitch_x + cos(roll) * pitch_y,
+            pitch_z,
         )
 
     def _screen_point(self, point: Point3) -> QPointF:

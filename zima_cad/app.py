@@ -71,6 +71,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -142,6 +144,7 @@ from zima_cad.settings import (
 from zima_cad.localization import configure_localization, tr
 from zima_cad.viewer import (
     AngularDimension,
+    CameraState,
     LinearDimension,
     RadialDimension,
     ZimaOpenGLViewer,
@@ -1087,7 +1090,8 @@ class PointConstraintDialog(QDialog):
         self._title_drag_window_origin: QPoint | None = None
         self._references_being_removed: set[str] = set()
         self.setModal(False)
-        self.resize(460, 520)
+        if type(self) is PointConstraintDialog:
+            self.setMinimumWidth(460)
 
         layout = QVBoxLayout(self)
         if self.windowFlags() & Qt.WindowType.SubWindow:
@@ -1171,6 +1175,17 @@ class PointConstraintDialog(QDialog):
         layout.addWidget(self.reference_status_label)
         self._normalize_reference_orientation_roles()
         self.reference_list = QTableWidget(0, 4)
+        reference_row_height = 34
+        if type(self) is PointConstraintDialog:
+            self.reference_list.verticalHeader().setDefaultSectionSize(
+                reference_row_height
+            )
+            self.reference_list.verticalHeader().setMinimumSectionSize(
+                reference_row_height
+            )
+            self.reference_list.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
         self.reference_list.setStyleSheet(
             "QTableWidget::item:selected {"
             " background-color: #00d1ff; color: #102027;"
@@ -1206,6 +1221,15 @@ class PointConstraintDialog(QDialog):
         self.reference_list.cellClicked.connect(
             self._reference_cell_clicked
         )
+        # Keep the editor compact and predictable: three reference rows are
+        # visible, additional constraints remain accessible through scrolling.
+        if type(self) is PointConstraintDialog:
+            reference_table_height = (
+                self.reference_list.horizontalHeader().sizeHint().height()
+                + reference_row_height * 3
+                + self.reference_list.frameWidth() * 2
+            )
+            self.reference_list.setFixedHeight(reference_table_height)
         layout.addWidget(self.reference_list, 1)
         coordinates = QFormLayout()
         self.coordinate_edits: list[QDoubleSpinBox] = []
@@ -1245,6 +1269,8 @@ class PointConstraintDialog(QDialog):
         application = QApplication.instance()
         if application is not None:
             application.installEventFilter(self)
+        if type(self) is PointConstraintDialog:
+            self.adjustSize()
 
     def _set_container_type(
         self,
@@ -1259,6 +1285,27 @@ class PointConstraintDialog(QDialog):
             )
         )
         self.container_type_combo.setEnabled(editable)
+
+    def _apply_compact_reference_layout(self, minimum_width: int = 460) -> None:
+        """Apply the approved three-row properties-dialog geometry."""
+        reference_row_height = 34
+        self.reference_list.verticalHeader().setDefaultSectionSize(
+            reference_row_height
+        )
+        self.reference_list.verticalHeader().setMinimumSectionSize(
+            reference_row_height
+        )
+        self.reference_list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        reference_table_height = (
+            self.reference_list.horizontalHeader().sizeHint().height()
+            + reference_row_height * 3
+            + self.reference_list.frameWidth() * 2
+        )
+        self.reference_list.setFixedHeight(reference_table_height)
+        self.setMinimumWidth(minimum_width)
+        self.adjustSize()
 
     def eventFilter(self, watched, event) -> bool:
         if watched is getattr(self, "_internal_title_bar", None):
@@ -1404,7 +1451,7 @@ class PointConstraintDialog(QDialog):
         remove_button.setToolTip(
             tr("dialog.point_constraints.delete_reference")
         )
-        remove_button.setFixedSize(28, 26)
+        remove_button.setFixedSize(30, 30)
         remove_button.setStyleSheet(
             "QPushButton { color: #ffffff; background: #8b2424;"
             " border: 1px solid #b94a4a; border-radius: 4px;"
@@ -2060,8 +2107,25 @@ class AxisConstraintDialog(PointConstraintDialog):
         dialog_layout = self.layout()
         if isinstance(dialog_layout, QVBoxLayout):
             dialog_layout.insertLayout(dialog_layout.count() - 1, axis_form)
-        available_height = self.screen().availableGeometry().height()
-        self.resize(500, min(720, max(400, available_height - 48)))
+        if type(self) is AxisConstraintDialog:
+            reference_row_height = 34
+            self.reference_list.verticalHeader().setDefaultSectionSize(
+                reference_row_height
+            )
+            self.reference_list.verticalHeader().setMinimumSectionSize(
+                reference_row_height
+            )
+            reference_table_height = (
+                self.reference_list.horizontalHeader().sizeHint().height()
+                + reference_row_height * 3
+                + self.reference_list.frameWidth() * 2
+            )
+            self.reference_list.setFixedHeight(reference_table_height)
+            self.setMinimumWidth(460)
+            self.adjustSize()
+        else:
+            available_height = self.screen().availableGeometry().height()
+            self.resize(500, min(720, max(400, available_height - 48)))
         self._update_window_title()
 
     def _update_window_title(self, _name: str | None = None) -> None:
@@ -2156,6 +2220,21 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         )
         if type(self) is PlaneConstraintDialog:
             self._normalize_orientation_reference()
+            reference_row_height = 34
+            self.reference_list.verticalHeader().setDefaultSectionSize(
+                reference_row_height
+            )
+            self.reference_list.verticalHeader().setMinimumSectionSize(
+                reference_row_height
+            )
+            reference_table_height = (
+                self.reference_list.horizontalHeader().sizeHint().height()
+                + reference_row_height * 3
+                + self.reference_list.frameWidth() * 2
+            )
+            self.reference_list.setFixedHeight(reference_table_height)
+            self.setMinimumWidth(460)
+            self.adjustSize()
         self._update_window_title()
 
     def _is_orientation_reference(
@@ -2394,6 +2473,7 @@ class SolidConstraintDialog(AxisConstraintDialog):
         layout = self.layout()
         if isinstance(layout, QVBoxLayout):
             layout.insertLayout(layout.count() - 1, parameter_form)
+        self._apply_compact_reference_layout()
         self._update_window_title()
 
     def _set_operation(
@@ -2580,6 +2660,22 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             )
             self.sketch_button.clicked.connect(self._submit_and_enter_sketch)
             self._update_solution()
+        if type(self) is SketchConstraintDialog:
+            reference_row_height = 34
+            self.reference_list.verticalHeader().setDefaultSectionSize(
+                reference_row_height
+            )
+            self.reference_list.verticalHeader().setMinimumSectionSize(
+                reference_row_height
+            )
+            reference_table_height = (
+                self.reference_list.horizontalHeader().sizeHint().height()
+                + reference_row_height * 3
+                + self.reference_list.frameWidth() * 2
+            )
+            self.reference_list.setFixedHeight(reference_table_height)
+            self.setMinimumWidth(460)
+            self.adjustSize()
         self._update_window_title()
 
     def add_reference(self, reference: ZimaEntity) -> None:
@@ -2870,19 +2966,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             dialog_layout.insertWidget(
                 dialog_layout.indexOf(buttons), self.own_sketch_button
             )
-        reference_height = (
-            self.reference_list.horizontalHeader().sizeHint().height()
-            + 3 * self.reference_list.verticalHeader().defaultSectionSize()
-            + 8
-        )
-        self.reference_list.setMinimumHeight(
-            max(self.reference_list.minimumHeight(), reference_height)
-        )
-        available_height = self.screen().availableGeometry().height()
-        self.resize(
-            max(self.width(), 560),
-            min(860, available_height - 24),
-        )
+        self._apply_compact_reference_layout()
 
     def _set_protrusion_operation(self, operation: CombineMode) -> None:
         self.add_operation_button.setChecked(operation == CombineMode.ADD)
@@ -3232,6 +3316,297 @@ class PlaneAttachmentDialog(QDialog):
         return str(self.secondary_combo.currentData())
 
 
+class OrientationDialog(QDialog):
+    """Modeless orientation editor shared by parts and assemblies."""
+
+    applyRequested = Signal(list)
+    saveRequested = Signal(str)
+    deleteViewRequested = Signal(str)
+    viewRequested = Signal(dict)
+    referencesChanged = Signal()
+    previewRequested = Signal(list)
+    selectionCompleted = Signal(list)
+    selectionResumed = Signal()
+
+    _ROLES = ("FRONT", "BACK", "TOP", "BOTTOM", "LEFT", "RIGHT")
+
+    def __init__(self, custom_views: list[dict], parent=None):
+        super().__init__(parent)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+            self.setStyleSheet(
+                "QDialog { background: palette(window);"
+                " border: 1px solid palette(mid); border-radius: 5px; }"
+            )
+        self.setWindowTitle(tr("orientation.title"))
+        self.resize(410, 390)
+        self.setMinimumSize(380, 350)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(tr("orientation.instructions")))
+
+        self.reference_list = QTableWidget(2, 4)
+        self.reference_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.reference_list.setHorizontalHeaderLabels((
+            "", tr("orientation.reference"),
+            tr("orientation.direction"), tr("orientation.flip"),
+        ))
+        self.reference_list.verticalHeader().hide()
+        self.rows: list[tuple[QPushButton, QComboBox, QCheckBox]] = []
+        self.active_row = 0
+        self.selection_paused = False
+        self._updating_rows = False
+        self._middle_click_origin: QPointF | None = None
+        self._middle_click_moved = False
+        self._middle_click_chord = False
+        for row in range(2):
+            remove = QPushButton("×")
+            remove.setFixedSize(30, 30)
+            remove.setToolTip(tr("dialog.point_constraints.delete_reference"))
+            remove.setStyleSheet(
+                "QPushButton { color: #ffffff; background: #8b2424;"
+                " border: 1px solid #b94a4a; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; padding: 0; }"
+                "QPushButton:hover { background: #b83232; border-color: #ed7777; }"
+                "QPushButton:pressed { background: #6f1d1d; }"
+            )
+            remove.clicked.connect(
+                lambda _checked=False, index=row: self.remove_row(index)
+            )
+            reference = QPushButton(tr("orientation.pick_reference"))
+            reference.setCheckable(True)
+            reference.clicked.connect(
+                lambda _checked=False, index=row: self.activate_row(index)
+            )
+            role = QComboBox()
+            for value in self._ROLES:
+                role.addItem(value, value.lower())
+            if row == 1:
+                role.setCurrentIndex(role.findData("top"))
+            flip = QCheckBox()
+            role.currentIndexChanged.connect(self._orientation_control_changed)
+            flip.toggled.connect(self._orientation_control_changed)
+            self.reference_list.setCellWidget(row, 0, remove)
+            self.reference_list.setCellWidget(row, 1, reference)
+            self.reference_list.setCellWidget(row, 2, role)
+            self.reference_list.setCellWidget(row, 3, flip)
+            self.rows.append((reference, role, flip))
+            self.reference_list.setRowHidden(row, row != 0)
+        header = self.reference_list.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.reference_list.verticalHeader().setDefaultSectionSize(34)
+        for row in range(self.reference_list.rowCount()):
+            self.reference_list.setRowHeight(row, 34)
+        layout.addWidget(self.reference_list)
+
+        layout.addWidget(QLabel(tr("orientation.views")))
+        self.view_list = QListWidget()
+        for key in ("default", "front", "back", "top", "bottom", "left", "right"):
+            item = QListWidgetItem(tr(f"toolbar.view.{key}"))
+            item.setData(Qt.ItemDataRole.UserRole, {"standard": key})
+            item.setData(Qt.ItemDataRole.UserRole + 1, False)
+            self.view_list.addItem(item)
+        for view in custom_views:
+            item = QListWidgetItem(str(view.get("name", "")))
+            item.setData(Qt.ItemDataRole.UserRole, dict(view))
+            item.setData(Qt.ItemDataRole.UserRole + 1, True)
+            self.view_list.addItem(item)
+        self.view_list.itemActivated.connect(
+            lambda item: self.viewRequested.emit(dict(item.data(Qt.ItemDataRole.UserRole)))
+        )
+        self.view_list.itemClicked.connect(
+            lambda item: self.viewRequested.emit(dict(item.data(Qt.ItemDataRole.UserRole)))
+        )
+        layout.addWidget(self.view_list)
+
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel(tr("orientation.name")))
+        self.name_edit = QLineEdit()
+        name_row.addWidget(self.name_edit, 1)
+        save_button = QPushButton(tr("orientation.save"))
+        save_button.clicked.connect(
+            lambda: self.saveRequested.emit(self.name_edit.text().strip())
+        )
+        name_row.addWidget(save_button)
+        delete_button = QPushButton(tr("orientation.delete"))
+        delete_button.clicked.connect(self._delete_selected_view)
+        name_row.addWidget(delete_button)
+        layout.addLayout(name_row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            lambda: self.applyRequested.emit(self.orientation_rows())
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.activate_row(0)
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.MiddleButton
+        ):
+            self._middle_click_origin = event.globalPosition()
+            self._middle_click_moved = False
+            self._middle_click_chord = bool(
+                event.buttons() & Qt.MouseButton.RightButton
+            )
+        elif (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.RightButton
+            and self._middle_click_origin is not None
+        ):
+            self._middle_click_chord = True
+        elif (
+            event.type() == QEvent.Type.MouseMove
+            and self._middle_click_origin is not None
+            and event.buttons() & Qt.MouseButton.MiddleButton
+        ):
+            delta = event.globalPosition() - self._middle_click_origin
+            if abs(delta.x()) + abs(delta.y()) > 3.0:
+                self._middle_click_moved = True
+            if event.buttons() & Qt.MouseButton.RightButton:
+                self._middle_click_chord = True
+        elif (
+            event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.MiddleButton
+            and self._middle_click_origin is not None
+        ):
+            should_apply = (
+                not self._middle_click_moved
+                and not self._middle_click_chord
+            )
+            self._middle_click_origin = None
+            self._middle_click_moved = False
+            self._middle_click_chord = False
+            if should_apply:
+                self.applyRequested.emit(self.orientation_rows())
+        if (
+            event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.MiddleButton
+            and isinstance(watched, QWidget)
+            and watched.window()
+            in (
+                self,
+                self.parent().window()
+                if isinstance(self.parent(), QWidget)
+                else None,
+            )
+        ):
+            self._middle_click_origin = None
+            self._middle_click_moved = False
+            self._middle_click_chord = False
+            self.accept()
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
+    def done(self, result: int) -> None:
+        application = QApplication.instance()
+        if application is not None:
+            application.removeEventFilter(self)
+        super().done(result)
+
+    def _delete_selected_view(self) -> None:
+        item = self.view_list.currentItem()
+        if item is None or not bool(item.data(Qt.ItemDataRole.UserRole + 1)):
+            return
+        view = dict(item.data(Qt.ItemDataRole.UserRole))
+        self.deleteViewRequested.emit(str(view.get("name", "")))
+        self.view_list.takeItem(self.view_list.row(item))
+
+    def _orientation_control_changed(self, _value=None) -> None:
+        if self._updating_rows:
+            return
+        self.referencesChanged.emit()
+        self.previewRequested.emit(self.orientation_rows())
+
+    def activate_row(self, row: int) -> None:
+        self.active_row = row
+        self.selection_paused = False
+        self.reference_list.setRowHidden(row, False)
+        self._update_highlights()
+        self.selectionResumed.emit()
+
+    def accept_reference(self, descriptor: str, label: str) -> None:
+        reference, _role, _flip = self.rows[self.active_row]
+        reference.setProperty("reference", descriptor)
+        reference.setText(label)
+        reference.setChecked(True)
+        if self.active_row + 1 < len(self.rows):
+            self.active_row += 1
+            self.reference_list.setRowHidden(self.active_row, False)
+        else:
+            self.selection_paused = True
+            self.selectionCompleted.emit(self.orientation_rows())
+        self._update_highlights()
+        self.referencesChanged.emit()
+
+    def remove_row(self, row: int) -> None:
+        values = self.orientation_rows()
+        if row < len(values):
+            values.pop(row)
+        self._updating_rows = True
+        for index, (reference, role, flip) in enumerate(self.rows):
+            value = values[index] if index < len(values) else None
+            reference.setProperty("reference", value and value["reference"])
+            reference.setText(value["label"] if value else tr("orientation.pick_reference"))
+            reference.setChecked(value is not None)
+            if value:
+                role.setCurrentIndex(max(0, role.findData(value["role"])))
+                flip.setChecked(value["flip"])
+            else:
+                flip.setChecked(False)
+            self.reference_list.setRowHidden(index, index > len(values))
+        self._updating_rows = False
+        self.active_row = min(len(values), len(self.rows) - 1)
+        self.selection_paused = False
+        self.reference_list.setRowHidden(self.active_row, False)
+        self._update_highlights()
+        self.referencesChanged.emit()
+
+    def orientation_rows(self) -> list[dict]:
+        result = []
+        for reference, role, flip in self.rows:
+            descriptor = reference.property("reference")
+            if descriptor:
+                result.append({
+                    "reference": str(descriptor), "label": reference.text(),
+                    "role": str(role.currentData()), "flip": flip.isChecked(),
+                })
+        return result
+
+    def _update_highlights(self) -> None:
+        for index, (reference, _role, _flip) in enumerate(self.rows):
+            reference.setStyleSheet(
+                ("background-color: rgba(0, 140, 255, 130);" if reference.isChecked() else "")
+                + ("border: 2px solid #4DD811;" if index == self.active_row else "")
+            )
+
+    def accept(self) -> None:
+        self.applyRequested.emit(self.orientation_rows())
+        super().accept()
+
+
 class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
     matesSubmitted = Signal(list)
     activeReferenceChanged = Signal(str)
@@ -3272,11 +3647,14 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             pass
         for row in range(3):
             remove_button = QPushButton("×")
-            remove_button.setFixedSize(28, 26)
+            remove_button.setFixedSize(30, 30)
             remove_button.setStyleSheet(
                 "QPushButton { color: white; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; }"
+                " font-size: 18px; font-weight: 700; padding: 0; }"
+                "QPushButton:hover { background: #b83232;"
+                " border-color: #ed7777; }"
+                "QPushButton:pressed { background: #6f1d1d; }"
             )
             remove_button.clicked.connect(
                 lambda _checked=False, index=row: self._remove_mate_row(index)
@@ -3344,9 +3722,9 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.reference_list.verticalHeader().setDefaultSectionSize(42)
+        self.reference_list.verticalHeader().setDefaultSectionSize(34)
         for row in range(self.reference_list.rowCount()):
-            self.reference_list.setRowHeight(row, 42)
+            self.reference_list.setRowHeight(row, 34)
         self.reference_status_label.setText(tr("assembly.properties.instructions"))
         self._update_pick_highlight()
 
@@ -5459,6 +5837,7 @@ class MainWindow(QMainWindow):
         self._point_constraint_preview: tuple[str, Any] | None = None
         self.point_constraint_dialog: PointConstraintDialog | None = None
         self.assembly_component_dialog: AssemblyComponentPropertiesDialog | None = None
+        self.orientation_dialog: OrientationDialog | None = None
         self._definition_dialog_depth = 0
         self._definition_edit_objects: list[ZimaEntity] = []
         self._pending_attachment_plane_id: str | None = None
@@ -5682,13 +6061,10 @@ class MainWindow(QMainWindow):
             tr("toolbar.view.normal")
         )
         self.normal_view_action.setIcon(resource_icon("view-normal"))
-        self.normal_view_action.setCheckable(True)
         self.normal_view_action.setToolTip(
             tr("toolbar.view.normal.tooltip")
         )
-        self.normal_view_action.toggled.connect(
-            self._toggle_normal_view_selection
-        )
+        self.normal_view_action.triggered.connect(self._show_orientation_dialog)
         self.cancel_normal_view_action = QAction(self)
         self.cancel_normal_view_action.setShortcut("Esc")
         self.cancel_normal_view_action.setShortcutContext(
@@ -10064,6 +10440,7 @@ class MainWindow(QMainWindow):
             self._refresh_drawing_geometry(self.document, self.current_file_path)
         self.drawing_workspace.set_document(self.document if is_drawing else None)
         self.standard_view_combo.setEnabled(not is_drawing)
+        self._refresh_standard_view_combo()
         self.normal_view_action.setEnabled(not is_drawing)
         self.view_selection_action.setEnabled(not is_drawing)
         self.selection_filter_combo.setEnabled(not is_drawing)
@@ -10902,11 +11279,52 @@ class MainWindow(QMainWindow):
         self.native_viewer.animate_standard_view("default", fit=True)
 
     def _on_standard_view_changed(self, index: int) -> None:
-        view_name = str(self.standard_view_combo.itemData(index) or "")
-        if not view_name or not hasattr(self, "_viewer_initialized"):
+        view_data = self.standard_view_combo.itemData(index)
+        if not view_data or not hasattr(self, "_viewer_initialized"):
             return
-        self._set_standard_view(view_name)
+        if isinstance(view_data, dict):
+            camera = copy.deepcopy(self.native_viewer.camera)
+            for key in (
+                "yaw_degrees", "pitch_degrees", "roll_degrees",
+                "pan_x", "pan_y", "zoom",
+            ):
+                if key in view_data:
+                    setattr(camera, key, float(view_data[key]))
+            self.native_viewer.animate_camera_state(camera)
+        else:
+            self._set_standard_view(str(view_data))
         self.standard_view_combo.blockSignals(True)
+        self.standard_view_combo.setCurrentIndex(0)
+        self.standard_view_combo.blockSignals(False)
+
+    def _refresh_standard_view_combo(self) -> None:
+        if not hasattr(self, "standard_view_combo"):
+            return
+        self.standard_view_combo.blockSignals(True)
+        self.standard_view_combo.clear()
+        for text_key, view_name in (
+            ("toolbar.standard_views", ""),
+            ("toolbar.view.default", "default"),
+            ("toolbar.view.front", "front"),
+            ("toolbar.view.back", "back"),
+            ("toolbar.view.left", "left"),
+            ("toolbar.view.right", "right"),
+            ("toolbar.view.top", "top"),
+            ("toolbar.view.bottom", "bottom"),
+        ):
+            self.standard_view_combo.addItem(tr(text_key), view_name)
+        if self.document is not None:
+            try:
+                views = json.loads(str(
+                    self.document.document_settings.get("named_views", "[]")
+                ))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                views = []
+            for view in views if isinstance(views, list) else []:
+                if isinstance(view, dict) and str(view.get("name", "")).strip():
+                    self.standard_view_combo.addItem(
+                        str(view["name"]), dict(view)
+                    )
         self.standard_view_combo.setCurrentIndex(0)
         self.standard_view_combo.blockSignals(False)
 
@@ -11791,6 +12209,20 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or face_index <= 0:
             return
+        if (
+            self.orientation_dialog is not None
+            and self.orientation_dialog.isVisible()
+            and not self.orientation_dialog.selection_paused
+        ):
+            scene = self._native_viewer_scene
+            shape = scene.resolve_topology(owner_id, "face", face_index) if scene else None
+            if shape is not None and BRepAdaptor_Surface(shape).GetType() == GeomAbs_Plane:
+                owner = self.document.find_entity(owner_id) if self.document else None
+                self.orientation_dialog.accept_reference(
+                    f"{owner_id}:face:{face_index}",
+                    f"{owner.name if owner is not None else owner_id} / Face {face_index}",
+                )
+                return
         assembly_dialog = self.assembly_component_dialog
         if (
             assembly_dialog is not None
@@ -11849,6 +12281,21 @@ class MainWindow(QMainWindow):
         element_kind: str,
     ) -> None:
         if not owner_id or self.document is None:
+            return
+        if (
+            self.orientation_dialog is not None
+            and self.orientation_dialog.isVisible()
+            and not self.orientation_dialog.selection_paused
+            and element_kind == "plane"
+        ):
+            plane = self._plane_entity_from_view_key(owner_id, element_index)
+            if plane is not None:
+                owner = self.document.find_owning_object(plane.entity_id)
+                plane_name = str(plane.parameters.get("plane", "xy")).upper()
+                self.orientation_dialog.accept_reference(
+                    f"{plane.entity_id}:plane:{plane_name.lower()}",
+                    f"{owner.name if owner is not None else self.document.root.name} / {plane_name}",
+                )
             return
         if self._sketch_reference_mode:
             self._add_sketch_external_reference(
@@ -14010,10 +14457,7 @@ class MainWindow(QMainWindow):
         elif attach_action is not None and action == attach_action:
             self._begin_plane_attachment(obj.entity_id)
         elif normal_view_action is not None and action == normal_view_action:
-            if obj.kind == EntityKind.PLANE:
-                self._view_normal_to_reference_plane(obj)
-            else:
-                self._view_normal_to_selected_face()
+            self._show_orientation_dialog()
         elif create_axis_action is not None and action == create_axis_action:
             self.create_datum_axis(obj.entity_id)
         elif create_sketch_action is not None and action == create_sketch_action:
@@ -14101,6 +14545,234 @@ class MainWindow(QMainWindow):
             None,
         )
 
+    def _show_orientation_dialog(self) -> None:
+        if self.document is None or self._document_type(self.document) == "drawing":
+            return
+        if self.orientation_dialog is not None and self.orientation_dialog.isVisible():
+            self.orientation_dialog.raise_()
+            self.orientation_dialog.activateWindow()
+            return
+        try:
+            custom_views = json.loads(str(
+                self.document.document_settings.get("named_views", "[]")
+            ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            custom_views = []
+        if not isinstance(custom_views, list):
+            custom_views = []
+        original_camera = copy.deepcopy(self.native_viewer.camera)
+        dialog = OrientationDialog(custom_views, self)
+        self.orientation_dialog = dialog
+        previous_filter_index = self.selection_filter_combo.currentIndex()
+        previous_selection_enabled = self.view_selection_enabled
+        previous_planes_visible = self.show_planes_action.isChecked()
+        self.show_planes_action.setChecked(True)
+        if not self.view_selection_enabled:
+            self.view_selection_action.setChecked(True)
+        self.native_viewer.set_outline_face_highlights(True)
+        self.native_viewer.set_selection_filter("surface")
+        self.native_viewer.set_interaction_mode("topology")
+
+        def reference_frame(descriptor: str):
+            parts = descriptor.split(":")
+            if len(parts) == 3 and parts[1] == "face":
+                scene = self._native_viewer_scene
+                try:
+                    face = scene.resolve_topology(parts[0], "face", int(parts[2])) if scene else None
+                except ValueError:
+                    face = None
+                if face is None:
+                    return None
+                adaptor = BRepAdaptor_Surface(face)
+                if adaptor.GetType() != GeomAbs_Plane:
+                    return None
+                direction = adaptor.Plane().Axis().Direction()
+                sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
+                props = GProp_GProps()
+                brepgprop.SurfaceProperties(face, props)
+                center = props.CentreOfMass()
+                return (
+                    (center.X(), center.Y(), center.Z()),
+                    (sign * direction.X(), sign * direction.Y(), sign * direction.Z()),
+                )
+            if len(parts) == 3 and parts[1] == "plane":
+                plane = self.document.find_entity(parts[0]) if self.document else None
+                if plane is None:
+                    return None
+                owner = self.document.find_owning_object(plane.entity_id)
+                transform = self._world_transform_for_object(owner)
+                local = {"xy": (0., 0., 1.), "yz": (1., 0., 0.), "xz": (0., 1., 0.)}.get(parts[2], (0., 0., 1.))
+                normal = tuple(sum(transform[r][c] * local[c] for c in range(3)) for r in range(3))
+                return (tuple(transform[r][3] for r in range(3)), normal)
+            return None
+
+        def apply_rows(rows: list[dict]) -> None:
+            resolved = [
+                (row, reference_frame(str(row.get("reference", ""))))
+                for row in rows
+            ]
+            resolved = [(row, frame) for row, frame in resolved if frame is not None]
+            if not resolved:
+                return
+            primary = next(
+                ((row, frame) for row, frame in resolved if row.get("role") in {"front", "back"}),
+                resolved[0],
+            )
+            primary_row, primary_frame = primary
+            normal = primary_frame[1]
+            reverse_role = str(primary_row.get("role", "front")) in {"back", "bottom", "right"}
+            if bool(primary_row.get("flip", False)) != reverse_role:
+                normal = tuple(-value for value in normal)
+            nx, ny, nz = self._normalized_vector(
+                tuple(-value for value in normal)
+            )
+            horizontal = math.hypot(nx, ny)
+            yaw = math.atan2(nx, ny) if horizontal > 1e-12 else 0.0
+            pitch = -math.atan2(horizontal, nz)
+            roll_degrees = 0.0
+            secondary = next(
+                (
+                    (row, frame) for row, frame in resolved
+                    if (row, frame) != primary
+                    and row.get("role") in {"top", "bottom", "left", "right"}
+                ),
+                None,
+            )
+            if secondary is not None:
+                secondary_row, secondary_frame = secondary
+                sx, sy, sz = secondary_frame[1]
+                if bool(secondary_row.get("flip", False)):
+                    sx, sy, sz = -sx, -sy, -sz
+                yaw_x = math.cos(yaw) * sx - math.sin(yaw) * sy
+                yaw_y = math.sin(yaw) * sx + math.cos(yaw) * sy
+                screen_y = math.cos(pitch) * yaw_y - math.sin(pitch) * sz
+                if math.hypot(yaw_x, screen_y) > 1e-9:
+                    current_angle = math.atan2(screen_y, yaw_x)
+                    target_angle = {
+                        "right": 0.0, "top": math.pi / 2.0,
+                        "left": math.pi, "bottom": -math.pi / 2.0,
+                    }[str(secondary_row["role"])]
+                    roll_degrees = math.degrees(target_angle - current_angle)
+            self._set_view_normal(
+                normal, primary_frame[0], roll_degrees=roll_degrees
+            )
+
+        def show_view(view: dict) -> None:
+            standard = str(view.get("standard", ""))
+            if standard:
+                self.native_viewer.animate_standard_view(standard)
+                return
+            camera = copy.deepcopy(self.native_viewer.camera)
+            for key in ("yaw_degrees", "pitch_degrees", "roll_degrees", "pan_x", "pan_y", "zoom"):
+                if key in view:
+                    setattr(camera, key, float(view[key]))
+            self.native_viewer.animate_camera_state(camera)
+
+        def save_view(name: str) -> None:
+            if not name or self.document is None:
+                return
+            camera = self.native_viewer.camera
+            view = {
+                "name": name,
+                "yaw_degrees": camera.yaw_degrees,
+                "pitch_degrees": camera.pitch_degrees,
+                "roll_degrees": camera.roll_degrees,
+                "pan_x": camera.pan_x,
+                "pan_y": camera.pan_y,
+                "zoom": camera.zoom,
+            }
+            views = [
+                item for item in custom_views
+                if isinstance(item, dict) and str(item.get("name", "")) != name
+            ]
+            views.append(view)
+            custom_views[:] = views
+            self.document.document_settings["named_views"] = json.dumps(views, ensure_ascii=False)
+            for row in range(dialog.view_list.count() - 1, -1, -1):
+                existing = dialog.view_list.item(row)
+                data = existing.data(Qt.ItemDataRole.UserRole)
+                if (
+                    bool(existing.data(Qt.ItemDataRole.UserRole + 1))
+                    and isinstance(data, dict)
+                    and str(data.get("name", "")) == name
+                ):
+                    dialog.view_list.takeItem(row)
+            item = QListWidgetItem(name)
+            item.setData(Qt.ItemDataRole.UserRole, view)
+            item.setData(Qt.ItemDataRole.UserRole + 1, True)
+            dialog.view_list.addItem(item)
+            dialog.name_edit.clear()
+            self._refresh_standard_view_combo()
+            self.workspace.documentChanged.emit(self, self.document)
+
+        def delete_view(name: str) -> None:
+            if not name or self.document is None:
+                return
+            custom_views[:] = [
+                item for item in custom_views
+                if not isinstance(item, dict) or str(item.get("name", "")) != name
+            ]
+            self.document.document_settings["named_views"] = json.dumps(
+                custom_views, ensure_ascii=False
+            )
+            self._refresh_standard_view_combo()
+            self.workspace.documentChanged.emit(self, self.document)
+
+        def sync_highlights() -> None:
+            faces: set[tuple[str, int]] = set()
+            planes: set[tuple[str, int]] = set()
+            for row in dialog.orientation_rows():
+                parts = row["reference"].split(":")
+                if len(parts) == 3 and parts[1] == "face":
+                    try:
+                        faces.add((parts[0], int(parts[2])))
+                    except ValueError:
+                        pass
+                elif len(parts) == 3 and parts[1] == "plane":
+                    plane = self.document.find_entity(parts[0]) if self.document else None
+                    owner = self.document.find_owning_object(plane.entity_id) if plane else None
+                    origin = next((child for child in owner.children if child.kind == EntityKind.ORIGIN), None) if owner else None
+                    index = {"xy": 1, "yz": 2, "xz": 3}.get(parts[2])
+                    if origin is not None and index is not None:
+                        planes.add((origin.entity_id, index))
+            self.native_viewer.set_assembly_reference_highlights(faces=faces, planes=planes)
+
+        dialog.applyRequested.connect(apply_rows)
+        dialog.previewRequested.connect(apply_rows)
+        def complete_reference_selection(rows: list[dict]) -> None:
+            apply_rows(rows)
+            self.native_viewer.set_interaction_mode("object")
+            self.native_viewer._clear_topology_hover()
+
+        dialog.selectionCompleted.connect(complete_reference_selection)
+        dialog.selectionResumed.connect(
+            lambda: self.native_viewer.set_interaction_mode("topology")
+        )
+        dialog.saveRequested.connect(save_view)
+        dialog.deleteViewRequested.connect(delete_view)
+        dialog.viewRequested.connect(show_view)
+        dialog.referencesChanged.connect(sync_highlights)
+
+        def finish(result) -> None:
+            if result != QDialog.DialogCode.Accepted:
+                self.native_viewer.camera = original_camera
+                self.native_viewer.navigationChanged.emit(original_camera)
+                self.native_viewer.update()
+            if self.orientation_dialog is dialog:
+                self.orientation_dialog = None
+            self.native_viewer.set_assembly_reference_highlights(faces=set(), planes=set())
+            self.native_viewer.set_outline_face_highlights(False)
+            self.selection_filter_combo.setCurrentIndex(previous_filter_index)
+            if not previous_selection_enabled:
+                self.view_selection_action.setChecked(False)
+            self.show_planes_action.setChecked(previous_planes_visible)
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+
+        dialog.finished.connect(finish)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
     def _toggle_normal_view_selection(self, active: bool) -> None:
         if active and self.document is None:
             self.normal_view_action.setChecked(False)
@@ -14148,8 +14820,12 @@ class MainWindow(QMainWindow):
             return
         direction = adaptor.Plane().Axis().Direction()
         sign = -1.0 if self.selected_face.Orientation() == TopAbs_REVERSED else 1.0
+        properties = GProp_GProps()
+        brepgprop.SurfaceProperties(self.selected_face, properties)
+        center = properties.CentreOfMass()
         self._set_view_normal(
-            (sign * direction.X(), sign * direction.Y(), sign * direction.Z())
+            (sign * direction.X(), sign * direction.Y(), sign * direction.Z()),
+            (center.X(), center.Y(), center.Z()),
         )
 
     def _world_transform_for_object(self, obj: ZimaEntity | None):
@@ -14165,13 +14841,23 @@ class MainWindow(QMainWindow):
             )
         return transform
 
-    def _set_view_normal(self, normal: tuple[float, float, float]) -> None:
+    def _set_view_normal(
+        self,
+        normal: tuple[float, float, float],
+        center_point: tuple[float, float, float] | None = None,
+        *,
+        roll_degrees: float = 0.0,
+    ) -> None:
         nx, ny, nz = normal
         length = (nx * nx + ny * ny + nz * nz) ** 0.5
         if length <= 1e-12:
             return
         nx, ny, nz = nx / length, ny / length, nz / length
-        self.native_viewer.animate_view_normal((-nx, -ny, -nz))
+        self.native_viewer.animate_view_normal(
+            (-nx, -ny, -nz),
+            center_point,
+            roll_degrees=roll_degrees,
+        )
         self._clear_view_selection()
 
     def _clear_view_selection(self) -> None:
@@ -27079,8 +27765,14 @@ class MainWindow(QMainWindow):
             show_object_planes=self.show_planes_action.isChecked(),
             show_object_origins=self.show_origins_action.isChecked(),
             show_component_origins=(
-                self.assembly_component_dialog is not None
-                and self.assembly_component_dialog.isVisible()
+                (
+                    self.assembly_component_dialog is not None
+                    and self.assembly_component_dialog.isVisible()
+                )
+                or (
+                    self.orientation_dialog is not None
+                    and self.orientation_dialog.isVisible()
+                )
             ),
             show_user_points=self.show_points_action.isChecked(),
             show_user_axes=self.show_axes_action.isChecked(),
@@ -27135,8 +27827,14 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_selection_filter(
             "surface"
             if (
-                self.assembly_component_dialog is not None
-                and self.assembly_component_dialog.isVisible()
+                (
+                    self.assembly_component_dialog is not None
+                    and self.assembly_component_dialog.isVisible()
+                )
+                or (
+                    self.orientation_dialog is not None
+                    and self.orientation_dialog.isVisible()
+                )
             )
             else {
                 ViewSelectionFilter.ALL: "all",
@@ -27154,11 +27852,21 @@ class MainWindow(QMainWindow):
             self.assembly_component_dialog is not None
             and self.assembly_component_dialog.isVisible()
         )
+        orientation_references_visible = (
+            self.orientation_dialog is not None
+            and self.orientation_dialog.isVisible()
+        )
+        orientation_references_active = (
+            orientation_references_visible
+            and not self.orientation_dialog.selection_paused
+        )
         topology_selection_active = (
-            point_constraints_active or assembly_references_active
+            point_constraints_active
+            or assembly_references_active
+            or orientation_references_active
         )
         self.native_viewer.set_outline_face_highlights(
-            topology_selection_active
+            topology_selection_active or orientation_references_visible
         )
         self.native_viewer.set_interaction_mode(
             "object"

@@ -39,6 +39,14 @@ class AssemblyDocumentTests(unittest.TestCase):
 
             assembly = create_empty_assembly()
             assembly.source_file_path = assembly_path
+            assembly.document_settings["named_views"] = json.dumps([{
+                "name": "Detail A",
+                "yaw_degrees": 12.5,
+                "pitch_degrees": -30.0,
+                "pan_x": 18.0,
+                "pan_y": -4.0,
+                "zoom": 2.25,
+            }])
             component = assembly.create_container(
                 "block",
                 ContainerType.COMPONENT,
@@ -53,6 +61,10 @@ class AssemblyDocumentTests(unittest.TestCase):
 
             loaded = load_part_document(assembly_path)
             self.assertEqual(loaded.document_settings["type"], "assembly")
+            self.assertEqual(
+                json.loads(loaded.document_settings["named_views"])[0]["name"],
+                "Detail A",
+            )
             self.assertEqual(loaded.root.origin_scope, None)
             loaded_component = loaded.history_objects()[0]
             self.assertEqual(loaded_component.container_type, ContainerType.COMPONENT)
@@ -77,6 +89,19 @@ class AssemblyDocumentTests(unittest.TestCase):
                     and edge.element_kind == "axis"
                 ]),
                 3,
+            )
+            orientation_scene = build_document_viewer_scene_data(
+                loaded,
+                show_object_planes=True,
+                show_component_origins=True,
+            )
+            self.assertEqual(
+                {
+                    plane.plane_index
+                    for plane in orientation_scene.mesh.planes
+                    if plane.owner_id == component_origin.entity_id
+                },
+                {1, 2, 3},
             )
 
     def test_assembly_cut_only_changes_target_component(self):
