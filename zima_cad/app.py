@@ -2038,21 +2038,14 @@ class PointConstraintDialog(QDialog):
         if self.point_rotation_edits:
             rotation_references = [
                 reference for reference in self.references
-                if reference.get("position_role") == "orientation_only"
-                and str(reference.get("orientation_role", "none")) != "none"
+                if str(reference.get("orientation_role", "none")) != "none"
                 and self._reference_drives_rotation(reference)
             ]
             rotation_dof = AxisConstraintDialog._rotation_degrees_of_freedom(
                 rotation_references
             )
-            enabled_axes = AxisConstraintDialog._editable_rotation_axes(
-                rotation_references
-            )
-            for axis, edit in zip(
-                ("x", "y", "z"),
-                self.point_rotation_edits,
-            ):
-                edit.setEnabled(axis in enabled_axes)
+            for edit in self.point_rotation_edits:
+                edit.setEnabled(True)
             total_dof = dof + rotation_dof
             self.dof_label.setText(
                 tr("dialog.point_constraints.dof", count=total_dof)
@@ -2261,8 +2254,7 @@ class AxisConstraintDialog(PointConstraintDialog):
     def _update_rotation_editability(self) -> None:
         orientation_references = [
             reference for reference in self.references
-            if reference.get("position_role") == "orientation_only"
-            and self._reference_drives_rotation(reference)
+            if self._reference_drives_rotation(reference)
             and str(reference.get("orientation_role", "none")) != "none"
         ]
         self.rotation_dof = self._rotation_degrees_of_freedom(
@@ -2271,9 +2263,10 @@ class AxisConstraintDialog(PointConstraintDialog):
         style = (
             "QDoubleSpinBox:disabled { background: #303030; color: #dddddd; }"
         )
-        enabled_axes = self._editable_rotation_axes(orientation_references)
-        for axis, edit in zip(("x", "y", "z"), self.rotation_edits):
-            edit.setEnabled(axis in enabled_axes)
+        # FRONT and TOP define the base frame. RX/RY/RZ are always editable
+        # angular offsets relative to that frame, not unconstrained DOFs.
+        for edit in self.rotation_edits:
+            edit.setEnabled(True)
             edit.setStyleSheet(style)
         total_dof = int(getattr(self, "dof", 3)) + self.rotation_dof
         self.dof_label.setText(
@@ -2425,39 +2418,32 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         self._update_window_title()
 
     def _install_container_orientation_controls(self) -> None:
-        self.container_orientation_labels: list[QLabel] = []
-        self.container_orientation_combos: list[QComboBox] = []
+        self.container_orientation_buttons: list[QPushButton] = []
+        self.container_orientation_flips: list[QCheckBox] = []
+        self._container_orientation_keys: list[str | None] = [None, None]
+        self._active_container_orientation_row: int | None = None
         orientation_form = QFormLayout()
-        for index in range(2):
-            plane_label = QLabel()
-            role_combo = QComboBox()
-            for role, label_key in (
-                ("normal", "front"),
-                ("opposite_normal", "back"),
-                ("up", "top"),
-                ("down", "bottom"),
-                ("left", "left"),
-                ("right", "right"),
-            ):
-                role_combo.addItem(tr(f"toolbar.view.{label_key}"), role)
-            role_combo.setCurrentIndex(
-                max(0, role_combo.findData("normal" if index == 0 else "up"))
+        for index, role_name in enumerate(("FRONT", "TOP")):
+            reference_button = QPushButton("—")
+            reference_button.setCheckable(True)
+            reference_button.setStyleSheet(
+                "QPushButton { text-align: left; padding: 5px 8px; }"
+                "QPushButton:checked { border: 2px solid #00d1ff; }"
             )
-            role_combo.currentIndexChanged.connect(
-                lambda _value, row=index:
-                    self._container_orientation_changed(row)
+            reference_button.clicked.connect(
+                lambda _checked=False, row=index:
+                    self._activate_container_orientation_row(row)
             )
+            flip_checkbox = QCheckBox("FLIP")
+            flip_checkbox.toggled.connect(self._container_orientation_changed)
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(plane_label)
-            row_layout.addWidget(role_combo, 1)
-            orientation_form.addRow(
-                tr("dialog.container_orientation.row", number=index + 1),
-                row_widget,
-            )
-            self.container_orientation_labels.append(plane_label)
-            self.container_orientation_combos.append(role_combo)
+            row_layout.addWidget(reference_button, 1)
+            row_layout.addWidget(flip_checkbox)
+            orientation_form.addRow(role_name, row_widget)
+            self.container_orientation_buttons.append(reference_button)
+            self.container_orientation_flips.append(flip_checkbox)
         dialog_layout = self.layout()
         if isinstance(dialog_layout, QVBoxLayout):
             dialog_layout.insertLayout(dialog_layout.count() - 1, orientation_form)
@@ -2470,112 +2456,113 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             for index, mapping in enumerate(mappings[:2]):
                 if not isinstance(mapping, dict):
                     continue
-                plane = str(mapping.get("plane", ""))
-                role = str(mapping.get("role", ""))
-                if index == 0 and self.direction_combo.findData(plane) >= 0:
-                    self.direction_combo.setCurrentIndex(
-                        self.direction_combo.findData(plane)
-                    )
-                combo = self.container_orientation_combos[index]
-                if combo.findData(role) >= 0:
-                    combo.setCurrentIndex(combo.findData(role))
+                key = str(mapping.get("reference_key", ""))
+                if key:
+                    self._container_orientation_keys[index] = key
+                self.container_orientation_flips[index].setChecked(
+                    bool(mapping.get("flip", False))
+                )
         self._refresh_container_orientation_controls()
 
     def _references_with_container_orientation(self) -> list[dict[str, Any]]:
-        primary = str(self.direction_combo.currentData() or "xz")
-        planes = (primary, self._secondary_container_plane(primary))
         return [
             *self.references,
             {
                 "type": "container_orientation",
                 "mappings": [
                     {
-                        "plane": plane,
-                        "role": str(combo.currentData()),
+                        "slot": slot,
+                        "reference_key": self._container_orientation_keys[index],
+                        "flip": checkbox.isChecked(),
                     }
-                    for plane, combo in zip(
-                        planes,
-                        self.container_orientation_combos,
+                    for index, (slot, checkbox) in enumerate(
+                        zip(("front", "top"), self.container_orientation_flips)
                     )
                 ],
             },
         ]
 
-    @staticmethod
-    def _secondary_container_plane(primary: str) -> str:
-        return {"xz": "xy", "xy": "xz", "yz": "xy"}.get(primary, "xy")
-
     def _container_orientation_references(self) -> list[dict[str, Any]]:
         return [
             reference for reference in self.references
-            if reference.get("position_role") == "orientation_only"
-            and self._is_orientation_reference(reference)
-        ][:2]
+            if self._is_orientation_reference(reference)
+        ]
 
     def _refresh_container_orientation_controls(self, _value: int = -1) -> None:
-        if not hasattr(self, "container_orientation_combos"):
+        if not hasattr(self, "container_orientation_buttons"):
             return
-        primary = str(self.direction_combo.currentData() or "xz")
-        planes = (primary, self._secondary_container_plane(primary))
         references = self._container_orientation_references()
-        for index, (label, combo) in enumerate(zip(
-            self.container_orientation_labels,
-            self.container_orientation_combos,
-        )):
-            label.setText(planes[index].upper())
-            role = (
-                str(references[index].get("orientation_role", "none"))
-                if index < len(references)
-                else str(combo.currentData())
-            )
-            if role == "none":
-                role = "normal" if index == 0 else "up"
-            combo.blockSignals(True)
-            combo.setCurrentIndex(max(0, combo.findData(role)))
-            combo.setEnabled(True)
-            combo.blockSignals(False)
-            if index < len(references):
-                references[index]["orientation_role"] = str(combo.currentData())
-                references[index]["orientation_drives_rotation"] = True
-
-    def _container_orientation_changed(self, row: int) -> None:
-        role_families = {
-            "left": "x",
-            "right": "x",
-            "normal": "y",
-            "opposite_normal": "y",
-            "up": "z",
-            "down": "z",
+        available = {
+            str(reference.get("key", "")): reference
+            for reference in references
         }
-        if 0 <= row < len(self.container_orientation_combos):
-            other_row = 1 - row
-            selected_role = str(
-                self.container_orientation_combos[row].currentData()
-            )
-            other_combo = self.container_orientation_combos[other_row]
-            other_role = str(other_combo.currentData())
-            if role_families.get(selected_role) == role_families.get(other_role):
-                replacement = "normal" if role_families.get(selected_role) != "y" else "up"
-                other_combo.blockSignals(True)
-                other_combo.setCurrentIndex(
-                    max(0, other_combo.findData(replacement))
+        used = {key for key in self._container_orientation_keys if key in available}
+        for index in range(2):
+            key = self._container_orientation_keys[index]
+            if key not in available:
+                replacement = next(
+                    (
+                        str(reference.get("key", ""))
+                        for reference in references
+                        if str(reference.get("key", "")) not in used
+                    ),
+                    None,
                 )
-                other_combo.blockSignals(False)
-        references = self._container_orientation_references()
-        for index, reference in enumerate(references):
-            reference["orientation_role"] = str(
-                self.container_orientation_combos[index].currentData()
+                self._container_orientation_keys[index] = replacement
+                key = replacement
+                if key:
+                    used.add(key)
+            reference = available.get(key or "")
+            self.container_orientation_buttons[index].setText(
+                str(reference.get("label", reference.get("key", "—")))
+                if reference is not None else "—"
             )
-            reference["orientation_drives_rotation"] = True
+        self._apply_container_orientation_roles()
+
+    def _activate_container_orientation_row(self, row: int) -> None:
+        self._active_container_orientation_row = row
+        for index, button in enumerate(self.container_orientation_buttons):
+            button.setChecked(index == row)
+
+    def _assign_container_orientation_reference(
+        self, reference: dict[str, Any]
+    ) -> bool:
+        row = self._active_container_orientation_row
+        if row is None or not self._is_orientation_reference(reference):
+            return False
+        key = str(reference.get("key", ""))
+        if not key:
+            return False
+        other = 1 - row
+        if self._container_orientation_keys[other] == key:
+            self._container_orientation_keys[other] = (
+                self._container_orientation_keys[row]
+            )
+        self._container_orientation_keys[row] = key
+        self._active_container_orientation_row = None
+        for button in self.container_orientation_buttons:
+            button.setChecked(False)
+        self._refresh_container_orientation_controls()
+        self._update_solution()
+        return True
+
+    def _apply_container_orientation_roles(self) -> None:
+        roles = ("normal", "up")
+        selected = dict(zip(self._container_orientation_keys, roles))
+        for reference in self.references:
+            key = str(reference.get("key", ""))
+            role = selected.get(key, "none")
+            reference["orientation_role"] = role
+            reference["orientation_drives_rotation"] = role != "none"
+
+    def _container_orientation_changed(self, _checked: bool = False) -> None:
+        self._apply_container_orientation_roles()
         self._update_solution()
 
     def _default_orientation_role(self, used_roles: set[str]) -> str:
-        if hasattr(self, "container_orientation_combos"):
+        if hasattr(self, "container_orientation_buttons"):
             index = len(self._container_orientation_references())
-            if index < len(self.container_orientation_combos):
-                return str(
-                    self.container_orientation_combos[index].currentData()
-                )
+            return "normal" if index == 0 else "up" if index == 1 else "none"
         return super()._default_orientation_role(used_roles)
 
     def _is_orientation_reference(
@@ -2598,7 +2585,24 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self._refresh_reference_orientation_combos()
 
     def _add_reference(self, reference: dict[str, Any]) -> None:
-        super()._add_reference(reference)
+        existing = next(
+            (
+                item for item in self.references
+                if item.get("key") == reference.get("key")
+            ),
+            None,
+        )
+        if existing is None:
+            super()._add_reference(reference)
+            existing = next(
+                (
+                    item for item in self.references
+                    if item.get("key") == reference.get("key")
+                ),
+                None,
+            )
+        if existing is not None:
+            self._assign_container_orientation_reference(existing)
 
     def _remove_reference_at(self, row: int) -> None:
         if type(self) is not PlaneConstraintDialog:
@@ -9351,6 +9355,11 @@ class MainWindow(QMainWindow):
             "up": (0.0, 0.0, 1.0),
             "down": (0.0, 0.0, -1.0),
         }
+        references_by_key = {
+            str(reference.get("key", "")): reference
+            for reference in references
+            if reference.get("type") != "container_orientation"
+        }
         for descriptor in references:
             if descriptor.get("type") != "container_orientation":
                 expanded_references.append(descriptor)
@@ -9361,6 +9370,22 @@ class MainWindow(QMainWindow):
             for mapping in mappings:
                 if not isinstance(mapping, dict):
                     continue
+                slot = str(mapping.get("slot", ""))
+                reference_key = str(mapping.get("reference_key", ""))
+                source = references_by_key.get(reference_key)
+                if source is not None and slot in ("front", "top"):
+                    oriented_source = dict(source)
+                    flipped = bool(mapping.get("flip", False))
+                    oriented_source["orientation_role"] = (
+                        "opposite_normal" if flipped else "normal"
+                    ) if slot == "front" else (
+                        "down" if flipped else "up"
+                    )
+                    oriented_source["orientation_drives_rotation"] = True
+                    expanded_references.append(oriented_source)
+                    continue
+                # Backward compatibility for files written by the previous
+                # local-plane/view-role orientation control.
                 local_role = local_plane_roles.get(
                     str(mapping.get("plane", ""))
                 )
