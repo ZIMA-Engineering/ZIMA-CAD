@@ -334,6 +334,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._hovered_plane: TopologyKey | None = None
         self._selected_plane: TopologyKey | None = None
         self._assembly_reference_faces: frozenset[TopologyKey] = frozenset()
+        self._assembly_reference_edges: frozenset[TopologyKey] = frozenset()
         self._assembly_reference_planes: frozenset[TopologyKey] = frozenset()
         self._hovered_object_id: str | None = None
         self._selected_object_id: str | None = None
@@ -845,8 +846,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         faces: set[TopologyKey],
         planes: set[TopologyKey],
+        edges: set[TopologyKey] | None = None,
     ) -> None:
         self._assembly_reference_faces = frozenset(faces)
+        self._assembly_reference_edges = frozenset(edges or ())
         self._assembly_reference_planes = frozenset(planes)
         self.update()
 
@@ -2469,6 +2472,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             3.0,
         )
         for edge in self._constraint_reference_edges:
+            self._draw_highlighted_edge(
+                gl,
+                program,
+                edge,
+                QVector3D(0.0, 0.82, 1.0),
+                3.0,
+            )
+        for edge in self._assembly_reference_edges:
             self._draw_highlighted_edge(
                 gl,
                 program,
@@ -5402,6 +5413,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if (
                 key == self._selected_edge
                 or key in self._constraint_reference_edges
+                or key in self._assembly_reference_edges
                 or edge.owner_id in {
                     self._selected_reference_owner_id,
                 }

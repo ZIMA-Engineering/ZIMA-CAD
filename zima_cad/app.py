@@ -4113,11 +4113,12 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.setWindowTitle(tr("assembly.properties.title", name=component.name))
         self.reference_list.clearContents()
         self.reference_list.setRowCount(3)
-        self.reference_list.setColumnCount(5)
+        self.reference_list.setColumnCount(6)
         self.reference_list.setHorizontalHeaderLabels((
             "",
             tr("assembly.properties.component_reference"),
             tr("assembly.properties.target_reference"),
+            tr("assembly.properties.mate_type"),
             tr("assembly.properties.offset"),
             tr("assembly.properties.flip"),
         ))
@@ -4172,6 +4173,10 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             offset = QDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
             offset.setSuffix(" mm")
+            mate_type = QComboBox()
+            mate_type.addItem(tr("assembly.properties.mate_plane"), "plane")
+            mate_type.addItem(tr("assembly.properties.mate_axis"), "axis")
+            mate_type.addItem(tr("assembly.properties.mate_angle"), "angle")
             flip = QCheckBox()
             values = stored[row] if row < len(stored) and isinstance(stored[row], dict) else {}
             source_button.setProperty("reference", values.get("source"))
@@ -4185,28 +4190,46 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 target_button.setText(labels[values["target"]])
             offset.setValue(float(values.get("offset", 0.0)))
             flip.setChecked(bool(values.get("flip", False)))
+            stored_type = str(values.get("type", "plane"))
+            mate_type.setCurrentIndex(max(0, mate_type.findData(stored_type)))
+            offset.setEnabled(stored_type != "axis")
+            offset.setSuffix(" °" if stored_type == "angle" else " mm")
+            if stored_type == "angle":
+                offset.setRange(-360.0, 360.0)
             offset.valueChanged.connect(
                 lambda _value: self.matesSubmitted.emit(self.mate_rows())
             )
             flip.toggled.connect(
                 lambda _checked: self.matesSubmitted.emit(self.mate_rows())
             )
+            mate_type.currentIndexChanged.connect(
+                lambda _index, value=offset, combo=mate_type:
+                self._mate_type_changed(combo, value)
+            )
             self.reference_list.setCellWidget(row, 0, remove_button)
             self.reference_list.setCellWidget(row, 1, source_button)
             self.reference_list.setCellWidget(row, 2, target_button)
-            self.reference_list.setCellWidget(row, 3, offset)
-            self.reference_list.setCellWidget(row, 4, flip)
-            self.rows.append((source_button, target_button, offset, flip))
+            self.reference_list.setCellWidget(row, 3, mate_type)
+            self.reference_list.setCellWidget(row, 4, offset)
+            self.reference_list.setCellWidget(row, 5, flip)
+            self.rows.append((source_button, target_button, mate_type, offset, flip))
             self.reference_list.setRowHidden(
                 row,
                 not bool(values.get("source") or values.get("target")),
             )
+        first_empty_row = min(len(stored), len(self.rows) - 1)
+        self.reference_list.setRowHidden(first_empty_row, False)
+        self.active_pick = (first_empty_row, "source")
+        for row in range(len(self.rows)):
+            self._update_available_mate_types(row)
+        self._update_remove_buttons()
         header = self.reference_list.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.reference_list.verticalHeader().setDefaultSectionSize(34)
         for row in range(self.reference_list.rowCount()):
             self.reference_list.setRowHeight(row, 34)
@@ -4216,6 +4239,118 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         )
         self._update_transform_editability()
         self._update_pick_highlight()
+
+    def _mate_type_changed(
+        self,
+        combo: QComboBox,
+        value: QDoubleSpinBox,
+        emit: bool = True,
+    ) -> None:
+        is_axis = combo.currentData() == "axis"
+        signals_were_blocked = value.blockSignals(True)
+        value.setEnabled(not is_axis)
+        value.setSuffix(
+            " °" if combo.currentData() == "angle" else " mm"
+        )
+        value.setRange(
+            -360.0 if combo.currentData() == "angle" else -1_000_000.0,
+            360.0 if combo.currentData() == "angle" else 1_000_000.0,
+        )
+        if is_axis:
+            value.setValue(0.0)
+        value.blockSignals(signals_were_blocked)
+        if emit:
+            self.matesSubmitted.emit(self.mate_rows())
+
+    def _update_remove_buttons(self) -> None:
+        for row, (source, target, *_rest) in enumerate(self.rows):
+            remove_button = self.reference_list.cellWidget(row, 0)
+            if remove_button is not None:
+                populated = (
+                    source.property("reference") is not None
+                    or target.property("reference") is not None
+                )
+                remove_button.setEnabled(populated)
+                remove_button.setText("×" if populated else "")
+
+    def _update_available_mate_types(self, row: int) -> None:
+        source, target, combo, value, _flip = self.rows[row]
+        source_reference = source.property("reference")
+        target_reference = target.property("reference")
+        source_axis = self._is_axis_reference(source_reference)
+        target_axis = self._is_axis_reference(target_reference)
+        complete = source_reference is not None and target_reference is not None
+        normal_by_reference = {
+            descriptor: np.array(normal, dtype=float)
+            for _label, descriptor, _point, normal
+            in (*self.source_choices, *self.target_choices)
+        }
+        prior_rows = []
+        for index, (
+            previous_source,
+            previous_target,
+            previous_type,
+            previous_value,
+            previous_flip,
+        ) in enumerate(self.rows[:row]):
+            source_key = previous_source.property("reference")
+            target_key = previous_target.property("reference")
+            kind = str(previous_type.currentData())
+            if (
+                source_key is None
+                or target_key is None
+                or not self._reference_matches_mate_type(str(source_key), kind)
+                or not self._reference_matches_mate_type(str(target_key), kind)
+            ):
+                continue
+            prior_rows.append({
+                "source": source_key,
+                "target": target_key,
+                "type": kind,
+                "offset": previous_value.value(),
+                "flip": previous_flip.isChecked(),
+                "orientation": index < 2,
+            })
+        translation_locked, rotation_locked = self._mate_transform_locks(
+            prior_rows,
+            normal_by_reference,
+        )
+        allowed = {
+            "plane": (
+                not source_axis
+                and not target_axis
+                and not translation_locked
+            ),
+            "axis": source_axis and (target_reference is None or target_axis),
+            "angle": (
+                complete
+                and bool(prior_rows)
+                and not rotation_locked
+                and source_axis != target_axis
+            ),
+        }
+        if complete and not source_axis and not target_axis:
+            allowed["angle"] = bool(prior_rows) and not rotation_locked
+        model = combo.model()
+        for index in range(combo.count()):
+            item = model.item(index)
+            if item is not None:
+                item.setEnabled(bool(allowed.get(str(combo.itemData(index)), False)))
+        current = str(combo.currentData())
+        if not allowed.get(current, False):
+            preferred = next(
+                (kind for kind in ("axis", "angle", "plane") if allowed[kind]),
+                current,
+            )
+            signals_were_blocked = combo.blockSignals(True)
+            combo.setCurrentIndex(max(0, combo.findData(preferred)))
+            combo.blockSignals(signals_were_blocked)
+        self._mate_type_changed(combo, value, emit=False)
+
+    @staticmethod
+    def _is_axis_reference(reference) -> bool:
+        text = str(reference or "")
+        return ":axis:" in text or ":datum_axis:" in text
 
     def _update_transform_editability(self) -> None:
         """Lock only the transform degrees of freedom owned by assembly mates."""
@@ -4241,14 +4376,26 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
 
     @staticmethod
     def _mate_transform_locks(rows, normal_by_reference) -> tuple[bool, bool]:
-        target_normals = [
-            normal_by_reference[row["target"]]
-            for row in rows
-            if row["target"] in normal_by_reference
-        ]
+        translation_directions = []
+        for row in rows:
+            if row["target"] not in normal_by_reference:
+                continue
+            direction = normal_by_reference[row["target"]]
+            direction = direction / np.linalg.norm(direction)
+            if row.get("type", "plane") == "axis":
+                trial = np.array((1.0, 0.0, 0.0))
+                if abs(direction @ trial) > 0.9:
+                    trial = np.array((0.0, 1.0, 0.0))
+                perpendicular = np.cross(direction, trial)
+                perpendicular /= np.linalg.norm(perpendicular)
+                translation_directions.extend(
+                    (perpendicular, np.cross(direction, perpendicular))
+                )
+            else:
+                translation_directions.append(direction)
         translation_locked = (
-            len(target_normals) >= 3
-            and np.linalg.matrix_rank(np.array(target_normals)) >= 3
+            len(translation_directions) >= 3
+            and np.linalg.matrix_rank(np.array(translation_directions)) >= 3
         )
         orientation_normals = [
             normal_by_reference[row["target"]]
@@ -4276,7 +4423,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             return False
         for row, (source_reference, target_reference) in enumerate(pairs):
             self.reference_list.setRowHidden(row, False)
-            source, target, offset, flip = self.rows[row]
+            source, target, mate_type, offset, flip = self.rows[row]
             source.setProperty("reference", source_reference)
             source.setText(labels[source_reference])
             target.setProperty("reference", target_reference)
@@ -4284,10 +4431,14 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             source.setChecked(True)
             target.setChecked(True)
             offset.blockSignals(True)
+            mate_type.blockSignals(True)
             flip.blockSignals(True)
+            mate_type.setCurrentIndex(max(0, mate_type.findData("plane")))
+            offset.setEnabled(True)
             offset.setValue(0.0)
             flip.setChecked(True)
             offset.blockSignals(False)
+            mate_type.blockSignals(False)
             flip.blockSignals(False)
         self.reference_status_label.setText(
             tr("assembly.properties.origin_aligned")
@@ -4324,7 +4475,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
 
     def _remove_mate_row(self, row: int) -> None:
         values = []
-        for index, (source, target, offset, flip) in enumerate(self.rows):
+        for index, (source, target, mate_type, offset, flip) in enumerate(self.rows):
             if index != row and (
                 source.property("reference") is not None
                 or target.property("reference") is not None
@@ -4332,11 +4483,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 values.append((
                     source.property("reference"), source.text(),
                     target.property("reference"), target.text(),
-                    offset.value(), flip.isChecked(),
+                    str(mate_type.currentData()), offset.value(), flip.isChecked(),
                 ))
-        for index, (source, target, offset, flip) in enumerate(self.rows):
+        for index, (source, target, mate_type, offset, flip) in enumerate(self.rows):
             if index < len(values):
-                source_ref, source_text, target_ref, target_text, shift, flipped = values[index]
+                source_ref, source_text, target_ref, target_text, kind, shift, flipped = values[index]
                 source.setProperty("reference", source_ref)
                 source.setText(source_text)
                 target.setProperty("reference", target_ref)
@@ -4344,10 +4495,14 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 source.setChecked(source_ref is not None)
                 target.setChecked(target_ref is not None)
                 offset.blockSignals(True)
+                mate_type.blockSignals(True)
                 flip.blockSignals(True)
+                mate_type.setCurrentIndex(max(0, mate_type.findData(kind)))
+                offset.setEnabled(kind != "axis")
                 offset.setValue(shift)
                 flip.setChecked(flipped)
                 offset.blockSignals(False)
+                mate_type.blockSignals(False)
                 flip.blockSignals(False)
                 self.reference_list.setRowHidden(index, False)
             else:
@@ -4358,15 +4513,21 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 source.setText(tr("assembly.properties.pick_face"))
                 target.setText(tr("assembly.properties.pick_face"))
                 offset.blockSignals(True)
+                mate_type.blockSignals(True)
                 flip.blockSignals(True)
+                mate_type.setCurrentIndex(max(0, mate_type.findData("plane")))
+                offset.setEnabled(True)
                 offset.setValue(0.0)
                 flip.setChecked(False)
                 offset.blockSignals(False)
+                mate_type.blockSignals(False)
                 flip.blockSignals(False)
                 self.reference_list.setRowHidden(index, True)
         self.active_pick = (min(len(values), 2), "source")
+        self.reference_list.setRowHidden(self.active_pick[0], False)
         self.selection_paused = False
         self._update_pick_highlight()
+        self._update_remove_buttons()
         self.matesSubmitted.emit(self.mate_rows())
 
     def keyPressEvent(self, event) -> None:
@@ -4377,7 +4538,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             return
         if event.key() == Qt.Key.Key_Escape:
             row, side = self.active_pick
-            source, target, _offset, _flip = self.rows[row]
+            source, target, _mate_type, _offset, _flip = self.rows[row]
             if side == "target" and target.property("reference") is None:
                 source.setProperty("reference", None)
                 source.setText(tr("assembly.properties.pick_face"))
@@ -4413,6 +4574,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.active_pick = (row, side)
         self.selection_paused = False
         self._update_pick_highlight()
+        self._update_remove_buttons()
         self.matesSubmitted.emit(self.mate_rows())
 
     def _choose_reference(
@@ -4443,7 +4605,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.active_pick = (next_row, "source")
 
     def _update_pick_highlight(self) -> None:
-        for row, (source, target, _offset, _flip) in enumerate(self.rows):
+        for row, (source, target, _mate_type, _offset, _flip) in enumerate(self.rows):
             for side, button in (("source", source), ("target", target)):
                 button.setStyleSheet(
                     (
@@ -4494,6 +4656,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         button.setProperty("reference", f"{owner_id}:face:{face_index}")
         button.setChecked(True)
         button.setText(f"{owner_name} / Face {face_index}")
+        self._update_remove_buttons()
+        self._update_available_mate_types(row)
         self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
@@ -4501,6 +4665,12 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         return True
 
     def accept_plane(self, descriptor: str) -> bool:
+        return self._accept_datum_reference(descriptor, "plane")
+
+    def accept_axis(self, descriptor: str) -> bool:
+        return self._accept_datum_reference(descriptor, "axis")
+
+    def _accept_datum_reference(self, descriptor: str, mate_kind: str) -> bool:
         if self.selection_paused:
             return False
         row, side = self.active_pick
@@ -4516,6 +4686,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         button.setProperty("reference", descriptor)
         button.setChecked(True)
         button.setText(label)
+        self._update_remove_buttons()
+        self._update_available_mate_types(row)
         self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
@@ -4527,14 +4699,32 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             {
                 "source": source.property("reference"),
                 "target": target.property("reference"),
+                "type": str(mate_type.currentData()),
                 "offset": offset.value(),
                 "flip": flip.isChecked(),
                 "orientation": index < 2,
             }
-            for index, (source, target, offset, flip) in enumerate(self.rows)
+            for index, (source, target, mate_type, offset, flip) in enumerate(self.rows)
             if source.property("reference") is not None
             and target.property("reference") is not None
+            and self._reference_matches_mate_type(
+                str(source.property("reference")),
+                str(mate_type.currentData()),
+            )
+            and self._reference_matches_mate_type(
+                str(target.property("reference")),
+                str(mate_type.currentData()),
+            )
         ]
+
+    @staticmethod
+    def _reference_matches_mate_type(reference: str, mate_type: str) -> bool:
+        is_axis = ":axis:" in reference or ":datum_axis:" in reference
+        if mate_type == "axis":
+            return is_axis
+        if mate_type == "plane":
+            return not is_axis
+        return True
 
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
@@ -12811,6 +13001,17 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or edge_index <= 0:
             return
+        assembly_dialog = self.assembly_component_dialog
+        if (
+            assembly_dialog is not None
+            and assembly_dialog.isVisible()
+            and not assembly_dialog.selection_paused
+        ):
+            component_id, separator, source_axis_id = owner_id.partition(":")
+            if separator and source_axis_id:
+                descriptor = f"{component_id}:datum_axis:{source_axis_id}"
+                if assembly_dialog.accept_axis(descriptor):
+                    return
         if self._sketch_reference_mode:
             owner = (
                 self.document.find_entity(owner_id)
@@ -12923,7 +13124,16 @@ class MainWindow(QMainWindow):
         self._history_source_cycle_active = False
         self._select_native_tree_object(tree_object_id)
         if self._dimension_overlays:
-            self._clear_dimension_overlays()
+            assembly_dialog = self.assembly_component_dialog
+            same_hidden_component = (
+                assembly_dialog is not None
+                and not assembly_dialog.isVisible()
+                and assembly_dialog.component.entity_id == tree_object_id
+            )
+            if not same_hidden_component:
+                if assembly_dialog is not None and not assembly_dialog.isVisible():
+                    assembly_dialog.reject()
+                self._clear_dimension_overlays()
 
     def _on_native_object_double_clicked(self, owner_id: str) -> None:
         obj = self._selected_object()
@@ -12936,6 +13146,21 @@ class MainWindow(QMainWindow):
             if picked is not None:
                 obj = picked
         if obj is None:
+            return
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") == "assembly"
+            and obj.kind == EntityKind.CONTAINER
+            and obj.container_type == ContainerType.COMPONENT
+        ):
+            existing = self.assembly_component_dialog
+            if existing is not None:
+                same_component = existing.component.entity_id == obj.entity_id
+                hidden_dimension_mode = not existing.isVisible()
+                existing.reject()
+                if same_component and hidden_dimension_mode:
+                    return
+            self._edit_assembly_component(obj, show_dialog=False)
             return
         target = obj
         if obj.kind in (EntityKind.PART, EntityKind.BODY):
@@ -13273,21 +13498,30 @@ class MainWindow(QMainWindow):
             assembly_dialog is not None
             and assembly_dialog.isVisible()
             and selected_reference is not None
-            and selected_reference.kind == EntityKind.PLANE
+            and selected_reference.kind in (EntityKind.PLANE, EntityKind.AXIS)
         ):
-            plane = str(
-                selected_reference.parameters.get("plane", "xy")
-            ).upper()
             owner = self.document.find_owning_object(
                 selected_reference.entity_id
             )
-            descriptor = (
-                f"{owner.entity_id}:plane:{plane}"
-                if owner is not None
-                and owner.container_type == ContainerType.COMPONENT
-                else f"assembly:{plane}"
-            )
-            if assembly_dialog.accept_plane(descriptor):
+            if selected_reference.kind == EntityKind.AXIS:
+                axis = str(selected_reference.parameters.get("axis", "z")).upper()
+                descriptor = (
+                    f"{owner.entity_id}:axis:{axis}"
+                    if owner is not None
+                    and owner.container_type == ContainerType.COMPONENT
+                    else f"assembly:axis:{axis}"
+                )
+                accepted = assembly_dialog.accept_axis(descriptor)
+            else:
+                plane = str(selected_reference.parameters.get("plane", "xy")).upper()
+                descriptor = (
+                    f"{owner.entity_id}:plane:{plane}"
+                    if owner is not None
+                    and owner.container_type == ContainerType.COMPONENT
+                    else f"assembly:{plane}"
+                )
+                accepted = assembly_dialog.accept_plane(descriptor)
+            if accepted:
                 self._select_native_tree_object(selected_id)
                 return
         if (
@@ -13501,6 +13735,34 @@ class MainWindow(QMainWindow):
                 0,
                 HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
             )
+            assembly_dialog = self.assembly_component_dialog
+            if (
+                assembly_dialog is not None
+                and assembly_dialog.isVisible()
+                and component_id is not None
+                and source_entity_id is not None
+                and self.document is not None
+            ):
+                instance = self.document.find_entity(str(component_id))
+                source_document = (
+                    self._component_source_document(instance)
+                    if instance is not None
+                    else None
+                )
+                source_reference = (
+                    source_document.find_entity(str(source_entity_id))
+                    if source_document is not None
+                    else None
+                )
+                if (
+                    source_reference is not None
+                    and source_reference.kind == EntityKind.AXIS
+                    and assembly_dialog.accept_axis(
+                        f"{component_id}:datum_axis:{source_entity_id}"
+                    )
+                ):
+                    self.rebuild_view(fit=False, rebuild_geometry=False)
+                    return
             if component_id is not None:
                 self.selected_object_id = (
                     source_entity_id
@@ -13508,7 +13770,6 @@ class MainWindow(QMainWindow):
                     else component_id
                 )
             self._view_selection_confirmed = self.selected_object_id is not None
-            assembly_dialog = self.assembly_component_dialog
             if (
                 assembly_dialog is not None
                 and assembly_dialog.isVisible()
@@ -13524,16 +13785,25 @@ class MainWindow(QMainWindow):
                     assembly_dialog.matesSubmitted.emit(assembly_dialog.mate_rows())
                     self.rebuild_view(fit=False, rebuild_geometry=False)
                     return
-                if reference is not None and reference.kind == EntityKind.PLANE:
-                    plane = str(reference.parameters.get("plane", "xy")).upper()
+                if reference is not None and reference.kind in (EntityKind.PLANE, EntityKind.AXIS):
                     owner = self.document.find_owning_object(reference.entity_id)
-                    descriptor = (
-                        f"{owner.entity_id}:plane:{plane}"
-                        if owner is not None
-                        and owner.container_type == ContainerType.COMPONENT
-                        else f"assembly:{plane}"
-                    )
-                    if assembly_dialog.accept_plane(descriptor):
+                    if reference.kind == EntityKind.AXIS:
+                        axis = str(reference.parameters.get("axis", "z")).upper()
+                        descriptor = (
+                            f"{owner.entity_id}:axis:{axis}"
+                            if owner is not None and owner.container_type == ContainerType.COMPONENT
+                            else f"assembly:axis:{axis}"
+                        )
+                        accepted = assembly_dialog.accept_axis(descriptor)
+                    else:
+                        plane = str(reference.parameters.get("plane", "xy")).upper()
+                        descriptor = (
+                            f"{owner.entity_id}:plane:{plane}"
+                            if owner is not None and owner.container_type == ContainerType.COMPONENT
+                            else f"assembly:{plane}"
+                        )
+                        accepted = assembly_dialog.accept_plane(descriptor)
+                    if accepted:
                         self.rebuild_view(fit=False, rebuild_geometry=False)
                         return
             if (
@@ -16288,6 +16558,8 @@ class MainWindow(QMainWindow):
         if not own:
             for plane, normal in (("XY", (0., 0., 1.)), ("YZ", (1., 0., 0.)), ("XZ", (0., 1., 0.))):
                 choices.append((f"ASSEMBLY / {plane}", f"assembly:{plane}", (0., 0., 0.), normal))
+            for axis, direction in (("X", (1., 0., 0.)), ("Y", (0., 1., 0.)), ("Z", (0., 0., 1.))):
+                choices.append((f"ASSEMBLY / {axis}", f"assembly:axis:{axis}", (0., 0., 0.), direction))
         for owner in candidates:
             transform = coordinate_system_transform(owner.coordinate_system)
             for plane, normal in (("XY", (0., 0., 1.)), ("YZ", (1., 0., 0.)), ("XZ", (0., 1., 0.))):
@@ -16297,6 +16569,61 @@ class MainWindow(QMainWindow):
                     transform_point(transform, (0., 0., 0.)),
                     tuple(sum(transform[i][j] * normal[j] for j in range(3)) for i in range(3)),
                 ))
+            for axis, direction in (("X", (1., 0., 0.)), ("Y", (0., 1., 0.)), ("Z", (0., 0., 1.))):
+                choices.append((
+                    f"{owner.name} / {axis}",
+                    f"{owner.entity_id}:axis:{axis}",
+                    transform_point(transform, (0., 0., 0.)),
+                    tuple(sum(transform[i][j] * direction[j] for j in range(3)) for i in range(3)),
+                ))
+            source_document = self._component_source_document(owner)
+            if source_document is not None:
+                pending = list(source_document.root.children)
+                while pending:
+                    source_entity = pending.pop()
+                    pending.extend(source_entity.children)
+                    if (
+                        source_entity.kind != EntityKind.AXIS
+                        or source_entity.parameters.get("display_style") != "centerline"
+                        or not source_document.is_effectively_visible(
+                            source_entity.entity_id
+                        )
+                    ):
+                        continue
+                    source_transform = entity_world_transform(
+                        source_document,
+                        source_entity.entity_id,
+                    )
+                    if source_transform is None:
+                        continue
+                    world_transform = multiply_transforms(
+                        transform,
+                        source_transform,
+                    )
+                    local_origin = tuple(
+                        float(source_entity.parameters.get(f"origin_{key}", 0.0))
+                        for key in ("x", "y", "z")
+                    )
+                    local_direction = {
+                        "x": (1.0, 0.0, 0.0),
+                        "y": (0.0, 1.0, 0.0),
+                        "z": (0.0, 0.0, 1.0),
+                    }.get(
+                        str(source_entity.parameters.get("axis", "z")),
+                        (0.0, 0.0, 1.0),
+                    )
+                    choices.append((
+                        f"{owner.name} / {source_entity.name}",
+                        f"{owner.entity_id}:datum_axis:{source_entity.entity_id}",
+                        transform_point(world_transform, local_origin),
+                        tuple(
+                            sum(
+                                world_transform[i][j] * local_direction[j]
+                                for j in range(3)
+                            )
+                            for i in range(3)
+                        ),
+                    ))
             shape = self.document.build_standalone_shape(owner)
             if shape is None:
                 continue
@@ -16320,7 +16647,15 @@ class MainWindow(QMainWindow):
                 explorer.Next()
         return choices
 
-    def _edit_assembly_component(self, component: ZimaEntity) -> None:
+    def _edit_assembly_component(
+        self,
+        component: ZimaEntity,
+        *,
+        show_dialog: bool = True,
+    ) -> None:
+        existing_dialog = self.assembly_component_dialog
+        if existing_dialog is not None:
+            existing_dialog.reject()
         committed_state = {
             "name": component.name,
             "origin": tuple(component.coordinate_system.origin),
@@ -16341,21 +16676,179 @@ class MainWindow(QMainWindow):
             for _label, descriptor, point, normal
             in (*source_choices, *target_choices)
         }
+        source_frame_keys = {
+            descriptor
+            for _label, descriptor, _point, _normal in source_choices
+        }
+
+        def commit_mate_value(row_index: int, raw_value: str) -> None:
+            try:
+                value = float(str(raw_value).replace(",", "."))
+            except (TypeError, ValueError):
+                return
+            if 0 <= row_index < len(dialog.rows):
+                dialog.rows[row_index][3].setValue(value)
+
+        def clear_mate_dimension_overlays() -> None:
+            for key in tuple(self._dimension_overlays):
+                if not key.startswith("assembly_mate_"):
+                    continue
+                overlay = self._dimension_overlays.pop(key)
+                overlay.hide()
+                overlay.deleteLater()
+
+        def update_mate_dimensions(rows) -> None:
+            clear_mate_dimension_overlays()
+            dimensions = []
+            dimension_bindings = []
+            radius = max(15.0, float(self.native_viewer._scene_radius) * 0.22)
+            for index, row in enumerate(rows):
+                source_frame = frames.get(row.get("source"))
+                target_frame = frames.get(row.get("target"))
+                if source_frame is None or target_frame is None:
+                    continue
+                mate_type = str(row.get("type", "plane"))
+                vertex = np.array(target_frame[0], dtype=float)
+                first_direction = np.array(source_frame[1], dtype=float)
+                second_direction = np.array(target_frame[1], dtype=float)
+                first_length = np.linalg.norm(first_direction)
+                second_length = np.linalg.norm(second_direction)
+                if first_length <= 1.0e-9 or second_length <= 1.0e-9:
+                    continue
+                first_direction /= first_length
+                second_direction /= second_length
+                if mate_type != "angle":
+                    source_point = np.array(source_frame[0], dtype=float)
+                    target_point = np.array(target_frame[0], dtype=float)
+                    direction = second_direction
+                    if mate_type == "axis":
+                        delta = source_point - target_point
+                        delta -= direction * (delta @ direction)
+                        if np.linalg.norm(delta) > 1.0e-9:
+                            direction = delta / np.linalg.norm(delta)
+                        else:
+                            trial = np.array((1.0, 0.0, 0.0))
+                            if abs(direction @ trial) > 0.9:
+                                trial = np.array((0.0, 1.0, 0.0))
+                            direction = np.cross(direction, trial)
+                            direction /= np.linalg.norm(direction)
+                    trial = np.array((1.0, 0.0, 0.0))
+                    if abs(direction @ trial) > 0.9:
+                        trial = np.array((0.0, 1.0, 0.0))
+                    side = np.cross(direction, trial)
+                    side /= np.linalg.norm(side)
+                    display_second = source_point
+                    if np.linalg.norm(display_second - target_point) <= 1.0e-6:
+                        display_second = target_point + direction * max(
+                            2.0, radius * 0.12
+                        )
+                    dimension = LinearDimension(
+                        key=f"assembly_mate_{mate_type}:{index}",
+                        first_point=tuple(float(value) for value in target_point),
+                        second_point=tuple(float(value) for value in display_second),
+                        first_dimension_point=tuple(
+                            float(value) for value in (target_point + side * radius)
+                        ),
+                        second_dimension_point=tuple(
+                            float(value) for value in (display_second + side * radius)
+                        ),
+                        direction=tuple(float(value) for value in direction),
+                        value_prefix="⌀ " if mate_type == "axis" else "",
+                        value_suffix=" mm",
+                        display_text=(
+                            "0"
+                            if mate_type == "axis"
+                            else f"{float(row.get('offset', 0.0)):.3f}"
+                        ),
+                    )
+                    dimensions.append(dimension)
+                    dimension_bindings.append((dimension, index, mate_type))
+                    continue
+                if row.get("flip", False):
+                    second_direction *= -1.0
+                middle = first_direction + second_direction
+                if np.linalg.norm(middle) <= 1.0e-9:
+                    trial = np.array((1.0, 0.0, 0.0))
+                    if abs(first_direction @ trial) > 0.9:
+                        trial = np.array((0.0, 1.0, 0.0))
+                    middle = np.cross(first_direction, trial)
+                middle /= np.linalg.norm(middle)
+                dimension = AngularDimension(
+                    key=f"assembly_mate_angle:{index}",
+                    vertex=tuple(float(value) for value in vertex),
+                    first_direction_point=tuple(
+                        float(value)
+                        for value in (vertex + first_direction * radius)
+                    ),
+                    second_direction_point=tuple(
+                        float(value)
+                        for value in (vertex + second_direction * radius)
+                    ),
+                    arc_point=tuple(
+                        float(value)
+                        for value in (vertex + middle * radius)
+                    ),
+                    sweep_degrees=float(row.get("offset", 0.0)),
+                )
+                dimensions.append(dimension)
+                dimension_bindings.append((dimension, index, mate_type))
+            self.native_viewer.set_dimensions(tuple(dimensions))
+            for dimension, row_index, mate_type in dimension_bindings:
+                overlay = ParameterEditOverlay(self.native_viewer)
+                self._configure_dimension_overlay(
+                    overlay,
+                    component,
+                    dimension,
+                    dialog.rows[row_index][3].value(),
+                )
+                if mate_type == "axis":
+                    overlay.set_locked(True)
+                else:
+                    overlay.valueCommitted.connect(
+                        lambda raw_value, index=row_index:
+                        commit_mate_value(index, raw_value)
+                    )
+                overlay.selected.connect(
+                    lambda key=dimension.key:
+                    self._select_dimension_overlay(key)
+                )
+                self._dimension_overlays[dimension.key] = overlay
+            QTimer.singleShot(0, self._position_dimension_overlays)
 
         def sync_filled_reference_highlights() -> None:
             faces: set[tuple[str, int]] = set()
             planes: set[tuple[str, int]] = set()
-            for source, target, _offset, _flip in dialog.rows:
+            edges: set[tuple[str, int]] = set()
+            for source, target, _mate_type, _offset, _flip in dialog.rows:
                 for button in (source, target):
                     descriptor = button.property("reference")
                     if descriptor is None or not button.isChecked():
                         continue
-                    parts = str(descriptor).split(":")
+                    descriptor_text = str(descriptor)
+                    parts = descriptor_text.split(":")
                     if len(parts) == 3 and parts[1] == "face":
                         try:
                             faces.add((parts[0], int(parts[2])))
                         except ValueError:
                             pass
+                        continue
+                    if ":datum_axis:" in descriptor_text:
+                        component_id, source_axis_id = descriptor_text.split(
+                            ":datum_axis:", 1
+                        )
+                        edges.add((f"{component_id}:{source_axis_id}", 1))
+                        continue
+                    if len(parts) in (3, 4) and parts[-2] == "axis":
+                        axis_name = parts[-1].lower()
+                        owner = (
+                            self.document.root
+                            if parts[0] == "assembly"
+                            else self.document.find_entity(parts[0])
+                        ) if self.document is not None else None
+                        origin = next((child for child in owner.children if child.kind == EntityKind.ORIGIN), None) if owner is not None else None
+                        axis_index = {"x": 1, "y": 2, "z": 3}.get(axis_name)
+                        if origin is not None and axis_index is not None:
+                            edges.add((origin.entity_id, axis_index))
                         continue
                     if len(parts) == 2 and parts[0] == "assembly":
                         owner = self.document.root if self.document is not None else None
@@ -16384,6 +16877,7 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_assembly_reference_highlights(
                 faces=faces,
                 planes=planes,
+                edges=edges,
             )
 
         def highlight_active_reference(descriptor: str) -> None:
@@ -16399,6 +16893,22 @@ class MainWindow(QMainWindow):
                     parts = reference.split(":")
                     if len(parts) == 3 and parts[1] == "face":
                         allowed_owner_ids.add(parts[0])
+                        continue
+                    if ":datum_axis:" in reference:
+                        component_id, source_axis_id = reference.split(
+                            ":datum_axis:", 1
+                        )
+                        allowed_owner_ids.add(f"{component_id}:{source_axis_id}")
+                        continue
+                    if parts[-2:-1] == ["axis"]:
+                        owner = (
+                            self.document.root
+                            if parts[0] == "assembly"
+                            else self.document.find_entity(parts[0])
+                        ) if self.document is not None else None
+                        origin = next((child for child in owner.children if child.kind == EntityKind.ORIGIN), None) if owner is not None else None
+                        if origin is not None:
+                            allowed_owner_ids.add(origin.entity_id)
                         continue
                     owner = (
                         self.document.root
@@ -16421,7 +16931,7 @@ class MainWindow(QMainWindow):
                         )
                         if origin is not None:
                             allowed_owner_ids.add(origin.entity_id)
-            self.native_viewer.set_selection_filter("surface")
+            self.native_viewer.set_selection_filter("all")
             self.native_viewer.set_topology_owner_filter(allowed_owner_ids)
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
@@ -16439,6 +16949,25 @@ class MainWindow(QMainWindow):
                     except ValueError:
                         return
                     self.native_viewer._set_selected_face((parts[0], face_index))
+                    return
+                if ":datum_axis:" in descriptor:
+                    component_id, source_axis_id = descriptor.split(
+                        ":datum_axis:", 1
+                    )
+                    self.native_viewer._set_selected_edge(
+                        (f"{component_id}:{source_axis_id}", 1)
+                    )
+                    return
+                if parts[-2:-1] == ["axis"]:
+                    owner = (
+                        self.document.root
+                        if parts[0] == "assembly"
+                        else self.document.find_entity(parts[0])
+                    ) if self.document is not None else None
+                    origin = next((child for child in owner.children if child.kind == EntityKind.ORIGIN), None) if owner is not None else None
+                    axis_index = {"x": 1, "y": 2, "z": 3}.get(parts[-1].lower())
+                    if origin is not None and axis_index is not None:
+                        self.native_viewer._set_selected_edge((origin.entity_id, axis_index))
                     return
                 if len(parts) == 2 and parts[0] == "assembly":
                     owner = self.document.root if self.document is not None else None
@@ -16486,16 +17015,26 @@ class MainWindow(QMainWindow):
                 index
                 for index, row in enumerate(valid)
                 if bool(row.get("orientation", index < 2))
+                and row.get("type", "plane") != "angle"
             ][:2]
             source_normals = all_source_normals[orientation_indices]
             target_normals = all_target_normals[orientation_indices]
             source_normals /= np.linalg.norm(source_normals, axis=1)[:, None]
             target_normals /= np.linalg.norm(target_normals, axis=1)[:, None]
-            if len(orientation_indices) == 0:
-                rotation_delta = np.eye(3)
-            elif len(orientation_indices) == 1:
-                source_normal = source_normals[0]
-                target_normal = target_normals[0]
+            def axis_rotation(axis, angle):
+                axis = axis / np.linalg.norm(axis)
+                skew = np.array((
+                    (0.0, -axis[2], axis[1]),
+                    (axis[2], 0.0, -axis[0]),
+                    (-axis[1], axis[0], 0.0),
+                ))
+                return (
+                    np.eye(3)
+                    + math.sin(angle) * skew
+                    + (1.0 - math.cos(angle)) * (skew @ skew)
+                )
+
+            def closest_alignment(source_normal, target_normal):
                 cross = np.cross(source_normal, target_normal)
                 dot = float(np.clip(source_normal @ target_normal, -1.0, 1.0))
                 squared_sine = float(cross @ cross)
@@ -16505,25 +17044,109 @@ class MainWindow(QMainWindow):
                         (cross[2], 0.0, -cross[0]),
                         (-cross[1], cross[0], 0.0),
                     ))
-                    rotation_delta = (
+                    return (
                         np.eye(3) + skew
                         + skew @ skew * ((1.0 - dot) / squared_sine)
                     )
-                elif dot > 0.0:
-                    rotation_delta = np.eye(3)
-                else:
-                    trial = np.array((1.0, 0.0, 0.0))
-                    if abs(source_normal @ trial) > 0.9:
-                        trial = np.array((0.0, 1.0, 0.0))
-                    axis = np.cross(source_normal, trial)
-                    axis /= np.linalg.norm(axis)
-                    rotation_delta = 2.0 * np.outer(axis, axis) - np.eye(3)
-            else:
-                u, _singular, vt = np.linalg.svd(source_normals.T @ target_normals)
-                rotation_delta = vt.T @ u.T
-                if np.linalg.det(rotation_delta) < 0:
-                    vt[-1, :] *= -1
-                    rotation_delta = vt.T @ u.T
+                if dot > 0.0:
+                    return np.eye(3)
+                trial = np.array((1.0, 0.0, 0.0))
+                if abs(source_normal @ trial) > 0.9:
+                    trial = np.array((0.0, 1.0, 0.0))
+                axis = np.cross(source_normal, trial)
+                return axis_rotation(axis, math.pi)
+
+            rotation_delta = np.eye(3)
+            if len(orientation_indices) >= 1:
+                rotation_delta = closest_alignment(
+                    source_normals[0], target_normals[0]
+                )
+            if len(orientation_indices) >= 2:
+                locked_axis = target_normals[0]
+                current_second = rotation_delta @ source_normals[1]
+                source_projection = (
+                    current_second
+                    - locked_axis * (current_second @ locked_axis)
+                )
+                target_projection = (
+                    target_normals[1]
+                    - locked_axis * (target_normals[1] @ locked_axis)
+                )
+                source_length = np.linalg.norm(source_projection)
+                target_length = np.linalg.norm(target_projection)
+                if source_length > 1.0e-9 and target_length > 1.0e-9:
+                    source_projection /= source_length
+                    target_projection /= target_length
+                    angle = math.atan2(
+                        locked_axis @ np.cross(
+                            source_projection, target_projection
+                        ),
+                        float(np.clip(
+                            source_projection @ target_projection,
+                            -1.0,
+                            1.0,
+                        )),
+                    )
+                    rotation_delta = (
+                        axis_rotation(locked_axis, angle) @ rotation_delta
+                    )
+
+            angle_rows = [
+                (index, row)
+                for index, row in enumerate(valid)
+                if row.get("type") == "angle"
+            ]
+            if angle_rows:
+                hinge = (
+                    target_normals[0]
+                    if len(orientation_indices) >= 1
+                    else None
+                )
+                for index, row in angle_rows:
+                    source_direction = rotation_delta @ (
+                        all_source_normals[index]
+                        / np.linalg.norm(all_source_normals[index])
+                    )
+                    target_direction = normalized_target = (
+                        all_target_normals[index]
+                        / np.linalg.norm(all_target_normals[index])
+                    )
+                    angle_axis = hinge
+                    if angle_axis is None:
+                        angle_axis = np.cross(
+                            source_direction, target_direction
+                        )
+                        if np.linalg.norm(angle_axis) <= 1.0e-9:
+                            continue
+                        angle_axis /= np.linalg.norm(angle_axis)
+                    source_projection = source_direction - angle_axis * (
+                        source_direction @ angle_axis
+                    )
+                    target_projection = normalized_target - angle_axis * (
+                        normalized_target @ angle_axis
+                    )
+                    if (
+                        np.linalg.norm(source_projection) <= 1.0e-9
+                        or np.linalg.norm(target_projection) <= 1.0e-9
+                    ):
+                        continue
+                    source_projection /= np.linalg.norm(source_projection)
+                    target_projection /= np.linalg.norm(target_projection)
+                    current_angle = math.atan2(
+                        angle_axis @ np.cross(
+                            source_projection, target_projection
+                        ),
+                        float(np.clip(
+                            source_projection @ target_projection,
+                            -1.0,
+                            1.0,
+                        )),
+                    )
+                    desired_angle = math.radians(float(row["offset"]))
+                    rotation_delta = axis_rotation(
+                        angle_axis,
+                        current_angle - desired_angle,
+                    ) @ rotation_delta
             current = np.array(coordinate_system_transform(component.coordinate_system), dtype=float)
             rotation = rotation_delta @ current[:, :3]
             origin = np.array(component.coordinate_system.origin, dtype=float)
@@ -16537,16 +17160,35 @@ class MainWindow(QMainWindow):
                 source_point = np.array(frames[row["source"]][0], dtype=float)
                 target_point = np.array(frames[row["target"]][0], dtype=float)
                 rotated_relative = rotation_delta @ (source_point - origin)
-                equations.append(desired_normal)
-                values.append(
-                    desired_normal @ target_point
-                    + float(row["offset"])
-                    - desired_normal @ rotated_relative
-                )
-            equations = np.array(equations)
-            values = np.array(values)
-            correction = values - equations @ origin
-            translation = origin + np.linalg.lstsq(equations, correction, rcond=None)[0]
+                if row.get("type", "plane") == "axis":
+                    trial = np.array((1.0, 0.0, 0.0))
+                    if abs(desired_normal @ trial) > 0.9:
+                        trial = np.array((0.0, 1.0, 0.0))
+                    perpendicular = np.cross(desired_normal, trial)
+                    perpendicular /= np.linalg.norm(perpendicular)
+                    second = np.cross(desired_normal, perpendicular)
+                    for direction in (perpendicular, second):
+                        equations.append(direction)
+                        values.append(
+                            direction @ target_point
+                            - direction @ rotated_relative
+                        )
+                elif row.get("type", "plane") != "angle":
+                    equations.append(desired_normal)
+                    values.append(
+                        desired_normal @ target_point
+                        + float(row["offset"])
+                        - desired_normal @ rotated_relative
+                    )
+            if equations:
+                equations = np.array(equations)
+                values = np.array(values)
+                correction = values - equations @ origin
+                translation = origin + np.linalg.lstsq(
+                    equations, correction, rcond=None
+                )[0]
+            else:
+                translation = origin
             sy = math.sqrt(rotation[0, 0] ** 2 + rotation[1, 0] ** 2)
             if sy > 1.0e-9:
                 rx = math.atan2(rotation[2, 1], rotation[2, 2])
@@ -16567,16 +17209,25 @@ class MainWindow(QMainWindow):
                 edit.blockSignals(True)
                 edit.setValue(value)
                 edit.blockSignals(False)
-            self._refresh_object_properties(component)
-            refreshed = (
-                *self._assembly_plane_choices(component, True),
-                *self._assembly_plane_choices(component, False),
-            )
-            frames.clear()
-            frames.update({
-                descriptor: (point, normal)
-                for _label, descriptor, point, normal in refreshed
-            })
+            for descriptor in source_frame_keys:
+                frame = frames.get(descriptor)
+                if frame is None:
+                    continue
+                point = np.array(frame[0], dtype=float)
+                normal = np.array(frame[1], dtype=float)
+                frames[descriptor] = (
+                    tuple(
+                        float(value)
+                        for value in (
+                            translation + rotation_delta @ (point - origin)
+                        )
+                    ),
+                    tuple(
+                        float(value) for value in (rotation_delta @ normal)
+                    ),
+                )
+            self.rebuild_view(fit=False)
+            update_mate_dimensions(rows)
             highlight_active_reference(dialog.active_reference_descriptor())
 
         def capture_committed_state() -> None:
@@ -16609,17 +17260,18 @@ class MainWindow(QMainWindow):
         previous_points_visible = self.show_points_action.isChecked()
         previous_axes_visible = self.show_axes_action.isChecked()
         previous_planes_visible = self.show_planes_action.isChecked()
-        self.show_origins_action.setChecked(True)
-        self.show_points_action.setChecked(True)
-        self.show_axes_action.setChecked(True)
-        self.show_planes_action.setChecked(True)
-        reference_filter_index = self.selection_filter_combo.findData(
-            ViewSelectionFilter.ALL.value
-        )
-        if reference_filter_index >= 0:
-            self.selection_filter_combo.setCurrentIndex(reference_filter_index)
-        if not self.view_selection_enabled:
-            self.view_selection_action.setChecked(True)
+        if show_dialog:
+            self.show_origins_action.setChecked(True)
+            self.show_points_action.setChecked(True)
+            self.show_axes_action.setChecked(True)
+            self.show_planes_action.setChecked(True)
+            reference_filter_index = self.selection_filter_combo.findData(
+                ViewSelectionFilter.ALL.value
+            )
+            if reference_filter_index >= 0:
+                self.selection_filter_combo.setCurrentIndex(reference_filter_index)
+            if not self.view_selection_enabled:
+                self.view_selection_action.setChecked(True)
 
         def finish_component_edit(result) -> None:
             if result != QDialog.DialogCode.Accepted:
@@ -16639,20 +17291,25 @@ class MainWindow(QMainWindow):
                 faces=set(),
                 planes=set(),
             )
+            self.native_viewer.set_dimensions(())
+            clear_mate_dimension_overlays()
             self.native_viewer.set_topology_owner_filter(None)
-            self.selection_filter_combo.setCurrentIndex(previous_filter_index)
-            if not previous_selection_enabled:
-                self.view_selection_action.setChecked(False)
-            self.show_origins_action.setChecked(previous_origins_visible)
-            self.show_points_action.setChecked(previous_points_visible)
-            self.show_axes_action.setChecked(previous_axes_visible)
-            self.show_planes_action.setChecked(previous_planes_visible)
+            if show_dialog:
+                self.selection_filter_combo.setCurrentIndex(previous_filter_index)
+                if not previous_selection_enabled:
+                    self.view_selection_action.setChecked(False)
+                self.show_origins_action.setChecked(previous_origins_visible)
+                self.show_points_action.setChecked(previous_points_visible)
+                self.show_axes_action.setChecked(previous_axes_visible)
+                self.show_planes_action.setChecked(previous_planes_visible)
             self.rebuild_view(fit=False)
 
         dialog.finished.connect(finish_component_edit)
-        dialog.show()
-        position_dialog_top_right_after_show(dialog)
+        if show_dialog:
+            dialog.show()
+            position_dialog_top_right_after_show(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        update_mate_dimensions(dialog.mate_rows())
         highlight_active_reference(dialog.active_reference_descriptor())
 
     def _edit_generic_object(self, obj: ZimaEntity) -> None:
