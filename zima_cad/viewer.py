@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from math import acos, atan2, cos, degrees, hypot, pi, radians, sin, sqrt, tan
+from math import (
+    acos, atan2, cos, degrees, hypot, pi, radians, sin, sqrt, tan,
+)
 import traceback
 from typing import Any
 
@@ -110,6 +112,7 @@ class AngularDimension:
     second_direction_point: Point3
     arc_point: Point3
     sweep_degrees: float | None = None
+    plane_normal: Point3 | None = None
     value_prefix: str = ""
     value_suffix: str = "°"
 
@@ -236,6 +239,143 @@ class CameraState:
     pan_x: float = 0.0
     pan_y: float = 0.0
     zoom: float = 1.0
+
+
+def _multiply_rotation_matrices(
+    first: tuple[tuple[float, float, float], ...],
+    second: tuple[tuple[float, float, float], ...],
+) -> tuple[tuple[float, float, float], ...]:
+    return tuple(
+        tuple(
+            sum(first[row][index] * second[index][column]
+                for index in range(3))
+            for column in range(3)
+        )
+        for row in range(3)
+    )
+
+
+def _camera_rotation_matrix(
+    yaw_degrees: float,
+    pitch_degrees: float,
+    roll_degrees: float,
+) -> tuple[tuple[float, float, float], ...]:
+    yaw = radians(yaw_degrees)
+    pitch = radians(pitch_degrees)
+    roll = radians(roll_degrees)
+    yaw_matrix = (
+        (cos(yaw), -sin(yaw), 0.0),
+        (sin(yaw), cos(yaw), 0.0),
+        (0.0, 0.0, 1.0),
+    )
+    pitch_matrix = (
+        (1.0, 0.0, 0.0),
+        (0.0, cos(pitch), -sin(pitch)),
+        (0.0, sin(pitch), cos(pitch)),
+    )
+    roll_matrix = (
+        (cos(roll), -sin(roll), 0.0),
+        (sin(roll), cos(roll), 0.0),
+        (0.0, 0.0, 1.0),
+    )
+    return _multiply_rotation_matrices(
+        roll_matrix,
+        _multiply_rotation_matrices(pitch_matrix, yaw_matrix),
+    )
+
+
+def _nearest_angle(angle: float, reference: float) -> float:
+    return reference + ((angle - reference + 180.0) % 360.0) - 180.0
+
+
+def _camera_angles_from_matrix(
+    matrix: tuple[tuple[float, float, float], ...],
+    previous: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    previous_yaw, previous_pitch, previous_roll = previous
+    positive_pitch = degrees(acos(max(-1.0, min(1.0, matrix[2][2]))))
+    sine_pitch = sin(radians(positive_pitch))
+    if abs(sine_pitch) <= 1.0e-8:
+        combined = degrees(atan2(matrix[1][0], matrix[0][0]))
+        roll = previous_roll
+        if matrix[2][2] >= 0.0:
+            yaw = combined - roll
+            pitch = 0.0
+        else:
+            yaw = roll - combined
+            pitch = 180.0
+        return (
+            _nearest_angle(yaw, previous_yaw),
+            _nearest_angle(pitch, previous_pitch),
+            _nearest_angle(roll, previous_roll),
+        )
+
+    positive = (
+        degrees(atan2(matrix[2][0], matrix[2][1])),
+        positive_pitch,
+        degrees(atan2(matrix[0][2], -matrix[1][2])),
+    )
+    negative = (
+        degrees(atan2(-matrix[2][0], -matrix[2][1])),
+        -positive_pitch,
+        degrees(atan2(-matrix[0][2], matrix[1][2])),
+    )
+    candidates = [
+        tuple(
+            _nearest_angle(value, reference)
+            for value, reference in zip(candidate, previous)
+        )
+        for candidate in (positive, negative)
+    ]
+    return min(
+        candidates,
+        key=lambda candidate: sum(
+            (candidate[index] - previous[index]) ** 2
+            for index in range(3)
+        ),
+    )
+
+
+def orbit_camera_state(
+    camera: CameraState,
+    horizontal_degrees: float,
+    vertical_degrees: float,
+) -> None:
+    """Rotate around the current screen axes without Euler-axis reversal."""
+
+    horizontal = radians(horizontal_degrees)
+    vertical = radians(vertical_degrees)
+    screen_y_rotation = (
+        (cos(horizontal), 0.0, sin(horizontal)),
+        (0.0, 1.0, 0.0),
+        (-sin(horizontal), 0.0, cos(horizontal)),
+    )
+    screen_x_rotation = (
+        (1.0, 0.0, 0.0),
+        (0.0, cos(vertical), -sin(vertical)),
+        (0.0, sin(vertical), cos(vertical)),
+    )
+    current = _camera_rotation_matrix(
+        camera.yaw_degrees,
+        camera.pitch_degrees,
+        camera.roll_degrees,
+    )
+    rotated = _multiply_rotation_matrices(
+        screen_x_rotation,
+        _multiply_rotation_matrices(screen_y_rotation, current),
+    )
+    (
+        camera.yaw_degrees,
+        camera.pitch_degrees,
+        camera.roll_degrees,
+    ) = _camera_angles_from_matrix(
+        rotated,
+        (
+            camera.yaw_degrees,
+            camera.pitch_degrees,
+            camera.roll_degrees,
+        ),
+    )
 
 
 class ZimaOpenGLViewer(QOpenGLWidget):
@@ -966,6 +1106,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         geometry["shoulder_start"],
                         geometry["shoulder_end"],
                     ))
+                for base_key, tail_key in (
+                    ("arrow_base", "arrow_tail"),
+                    ("opposite_arrow_base", "opposite_arrow_tail"),
+                ):
+                    if base_key in geometry and tail_key in geometry:
+                        segments.append((
+                            geometry[base_key], geometry[tail_key]
+                        ))
             elif geometry.get("angular"):
                 arc = geometry.get("arc", ())
                 segments.extend(
@@ -977,6 +1125,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         segments.append((
                             geometry["vertex"],
                             geometry[endpoint],
+                        ))
+                for base_key, tail_key in (
+                    ("first_arrow_base", "first_tail"),
+                    ("second_arrow_base", "second_tail"),
+                ):
+                    if base_key in geometry and tail_key in geometry:
+                        segments.append((
+                            geometry[base_key], geometry[tail_key]
                         ))
             else:
                 for first_key, second_key in (
@@ -1007,7 +1163,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if dimension is None:
             return None
         geometry = self._dimension_screen_geometry(dimension)
-        return geometry["value_position"] if geometry is not None else None
+        value_position = geometry.get("value_position")
+        return value_position if isinstance(value_position, QPointF) else None
 
     def mesh_is_under_cursor(
         self,
@@ -1601,11 +1758,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self.camera.pan_x += float(delta.x())
                 self.camera.pan_y += float(delta.y())
             else:
-                self.camera.yaw_degrees += (
-                    float(delta.x()) * self.rotation_degrees_per_pixel
-                )
-                self.camera.pitch_degrees += (
-                    float(delta.y()) * self.rotation_degrees_per_pixel
+                orbit_camera_state(
+                    self.camera,
+                    float(delta.x()) * self.rotation_degrees_per_pixel,
+                    float(delta.y()) * self.rotation_degrees_per_pixel,
                 )
             self.navigationChanged.emit(self.camera)
             self.update()
@@ -2824,17 +2980,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     "shoulder_start": endpoint,
                     "shoulder_end": endpoint,
                     "arrow": QPolygonF(),
+                    "arrow_base": endpoint,
+                    "arrow_tail": endpoint,
                     "opposite_arrow": QPolygonF(),
+                    "opposite_arrow_base": endpoint,
+                    "opposite_arrow_tail": endpoint,
                     "value_position": center,
                 }
             ux, uy = dx / length, dy / length
             px, py = -uy, ux
             arrow_length = 10.0
             arrow_half_width = arrow_length * tan(radians(15.0))
+            tail_length = 7.0
             outside = dimension.arrow_placement == "outside"
+            arrow_sign = 1.0 if outside else -1.0
             base = QPointF(
-                endpoint.x() + ux * arrow_length * (1.0 if outside else -1.0),
-                endpoint.y() + uy * arrow_length * (1.0 if outside else -1.0),
+                endpoint.x() + ux * arrow_length * arrow_sign,
+                endpoint.y() + uy * arrow_length * arrow_sign,
+            )
+            tail = QPointF(
+                base.x() + ux * tail_length * arrow_sign,
+                base.y() + uy * tail_length * arrow_sign,
             )
             arrow = QPolygonF([
                 endpoint,
@@ -2852,6 +3018,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 opposite.x() - ux * arrow_length,
                 opposite.y() - uy * arrow_length,
             )
+            opposite_tail = QPointF(
+                opposite_base.x() - ux * tail_length,
+                opposite_base.y() - uy * tail_length,
+            )
             opposite_arrow = QPolygonF([
                 opposite,
                 QPointF(
@@ -2863,10 +3033,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     opposite_base.y() - py * arrow_half_width,
                 ),
             ])
-            # The radius line ends at the measured arc and the horizontal
-            # shoulder begins at the back of the outward-facing arrow.
+            # Match linear dimensions: continue a short tail behind the
+            # arrow before the horizontal shoulder begins.
             radial_end = endpoint
-            shoulder_start = base
+            shoulder_start = tail
             shoulder_direction = 1.0 if ux >= 0.0 else -1.0
             shoulder_end = QPointF(
                 shoulder_start.x() + shoulder_direction * 36.0,
@@ -2881,9 +3051,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "shoulder_start": shoulder_start,
                 "shoulder_end": shoulder_end,
                 "arrow": arrow,
+                "arrow_base": base,
+                "arrow_tail": tail,
                 "opposite_arrow": (
                     opposite_arrow if dimension.diameter else QPolygonF()
                 ),
+                "opposite_arrow_base": opposite_base,
+                "opposite_arrow_tail": opposite_tail,
                 "text_side": (
                     "right" if shoulder_direction > 0.0 else "left"
                 ),
@@ -2918,6 +3092,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             vertex = self._screen_point(
                 self._camera_point(dimension.vertex)
             )
+
+            def invalid_angular_geometry() -> dict[str, Any]:
+                return {
+                    "angular": True,
+                    "valid": False,
+                    "vertex": vertex,
+                    "first_dimension": vertex,
+                    "second_dimension": vertex,
+                    "arc": QPolygonF(),
+                    "value_position": vertex,
+                }
+
             first_vector = normalized(
                 subtract(dimension.first_direction_point, dimension.vertex)
             )
@@ -2925,7 +3111,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 subtract(dimension.second_direction_point, dimension.vertex)
             )
             if first_vector is None or second_vector is None:
-                return {"angular": True, "vertex": vertex, "arc": QPolygonF()}
+                return invalid_angular_geometry()
             projection = dot(first_vector, second_vector)
             plane_second = normalized(
                 tuple(
@@ -2935,7 +3121,42 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             )
             if plane_second is None:
-                return {"angular": True, "vertex": vertex, "arc": QPolygonF()}
+                # Parallel directions are the valid geometry of a 0° (or
+                # 180°) dimension.  Preserve the physical rotation plane
+                # supplied by the constraint solver instead of deriving a
+                # semantic direction from the current camera.
+                plane_normal = normalized(dimension.plane_normal or ())
+                plane_second = (
+                    normalized((
+                        plane_normal[1] * first_vector[2]
+                        - plane_normal[2] * first_vector[1],
+                        plane_normal[2] * first_vector[0]
+                        - plane_normal[0] * first_vector[2],
+                        plane_normal[0] * first_vector[1]
+                        - plane_normal[1] * first_vector[0],
+                    ))
+                    if plane_normal is not None
+                    else None
+                )
+                if plane_second is None:
+                    trial = min(
+                        (
+                            (1.0, 0.0, 0.0),
+                            (0.0, 1.0, 0.0),
+                            (0.0, 0.0, 1.0),
+                        ),
+                        key=lambda candidate: abs(
+                            dot(first_vector, candidate)
+                        ),
+                    )
+                    trial_projection = dot(first_vector, trial)
+                    plane_second = normalized(tuple(
+                        trial[index]
+                        - trial_projection * first_vector[index]
+                        for index in range(3)
+                    ))
+                if plane_second is None:
+                    return invalid_angular_geometry()
             minor_sweep = acos(max(-1.0, min(1.0, projection)))
             sweep = (
                 radians(dimension.sweep_degrees)
@@ -2990,7 +3211,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
             arc = QPolygonF([
                 self._screen_point(
-                    self._camera_point(arc_world(sweep * i / steps))
+                    self._camera_point(
+                        arc_world(sweep * i / steps)
+                    )
                 )
                 for i in range(steps + 1)
             ])
@@ -3003,12 +3226,79 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 )
             )
+
+            def angular_arrow(
+                tip: QPointF,
+                inward_x: float,
+                inward_y: float,
+            ) -> tuple[QPolygonF, QPointF, QPointF]:
+                inward_length = hypot(inward_x, inward_y)
+                if inward_length <= 1.0e-9:
+                    return QPolygonF(), tip, tip
+                inward_x /= inward_length
+                inward_y /= inward_length
+                arrow_length = 10.0
+                tail_length = 7.0
+                half_width = arrow_length * tan(radians(15.0))
+                base_x = tip.x() - inward_x * arrow_length
+                base_y = tip.y() - inward_y * arrow_length
+                base = QPointF(base_x, base_y)
+                tail = QPointF(
+                    base_x - inward_x * tail_length,
+                    base_y - inward_y * tail_length,
+                )
+                perpendicular_x = -inward_y
+                perpendicular_y = inward_x
+                return (
+                    QPolygonF([
+                        tip,
+                        QPointF(
+                            base_x + perpendicular_x * half_width,
+                            base_y + perpendicular_y * half_width,
+                        ),
+                        QPointF(
+                            base_x - perpendicular_x * half_width,
+                            base_y - perpendicular_y * half_width,
+                        ),
+                    ]),
+                    base,
+                    tail,
+                )
+
+            fallback_tangent_x = (
+                projected_second_unit.x() - vertex.x()
+            )
+            fallback_tangent_y = (
+                projected_second_unit.y() - vertex.y()
+            )
+            first_inward_x = arc[1].x() - arc[0].x()
+            first_inward_y = arc[1].y() - arc[0].y()
+            second_inward_x = arc[-2].x() - arc[-1].x()
+            second_inward_y = arc[-2].y() - arc[-1].y()
+            if hypot(first_inward_x, first_inward_y) <= 1.0e-9:
+                first_inward_x = fallback_tangent_x
+                first_inward_y = fallback_tangent_y
+            if hypot(second_inward_x, second_inward_y) <= 1.0e-9:
+                second_inward_x = -fallback_tangent_x
+                second_inward_y = -fallback_tangent_y
+            first_arrow, first_arrow_base, first_tail = angular_arrow(
+                arc[0], first_inward_x, first_inward_y
+            )
+            second_arrow, second_arrow_base, second_tail = angular_arrow(
+                arc[-1], second_inward_x, second_inward_y
+            )
             return {
                 "angular": True,
                 "vertex": vertex,
                 "first_dimension": arc[0],
                 "second_dimension": arc[-1],
                 "arc": arc,
+                "first_arrow": first_arrow,
+                "second_arrow": second_arrow,
+                "first_arrow_base": first_arrow_base,
+                "second_arrow_base": second_arrow_base,
+                "first_tail": first_tail,
+                "second_tail": second_tail,
                 "value_position": value_position,
             }
         first = self._screen_point(self._camera_point(dimension.first_point))
@@ -3143,8 +3433,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         geometry["shoulder_end"],
                     )
                 painter.drawPolygon(geometry["arrow"])
+                painter.drawLine(
+                    geometry["arrow_base"], geometry["arrow_tail"]
+                )
                 if not geometry["opposite_arrow"].isEmpty():
                     painter.drawPolygon(geometry["opposite_arrow"])
+                    painter.drawLine(
+                        geometry["opposite_arrow_base"],
+                        geometry["opposite_arrow_tail"],
+                    )
                 if dimension.display_text:
                     text_position = geometry.get(
                         "text_position", geometry["value_position"]
@@ -3164,15 +3461,33 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 continue
             if geometry.get("angular"):
-                painter.drawLine(
-                    geometry["vertex"],
-                    geometry["first_dimension"],
-                )
-                painter.drawLine(
-                    geometry["vertex"],
-                    geometry["second_dimension"],
-                )
-                painter.drawPolyline(geometry["arc"])
+                first_dimension = geometry.get("first_dimension")
+                second_dimension = geometry.get("second_dimension")
+                if (
+                    isinstance(first_dimension, QPointF)
+                    and isinstance(second_dimension, QPointF)
+                ):
+                    painter.drawLine(
+                        geometry["vertex"], first_dimension
+                    )
+                    painter.drawLine(
+                        geometry["vertex"], second_dimension
+                    )
+                arc = geometry.get("arc")
+                if isinstance(arc, QPolygonF) and not arc.isEmpty():
+                    painter.drawPolyline(arc)
+                for arrow_key in ("first_arrow", "second_arrow"):
+                    arrow = geometry.get(arrow_key)
+                    if isinstance(arrow, QPolygonF) and not arrow.isEmpty():
+                        painter.drawPolygon(arrow)
+                for base_key, tail_key in (
+                    ("first_arrow_base", "first_tail"),
+                    ("second_arrow_base", "second_tail"),
+                ):
+                    base = geometry.get(base_key)
+                    tail = geometry.get(tail_key)
+                    if isinstance(base, QPointF) and isinstance(tail, QPointF):
+                        painter.drawLine(base, tail)
                 continue
             painter.drawLine(
                 geometry["first"],

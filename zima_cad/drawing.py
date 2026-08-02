@@ -1342,6 +1342,11 @@ class DrawingWorkspace(QWidget):
         self.projection_method_combo.currentIndexChanged.connect(
             self._change_projection_method
         )
+        self.family_instance_combo = QComboBox()
+        self.family_instance_combo.currentIndexChanged.connect(
+            self._change_family_instance
+        )
+        self._family_instances: list[str] = []
         self.default_scale_numerator_spin = QDoubleSpinBox()
         self.default_scale_spin = QDoubleSpinBox()
         for spin in (
@@ -1369,6 +1374,8 @@ class DrawingWorkspace(QWidget):
         bottom.addWidget(self.add_format_button)
         bottom.addWidget(QLabel(tr("drawing.projection_method")))
         bottom.addWidget(self.projection_method_combo)
+        bottom.addWidget(QLabel(tr("drawing.family_table")))
+        bottom.addWidget(self.family_instance_combo)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -1393,6 +1400,30 @@ class DrawingWorkspace(QWidget):
         if 0 <= self.active_sheet_index < len(self.sheets):
             return self.sheets[self.active_sheet_index]
         return None
+
+    def set_family_instances(self, instances: list[str]) -> None:
+        self._family_instances = list(dict.fromkeys(
+            str(item).strip() for item in instances if str(item).strip()
+        ))
+        self._refresh_family_instance_combo()
+
+    def _refresh_family_instance_combo(self) -> None:
+        sheet = self.active_sheet()
+        selected = str(sheet.get("family_instance", "")) if sheet else ""
+        self.family_instance_combo.blockSignals(True)
+        self.family_instance_combo.clear()
+        for instance in self._family_instances:
+            self.family_instance_combo.addItem(instance, instance)
+        index = self.family_instance_combo.findData(selected)
+        self.family_instance_combo.setCurrentIndex(
+            index if index >= 0 else (0 if self._family_instances else -1)
+        )
+        self.family_instance_combo.setEnabled(bool(self._family_instances))
+        self.family_instance_combo.blockSignals(False)
+        if sheet is not None and self.family_instance_combo.currentIndex() >= 0:
+            sheet["family_instance"] = str(
+                self.family_instance_combo.currentData()
+            )
 
     def _refresh_controls(self, *, fit: bool = False) -> None:
         self.sheet_tabs.blockSignals(True)
@@ -1424,6 +1455,7 @@ class DrawingWorkspace(QWidget):
             ),
         ))
         self.projection_method_combo.blockSignals(False)
+        self._refresh_family_instance_combo()
         self._load_active_format()
         self.canvas.set_sheet(sheet, fit=fit)
 
@@ -1554,6 +1586,14 @@ class DrawingWorkspace(QWidget):
         sheet["projection_method"] = str(
             self.projection_method_combo.currentData()
         )
+        self._store()
+
+    def _change_family_instance(self, _index: int) -> None:
+        sheet = self.active_sheet()
+        instance = self.family_instance_combo.currentData()
+        if sheet is None or instance is None:
+            return
+        sheet["family_instance"] = str(instance)
         self._store()
 
     def begin_view_placement(self, view: dict) -> None:

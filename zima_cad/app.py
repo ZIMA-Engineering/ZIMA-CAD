@@ -58,6 +58,7 @@ from PySide6.QtCore import (
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractItemView,
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
@@ -4740,6 +4741,333 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         )
         self.matesSubmitted.emit(self.mate_rows())
         return True
+
+
+class FamilyTableDialog(QDialog):
+    def __init__(
+        self,
+        document: PartDocument,
+        generic_name: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+            self.setObjectName("familyTableSubWindow")
+            self.setStyleSheet(
+                "QDialog#familyTableSubWindow {"
+                " background: palette(window);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 5px;"
+                "}"
+            )
+        self.setModal(False)
+        self.document = document
+        self.generic_name = generic_name
+        self.setWindowTitle(tr("dialog.family_table.title"))
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
+        self.resize(760, 440)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 8)
+        self._internal_title_bar = QWidget(self)
+        self._internal_title_bar.setObjectName("familyTableTitleBar")
+        self._internal_title_bar.setFixedHeight(34)
+        self._internal_title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+        self._internal_title_bar.setStyleSheet(
+            "QWidget#familyTableTitleBar {"
+            " background: palette(midlight);"
+            " border: 1px solid palette(mid);"
+            " border-radius: 4px;"
+            "}"
+        )
+        title_layout = QHBoxLayout(self._internal_title_bar)
+        title_layout.setContentsMargins(10, 2, 4, 2)
+        title_label = QLabel(self.windowTitle())
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_layout.addWidget(title_label, 1)
+        close_button = QPushButton("×")
+        close_button.setFixedSize(27, 26)
+        close_button.setToolTip(tr("button.cancel"))
+        close_button.setStyleSheet(
+            "QPushButton { border: none; border-radius: 4px;"
+            " font-size: 18px; font-weight: 700; }"
+            "QPushButton:hover { background: #b83232; color: white; }"
+        )
+        close_button.clicked.connect(self.reject)
+        title_layout.addWidget(close_button)
+        self._internal_title_bar.installEventFilter(self)
+        layout.addWidget(self._internal_title_bar)
+        self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        layout.addWidget(self.table)
+
+        actions = QHBoxLayout()
+        add_instance = QPushButton(tr("dialog.family_table.add_instance"))
+        delete_instance = QPushButton(tr("button.delete"))
+        add_column = QPushButton(tr("dialog.family_table.add_column"))
+        delete_column = QPushButton(tr("dialog.family_table.delete_column"))
+        add_instance.clicked.connect(self._add_instance)
+        delete_instance.clicked.connect(self._delete_instances)
+        add_column.clicked.connect(self._add_column)
+        delete_column.clicked.connect(self._delete_columns)
+        for button in (
+            add_instance, delete_instance, add_column, delete_column
+        ):
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._load()
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._internal_title_bar:
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                target = self._title_drag_window_origin + QPoint(
+                    int(delta.x()), int(delta.y())
+                )
+                parent = self.parentWidget()
+                if parent is not None:
+                    target.setX(max(
+                        0, min(target.x(), parent.width() - self.width())
+                    ))
+                    target.setY(max(
+                        0, min(target.y(), parent.height() - 34)
+                    ))
+                self.move(target)
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.move(
+            max(0, min(self.x(), parent.width() - self.width())),
+            max(0, min(self.y(), parent.height() - self.height())),
+        )
+
+    @staticmethod
+    def document_data(
+        document: PartDocument,
+        generic_name: str,
+    ) -> dict[str, Any]:
+        try:
+            raw = json.loads(str(
+                document.document_settings.get("family_table", "{}")
+            ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw = {}
+        columns = [
+            str(item).strip()
+            for item in raw.get("columns", ())
+            if str(item).strip()
+        ] if isinstance(raw, dict) else []
+        instances = []
+        raw_instances = raw.get("instances", ()) if isinstance(raw, dict) else ()
+        for item in raw_instances if isinstance(raw_instances, list) else ():
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            if not name:
+                continue
+            values = item.get("values", {})
+            instances.append({
+                "name": name,
+                "values": {
+                    column: str(values.get(column, ""))
+                    for column in columns
+                } if isinstance(values, dict) else {},
+            })
+        return {
+            "columns": list(dict.fromkeys(columns)),
+            "instances": instances,
+            "generic_name": generic_name,
+        }
+
+    def _load(self) -> None:
+        data = self.document_data(self.document, self.generic_name)
+        columns = data["columns"]
+        self.table.setColumnCount(1 + len(columns))
+        self.table.setHorizontalHeaderLabels([
+            tr("dialog.family_table.instance"), *columns
+        ])
+        self.table.setRowCount(1 + len(data["instances"]))
+        generic = QTableWidgetItem(self.generic_name)
+        generic.setFlags(generic.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.table.setItem(0, 0, generic)
+        for column in range(1, self.table.columnCount()):
+            item = QTableWidgetItem("")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(0, column, item)
+        for row, instance in enumerate(data["instances"], 1):
+            self.table.setItem(row, 0, QTableWidgetItem(instance["name"]))
+            for column, key in enumerate(columns, 1):
+                self.table.setItem(
+                    row, column,
+                    QTableWidgetItem(instance["values"].get(key, "")),
+                )
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        for column in range(1, self.table.columnCount()):
+            self.table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.Stretch
+            )
+
+    def _add_instance(self) -> None:
+        names = {
+            self.table.item(row, 0).text().strip()
+            for row in range(self.table.rowCount())
+            if self.table.item(row, 0) is not None
+        }
+        index = 1
+        while f"INSTANCE_{index}" in names:
+            index += 1
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(f"INSTANCE_{index}"))
+        for column in range(1, self.table.columnCount()):
+            self.table.setItem(row, column, QTableWidgetItem(""))
+        self.table.setCurrentCell(row, 0)
+        self.table.editItem(self.table.item(row, 0))
+
+    def _delete_instances(self) -> None:
+        rows = sorted({item.row() for item in self.table.selectedItems()}, reverse=True)
+        for row in rows:
+            if row > 0:
+                self.table.removeRow(row)
+
+    def _add_column(self) -> None:
+        name, accepted = QInputDialog.getText(
+            self,
+            tr("dialog.family_table.add_column"),
+            tr("dialog.family_table.column_name"),
+        )
+        name = name.strip()
+        existing = {
+            str(self.table.horizontalHeaderItem(column).text()).strip()
+            for column in range(1, self.table.columnCount())
+        }
+        if not accepted:
+            return
+        if not name or name in existing:
+            QMessageBox.warning(
+                self, tr("dialog.family_table.title"),
+                tr("dialog.family_table.invalid"),
+            )
+            return
+        column = self.table.columnCount()
+        self.table.insertColumn(column)
+        self.table.setHorizontalHeaderItem(column, QTableWidgetItem(name))
+        for row in range(self.table.rowCount()):
+            item = QTableWidgetItem("")
+            if row == 0:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row, column, item)
+
+    def _delete_columns(self) -> None:
+        columns = sorted(
+            {item.column() for item in self.table.selectedItems() if item.column() > 0},
+            reverse=True,
+        )
+        for column in columns:
+            self.table.removeColumn(column)
+
+    def _data(self) -> dict[str, Any] | None:
+        self.table.clearFocus()
+        columns = [
+            str(self.table.horizontalHeaderItem(column).text()).strip()
+            for column in range(1, self.table.columnCount())
+        ]
+        instances = []
+        names = []
+        for row in range(1, self.table.rowCount()):
+            name_item = self.table.item(row, 0)
+            name = name_item.text().strip() if name_item is not None else ""
+            names.append(name)
+            instances.append({
+                "name": name,
+                "values": {
+                    key: (
+                        self.table.item(row, column).text()
+                        if self.table.item(row, column) is not None else ""
+                    )
+                    for column, key in enumerate(columns, 1)
+                },
+            })
+        if (
+            any(not item for item in [*columns, *names])
+            or len(columns) != len(set(columns))
+            or len(names) != len(set(names))
+            or self.generic_name in names
+        ):
+            QMessageBox.warning(
+                self, tr("dialog.family_table.title"),
+                tr("dialog.family_table.invalid"),
+            )
+            return None
+        return {"columns": columns, "instances": instances}
+
+    def apply_changes(self) -> bool:
+        data = self._data()
+        if data is None:
+            return False
+        self.document.document_settings["family_table"] = json.dumps(
+            data, ensure_ascii=False, separators=(",", ":")
+        )
+        return True
+
+    def accept(self) -> None:
+        if self.apply_changes():
+            super().accept()
 
 
 class UserParametersDialog(QDialog):
@@ -10333,6 +10661,11 @@ class MainWindow(QMainWindow):
         self.parameters_action = tools_menu.addAction(tr("menu.tools.parameters"))
         self.parameters_action.triggered.connect(self.show_user_parameters_dialog)
 
+        self.family_table_action = tools_menu.addAction(
+            tr("menu.tools.family_table")
+        )
+        self.family_table_action.triggered.connect(self.show_family_table_dialog)
+
         tools_menu.addSeparator()
 
         self.file_settings_action = tools_menu.addAction(
@@ -11312,11 +11645,18 @@ class MainWindow(QMainWindow):
         for action_name in (
             "material_action",
             "parameters_action",
+            "family_table_action",
             "file_settings_action",
         ):
             action = getattr(self, action_name, None)
             if action is not None:
                 action.setEnabled(has_document)
+        family_action = getattr(self, "family_table_action", None)
+        if family_action is not None:
+            family_action.setEnabled(
+                has_document
+                and self._document_type(self.document) in ("part", "assembly")
+            )
         if hasattr(self, "view_selection_action"):
             self.view_selection_action.setEnabled(
                 has_document and self._document_type(self.document) != "drawing"
@@ -11454,6 +11794,8 @@ class MainWindow(QMainWindow):
         if is_drawing:
             self._refresh_drawing_geometry(self.document, self.current_file_path)
         self.drawing_workspace.set_document(self.document if is_drawing else None)
+        if is_drawing:
+            self._refresh_drawing_family_instances()
         self.standard_view_combo.setEnabled(not is_drawing)
         self._refresh_standard_view_combo()
         self.normal_view_action.setEnabled(not is_drawing)
@@ -12462,6 +12804,36 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._store_active_session()
 
+    def show_family_table_dialog(self) -> None:
+        if (
+            self.document is None
+            or self._document_type(self.document) not in ("part", "assembly")
+        ):
+            return
+        generic_name = (
+            self.current_file_path.name
+            if self.current_file_path is not None
+            else self.document.root.name
+        )
+        existing = getattr(self, "family_table_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dialog = FamilyTableDialog(self.document, generic_name, self)
+        self.family_table_dialog = dialog
+
+        def finished(result: int) -> None:
+            if result == QDialog.DialogCode.Accepted:
+                self._store_active_session()
+                self._mark_model_for_regeneration()
+            if getattr(self, "family_table_dialog", None) is dialog:
+                self.family_table_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+
     def show_material_dialog(self) -> None:
         if self.document is None:
             QMessageBox.information(
@@ -12644,6 +13016,36 @@ class MainWindow(QMainWindow):
         if not path.is_absolute():
             path = self.current_file_path.parent / path
         return canonical_document_path(path)
+
+    def _refresh_drawing_family_instances(self) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            self.drawing_workspace.set_family_instances([])
+            return
+        source_path = self._drawing_source_path()
+        if source_path is None:
+            self.drawing_workspace.set_family_instances([])
+            return
+        source_document = next(
+            (
+                session.document
+                for session in self.document_sessions
+                if session.file_path is not None
+                and canonical_document_path(session.file_path) == source_path
+            ),
+            None,
+        )
+        try:
+            source_document = source_document or load_part_document(source_path)
+        except Exception:
+            self.drawing_workspace.set_family_instances([])
+            return
+        data = FamilyTableDialog.document_data(
+            source_document, source_path.name
+        )
+        self.drawing_workspace.set_family_instances([
+            source_path.name,
+            *(item["name"] for item in data["instances"]),
+        ])
 
     def _refresh_drawing_geometry(
         self,
@@ -17095,6 +17497,24 @@ class MainWindow(QMainWindow):
             dimensions = []
             dimension_bindings = []
             radius = max(15.0, float(self.native_viewer._scene_radius) * 0.22)
+            angle_plane_normal = None
+            orientation_rows = [
+                (index, row)
+                for index, row in enumerate(rows)
+                if bool(row.get("orientation", index < 2))
+                and row.get("type", "plane") != "angle"
+                and frames.get(row.get("target")) is not None
+            ][:2]
+            if orientation_rows:
+                _orientation_index, orientation_row = orientation_rows[0]
+                candidate = np.array(
+                    frames[orientation_row["target"]][1], dtype=float
+                )
+                candidate_length = np.linalg.norm(candidate)
+                if candidate_length > 1.0e-9:
+                    angle_plane_normal = tuple(
+                        float(value) for value in candidate / candidate_length
+                    )
             for index, row in enumerate(rows):
                 source_frame = frames.get(row.get("source"))
                 target_frame = frames.get(row.get("target"))
@@ -17175,6 +17595,7 @@ class MainWindow(QMainWindow):
                         for value in (vertex + middle * radius)
                     ),
                     sweep_degrees=float(row.get("offset", 0.0)),
+                    plane_normal=angle_plane_normal,
                 )
                 dimensions.append(dimension)
                 dimension_bindings.append((dimension, index, mate_type))
@@ -30469,6 +30890,7 @@ class MainWindow(QMainWindow):
                 or rebuild_geometry
             ):
                 self.drawing_workspace.set_document(self.document)
+                self._refresh_drawing_family_instances()
             if fit:
                 self.drawing_workspace.fit_sheet()
             return

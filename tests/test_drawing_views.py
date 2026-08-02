@@ -1,6 +1,7 @@
 import unittest
 import json
 import tempfile
+from math import cos, radians, sin
 from pathlib import Path
 
 from PySide6.QtGui import QColor
@@ -13,6 +14,7 @@ from OCC.Core.TopExp import TopExp_Explorer
 from zima_cad.app import (
     AssemblyComponentPropertiesDialog,
     AxisConstraintDialog,
+    FamilyTableDialog,
     MainWindow,
 )
 from zima_cad.drawing import (
@@ -35,7 +37,13 @@ from zima_cad.model import (
     make_sketch_shape,
 )
 from zima_cad.sketch_model import SketchModel
-from zima_cad.viewer import CameraState, STANDARD_VIEW_ORIENTATIONS
+from zima_cad.viewer import (
+    CameraState,
+    STANDARD_VIEW_ORIENTATIONS,
+    _camera_rotation_matrix,
+    _multiply_rotation_matrices,
+    orbit_camera_state,
+)
 from zima_cad.viewer_mesh import (
     EdgePolyline,
     edge_visible_in_display,
@@ -45,6 +53,30 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_family_table_data_keeps_instances_and_optional_columns(self) -> None:
+        document = create_empty_part()
+        document.document_settings["family_table"] = json.dumps({
+            "columns": ["LENGTH", "MATERIAL"],
+            "instances": [{
+                "name": "LONG",
+                "values": {"LENGTH": "100", "MATERIAL": "STEEL"},
+            }],
+        })
+        self.assertEqual(
+            FamilyTableDialog.document_data(document, "generic.prtz"),
+            {
+                "columns": ["LENGTH", "MATERIAL"],
+                "instances": [{
+                    "name": "LONG",
+                    "values": {
+                        "LENGTH": "100",
+                        "MATERIAL": "STEEL",
+                    },
+                }],
+                "generic_name": "generic.prtz",
+            },
+        )
+
     def test_sketch_mirror_reflects_point_across_shifted_axis(self) -> None:
         self.assertEqual(
             MainWindow._mirrored_sketch_position(
@@ -416,6 +448,57 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["back"], (0.0, -90.0))
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["top"], (180.0, 0.0))
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["bottom"], (180.0, 180.0))
+
+    def test_orbit_camera_remains_continuous_when_upside_down(self) -> None:
+        camera = CameraState(
+            yaw_degrees=25.0,
+            pitch_degrees=180.0,
+            roll_degrees=0.0,
+        )
+        before = _camera_rotation_matrix(
+            camera.yaw_degrees,
+            camera.pitch_degrees,
+            camera.roll_degrees,
+        )
+        orbit_camera_state(camera, 5.0, 0.0)
+        after = _camera_rotation_matrix(
+            camera.yaw_degrees,
+            camera.pitch_degrees,
+            camera.roll_degrees,
+        )
+
+        # A horizontal drag is always a rotation around the screen Y axis,
+        # even after the camera has crossed 90° and is upside down.
+        angle = radians(5.0)
+        expected = _multiply_rotation_matrices(
+            (
+                (cos(angle), 0.0, sin(angle)),
+                (0.0, 1.0, 0.0),
+                (-sin(angle), 0.0, cos(angle)),
+            ),
+            before,
+        )
+        for actual_row, expected_row in zip(after, expected):
+            for actual, expected_value in zip(actual_row, expected_row):
+                self.assertAlmostEqual(actual, expected_value, places=6)
+
+    def test_orbit_camera_preserves_rotation_through_euler_conversion(self) -> None:
+        camera = CameraState(
+            yaw_degrees=215.264,
+            pitch_degrees=-89.9,
+            roll_degrees=0.0,
+        )
+        for _step in range(20):
+            orbit_camera_state(camera, 3.0, 2.0)
+            matrix = _camera_rotation_matrix(
+                camera.yaw_degrees,
+                camera.pitch_degrees,
+                camera.roll_degrees,
+            )
+            for row in matrix:
+                self.assertAlmostEqual(
+                    sum(value * value for value in row), 1.0, places=6
+                )
 
     def test_view_bounds_follow_position_and_scale(self) -> None:
         view = {
