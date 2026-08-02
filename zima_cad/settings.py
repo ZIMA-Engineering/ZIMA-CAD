@@ -8,7 +8,7 @@ from typing import Iterable
 from zima_cad.paths import app_path, ensure_application_directories
 
 
-PATH_KEYS = ("Materials", "Templates", "Localization")
+PATH_KEYS = ("Materials", "Templates", "Formats", "Localization")
 _UNSET = object()
 
 
@@ -27,6 +27,7 @@ class ApplicationSettings:
     local_config_path: Path | None = None
     materials_path: Path = Path("config/materials")
     templates_path: Path = Path("config/templates")
+    formats_path: Path = Path("config/formats")
     localization_path: Path = Path("config/localization")
     path_sources: dict[str, Path] = field(default_factory=dict)
     units: dict[str, str] = field(default_factory=dict)
@@ -130,6 +131,7 @@ def load_application_settings(
     path_defaults = {
         "Materials": "materials",
         "Templates": "templates",
+        "Formats": "formats",
         "Localization": "localization",
     }
     for path_name in PATH_KEYS:
@@ -163,6 +165,7 @@ def load_application_settings(
         local_config_path=local_path,
         materials_path=resolved_paths["Materials"],
         templates_path=resolved_paths["Templates"],
+        formats_path=resolved_paths["Formats"],
         localization_path=resolved_paths["Localization"],
         path_sources=path_sources,
         units=units,

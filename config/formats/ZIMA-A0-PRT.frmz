@@ -1,0 +1,23 @@
+[Format]
+SchemaVersion = 1
+Name = ZIMA A0 – Part
+SheetFormat = A0
+Orientation = landscape
+DocumentType = part
+
+[Frame]
+LeftMargin = 20
+RightMargin = 10
+TopMargin = 10
+BottomMargin = 10
+Color = #FFFFFF
+LineWidth = 0.70
+
+[TitleBlock]
+Enabled = yes
+Width = 180
+Height = 45
+Color = #4DD811
+LineWidth = 0.25
+Variant = part
+BomEnabled = no

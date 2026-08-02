@@ -19,6 +19,7 @@ runtime/windows/*.zip
 runtime/linux/python/
 runtime/linux/*.tar*
 build/
+builds/
 dist/
 *.egg-info/
 
@@ -29,4 +30,3 @@ Projects/**
 Thumbs.db
 Desktop.ini
 .DS_Store
-

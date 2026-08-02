@@ -41,6 +41,7 @@ def ensure_application_directories() -> None:
         ("config",),
         ("config", "materials"),
         ("config", "templates"),
+        ("config", "formats"),
         ("resources",),
         ("resources", "icons"),
         ("resources", "templates"),

@@ -157,8 +157,9 @@ from zima_cad.viewer_mesh import ViewerMesh, triangulate_shape
 from zima_cad.drawing import (
     DrawingWorkspace,
     drawing_sheets,
-    project_polylines,
     store_drawing_sheets,
+    technical_projection,
+    update_view_bounds,
 )
 from zima_cad.storage import (
     ContainerEntityLimitError,
@@ -3204,10 +3205,14 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
 
 
 class DrawingViewPropertiesDialog(QDialog):
-    insertRequested = Signal(str, float)
+    previewRequested = Signal(dict)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, view: dict, orientation_choices: list[tuple[str, object]], parent=None) -> None:
         super().__init__(parent)
+        self._baseline = copy.deepcopy(view)
+        self._derived_orientation = str(view.get("view_type", "general")) != "general"
+        self._middle_click_origin: QPointF | None = None
+        self._middle_click_moved = False
         if isinstance(parent, QWidget):
             self.setWindowFlags(
                 Qt.WindowType.SubWindow
@@ -3222,52 +3227,160 @@ class DrawingViewPropertiesDialog(QDialog):
             )
         self.setWindowTitle(tr("drawing.view.properties.title"))
         self.setModal(False)
-        self.resize(360, 150)
+        self.setMinimumWidth(460)
         layout = QFormLayout(self)
+        self.orientation_mode_combo = QComboBox()
+        self.orientation_mode_combo.addItem(tr("drawing.orientation.from_model"), "model")
+        self.orientation_mode_combo.addItem(tr("drawing.orientation.manual"), "manual")
+        self.orientation_mode_combo.model().item(1).setEnabled(False)
+        if self._derived_orientation:
+            self.orientation_mode_combo.clear()
+            self.orientation_mode_combo.addItem(
+                tr("drawing.orientation.projected"), "projected"
+            )
+            self.orientation_mode_combo.setEnabled(False)
         self.orientation_combo = QComboBox()
-        for key, value in (
-            ("toolbar.view.front", "front"),
-            ("toolbar.view.top", "top"),
-            ("toolbar.view.right", "right"),
-            ("toolbar.view.default", "isometric"),
-        ):
-            self.orientation_combo.addItem(tr(key), value)
+        for label, value in orientation_choices:
+            self.orientation_combo.addItem(label, value)
+        stored_orientation = view.get("orientation", "isometric")
+        for index in range(self.orientation_combo.count()):
+            if self.orientation_combo.itemData(index) == stored_orientation:
+                self.orientation_combo.setCurrentIndex(index)
+                break
+        self.view_type_combo = QComboBox()
+        for key, value in (("general", "general"), ("projection", "projection"), ("auxiliary", "auxiliary"), ("detail", "detail")):
+            self.view_type_combo.addItem(tr(f"drawing.view_type.{key}"), value)
+        self.view_type_combo.setCurrentIndex(max(0, self.view_type_combo.findData(str(view.get("view_type", "general")))))
+        self.view_type_combo.setEnabled(False)
+        self.visible_area_combo = QComboBox()
+        for key in ("full", "half", "partial", "broken"):
+            self.visible_area_combo.addItem(tr(f"drawing.visible_area.{key}"), key)
+        self.visible_area_combo.setCurrentIndex(0)
+        for index in range(1, self.visible_area_combo.count()):
+            self.visible_area_combo.model().item(index).setEnabled(False)
+        self.scale_mode_combo = QComboBox()
+        self.scale_mode_combo.addItem(tr("drawing.scale.sheet"), "sheet")
+        self.scale_mode_combo.addItem(tr("drawing.scale.local"), "local")
+        self.scale_mode_combo.setCurrentIndex(max(0, self.scale_mode_combo.findData(str(view.get("scale_mode", "sheet")))))
         self.scale_spin = QDoubleSpinBox()
         self.scale_spin.setRange(0.001, 1000.0)
         self.scale_spin.setDecimals(3)
-        self.scale_spin.setValue(1.0)
+        self.scale_spin.setValue(float(view.get("scale", 1.0)))
+        self.projection_combo = QComboBox()
+        self.projection_combo.addItem(tr("drawing.projection.from_sheet"), "sheet")
+        self.projection_combo.addItem(tr("drawing.projection.first_angle"), "first_angle")
+        self.projection_combo.addItem(tr("drawing.projection.third_angle"), "third_angle")
+        self.projection_combo.setCurrentIndex(max(0, self.projection_combo.findData(str(view.get("projection_method", "sheet")))))
+        self.section_combo = QComboBox()
+        self.section_combo.addItem(tr("drawing.section.none"), "none")
+        self.section_combo.setEnabled(False)
+        self.display_style_combo = QComboBox()
+        for key in ("no_hidden", "hidden_line", "wireframe", "shaded", "shaded_edges"):
+            self.display_style_combo.addItem(tr(f"drawing.display.{key}"), key)
+        self.display_style_combo.setCurrentIndex(max(0, self.display_style_combo.findData(str(view.get("display_style", "no_hidden")))))
+        available_display_styles = {"no_hidden", "hidden_line", "wireframe"}
+        for index in range(self.display_style_combo.count()):
+            self.display_style_combo.model().item(index).setEnabled(
+                self.display_style_combo.itemData(index)
+                in available_display_styles
+            )
+        self.hidden_lines_combo = QComboBox()
+        for key in ("none", "solid", "dimmed"):
+            self.hidden_lines_combo.addItem(tr(f"drawing.hidden_lines.{key}"), key)
+        self.hidden_lines_combo.setCurrentIndex(max(0, self.hidden_lines_combo.findData(str(view.get("hidden_lines", "none")))))
+        self.hidden_lines_combo.setEnabled(False)
+        layout.addRow(tr("drawing.orientation.mode"), self.orientation_mode_combo)
         layout.addRow(tr("drawing.insert_view.orientation"), self.orientation_combo)
+        layout.addRow(tr("drawing.view_type"), self.view_type_combo)
+        layout.addRow(tr("drawing.visible_area"), self.visible_area_combo)
+        layout.addRow(tr("drawing.scale.mode"), self.scale_mode_combo)
         layout.addRow(tr("drawing.insert_view.scale"), self.scale_spin)
+        layout.addRow(tr("drawing.projection_method"), self.projection_combo)
+        layout.addRow(tr("drawing.sections"), self.section_combo)
+        layout.addRow(tr("drawing.display_style"), self.display_style_combo)
+        layout.addRow(tr("drawing.hidden_lines"), self.hidden_lines_combo)
+        for combo in (self.orientation_combo, self.view_type_combo, self.visible_area_combo, self.scale_mode_combo, self.projection_combo, self.display_style_combo, self.hidden_lines_combo):
+            combo.currentIndexChanged.connect(self._preview)
+        self.display_style_combo.currentIndexChanged.connect(
+            self._display_style_changed
+        )
+        self.scale_spin.valueChanged.connect(self._preview)
+        self.orientation_mode_combo.currentIndexChanged.connect(self._orientation_mode_changed)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        self.insert_button = buttons.button(
-            QDialogButtonBox.StandardButton.Apply
-        )
-        self.insert_button.setText(tr("drawing.command.insert_view"))
-        self.insert_button.clicked.connect(self.request_insert)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._preview)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+        self._orientation_mode_changed()
+        self._display_style_changed()
+        self.adjustSize()
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
 
-    def request_insert(self) -> None:
-        if not self.insert_button.isEnabled():
-            return
-        self.insertRequested.emit(
-            str(self.orientation_combo.currentData()),
-            self.scale_spin.value(),
-        )
+    def _orientation_mode_changed(self, _index: int = -1) -> None:
+        manual = self.orientation_mode_combo.currentData() == "manual"
+        self.orientation_combo.setEnabled(not manual and not self._derived_orientation)
+        self._preview()
 
-    def mark_inserted(self) -> None:
-        self.insert_button.setEnabled(False)
-        self.orientation_combo.setEnabled(False)
-        self.scale_spin.setEnabled(False)
+    def _display_style_changed(self, _index: int = -1) -> None:
+        shows_hidden = self.display_style_combo.currentData() == "hidden_line"
+        self.hidden_lines_combo.setEnabled(shows_hidden)
+        if shows_hidden and self.hidden_lines_combo.currentData() == "none":
+            self.hidden_lines_combo.setCurrentIndex(
+                max(0, self.hidden_lines_combo.findData("dimmed"))
+            )
+
+    def values(self) -> dict:
+        return {
+            "orientation_mode": str(self.orientation_mode_combo.currentData()),
+            "orientation": self.orientation_combo.currentData(),
+            "view_type": str(self.view_type_combo.currentData()),
+            "visible_area": str(self.visible_area_combo.currentData()),
+            "scale_mode": str(self.scale_mode_combo.currentData()),
+            "scale": self.scale_spin.value(),
+            "projection_method": str(self.projection_combo.currentData()),
+            "section": str(self.section_combo.currentData()),
+            "display_style": str(self.display_style_combo.currentData()),
+            "hidden_lines": str(self.hidden_lines_combo.currentData()),
+        }
+
+    def _preview(self, _value=None) -> None:
+        self.scale_spin.setEnabled(self.scale_mode_combo.currentData() == "local")
+        self.previewRequested.emit(self.values())
 
     def accept(self) -> None:
+        self._preview()
         super().accept()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
+            self._middle_click_origin = event.globalPosition()
+            self._middle_click_moved = False
+        elif event.type() == QEvent.Type.MouseMove and self._middle_click_origin is not None and event.buttons() & Qt.MouseButton.MiddleButton:
+            delta = event.globalPosition() - self._middle_click_origin
+            self._middle_click_moved = abs(delta.x()) + abs(delta.y()) > 3.0
+        elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton and self._middle_click_origin is not None:
+            apply = not self._middle_click_moved
+            self._middle_click_origin = None
+            if apply:
+                self._preview()
+        if event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.MiddleButton:
+            self.accept()
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
+    def done(self, result: int) -> None:
+        application = QApplication.instance()
+        if application is not None:
+            application.removeEventFilter(self)
+        super().done(result)
 
 
 class PlaneAttachmentDialog(QDialog):
@@ -4382,7 +4495,7 @@ class FileSettingsDialog(QDialog):
 class OptionsDialog(QDialog):
     LANGUAGE_CHOICES = ("cs", "de", "en", "fr")
     UNIT_CHOICES = FileSettingsDialog.UNIT_CHOICES
-    PATH_KEYS = ("Materials", "Templates", "Localization")
+    PATH_KEYS = ("Materials", "Templates", "Formats", "Localization")
 
     def __init__(
         self,
@@ -5895,8 +6008,21 @@ class MainWindow(QMainWindow):
 
         self.native_viewer = ZimaOpenGLViewer(self)
         self.drawing_workspace = DrawingWorkspace(self)
+        self.drawing_workspace.set_formats_directory(self.settings.formats_path)
         self.drawing_workspace.hide()
         self.drawing_workspace.changed.connect(self._drawing_changed)
+        self.drawing_workspace.insertViewRequested.connect(
+            self.insert_drawing_view
+        )
+        self.drawing_workspace.viewDoubleClicked.connect(
+            self._open_drawing_view_properties
+        )
+        self.drawing_workspace.projectViewRequested.connect(
+            self._create_projected_drawing_view
+        )
+        self.drawing_workspace.canvas.dimensionToolCancelled.connect(
+            self._drawing_dimension_tool_cancelled
+        )
         stored_body_color = self._window_settings().value(
             "view/body_color",
             "#B9C2CC",
@@ -6371,9 +6497,15 @@ class MainWindow(QMainWindow):
             return mode == ApplicationMode.ASSEMBLY
         return True
 
+    def _drawing_dimension_tool_cancelled(self) -> None:
+        action = getattr(self, "drawing_dimension_action", None)
+        if action is not None:
+            action.setChecked(False)
+
     def _rebuild_application_toolbar(self) -> None:
         if not hasattr(self, "tools_toolbar"):
             return
+        self.drawing_dimension_action = None
         self.tools_toolbar.clear()
 
         heading = QLabel(
@@ -6406,6 +6538,22 @@ class MainWindow(QMainWindow):
             insert_view_action.setIcon(resource_icon("drawing"))
             self._mark_application_command(insert_view_action)
             insert_view_action.triggered.connect(self.insert_drawing_view)
+            dimension_action = self.tools_toolbar.addAction(
+                tr("drawing.command.dimension")
+            )
+            dimension_action.setIcon(resource_icon("sketch-dimensions"))
+            dimension_action.setToolTip(
+                tr("drawing.command.dimension.tooltip")
+            )
+            dimension_action.setCheckable(True)
+            dimension_action.setChecked(
+                self.drawing_workspace.canvas._dimension_tool_active
+            )
+            dimension_action.toggled.connect(
+                self.drawing_workspace.canvas.set_dimension_tool
+            )
+            self._mark_application_command(dimension_action)
+            self.drawing_dimension_action = dimension_action
         elif self._sketch_edit_entity_id is not None:
             self._sketch_delete_action.setEnabled(
                 self._sketch_selected_entity_id is not None
@@ -8685,13 +8833,71 @@ class MainWindow(QMainWindow):
             )
         )
         plane, normal_role = self._local_plane_for_normal(direction, fallback)
-        frame_references = [dict(descriptor) for descriptor in references]
         primary_index = references.index(primary)
         # FRONT/BACK selects the viewing side; it must not force the selected
         # geometry to become the container's local XZ plane. Use the nearest
         # global local plane for the geometric frame instead.
-        frame_references[primary_index]["orientation_role"] = normal_role
+        frame_references = self._datum_frame_references(
+            references,
+            primary_index,
+            normal_role,
+        )
         return plane, self._plane_reference_rotation(frame_references)
+
+    @staticmethod
+    def _datum_frame_references(
+        references: list[dict[str, Any]],
+        primary_index: int,
+        normal_role: str,
+    ) -> list[dict[str, Any]]:
+        """Remap view roles to a datum frame without assigning one axis twice."""
+        frame_references = [dict(descriptor) for descriptor in references]
+        if not 0 <= primary_index < len(frame_references):
+            return frame_references
+        role_axis = {
+            "left": ("x", 1),
+            "right": ("x", -1),
+            "normal": ("y", 1),
+            "opposite_normal": ("y", -1),
+            "up": ("z", 1),
+            "down": ("z", -1),
+        }
+        role_for_axis = {
+            ("x", 1): "left",
+            ("x", -1): "right",
+            ("y", 1): "normal",
+            ("y", -1): "opposite_normal",
+            ("z", 1): "up",
+            ("z", -1): "down",
+        }
+        primary = frame_references[primary_index]
+        original_role = str(primary.get("orientation_role", "none"))
+        original_assignment = role_axis.get(original_role)
+        normal_assignment = role_axis.get(normal_role)
+        if normal_assignment is None:
+            return frame_references
+
+        # Choosing e.g. XY as Front changes its geometric normal from the
+        # generic view-Y role to local Z. If another reference already owns Z
+        # (XZ as Up), move that secondary direction to the primary's vacated Y
+        # role. Otherwise it would overwrite the selected plane normal.
+        if (
+            original_assignment is not None
+            and original_assignment[0] != normal_assignment[0]
+        ):
+            for index, descriptor in enumerate(frame_references):
+                if index == primary_index:
+                    continue
+                assignment = role_axis.get(
+                    str(descriptor.get("orientation_role", "none"))
+                )
+                if assignment is None or assignment[0] != normal_assignment[0]:
+                    continue
+                descriptor["orientation_role"] = role_for_axis[
+                    (original_assignment[0], assignment[1])
+                ]
+        primary["orientation_role"] = normal_role
+        return frame_references
 
     def _plane_reference_rotation(
         self,
@@ -11069,6 +11275,7 @@ class MainWindow(QMainWindow):
 
     def _reload_application_settings(self) -> None:
         self.settings = load_application_settings(self.settings.local_config_path)
+        self.drawing_workspace.set_formats_directory(self.settings.formats_path)
         configure_localization(
             self.settings.localization_path,
             self.settings.language,
@@ -11446,23 +11653,25 @@ class MainWindow(QMainWindow):
                             None,
                         ) or load_part_document(source_path)
                         source_cache[source_path] = source_document
-                    refreshed = self._drawing_projection_polylines(
+                    refreshed = self._drawing_projection_geometry(
                         source_document,
-                        str(view.get("orientation", "front")),
+                        view.get("orientation", "front"),
                     )
                 except Exception:
                     continue
-                if refreshed != view.get("polylines"):
-                    view["polylines"] = refreshed
+                if any(view.get(key) != value for key, value in refreshed.items()):
+                    view.update(refreshed)
+                    update_view_bounds(view)
                     changed = True
         if changed:
             store_drawing_sheets(drawing, sheets)
 
     @staticmethod
-    def _drawing_projection_polylines(
+    def _drawing_projection_geometry(
         source_document: PartDocument,
-        orientation: str,
-    ) -> list[list[list[float]]]:
+        orientation: object,
+    ) -> dict[str, list[list[list[float]]]]:
+        shapes: list[Any] = []
         edge_polylines: list[list[tuple[float, float, float]]] = []
         if source_document.document_settings.get("type") == "assembly":
             objects = source_document.history_objects_at(
@@ -11482,6 +11691,7 @@ class MainWindow(QMainWindow):
                 )
                 if shape is None:
                     continue
+                shapes.append(shape)
                 mesh = triangulate_shape(
                     shape,
                     owner_id=component.entity_id,
@@ -11493,6 +11703,7 @@ class MainWindow(QMainWindow):
         else:
             shape = source_document.build_active_shape()
             if shape is not None:
+                shapes.append(shape)
                 mesh = triangulate_shape(
                     shape,
                     edge_color=(1.0, 1.0, 1.0),
@@ -11500,7 +11711,7 @@ class MainWindow(QMainWindow):
                 edge_polylines.extend(
                     list(edge.points) for edge in mesh.edges
                 )
-        return project_polylines(edge_polylines, orientation)
+        return technical_projection(shapes, edge_polylines, orientation)
 
     def open_or_create_drawing(self) -> None:
         if self.document is None or self._document_type(self.document) not in ("part", "assembly"):
@@ -11568,63 +11779,201 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
+        view_id = str(uuid4())
+        projection_geometry = self._drawing_projection_geometry(
+            source_document, "isometric"
+        )
+        if not projection_geometry["wireframe_polylines"]:
+            QMessageBox.critical(
+                self, tr("message.open_failed"), tr("drawing.source.empty")
+            )
+            return
+        relative_source = os.path.relpath(
+            source_path,
+            self.current_file_path.parent,
+        )
+        view = {
+            "id": view_id,
+            "source_path": relative_source,
+            "orientation_mode": "model",
+            "orientation": "isometric",
+            "view_type": "general",
+            "visible_area": "full",
+            "scale_mode": "sheet",
+            "projection_method": "sheet",
+            "section": "none",
+            "display_style": "no_hidden",
+            "hidden_lines": "none",
+            **projection_geometry,
+        }
+
+        def placed(placed_id: str) -> None:
+            if placed_id != view_id:
+                return
+            self.drawing_workspace.viewPlaced.disconnect(placed)
+            self.statusBar().clearMessage()
+            self._open_drawing_view_properties(view_id)
+
+        self.drawing_workspace.viewPlaced.connect(placed)
+        self.drawing_workspace.begin_view_placement(view)
+        self.statusBar().showMessage(tr("drawing.insert_view.place"))
+
+    def _open_drawing_view_properties(self, view_id: str) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            return
+        view = self.drawing_workspace.find_view(view_id)
+        if view is None:
+            return
         existing = getattr(self, "drawing_view_properties_dialog", None)
         if existing is not None and existing.isVisible():
             existing.raise_()
             existing.activateWindow()
             return
-        dialog = DrawingViewPropertiesDialog(self)
+        source_path = Path(str(view.get("source_path", "")))
+        if not source_path.is_absolute() and self.current_file_path is not None:
+            source_path = self.current_file_path.parent / source_path
+        source_path = canonical_document_path(source_path)
+        source_document = next(
+            (
+                session.document for session in self.document_sessions
+                if session.file_path is not None
+                and canonical_document_path(session.file_path) == source_path
+            ),
+            None,
+        )
+        try:
+            source_document = source_document or load_part_document(source_path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.open_failed"), str(exc))
+            return
+        orientations: list[tuple[str, object]] = [
+            (tr("toolbar.view.default"), "isometric"),
+            (tr("toolbar.view.front"), "front"),
+            (tr("toolbar.view.back"), "back"),
+            (tr("toolbar.view.top"), "top"),
+            (tr("toolbar.view.bottom"), "bottom"),
+            (tr("toolbar.view.left"), "left"),
+            (tr("toolbar.view.right"), "right"),
+        ]
+        try:
+            named_views = json.loads(str(
+                source_document.document_settings.get("named_views", "[]")
+            ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            named_views = []
+        for named in named_views if isinstance(named_views, list) else []:
+            if isinstance(named, dict) and str(named.get("name", "")).strip():
+                orientations.append((str(named["name"]), dict(named)))
+        baseline = copy.deepcopy(view)
+        dialog = DrawingViewPropertiesDialog(view, orientations, self)
         self.drawing_view_properties_dialog = dialog
-        view_id = str(uuid4())
 
-        def begin_pending_view(orientation: str, scale: float) -> None:
-            polylines = self._drawing_projection_polylines(
-                source_document,
-                orientation,
-            )
-            if not polylines:
-                QMessageBox.critical(
-                    self,
-                    tr("message.open_failed"),
-                    tr("drawing.source.empty"),
-                )
-                return
-            self.drawing_workspace.begin_view_placement({
-                "id": view_id,
-                "source_path": os.path.relpath(
-                    source_path,
-                    self.current_file_path.parent,
-                ),
-                "orientation": orientation,
-                "scale": scale,
-                "polylines": polylines,
-            })
-            self.statusBar().showMessage(tr("drawing.insert_view.place"))
+        def preview(values: dict) -> None:
+            orientation = values.get("orientation", "isometric")
+            values = dict(values)
+            values.update(self._drawing_projection_geometry(
+                source_document, orientation
+            ))
+            if values.get("scale_mode") == "sheet":
+                sheet = self.drawing_workspace.active_sheet()
+                if sheet is not None:
+                    values["scale"] = float(sheet.get("default_scale_numerator", 1.0)) / max(float(sheet.get("default_scale", 1.0)), 0.001)
+            self.drawing_workspace.update_view(view_id, values)
 
-        def view_placed() -> None:
-            dialog.mark_inserted()
-
-        def finish_view_properties(_result: int) -> None:
-            self.drawing_workspace.canvas.cancel_placement()
-            self.drawing_workspace.viewPlaced.disconnect(view_placed)
-            application = QApplication.instance()
-            if (
-                application is not None
-                and getattr(application, "_middle_confirmation_target", None)
-                is dialog
-            ):
-                application._middle_confirmation_target = None
+        def finished(result: int) -> None:
+            if result != QDialog.DialogCode.Accepted:
+                current = self.drawing_workspace.find_view(view_id)
+                if current is not None:
+                    current.clear()
+                    current.update(copy.deepcopy(baseline))
+                    self.drawing_workspace.update_view(view_id, {})
             if getattr(self, "drawing_view_properties_dialog", None) is dialog:
                 self.drawing_view_properties_dialog = None
 
-        dialog.insertRequested.connect(begin_pending_view)
-        dialog.finished.connect(finish_view_properties)
-        self.drawing_workspace.viewPlaced.connect(view_placed)
+        dialog.previewRequested.connect(preview)
+        dialog.finished.connect(finished)
         dialog.show()
-        application = QApplication.instance()
-        if application is not None:
-            application._middle_confirmation_target = dialog
         position_dialog_top_right_after_show(dialog)
+
+    def _create_projected_drawing_view(self, parent_view_id: str) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            return
+        parent_view = self.drawing_workspace.find_view(parent_view_id)
+        sheet = self.drawing_workspace.active_sheet()
+        if parent_view is None or sheet is None or self.current_file_path is None:
+            return
+        source_path = Path(str(parent_view.get("source_path", "")))
+        if not source_path.is_absolute():
+            source_path = self.current_file_path.parent / source_path
+        source_path = canonical_document_path(source_path)
+        source_document = next(
+            (
+                session.document for session in self.document_sessions
+                if session.file_path is not None
+                and canonical_document_path(session.file_path) == source_path
+            ),
+            None,
+        )
+        try:
+            source_document = source_document or load_part_document(source_path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.open_failed"), str(exc))
+            return
+        method = str(parent_view.get("projection_method", "sheet"))
+        if method == "sheet":
+            method = str(sheet.get("projection_method", "first_angle"))
+        orientations = (
+            {"top": "top", "bottom": "bottom", "left": "left", "right": "right"}
+            if method == "third_angle"
+            else {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
+        )
+        variants = {
+            direction: {
+                "projection_direction": direction,
+                "orientation": orientation,
+                **self._drawing_projection_geometry(
+                    source_document, orientation
+                ),
+            }
+            for direction, orientation in orientations.items()
+        }
+        initial = variants["right"]
+        view_id = str(uuid4())
+        projected = {
+            "id": view_id,
+            "parent_view_id": parent_view_id,
+            "source_path": str(parent_view.get("source_path", "")),
+            "orientation_mode": "projected",
+            "orientation": initial["orientation"],
+            "view_type": "projection",
+            "visible_area": "full",
+            "scale_mode": str(parent_view.get("scale_mode", "sheet")),
+            "scale": float(parent_view.get("scale", 1.0)),
+            "projection_method": str(parent_view.get("projection_method", "sheet")),
+            "section": str(parent_view.get("section", "none")),
+            "display_style": str(parent_view.get("display_style", "no_hidden")),
+            "hidden_lines": str(parent_view.get("hidden_lines", "none")),
+            "polylines": initial["polylines"],
+            "hidden_polylines": initial["hidden_polylines"],
+            "wireframe_polylines": initial["wireframe_polylines"],
+            "projection_direction": "right",
+            "projection_variants": variants,
+            "parent_position": [
+                float(parent_view.get("x", 0.0)),
+                float(parent_view.get("y", 0.0)),
+            ],
+        }
+
+        def placed(placed_id: str) -> None:
+            if placed_id != view_id:
+                return
+            self.drawing_workspace.viewPlaced.disconnect(placed)
+            self.statusBar().clearMessage()
+            self._open_drawing_view_properties(view_id)
+
+        self.drawing_workspace.viewPlaced.connect(placed)
+        self.drawing_workspace.begin_view_placement(projected)
+        self.statusBar().showMessage(tr("drawing.insert_projection.place"))
 
     def set_view_display_mode(self, display_mode: ViewDisplayMode) -> None:
         self.view_display_mode = display_mode
@@ -20739,6 +21088,20 @@ class MainWindow(QMainWindow):
             frame = self._sketch_frame(sketch)
             if frame is None or distance <= 1.0e-12:
                 return
+            line_ids = self._selected_dimension_line_point_ids(sketch)
+            line_first = points.get(line_ids[0]) if len(line_ids) == 2 else None
+            line_second = points.get(line_ids[1]) if len(line_ids) == 2 else None
+            if line_first is None or line_second is None:
+                return
+            first_dimension, second_dimension = (
+                self._point_line_dimension_placement(
+                    point_position,
+                    projection,
+                    self._sketch_point_position(line_first),
+                    self._sketch_point_position(line_second),
+                    (x, y),
+                )
+            )
             origin, x_axis, y_axis = frame
 
             def world_point_line(position):
@@ -20764,8 +21127,8 @@ class MainWindow(QMainWindow):
                     key="sketch_dimension_preview",
                     first_point=world_point_line(projection),
                     second_point=world_point_line(point_position),
-                    first_dimension_point=world_point_line(projection),
-                    second_dimension_point=world_point_line(point_position),
+                    first_dimension_point=world_point_line(first_dimension),
+                    second_dimension_point=world_point_line(second_dimension),
                     direction=direction,
                     leader_anchor="second",
                 )
@@ -21157,6 +21520,34 @@ class MainWindow(QMainWindow):
         return point_position, projection, math.dist(
             point_position,
             projection,
+        )
+
+    @staticmethod
+    def _point_line_dimension_placement(
+        point: tuple[float, float],
+        projection: tuple[float, float],
+        line_first: tuple[float, float],
+        line_second: tuple[float, float],
+        placement: tuple[float, float],
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Slide a point-line dimension along its reference line."""
+        dx = line_second[0] - line_first[0]
+        dy = line_second[1] - line_first[1]
+        length = math.hypot(dx, dy)
+        if length <= 1.0e-12:
+            return projection, point
+        ux, uy = dx / length, dy / length
+        midpoint = (
+            (point[0] + projection[0]) * 0.5,
+            (point[1] + projection[1]) * 0.5,
+        )
+        offset = (
+            (placement[0] - midpoint[0]) * ux
+            + (placement[1] - midpoint[1]) * uy
+        )
+        return (
+            (projection[0] + offset * ux, projection[1] + offset * uy),
+            (point[0] + offset * ux, point[1] + offset * uy),
         )
 
     def _unified_parallel_lines_geometry(
@@ -22664,6 +23055,21 @@ class MainWindow(QMainWindow):
         if sketch is None:
             return
         entities = self._stored_sketch_entities(sketch)
+        selected_geometry = next(
+            (
+                entity for entity in entities
+                if str(entity.get("id", "")) == entity_id
+            ),
+            None,
+        )
+        if (
+            selected_geometry is not None
+            and selected_geometry.get("type") == "circle"
+        ):
+            self._handle_sketch_equal_circle_selection(
+                sketch, entities, entity_id
+            )
+            return
         geometry_by_id = {
             str(entity.get("id", "")): entity
             for entity in entities
@@ -22814,6 +23220,84 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("sketch.status.equal.created")
         )
+
+    def _handle_sketch_equal_circle_selection(
+        self,
+        sketch: ZimaEntity,
+        entities: list[dict[str, Any]],
+        circle_id: str,
+    ) -> None:
+        circles = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "circle"
+        }
+        circle = circles.get(circle_id)
+        if circle is None:
+            return
+        first_id = self._sketch_equal_first_geometry_id
+        if first_id is None:
+            self._sketch_equal_first_geometry_id = circle_id
+            self._sketch_selected_entity_id = circle_id
+            self._refresh_sketch_overlay()
+            self.statusBar().showMessage(
+                tr("sketch.status.equal.select_second")
+            )
+            return
+        first = circles.get(first_id)
+        if first is None or first_id == circle_id:
+            self.statusBar().showMessage(
+                tr("sketch.status.equal_length.invalid_second")
+            )
+            return
+        first_group = str(first.get("equal_radius_group", ""))
+        second_group = str(circle.get("equal_radius_group", ""))
+        if first_group and first_group == second_group:
+            self.statusBar().showMessage(
+                tr("sketch.status.equal_length.already_exists")
+            )
+            return
+        group = first_group or second_group or f"equal-circle:{first_id}"
+        first["equal_radius_group"] = group
+        first.pop("equal_radius_reference", None)
+        circle["equal_radius_group"] = group
+        circle["equal_radius_reference"] = True
+        self._apply_sketch_equal_circle_radii(entities)
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_equal_first_geometry_id = None
+        self._sketch_selected_entity_id = None
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        if self._sketch_show_all_dimensions:
+            self._show_all_sketch_dimensions(sketch)
+        self.statusBar().showMessage(tr("sketch.status.equal.created"))
+
+    @staticmethod
+    def _apply_sketch_equal_circle_radii(
+        entities: list[dict[str, Any]],
+    ) -> None:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for entity in entities:
+            group = str(entity.get("equal_radius_group", ""))
+            if entity.get("type") == "circle" and group:
+                groups.setdefault(group, []).append(entity)
+        for circles in groups.values():
+            driver = next(
+                (
+                    circle for circle in circles
+                    if not bool(circle.get("equal_radius_reference", False))
+                ),
+                circles[0],
+            )
+            try:
+                radius = float(driver.get("radius", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if radius <= 1.0e-12:
+                continue
+            for circle in circles:
+                circle["radius"] = radius
 
     def _handle_sketch_tangent_selection(self, entity_id: str) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
@@ -24335,6 +24819,7 @@ class MainWindow(QMainWindow):
             self._apply_sketch_geometry_constraints(entities, sketch)
             self._apply_sketch_distance_dimensions(sketch, entities)
             self._apply_sketch_coincident_constraints(entities)
+            self._apply_sketch_equal_circle_radii(entities)
             self._apply_sketch_circle_rim_constraints(entities)
             self._apply_sketch_curve_attachments(entities)
             # Dimensions and direction relations must not leave an endpoint
@@ -24912,6 +25397,24 @@ class MainWindow(QMainWindow):
                 display_value = math.dist(point_position, projection)
                 if display_value <= 1.0e-12:
                     continue
+                placement = stored_dimension.get("placement", ())
+                placement_position = (
+                    (float(placement[0]), float(placement[1]))
+                    if isinstance(placement, list) and len(placement) >= 2
+                    else (
+                        (point_position[0] + projection[0]) * 0.5,
+                        (point_position[1] + projection[1]) * 0.5,
+                    )
+                )
+                first_dimension, second_dimension = (
+                    self._point_line_dimension_placement(
+                        point_position,
+                        projection,
+                        first_position,
+                        second_position,
+                        placement_position,
+                    )
+                )
                 direction = tuple(
                     (
                         (point_position[0] - projection[0]) * x_axis[index]
@@ -24927,8 +25430,8 @@ class MainWindow(QMainWindow):
                     key=f"sketch_distance:{dimension_id}",
                     first_point=world(*projection),
                     second_point=world(*point_position),
-                    first_dimension_point=world(*projection),
-                    second_dimension_point=world(*point_position),
+                    first_dimension_point=world(*first_dimension),
+                    second_dimension_point=world(*second_dimension),
                     direction=direction,
                     leader_anchor="second",
                 )
@@ -26543,6 +27046,18 @@ class MainWindow(QMainWindow):
                 == "diameter"
                 else value
             )
+            group = str(circle.get("equal_radius_group", ""))
+            if group:
+                for grouped_circle in entities:
+                    if (
+                        grouped_circle.get("type") == "circle"
+                        and str(grouped_circle.get("equal_radius_group", ""))
+                        == group
+                    ):
+                        grouped_circle["equal_radius_reference"] = (
+                            grouped_circle is not circle
+                        )
+                self._apply_sketch_equal_circle_radii(entities)
             self._apply_sketch_curve_attachments(entities)
             candidate = SketchModel.from_editor_data(entities, dimensions)
             has_tangencies = any(
@@ -27144,6 +27659,25 @@ class MainWindow(QMainWindow):
             )
         return tuple(dimensions)
 
+    @staticmethod
+    def _protrusion_dimension_axes(
+        sketch_plane: str,
+    ) -> tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]:
+        extrusion_direction = {
+            "xy": (0.0, 0.0, 1.0),
+            "xz": (0.0, 1.0, 0.0),
+            "yz": (1.0, 0.0, 0.0),
+        }.get(sketch_plane, (0.0, 1.0, 0.0))
+        offset_direction = (
+            (0.0, 1.0, 0.0)
+            if abs(extrusion_direction[0]) > 0.5
+            else (1.0, 0.0, 0.0)
+        )
+        return extrusion_direction, offset_direction
+
     def _primitive_dimensions(
         self,
         primitive: ZimaEntity,
@@ -27317,6 +27851,18 @@ class MainWindow(QMainWindow):
         elif primitive.kind == EntityKind.PROTRUSION:
             forward = number("length_forward", 10.0)
             reverse = number("length_reverse", 0.0)
+            sketch = self.document.find_entity(
+                str(primitive.parameters.get("sketch_id", ""))
+            )
+            sketch_plane = (
+                str(sketch.parameters.get("plane", "xz"))
+                if sketch is not None and sketch.kind == EntityKind.SKETCH
+                else "xz"
+            )
+            extrusion_direction, offset_direction = (
+                self._protrusion_dimension_axes(sketch_plane)
+            )
+            offset = tuple(value * margin for value in offset_direction)
             extent_mode = str(
                 primitive.parameters.get("extent_mode", "one_side")
             )
@@ -27334,17 +27880,20 @@ class MainWindow(QMainWindow):
                 specifications.append((
                     "length_forward",
                     (0.0, 0.0, 0.0),
-                    (0.0, forward, 0.0),
-                    (margin, 0.0, 0.0),
-                    (0.0, 1.0, 0.0),
+                    tuple(value * forward for value in extrusion_direction),
+                    offset,
+                    extrusion_direction,
                 ))
             if reverse > 1.0e-9:
+                reverse_direction = tuple(
+                    -value for value in extrusion_direction
+                )
                 specifications.append((
                     "length_reverse",
                     (0.0, 0.0, 0.0),
-                    (0.0, -reverse, 0.0),
-                    (-margin, 0.0, 0.0),
-                    (0.0, -1.0, 0.0),
+                    tuple(value * reverse for value in reverse_direction),
+                    tuple(-value for value in offset),
+                    reverse_direction,
                 ))
         elif primitive.kind in (EntityKind.PYRAMID, EntityKind.WEDGE):
             specifications.extend(
