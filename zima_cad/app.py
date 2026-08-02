@@ -166,8 +166,8 @@ from zima_cad.drawing import (
     drawing_sheets,
     store_drawing_sheets,
     shaded_projection,
-    model_visible_projection,
-    technical_projection,
+    projected_view_orientation,
+    renderer_projection,
     update_view_bounds,
 )
 from zima_cad.storage import (
@@ -655,6 +655,7 @@ class HistoryTreeWidget(QTreeWidget):
 class ViewDisplayMode(str, Enum):
     WIRE = "wire"
     HIDDEN_EDGES = "hidden_edges"
+    NO_HIDDEN = "no_hidden"
     SHADED_WITH_EDGES = "shaded_with_edges"
     SHADED = "shaded"
 
@@ -3640,11 +3641,11 @@ class DrawingViewPropertiesDialog(QDialog):
         self.section_combo.addItem(tr("drawing.section.none"), "none")
         self.section_combo.setEnabled(False)
         self.display_style_combo = QComboBox()
-        for key in ("wireframe", "hidden_line", "shaded_edges", "shaded"):
+        for key in (
+            "wireframe", "hidden_line", "no_hidden", "shaded_edges", "shaded"
+        ):
             self.display_style_combo.addItem(tr(f"drawing.display.{key}"), key)
-        stored_style = str(view.get("display_style", "wireframe"))
-        if stored_style == "no_hidden":
-            stored_style = "wireframe"
+        stored_style = str(view.get("display_style", "no_hidden"))
         self.display_style_combo.setCurrentIndex(max(0, self.display_style_combo.findData(stored_style)))
         self.hidden_lines_combo = QComboBox()
         for key in ("none", "solid", "dimmed"):
@@ -3712,7 +3713,13 @@ class DrawingViewPropertiesDialog(QDialog):
     def values(self) -> dict:
         return {
             "orientation_mode": str(self.orientation_mode_combo.currentData()),
-            "orientation": self.orientation_combo.currentData(),
+            "orientation": (
+                copy.deepcopy(
+                    self._baseline.get("orientation", "isometric")
+                )
+                if self._derived_orientation
+                else self.orientation_combo.currentData()
+            ),
             "view_type": str(self.view_type_combo.currentData()),
             "visible_area": str(self.visible_area_combo.currentData()),
             "scale_mode": str(self.scale_mode_combo.currentData()),
@@ -7208,6 +7215,11 @@ class MainWindow(QMainWindow):
             tr("toolbar.hidden_edges.tooltip"),
             ViewDisplayMode.HIDDEN_EDGES,
         )
+        self.no_hidden_action = self._add_display_mode_action(
+            tr("toolbar.no_hidden"),
+            tr("toolbar.no_hidden.tooltip"),
+            ViewDisplayMode.NO_HIDDEN,
+        )
         self.edges_action = self._add_display_mode_action(
             tr("toolbar.edges"),
             tr("toolbar.edges.tooltip"),
@@ -10594,6 +10606,7 @@ class MainWindow(QMainWindow):
         self.view_menu.addSeparator()
         self.view_menu.addAction(self.wire_action)
         self.view_menu.addAction(self.hidden_edges_action)
+        self.view_menu.addAction(self.no_hidden_action)
         self.view_menu.addAction(self.edges_action)
         self.view_menu.addAction(self.shaded_action)
         self.view_menu.addSeparator()
@@ -13104,9 +13117,7 @@ class MainWindow(QMainWindow):
         source_document: PartDocument,
         orientation: object,
     ) -> dict[str, list[list[list[float]]]]:
-        shapes: list[Any] = []
         shaded_meshes: list[tuple[ViewerMesh, str]] = []
-        edge_polylines: list[list[tuple[float, float, float]]] = []
         if source_document.document_settings.get("type") == "assembly":
             objects = source_document.history_objects_at(
                 source_document.history_cursor()
@@ -13125,7 +13136,6 @@ class MainWindow(QMainWindow):
                 )
                 if shape is None:
                     continue
-                shapes.append(shape)
                 mesh = triangulate_shape(
                     shape,
                     owner_id=component.entity_id,
@@ -13135,29 +13145,16 @@ class MainWindow(QMainWindow):
                     mesh,
                     str(component.parameters.get("body_color", "#B9C2CC")),
                 ))
-                edge_polylines.extend(
-                    list(edge.points)
-                    for edge in mesh.edges
-                    if edge_visible_in_display(edge, "wire")
-                )
         else:
             shape = source_document.build_active_shape()
             if shape is not None:
-                shapes.append(shape)
                 mesh = triangulate_shape(
                     shape,
                     edge_color=(1.0, 1.0, 1.0),
                 )
                 shaded_meshes.append((mesh, "#B9C2CC"))
-                edge_polylines.extend(
-                    list(edge.points)
-                    for edge in mesh.edges
-                    if edge_visible_in_display(edge, "wire")
-                )
-        projection = technical_projection(shapes, edge_polylines, orientation)
-        projection["polylines"] = model_visible_projection(
-            [mesh for mesh, _color in shaded_meshes],
-            orientation,
+        projection = renderer_projection(
+            [mesh for mesh, _color in shaded_meshes], orientation
         )
         projection["shaded_triangles"] = shaded_projection(
             shaded_meshes,
@@ -13254,7 +13251,7 @@ class MainWindow(QMainWindow):
             "scale_mode": "sheet",
             "projection_method": "sheet",
             "section": "none",
-            "display_style": "wireframe",
+            "display_style": "no_hidden",
             "hidden_lines": "none",
             "auxiliary_edges": "hidden",
             **projection_geometry,
@@ -13375,11 +13372,13 @@ class MainWindow(QMainWindow):
         method = str(parent_view.get("projection_method", "sheet"))
         if method == "sheet":
             method = str(sheet.get("projection_method", "first_angle"))
-        orientations = (
-            {"top": "top", "bottom": "bottom", "left": "left", "right": "right"}
-            if method == "third_angle"
-            else {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
-        )
+        parent_orientation = parent_view.get("orientation", "front")
+        orientations = {
+            direction: projected_view_orientation(
+                parent_orientation, direction, method
+            )
+            for direction in ("top", "bottom", "left", "right")
+        }
         variants = {
             direction: {
                 "projection_direction": direction,
@@ -13425,7 +13424,6 @@ class MainWindow(QMainWindow):
                 return
             self.drawing_workspace.viewPlaced.disconnect(placed)
             self.statusBar().clearMessage()
-            self._open_drawing_view_properties(view_id)
 
         self.drawing_workspace.viewPlaced.connect(placed)
         self.drawing_workspace.begin_view_placement(projected)
@@ -31033,6 +31031,7 @@ class MainWindow(QMainWindow):
             {
                 ViewDisplayMode.WIRE: "wire",
                 ViewDisplayMode.HIDDEN_EDGES: "hidden_edges",
+                ViewDisplayMode.NO_HIDDEN: "no_hidden",
                 ViewDisplayMode.SHADED_WITH_EDGES: "shaded_with_edges",
                 ViewDisplayMode.SHADED: "shaded",
             }[self.view_display_mode]

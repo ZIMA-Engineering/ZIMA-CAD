@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import configparser
 import json
-from math import atan2, cos, degrees, hypot, radians, sin, sqrt
+from math import acos, atan2, cos, degrees, hypot, radians, sin, sqrt, tan
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from OCC.Core.HLRAlgo import HLRAlgo_Projector
-from OCC.Core.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
-from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt
 from zima_cad.viewer_mesh import (
     ViewerMesh,
+    X_AXIS_COLOR,
+    Y_AXIS_COLOR,
     combine_viewer_meshes,
     edge_visible_in_display,
     silhouette_segments,
@@ -162,6 +161,61 @@ def projection_axes(
     return horizontal, vertical, depth
 
 
+def projected_view_orientation(
+    parent_orientation: str | dict,
+    placement_direction: str,
+    projection_method: str,
+) -> dict[str, float]:
+    """Rotate a projected view relative to its parent drawing view."""
+
+    horizontal, vertical, depth = projection_axes(parent_orientation)
+    direction = str(placement_direction)
+    if projection_method != "third_angle":
+        direction = {
+            "left": "right",
+            "right": "left",
+            "top": "bottom",
+            "bottom": "top",
+        }.get(direction, direction)
+    if direction == "right":
+        axes = (
+            tuple(-value for value in depth),
+            vertical,
+            horizontal,
+        )
+    elif direction == "left":
+        axes = (
+            depth,
+            vertical,
+            tuple(-value for value in horizontal),
+        )
+    elif direction == "top":
+        axes = (
+            horizontal,
+            tuple(-value for value in depth),
+            vertical,
+        )
+    else:
+        axes = (
+            horizontal,
+            depth,
+            tuple(-value for value in vertical),
+        )
+
+    pitch = degrees(acos(max(-1.0, min(1.0, axes[2][2]))))
+    if abs(sin(radians(pitch))) <= 1.0e-9:
+        yaw = degrees(atan2(-axes[0][1], axes[0][0]))
+        roll = 0.0
+    else:
+        yaw = degrees(atan2(axes[2][0], axes[2][1]))
+        roll = degrees(atan2(axes[0][2], -axes[1][2]))
+    return {
+        "yaw_degrees": yaw,
+        "pitch_degrees": pitch,
+        "roll_degrees": roll,
+    }
+
+
 def _center_projected_groups(
     *groups: list[list[list[float]]],
 ) -> tuple[list[list[list[float]]], ...]:
@@ -177,6 +231,71 @@ def _center_projected_groups(
         ]
         for group in groups
     )
+
+
+def _merge_projected_segments(
+    segments: list[list[list[float]]],
+) -> list[list[list[float]]]:
+    """Remove zero/duplicate segments and stitch non-branching chains."""
+
+    def key(point: list[float]) -> tuple[float, float]:
+        return round(float(point[0]), 7), round(float(point[1]), 7)
+
+    unique: list[list[list[float]]] = []
+    seen = set()
+    for segment in segments:
+        if len(segment) < 2 or key(segment[0]) == key(segment[-1]):
+            continue
+        segment_key = tuple(sorted((key(segment[0]), key(segment[-1]))))
+        if segment_key in seen:
+            continue
+        seen.add(segment_key)
+        unique.append([list(segment[0]), list(segment[-1])])
+
+    endpoint_counts: dict[tuple[float, float], int] = {}
+    for segment in unique:
+        for point in (segment[0], segment[-1]):
+            point_key = key(point)
+            endpoint_counts[point_key] = endpoint_counts.get(point_key, 0) + 1
+
+    unused = set(range(len(unique)))
+    chains: list[list[list[float]]] = []
+    while unused:
+        index = unused.pop()
+        chain = list(unique[index])
+        extended = True
+        while extended:
+            extended = False
+            for at_start in (False, True):
+                endpoint = chain[0] if at_start else chain[-1]
+                endpoint_key = key(endpoint)
+                if endpoint_counts.get(endpoint_key) != 2:
+                    continue
+                match = next((
+                    candidate
+                    for candidate in unused
+                    if endpoint_key in {
+                        key(unique[candidate][0]),
+                        key(unique[candidate][-1]),
+                    }
+                ), None)
+                if match is None:
+                    continue
+                unused.remove(match)
+                segment = unique[match]
+                other = (
+                    segment[-1]
+                    if key(segment[0]) == endpoint_key
+                    else segment[0]
+                )
+                if at_start:
+                    chain.insert(0, other)
+                else:
+                    chain.append(other)
+                extended = True
+                break
+        chains.append(chain)
+    return chains
 
 
 def project_polylines(
@@ -210,72 +329,156 @@ def technical_projection(
     wire_polylines: list[list[tuple[float, float, float]]],
     orientation: str | dict,
 ) -> dict[str, list[list[list[float]]]]:
-    """Classify exact visible/hidden edges and return drawing-space curves."""
-    wireframe = _project_polylines_raw(wire_polylines, orientation)
-    valid_shapes = [
-        shape for shape in shapes
+    """Compatibility wrapper using our renderer mesh, never OCCT HLR."""
+
+    meshes = [
+        triangulate_shape(shape)
+        for shape in shapes
         if shape is not None and not shape.IsNull()
     ]
-    if not valid_shapes:
-        wireframe = _center_projected_groups(wireframe)[0]
-        return {
-            "polylines": wireframe,
-            "hidden_polylines": [],
-            "wireframe_polylines": wireframe,
-            "auxiliary_polylines": [],
-        }
-    try:
-        horizontal, _vertical, depth = projection_axes(orientation)
-        coordinate_system = gp_Ax2(
-            gp_Pnt(0.0, 0.0, 0.0),
-            gp_Dir(*depth),
-            gp_Dir(*horizontal),
-        )
-        algorithm = HLRBRep_Algo()
-        for shape in valid_shapes:
-            algorithm.Add(shape)
-        algorithm.Projector(HLRAlgo_Projector(coordinate_system))
-        algorithm.Update()
-        algorithm.Hide()
-        result = HLRBRep_HLRToShape(algorithm)
+    if meshes:
+        return renderer_projection(meshes, orientation)
+    wireframe = _center_projected_groups(
+        _project_polylines_raw(wire_polylines, orientation)
+    )[0]
+    return {
+        "polylines": wireframe,
+        "hidden_polylines": [],
+        "wireframe_polylines": wireframe,
+        "auxiliary_polylines": [],
+    }
 
-        def projected_edges(shape: Any) -> list[list[list[float]]]:
-            if shape is None or shape.IsNull():
-                return []
-            return [
-                [[float(x), float(y)] for x, y, _z in edge.points]
-                for edge in triangulate_shape(shape).edges
-                if len(edge.points) >= 2
-            ]
 
-        visible = projected_edges(result.VCompound())
-        hidden = projected_edges(result.HCompound())
-        outlines = projected_edges(result.OutLineVCompound())
-        auxiliary = projected_edges(result.Rg1LineVCompound())
-        visible, hidden, wireframe, outlines, auxiliary = _center_projected_groups(
-            visible,
-            hidden,
-            wireframe,
-            outlines,
-            auxiliary,
+def renderer_projection(
+    meshes: list[ViewerMesh],
+    orientation: str | dict,
+) -> dict[str, list[list[list[float]]]]:
+    """Project renderer-owned triangles and edges into vector drawing data."""
+
+    mesh = combine_viewer_meshes(tuple(meshes))
+    horizontal, vertical, depth_axis = projection_axes(orientation)
+
+    def project(point) -> tuple[float, float, float]:
+        return tuple(
+            sum(axis[index] * point[index] for index in range(3))
+            for axis in (horizontal, vertical, depth_axis)
         )
-        if not visible:
-            visible = wireframe
-        return {
-            "polylines": visible,
-            "hidden_polylines": hidden,
-            "wireframe_polylines": wireframe,
-            "auxiliary_polylines": auxiliary,
-        }
-    except Exception:
-        # Open or otherwise unsupported topology remains usable as wireframe.
-        wireframe = _center_projected_groups(wireframe)[0]
-        return {
-            "polylines": wireframe,
-            "hidden_polylines": [],
-            "wireframe_polylines": wireframe,
-            "auxiliary_polylines": [],
-        }
+
+    triangles = []
+    positions = mesh.triangle_positions
+    for offset in range(0, len(positions), 9):
+        points = tuple(project(tuple(
+            positions[offset + vertex * 3 + index]
+            for index in range(3)
+        )) for vertex in range(3))
+        triangles.append((
+            points,
+            min(point[0] for point in points),
+            max(point[0] for point in points),
+            min(point[1] for point in points),
+            max(point[1] for point in points),
+        ))
+
+    diagonal = sqrt(sum(
+        (mesh.bounds_max[index] - mesh.bounds_min[index]) ** 2
+        for index in range(3)
+    ))
+    # Edge polylines share the surface triangulation nodes, so only a small
+    # floating-point tolerance is required for coplanar depth comparisons.
+    depth_tolerance = max(diagonal * 2.0e-5, 1.0e-7)
+
+    def visible(point) -> bool:
+        u, v, depth = project(point)
+        front = None
+        for triangle, min_u, max_u, min_v, max_v in triangles:
+            if not (min_u <= u <= max_u and min_v <= v <= max_v):
+                continue
+            ax, ay = triangle[0][:2]
+            bx, by = triangle[1][:2]
+            cx, cy = triangle[2][:2]
+            denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if abs(denominator) <= 1.0e-12:
+                continue
+            wa = ((by - cy) * (u - cx) + (cx - bx) * (v - cy)) / denominator
+            wb = ((cy - ay) * (u - cx) + (ax - cx) * (v - cy)) / denominator
+            wc = 1.0 - wa - wb
+            if min(wa, wb, wc) < -1.0e-7:
+                continue
+            hit = sum(weight * vertex[2] for weight, vertex in zip(
+                (wa, wb, wc), triangle
+            ))
+            front = hit if front is None else max(front, hit)
+        return front is None or depth >= front - depth_tolerance
+
+    topology_polylines = [
+        edge.points
+        for edge in mesh.edges
+        if edge_visible_in_display(edge, "wire")
+    ]
+    silhouette_polylines = list(silhouette_segments(mesh, depth_axis))
+    candidates = [*topology_polylines, *silhouette_polylines]
+    # Preserve closed topology polylines (for example cylinder circles); the
+    # chain merger intentionally operates only on two-point silhouette pieces.
+    wireframe = [
+        *_project_polylines_raw(topology_polylines, orientation),
+        *_merge_projected_segments(
+            _project_polylines_raw(silhouette_polylines, orientation)
+        ),
+    ]
+    visible_lines: list[list[list[float]]] = []
+    hidden_lines: list[list[list[float]]] = []
+    sampling_step = max(diagonal / 160.0, 1.0e-7)
+
+    for polyline in candidates:
+        for first, second in zip(polyline, polyline[1:]):
+            length = sqrt(sum(
+                (second[index] - first[index]) ** 2 for index in range(3)
+            ))
+            count = max(1, min(256, int(length / sampling_step) + 1))
+            states = []
+            for sample in range(count):
+                factor = (sample + 0.5) / count
+                midpoint = tuple(
+                    first[index]
+                    + (second[index] - first[index]) * factor
+                    for index in range(3)
+                )
+                states.append(visible(midpoint))
+            start = 0
+            while start < count:
+                state = states[start]
+                end = start + 1
+                while end < count and states[end] == state:
+                    end += 1
+                segment = []
+                for sample in (start, end):
+                    factor = sample / count
+                    point = tuple(
+                        first[index]
+                        + (second[index] - first[index]) * factor
+                        for index in range(3)
+                    )
+                    u, v, _depth = project(point)
+                    segment.append([u, v])
+                (visible_lines if state else hidden_lines).append(segment)
+                start = end
+
+    auxiliary = _project_polylines_raw([
+        edge.points
+        for edge in mesh.edges
+        if edge.topology_role in {"tangent", "periodic_tangent"}
+    ], orientation)
+    visible_lines = _merge_projected_segments(visible_lines)
+    hidden_lines = _merge_projected_segments(hidden_lines)
+    visible_lines, hidden_lines, wireframe, auxiliary = _center_projected_groups(
+        visible_lines, hidden_lines, wireframe, auxiliary
+    )
+    return {
+        "polylines": visible_lines or wireframe,
+        "hidden_polylines": hidden_lines,
+        "wireframe_polylines": wireframe,
+        "auxiliary_polylines": auxiliary,
+    }
 
 
 def shaded_projection(
@@ -437,26 +640,61 @@ def move_drawing_view(
     x: float,
     y: float,
 ) -> bool:
-    """Move one drawing view to an absolute paper-space position."""
-    view = next(
-        (
-            candidate for candidate in sheet.get("views", [])
-            if str(candidate.get("id", "")) == str(view_id)
-        ),
-        None,
-    )
+    """Move a view within its projection DOF and carry its descendants."""
+    views = list(sheet.get("views", []))
+    by_id = {
+        str(candidate.get("id", "")): candidate for candidate in views
+    }
+    view = by_id.get(str(view_id))
     if view is None:
         return False
-    delta_x = float(x) - float(view.get("x", 0.0))
-    delta_y = float(y) - float(view.get("y", 0.0))
-    view["x"] = float(x)
-    view["y"] = float(y)
-    update_view_bounds(view)
+
+    target_x, target_y = float(x), float(y)
+    parent = by_id.get(str(view.get("parent_view_id", "")))
+    if parent is not None:
+        direction = str(view.get("projection_direction", ""))
+        if direction not in {"left", "right", "top", "bottom"}:
+            dx = float(view.get("x", 0.0)) - float(parent.get("x", 0.0))
+            dy = float(view.get("y", 0.0)) - float(parent.get("y", 0.0))
+            direction = (
+                "right" if abs(dx) >= abs(dy) and dx < 0.0
+                else "left" if abs(dx) >= abs(dy)
+                else "top" if dy > 0.0
+                else "bottom"
+            )
+            view["projection_direction"] = direction
+        if direction in {"left", "right"}:
+            target_y = float(parent.get("y", 0.0))
+        else:
+            target_x = float(parent.get("x", 0.0))
+
+    delta_x = target_x - float(view.get("x", 0.0))
+    delta_y = target_y - float(view.get("y", 0.0))
+    moved_ids = {str(view_id)}
+    changed = True
+    while changed:
+        changed = False
+        for candidate in views:
+            candidate_id = str(candidate.get("id", ""))
+            if (
+                candidate_id not in moved_ids
+                and str(candidate.get("parent_view_id", "")) in moved_ids
+            ):
+                moved_ids.add(candidate_id)
+                changed = True
+    for moved_id in moved_ids:
+        moved = by_id.get(moved_id)
+        if moved is None:
+            continue
+        moved["x"] = float(moved.get("x", 0.0)) + delta_x
+        moved["y"] = float(moved.get("y", 0.0)) + delta_y
+        update_view_bounds(moved)
+
     for dimension in sheet.get("dimensions", []):
         references = (dimension.get("first"), dimension.get("second"))
         if not any(
             isinstance(reference, dict)
-            and str(reference.get("view_id", "")) == str(view_id)
+            and str(reference.get("view_id", "")) in moved_ids
             for reference in references
         ):
             continue
@@ -769,28 +1007,53 @@ class DrawingCanvas(QWidget):
         )
 
     def _draw_origin_indicator(self, painter: QPainter) -> None:
-        origin = self._screen_point(15.0, 15.0)
-        axis_length = 24.0
-        color = QColor("#4DD811")
-        painter.setPen(cosmetic_pen(color))
-        painter.setBrush(color)
+        # Drawing coordinates use the lower-right paper corner as zero:
+        # positive X runs left and positive Y runs up.  Keep both axes on the
+        # corresponding sheet-frame edges, matching the model-space triad.
+        origin = self._screen_point(0.0, 0.0)
+        axis_length = 40.0
+        arrow_length = 10.0
+        arrow_half_width = arrow_length * tan(radians(15.0))
+        x_color = QColor.fromRgbF(*X_AXIS_COLOR, 1.0)
+        y_color = QColor.fromRgbF(*Y_AXIS_COLOR, 1.0)
         x_end = QPointF(origin.x() - axis_length, origin.y())
         y_end = QPointF(origin.x(), origin.y() - axis_length)
+
+        painter.setPen(cosmetic_pen(x_color))
+        painter.setBrush(x_color)
         painter.drawLine(origin, x_end)
-        painter.drawLine(origin, y_end)
         painter.drawPolygon(QPolygonF((
             x_end,
-            QPointF(x_end.x() + 6.0, x_end.y() - 3.5),
-            QPointF(x_end.x() + 6.0, x_end.y() + 3.5),
+            QPointF(
+                x_end.x() + arrow_length,
+                x_end.y() - arrow_half_width,
+            ),
+            QPointF(
+                x_end.x() + arrow_length,
+                x_end.y() + arrow_half_width,
+            ),
         )))
+        painter.drawText(QPointF(x_end.x() + 6.0, x_end.y() - 5.0), "X")
+
+        painter.setPen(cosmetic_pen(y_color))
+        painter.setBrush(y_color)
+        painter.drawLine(origin, y_end)
         painter.drawPolygon(QPolygonF((
             y_end,
-            QPointF(y_end.x() - 3.5, y_end.y() + 6.0),
-            QPointF(y_end.x() + 3.5, y_end.y() + 6.0),
+            QPointF(
+                y_end.x() - arrow_half_width,
+                y_end.y() + arrow_length,
+            ),
+            QPointF(
+                y_end.x() + arrow_half_width,
+                y_end.y() + arrow_length,
+            ),
         )))
+        painter.drawText(QPointF(y_end.x() - 14.0, y_end.y() + 5.0), "Y")
+
+        painter.setPen(cosmetic_pen(QColor("#FF8C00")))
+        painter.setBrush(QColor("#FF8C00"))
         painter.drawEllipse(origin, 2.5, 2.5)
-        painter.drawText(QPointF(x_end.x() - 11.0, x_end.y() + 4.0), "X")
-        painter.drawText(QPointF(y_end.x() + 5.0, y_end.y() + 4.0), "Y")
 
     def _draw_view(self, painter: QPainter, view: dict, color: QColor) -> None:
         scale = float(view.get("scale", 1.0))
@@ -811,8 +1074,6 @@ class DrawingCanvas(QWidget):
                     painter.drawPolyline(QPolygonF(points))
 
         display_style = str(view.get("display_style", "no_hidden"))
-        if display_style == "no_hidden":
-            display_style = "wireframe"
         if display_style in {"shaded", "shaded_edges"}:
             # Antialiasing adjacent filled triangles creates hairline cracks.
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
@@ -846,9 +1107,18 @@ class DrawingCanvas(QWidget):
                 return
         if display_style == "wireframe":
             draw_polylines(
-                view.get("polylines", []),
+                view.get("wireframe_polylines", view.get("polylines", [])),
                 cosmetic_pen(color),
             )
+            if str(view.get("auxiliary_edges", "hidden")) == "visible":
+                draw_polylines(
+                    view.get("auxiliary_polylines", []),
+                    cosmetic_pen(color),
+                )
+            return
+
+        if display_style == "no_hidden":
+            draw_polylines(view.get("polylines", []), cosmetic_pen(color))
             if str(view.get("auxiliary_edges", "hidden")) == "visible":
                 draw_polylines(
                     view.get("auxiliary_polylines", []),
@@ -894,11 +1164,11 @@ class DrawingCanvas(QWidget):
 
     @staticmethod
     def _view_line_source(view: dict) -> str:
-        # ZIMA's wire display follows the model convention: visible topology
-        # and silhouettes only, with rear edges removed by the common HLR
-        # projection. The raw wireframe remains cached for compatibility but
-        # is not the interactive drawing geometry.
-        return "polylines"
+        return (
+            "wireframe_polylines"
+            if str(view.get("display_style", "no_hidden")) == "wireframe"
+            else "polylines"
+        )
 
     @staticmethod
     def _sheet_geometry_point(view: dict, point: list) -> tuple[float, float]:
@@ -1618,7 +1888,6 @@ class DrawingWorkspace(QWidget):
         projection_direction = str(view.get("projection_direction", ""))
         view.pop("projection_variants", None)
         view.pop("parent_position", None)
-        view.pop("projection_direction", None)
         if isinstance(parent_position, (list, tuple)) and len(parent_position) == 2:
             if projection_direction in {"left", "right"}:
                 y = float(parent_position[1])

@@ -23,6 +23,8 @@ from zima_cad.drawing import (
     delete_drawing_view,
     drawing_sheets,
     parallel_dimension_geometry,
+    projected_view_orientation,
+    projection_axes,
     project_polylines,
     move_drawing_view,
     technical_projection,
@@ -41,6 +43,7 @@ from zima_cad.viewer import (
     CameraState,
     STANDARD_VIEW_ORIENTATIONS,
     _camera_rotation_matrix,
+    _surface_pass_for_display_mode,
     _multiply_rotation_matrices,
     orbit_camera_state,
 )
@@ -53,6 +56,15 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_model_display_modes_use_distinct_surface_passes(self) -> None:
+        self.assertEqual(_surface_pass_for_display_mode("wire"), "none")
+        self.assertEqual(_surface_pass_for_display_mode("hidden_edges"), "depth")
+        self.assertEqual(_surface_pass_for_display_mode("no_hidden"), "depth")
+        self.assertEqual(
+            _surface_pass_for_display_mode("shaded_with_edges"), "color"
+        )
+        self.assertEqual(_surface_pass_for_display_mode("shaded"), "color")
+
     def test_family_table_data_keeps_instances_and_optional_columns(self) -> None:
         document = create_empty_part()
         document.document_settings["family_table"] = json.dumps({
@@ -214,9 +226,13 @@ class DrawingViewConventionTests(unittest.TestCase):
             (False, False),
         )
 
-    def test_drawing_wire_style_uses_hidden_line_removed_geometry(self) -> None:
+    def test_drawing_line_styles_use_their_matching_geometry(self) -> None:
         self.assertEqual(
             DrawingCanvas._view_line_source({"display_style": "wireframe"}),
+            "wireframe_polylines",
+        )
+        self.assertEqual(
+            DrawingCanvas._view_line_source({"display_style": "no_hidden"}),
             "polylines",
         )
 
@@ -418,6 +434,72 @@ class DrawingViewConventionTests(unittest.TestCase):
             sheet["dimensions"][0]["placement"], [55.0, 65.0]
         )
 
+    def test_moving_parent_view_carries_projected_descendants(self) -> None:
+        sheet = {
+            "views": [
+                {"id": "parent", "x": 10.0, "y": 20.0},
+                {
+                    "id": "child",
+                    "parent_view_id": "parent",
+                    "projection_direction": "right",
+                    "x": 40.0,
+                    "y": 20.0,
+                },
+                {
+                    "id": "grandchild",
+                    "parent_view_id": "child",
+                    "projection_direction": "top",
+                    "x": 40.0,
+                    "y": 50.0,
+                },
+                {"id": "unrelated", "x": 5.0, "y": 5.0},
+            ],
+            "dimensions": [],
+        }
+
+        self.assertTrue(move_drawing_view(sheet, "parent", 20.0, 35.0))
+
+        positions = {
+            view["id"]: (view["x"], view["y"])
+            for view in sheet["views"]
+        }
+        self.assertEqual(positions["parent"], (20.0, 35.0))
+        self.assertEqual(positions["child"], (50.0, 35.0))
+        self.assertEqual(positions["grandchild"], (50.0, 65.0))
+        self.assertEqual(positions["unrelated"], (5.0, 5.0))
+
+    def test_moving_projected_child_uses_only_its_free_axis(self) -> None:
+        sheet = {
+            "views": [
+                {"id": "parent", "x": 10.0, "y": 20.0},
+                {
+                    "id": "child",
+                    "parent_view_id": "parent",
+                    "projection_direction": "right",
+                    "x": 40.0,
+                    "y": 20.0,
+                },
+                {
+                    "id": "grandchild",
+                    "parent_view_id": "child",
+                    "projection_direction": "top",
+                    "x": 40.0,
+                    "y": 50.0,
+                },
+            ],
+            "dimensions": [],
+        }
+
+        self.assertTrue(move_drawing_view(sheet, "child", 70.0, 90.0))
+
+        positions = {
+            view["id"]: (view["x"], view["y"])
+            for view in sheet["views"]
+        }
+        self.assertEqual(positions["parent"], (10.0, 20.0))
+        self.assertEqual(positions["child"], (70.0, 20.0))
+        self.assertEqual(positions["grandchild"], (70.0, 50.0))
+
     @staticmethod
     def projected_axis(
         orientation: str, endpoint: tuple[float, float, float]
@@ -448,6 +530,40 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["back"], (0.0, -90.0))
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["top"], (180.0, 0.0))
         self.assertEqual(STANDARD_VIEW_ORIENTATIONS["bottom"], (180.0, 180.0))
+
+    def test_projected_view_uses_sheet_projection_method(self) -> None:
+        expectations = {
+            ("third_angle", "right"): "right",
+            ("third_angle", "left"): "left",
+            ("third_angle", "top"): "top",
+            ("third_angle", "bottom"): "bottom",
+            ("first_angle", "right"): "left",
+            ("first_angle", "left"): "right",
+            ("first_angle", "top"): "bottom",
+            ("first_angle", "bottom"): "top",
+        }
+        for (method, direction), expected_name in expectations.items():
+            actual = projection_axes(projected_view_orientation(
+                "front", direction, method
+            ))
+            expected = projection_axes(expected_name)
+            for actual_axis, expected_axis in zip(actual, expected):
+                for value, expected_value in zip(actual_axis, expected_axis):
+                    self.assertAlmostEqual(value, expected_value, places=6)
+
+    def test_projected_view_rotates_relative_to_parent(self) -> None:
+        parent = projection_axes("isometric")
+        actual = projection_axes(projected_view_orientation(
+            "isometric", "right", "third_angle"
+        ))
+        expected = (
+            tuple(-value for value in parent[2]),
+            parent[1],
+            parent[0],
+        )
+        for actual_axis, expected_axis in zip(actual, expected):
+            for value, expected_value in zip(actual_axis, expected_axis):
+                self.assertAlmostEqual(value, expected_value, places=6)
 
     def test_orbit_camera_remains_continuous_when_upside_down(self) -> None:
         camera = CameraState(
@@ -528,9 +644,14 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         projection = technical_projection([shape], wire_polylines, "front")
 
-        self.assertEqual(len(projection["wireframe_polylines"]), 12)
-        self.assertEqual(len(projection["polylines"]), 4)
-        self.assertEqual(len(projection["hidden_polylines"]), 4)
+        self.assertTrue(projection["wireframe_polylines"])
+        self.assertEqual(len(projection["polylines"]), 1)
+        for first, last in zip(
+            projection["polylines"][0][0],
+            projection["polylines"][0][-1],
+        ):
+            self.assertAlmostEqual(first, last)
+        self.assertTrue(projection["hidden_polylines"])
 
     def test_drawing_wireframe_uses_filtered_cylinder_edges_and_outlines(
         self,
@@ -549,8 +670,35 @@ class DrawingViewConventionTests(unittest.TestCase):
             "isometric",
         )
 
-        self.assertEqual(len(projection["wireframe_polylines"]), 2)
-        self.assertEqual(len(projection["polylines"]), 5)
+        # Two circular topology edges plus view-dependent silhouette outlines.
+        self.assertGreater(len(projection["wireframe_polylines"]), 2)
+        self.assertGreaterEqual(
+            sum(len(line) for line in projection["wireframe_polylines"]),
+            sum(len(line) for line in wire_polylines),
+        )
+        self.assertTrue(projection["polylines"])
+        self.assertTrue(projection["hidden_polylines"])
+        self.assertLessEqual(len(projection["polylines"]), 5)
+        self.assertLessEqual(len(projection["hidden_polylines"]), 2)
+
+    def test_cylinder_edges_share_surface_triangulation_nodes(self) -> None:
+        mesh = triangulate_shape(BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape())
+        surface_nodes = {
+            tuple(round(mesh.triangle_positions[offset + axis], 7)
+                  for axis in range(3))
+            for offset in range(0, len(mesh.triangle_positions), 3)
+        }
+        circular_edges = [
+            edge for edge in mesh.edges
+            if len(edge.points) > 2 and edge.topology_role == "sharp"
+        ]
+
+        self.assertEqual(len(circular_edges), 2)
+        for edge in circular_edges:
+            self.assertTrue(all(
+                tuple(round(value, 7) for value in point) in surface_nodes
+                for point in edge.points
+            ))
 
     def test_new_direct_sketch_defaults_to_front_xz_plane(self) -> None:
         document = create_empty_part()

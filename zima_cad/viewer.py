@@ -132,7 +132,6 @@ class RadialDimension:
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
 GL_DEPTH_TEST = 0x0B71
-GL_GREATER = 0x0204
 GL_LEQUAL = 0x0203
 GL_LINES = 0x0001
 GL_LINE_STRIP = 0x0003
@@ -225,6 +224,14 @@ STANDARD_VIEW_ORIENTATIONS: dict[str, tuple[float, float]] = {
     "top": (180.0, 0.0),
     "bottom": (180.0, 180.0),
 }
+
+
+def _surface_pass_for_display_mode(display_mode: str) -> str:
+    if display_mode == "wire":
+        return "none"
+    if display_mode in {"hidden_edges", "no_hidden"}:
+        return "depth"
+    return "color"
 
 
 @dataclass
@@ -898,7 +905,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_display_mode(self, display_mode: str) -> None:
         if display_mode not in {
-            "wire", "hidden_edges", "shaded_with_edges", "shaded",
+            "wire", "hidden_edges", "no_hidden", "shaded_with_edges", "shaded",
         }:
             raise ValueError(f"Unknown Viewer display mode: {display_mode}")
         if display_mode == self._display_mode:
@@ -1326,16 +1333,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glDepthFunc(GL_LEQUAL)
         gl.glEnable(GL_MULTISAMPLE)
         model_view, mvp = self._camera_matrices()
-        if self._display_mode in {"wire", "hidden_edges"}:
-            # Wire display still needs the solid surfaces in the depth buffer;
-            # otherwise rear topology edges shine through the body.  Suppress
-            # only their colour output and retain the depth values.
+        surface_pass = _surface_pass_for_display_mode(self._display_mode)
+        if surface_pass == "depth":
+            # Hidden-line modes need the solid surfaces in the depth buffer.
+            # Suppress their colour output and retain only the depth values.
             gl.glColorMask(False, False, False, False)
             try:
                 self._draw_surfaces(model_view, mvp)
             finally:
                 gl.glColorMask(True, True, True, True)
-        else:
+        elif surface_pass == "color":
             self._draw_surfaces(model_view, mvp)
         self._draw_edges(
             mvp,
@@ -2608,7 +2615,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         mesh = self._mesh
         if self._display_mode == "hidden_edges":
-            gl.glDepthFunc(GL_GREATER)
+            # Paint the complete wire image in grey, then let the regular
+            # depth-tested pass below overwrite only visible edges.  This is
+            # more robust than an inverse-depth pass around polygon offsets.
+            gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
                 "edgeColor",
                 QVector3D(0.5, 0.5, 0.5),
@@ -2627,6 +2637,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         first_vertex,
                         vertex_count,
                     )
+            gl.glEnable(GL_DEPTH_TEST)
             gl.glDepthFunc(GL_LEQUAL)
             gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         for edge, (first_vertex, vertex_count) in zip(
@@ -2712,7 +2723,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             buffer is None
             or self._display_mode not in {
-                "wire", "hidden_edges", "shaded_with_edges",
+                "wire", "hidden_edges", "no_hidden", "shaded_with_edges",
             }
             or not self._silhouette_edges
         ):
@@ -2733,13 +2744,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         buffer.allocate(data, len(data))
         program.setAttributeBuffer(0, 0x1406, 0, 3, 12)
         if self._display_mode == "hidden_edges":
-            gl.glDepthFunc(GL_GREATER)
+            gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
                 "edgeColor",
                 QVector3D(0.5, 0.5, 0.5),
             )
             gl.glLineWidth(1.0)
             gl.glDrawArrays(GL_LINES, 0, len(values) // 3)
+            gl.glEnable(GL_DEPTH_TEST)
             gl.glDepthFunc(GL_LEQUAL)
         program.setUniformValue(
             "edgeColor",

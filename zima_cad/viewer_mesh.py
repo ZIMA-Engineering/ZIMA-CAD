@@ -233,7 +233,10 @@ def triangulate_shape(
             continue
         seen_edges.append(edge)
         edge_index += 1
-        points = _sample_edge(edge, edge_linear_deflection)
+        points = (
+            _triangulation_edge_points(edge, faces)
+            or _sample_edge(edge, edge_linear_deflection)
+        )
         if len(points) >= 2:
             edges.append(
                 EdgePolyline(
@@ -771,6 +774,54 @@ def _sample_edge(edge: Any, linear_deflection: float) -> list[Point3]:
         ]
     except (RuntimeError, TypeError, ValueError):
         return []
+
+
+def _triangulation_edge_points(
+    edge: Any,
+    faces: list[Any],
+) -> list[Point3]:
+    """Use the same boundary nodes as the surface depth geometry."""
+    candidates: list[list[Point3]] = []
+    for face in faces:
+        explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        belongs_to_face = False
+        while explorer.More():
+            if edge.IsSame(explorer.Current()):
+                belongs_to_face = True
+                break
+            explorer.Next()
+        if not belongs_to_face:
+            continue
+        try:
+            location = TopLoc_Location()
+            triangulation = BRep_Tool.Triangulation(face, location)
+            if triangulation is None:
+                continue
+            polygon = BRep_Tool.PolygonOnTriangulation(
+                edge,
+                triangulation,
+                location,
+            )
+            if polygon is None:
+                continue
+            transform = location.Transformation()
+            points = [
+                _point_tuple(
+                    triangulation.Node(polygon.Node(index)).Transformed(
+                        transform
+                    )
+                )
+                for index in range(1, polygon.NbNodes() + 1)
+            ]
+            points = [
+                point for index, point in enumerate(points)
+                if index == 0 or point != points[index - 1]
+            ]
+            if len(points) >= 2:
+                candidates.append(points)
+        except (RuntimeError, TypeError, ValueError):
+            continue
+    return max(candidates, key=len, default=[])
 
 
 def _point_tuple(point: Any) -> Point3:
