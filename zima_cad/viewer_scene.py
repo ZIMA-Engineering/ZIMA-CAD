@@ -82,6 +82,7 @@ def build_document_viewer_scene_data(
     editing_object_id: str | None = None,
     uncut_component_id: str | None = None,
     uncut_component_shape: Any | None = None,
+    component_documents: dict[str, PartDocument] | None = None,
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -122,6 +123,21 @@ def build_document_viewer_scene_data(
                     obj.parameters.get("body_color", "#B9C2CC")
                 )
                 layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
+            source_document = (component_documents or {}).get(obj.entity_id)
+            if show_user_axes and source_document is not None:
+                source_document.sync_generated_axes()
+                component_transform = coordinate_system_transform(
+                    obj.coordinate_system
+                )
+                for source_object in source_document.visible_objects():
+                    _append_component_axes(
+                        source_document,
+                        source_object,
+                        component_transform,
+                        obj.entity_id,
+                        layers,
+                        shapes_by_owner_id,
+                    )
     elif document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
             if not document.is_effectively_visible(obj.entity_id):
@@ -310,6 +326,53 @@ def _append_object_sketches(
                 show_user_axes,
                 show_user_planes,
                 editing_object_id,
+            )
+
+
+def _append_component_axes(
+    source_document: PartDocument,
+    obj: ZimaEntity,
+    parent_transform,
+    component_id: str,
+    layers: list[ViewerMesh],
+    shapes_by_owner_id: dict[str, Any],
+) -> None:
+    """Append part datum/generated axes in one assembly component frame."""
+    if not source_document.is_effectively_visible(obj.entity_id):
+        return
+    world_transform = multiply_transforms(
+        parent_transform,
+        coordinate_system_transform(obj.coordinate_system),
+    )
+    if (
+        obj.kind == EntityKind.AXIS
+        and (
+            not obj.locked
+            or obj.parameters.get("generated_axis") == "true"
+        )
+    ):
+        shape = make_datum_axis_shape(obj, world_transform)
+        if shape is not None:
+            owner_id = f"{component_id}:{obj.entity_id}"
+            shapes_by_owner_id[owner_id] = shape
+            layers.append(
+                triangulate_shape(
+                    shape,
+                    owner_id=owner_id,
+                    edge_kind="centerline",
+                    edge_color=BROWN,
+                    edge_label=obj.name,
+                )
+            )
+    for child in obj.children:
+        if not child.locked or child.parameters.get("generated_axis") == "true":
+            _append_component_axes(
+                source_document,
+                child,
+                world_transform,
+                component_id,
+                layers,
+                shapes_by_owner_id,
             )
 
 

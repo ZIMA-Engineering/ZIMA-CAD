@@ -642,6 +642,7 @@ class HistoryTreeWidget(QTreeWidget):
 
 class ViewDisplayMode(str, Enum):
     WIRE = "wire"
+    HIDDEN_EDGES = "hidden_edges"
     SHADED_WITH_EDGES = "shaded_with_edges"
     SHADED = "shaded"
 
@@ -6670,6 +6671,11 @@ class MainWindow(QMainWindow):
             tr("toolbar.wire.tooltip"),
             ViewDisplayMode.WIRE,
         )
+        self.hidden_edges_action = self._add_display_mode_action(
+            tr("toolbar.hidden_edges"),
+            tr("toolbar.hidden_edges.tooltip"),
+            ViewDisplayMode.HIDDEN_EDGES,
+        )
         self.edges_action = self._add_display_mode_action(
             tr("toolbar.edges"),
             tr("toolbar.edges.tooltip"),
@@ -10005,6 +10011,7 @@ class MainWindow(QMainWindow):
         self.view_menu.addAction(self.view_selection_action)
         self.view_menu.addSeparator()
         self.view_menu.addAction(self.wire_action)
+        self.view_menu.addAction(self.hidden_edges_action)
         self.view_menu.addAction(self.edges_action)
         self.view_menu.addAction(self.shaded_action)
         self.view_menu.addSeparator()
@@ -10399,8 +10406,13 @@ class MainWindow(QMainWindow):
             and component.entity_id == self._active_component_entity_id
         ):
             return self._active_component_document
+        cached = self._assembly_part_documents.get(source_path)
+        if cached is not None:
+            return cached
         try:
-            return load_part_document(source_path)
+            source_document = load_part_document(source_path)
+            self._assembly_part_documents[source_path] = source_document
+            return source_document
         except Exception:
             return None
 
@@ -28873,6 +28885,21 @@ class MainWindow(QMainWindow):
                 if self._active_component_document is not None
                 else None
             ),
+            component_documents={
+                component.entity_id: source_document
+                for component in self.document.history_objects_at(
+                    history_boundary
+                )
+                if component.container_type == ContainerType.COMPONENT
+                and (source_document := self._component_source_document(
+                    component
+                )) is not None
+            }
+            if (
+                self.show_axes_action.isChecked()
+                and self.document.document_settings.get("type") == "assembly"
+            )
+            else None,
         )
         self.native_viewer.set_surface_colors(
             self._native_viewer_scene.surface_colors_by_owner_id
@@ -28905,6 +28932,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_display_mode(
             {
                 ViewDisplayMode.WIRE: "wire",
+                ViewDisplayMode.HIDDEN_EDGES: "hidden_edges",
                 ViewDisplayMode.SHADED_WITH_EDGES: "shaded_with_edges",
                 ViewDisplayMode.SHADED: "shaded",
             }[self.view_display_mode]
@@ -29263,32 +29291,50 @@ class MainWindow(QMainWindow):
             return None
         return transform_point(world_transform, (0.0, 0.0, 0.0))
 
-def main() -> int:
-    try:
-        startup_context, qt_arguments = resolve_startup_context(sys.argv[1:])
-    except ValueError as exc:
-        app = QApplication(sys.argv)
-        QMessageBox.critical(None, "ZIMA-CAD", str(exc))
-        return 2
+def main(
+    *,
+    application: QApplication | None = None,
+    startup_context: StartupContext | None = None,
+    splash: QWidget | None = None,
+) -> int:
+    if startup_context is None:
+        try:
+            startup_context, qt_arguments = resolve_startup_context(
+                sys.argv[1:]
+            )
+        except ValueError as exc:
+            app = application or QApplication(sys.argv)
+            QMessageBox.critical(None, "ZIMA-CAD", str(exc))
+            return 2
+    else:
+        qt_arguments = []
 
-    app = QApplication([sys.argv[0], *qt_arguments])
+    app = application or QApplication([sys.argv[0], *qt_arguments])
     app_icon = QIcon(
         str(app_path("resources", "branding", "app-icon.svg"))
     )
     app.setWindowIcon(app_icon)
-    splash_pixmap = QPixmap(
-        str(app_path("resources", "branding", "splash.svg"))
-    )
-    splash = None
-    if not splash_pixmap.isNull():
-        splash = QSplashScreen(splash_pixmap)
-        splash.setWindowIcon(app_icon)
-        splash.show()
-        app.processEvents()
+    if splash is None:
+        splash_pixmap = QPixmap(
+            str(app_path("resources", "branding", "splash.svg"))
+        )
+        if not splash_pixmap.isNull():
+            splash = QSplashScreen(splash_pixmap)
+            splash.setWindowIcon(app_icon)
+            splash.show()
+            app.processEvents()
     window = MainWindow(startup_context)
-    window.showMaximized()
     if splash is not None:
-        splash.finish(window)
+        # Wayland may ignore WindowStaysOnTopHint and place a maximized main
+        # window over the startup image. Reveal the main window only after the
+        # guaranteed splash interval has elapsed.
+        def reveal_main_window() -> None:
+            splash.close()
+            window.showMaximized()
+
+        QTimer.singleShot(3000, reveal_main_window)
+    else:
+        window.showMaximized()
     if startup_context.document_path is not None:
         QTimer.singleShot(
             0,

@@ -128,6 +128,7 @@ class RadialDimension:
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
 GL_DEPTH_TEST = 0x0B71
+GL_GREATER = 0x0204
 GL_LEQUAL = 0x0203
 GL_LINES = 0x0001
 GL_LINE_STRIP = 0x0003
@@ -753,7 +754,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.update()
 
     def set_display_mode(self, display_mode: str) -> None:
-        if display_mode not in {"wire", "shaded_with_edges", "shaded"}:
+        if display_mode not in {
+            "wire", "hidden_edges", "shaded_with_edges", "shaded",
+        }:
             raise ValueError(f"Unknown Viewer display mode: {display_mode}")
         if display_mode == self._display_mode:
             return
@@ -1161,7 +1164,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glDepthFunc(GL_LEQUAL)
         gl.glEnable(GL_MULTISAMPLE)
         model_view, mvp = self._camera_matrices()
-        if self._display_mode == "wire":
+        if self._display_mode in {"wire", "hidden_edges"}:
             # Wire display still needs the solid surfaces in the depth buffer;
             # otherwise rear topology edges shine through the body.  Suppress
             # only their colour output and retain the depth values.
@@ -2391,6 +2394,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         program.setAttributeBuffer(0, 0x1406, 0, 3, 12)
         gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         mesh = self._mesh
+        if self._display_mode == "hidden_edges":
+            gl.glDepthFunc(GL_GREATER)
+            program.setUniformValue(
+                "edgeColor",
+                QVector3D(0.5, 0.5, 0.5),
+            )
+            gl.glLineWidth(1.0)
+            for edge, (first_vertex, vertex_count) in zip(
+                mesh.edges if mesh is not None else (),
+                self._edge_ranges,
+            ):
+                if (
+                    edge.element_kind == "edge"
+                    and edge_visible_in_display(edge, self._display_mode)
+                ):
+                    gl.glDrawArrays(
+                        GL_LINE_STRIP,
+                        first_vertex,
+                        vertex_count,
+                    )
+            gl.glDepthFunc(GL_LEQUAL)
+            gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         for edge, (first_vertex, vertex_count) in zip(
             mesh.edges if mesh is not None else (),
             self._edge_ranges,
@@ -2465,7 +2490,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         buffer = self._silhouette_buffer
         if (
             buffer is None
-            or self._display_mode not in {"wire", "shaded_with_edges"}
+            or self._display_mode not in {
+                "wire", "hidden_edges", "shaded_with_edges",
+            }
             or not self._silhouette_edges
         ):
             return
@@ -2484,6 +2511,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         buffer.bind()
         buffer.allocate(data, len(data))
         program.setAttributeBuffer(0, 0x1406, 0, 3, 12)
+        if self._display_mode == "hidden_edges":
+            gl.glDepthFunc(GL_GREATER)
+            program.setUniformValue(
+                "edgeColor",
+                QVector3D(0.5, 0.5, 0.5),
+            )
+            gl.glLineWidth(1.0)
+            gl.glDrawArrays(GL_LINES, 0, len(values) // 3)
+            gl.glDepthFunc(GL_LEQUAL)
         program.setUniformValue(
             "edgeColor",
             QVector3D(0.086, 0.098, 0.118),
