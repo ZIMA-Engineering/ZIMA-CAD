@@ -1,18 +1,33 @@
 # Next Work
 
-## Current Priority: Stabilize the Drawing Foundation
+## Current Priority: Stabilize Technical Drawing Projection
 
 - Exercise `.drwz` creation from both `.prtz` and `.asmz` documents on real
   projects and verify source-link recovery after move and rename operations.
-- Add selection, drag placement, deletion and editable properties for inserted
-  drawing views.
-- Replace the current sampled-edge projection with technical hidden-line
-  classification and stable projected topology identities.
+- Exercise the implemented selection, drag placement and Delete removal of
+  drawing views on larger real parts and assemblies.
+- Stabilize the shared model/drawing edge classification, especially curved
+  silhouettes, boundary arcs and occlusion between multiple bodies.
+- Finish hidden-line classification so every curved boundary is consistently
+  visible, hidden or suppressed in all four display modes.
+- Extend the first associative yellow linear drawing dimension to the complete
+  ISO dimension set, tolerances and symbols.
 - Add aligned projected child views before sections and details.
 - Keep paper-space geometry in millimetres with the bottom-right sheet origin;
   A4 remains portrait and A3 through A0 remain landscape.
 - Preserve cached projected geometry when the linked source is unavailable,
   while clearly marking the drawing view as out of date.
+
+## Container Orientation and Reference Geometry
+
+- Exercise the new six-DOF properties workflow for Point, Axis, Plane, Sketch,
+  Protrusion and Revolve on real feature chains.
+- Keep positional references independent from explicit rotational references;
+  report the remaining X/Y/Z/RX/RY/RZ degrees of freedom clearly.
+- Stabilize the two-row mapping of container planes to Front, Back, Top,
+  Bottom, Left and Right, including automatic prevention of parallel mappings.
+- Verify generated locked axes for circular protrusions, cylinders, cones and
+  spheres after edit, regeneration, save and reload.
 
 ## Assembly Stabilization
 
@@ -74,7 +89,8 @@
   - red for invalid or conflicting dimensions.
 - Test legibility during rotate, pan and zoom, including dark and light
   backgrounds.
-- Design angular arc dimensions for container rotation (`RX`, `RY`, `RZ`).
+- Design angular arc dimensions for container rotation (`RX`, `RY`, `RZ`);
+  numeric RX/RY/RZ editing and six-DOF accounting are already implemented.
 - Later extend the same visual language from solids and container placement to
   sketches, points, axes and planes.
 

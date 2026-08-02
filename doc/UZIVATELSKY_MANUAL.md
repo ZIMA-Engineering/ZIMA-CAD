@@ -263,6 +263,8 @@ znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
 | Kolečko myši | Přiblížení a oddálení kolem kurzoru |
 | Prostřední tlačítko + pohyb | Posun výkresové plochy |
 | Obnovit pohled | Animovaně zobrazit celý aktivní list |
+| Levé tlačítko + pohyb na pohledu | Přesunutí vloženého pohledu |
+| Delete | Odstranění vybraného pohledu |
 | Esc | Zrušit právě umisťovaný pohled |
 
 Výkresová plocha je čistě 2D a nepodporuje rotaci.
@@ -277,5 +279,10 @@ Pohled uchovává odkaz na zdrojový model i cache promítnutých čar. Při akt
 tabu výkresu se geometrie obnoví z aktuálního modelu. Cache umožňuje zachovat
 poslední známé zobrazení, pokud zdrojový soubor není právě dostupný.
 
-Rámečky, razítka, skryté hrany, řezy, detaily, výkresové kóty, kusovníky a
-export PDF/DXF jsou další etapy vývoje a v této verzi zatím nejsou dostupné.
+Vlastnosti pohledu nabízejí drátové zobrazení, skryté hrany, stínované
+zobrazení s hranami a čisté stínované zobrazení. Skryté hrany jsou kreslené
+šedě; pomocné hladké hrany lze samostatně zapnout. První lineární výkresová
+kóta se vytváří výběrem dvou referencí a umístěním žluté kóty v listu.
+
+Rámečky, razítka, řezy, detaily, úplná sada ISO kót, kusovníky a export PDF/DXF
+jsou další etapy vývoje a v této verzi zatím nejsou dokončené.

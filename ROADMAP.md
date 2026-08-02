@@ -17,6 +17,12 @@ as the document model, geometric kernel integration and user workflows evolve.
 - container references and attachments
 - in-view parameter editing
 - persistent ZIMA-CAD document formats
+- six-degree-of-freedom container placement with independent positional and
+  rotational references, editable RX/RY/RZ offsets and local Front/Top mapping
+- automatic locked feature axes for circular protrusions, cylinders, cones and
+  spheres, exposed through the common Axes visibility control
+- unified native model display modes with topology-aware boundary, sharp,
+  tangent, seam and view-dependent silhouette handling
 
 ## 2. Sketcher
 
@@ -182,14 +188,20 @@ as the document model, geometric kernel integration and user workflows evolve.
 - wheel zoom, middle-button pan, disabled rotation and animated Fit Sheet
 - insertion and cursor placement of front, top, right and isometric projected
   edge views at an explicit scale
+- selectable drawing views with left-button dragging and Delete removal,
+  including dependent projected-view cleanup
+- wireframe, hidden-line, shaded-with-edges and shaded display modes shared
+  with the model-view rendering conventions
+- optional auxiliary/smooth-edge display and grey hidden-line presentation
+- first ISO-style yellow linear drawing dimensions with associative placement
 - cached view geometry for missing-source resilience and regeneration from the
   live linked model when the drawing tab is activated
 - remaining work:
-  - view selection, movement, deletion and editable view properties
-  - projected child views and view alignment
-  - hidden-line classification and line-style control
+  - stabilize projected geometry, curved silhouettes and hidden-line
+    classification for multi-body parts and assemblies
+  - projected child views, persistent alignment and editable view properties
   - sections and detail views
-  - dimensions, tolerances and technical symbols
+  - complete drawing dimensions, tolerances and technical symbols
   - title blocks and drawing templates
   - assembly drawings and bills of materials
   - sheet-metal flat-pattern drawings

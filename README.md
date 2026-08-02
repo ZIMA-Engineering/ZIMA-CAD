@@ -62,9 +62,11 @@ is still required before assembly references are production-safe.
 
 The initial Drawing workspace supports `.drwz` documents linked to either a
 part or an assembly, multiple independently sized sheets, A4 through A0 paper
-outlines, standard projected views and persistent view placement. A4 is fixed
-to portrait orientation; A3 through A0 are fixed to landscape. Drawing space
-uses a bottom-right origin with positive X to the left and positive Y upward.
+outlines, standard projected views, persistent view placement, mouse dragging,
+Delete removal, model-consistent display modes and initial associative linear
+dimensions. A4 is fixed to portrait orientation; A3 through A0 are fixed to
+landscape. Drawing space uses a bottom-right origin with positive X to the left
+and positive Y upward.
 
 ## Container Model
 

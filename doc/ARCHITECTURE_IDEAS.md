@@ -119,4 +119,7 @@ pojmenováním plochy.
   bílý obdélník.
 - Výkres ukládá relativní cestu a ID zdrojového dílu nebo sestavy. Promítnuté
   čáry jsou zároveň uloženy jako cache a při aktivaci tabu se obnoví ze zdroje.
-- Rámeček, razítko, kóty, řezy, detaily a kusovník zatím nejsou implementované.
+- Pohledy jsou vybíratelné, přesouvatelné a odstranitelné; používají společné
+  režimy zobrazení a klasifikaci hran s 3D modelem.
+- Je implementovaný první asociativní lineární rozměr ve výkresu. Rámeček,
+  razítko, úplná sada kót, řezy, detaily a kusovník zatím nejsou dokončené.
