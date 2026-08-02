@@ -76,6 +76,7 @@ def build_document_viewer_scene_data(
     show_object_planes: bool = False,
     show_object_origins: bool = False,
     show_component_origins: bool = False,
+    show_sketches: bool = True,
     show_user_points: bool = False,
     show_user_axes: bool = False,
     show_user_planes: bool = False,
@@ -175,6 +176,7 @@ def build_document_viewer_scene_data(
             identity_transform(),
             layers,
             shapes_by_owner_id,
+            show_sketches,
             show_user_points,
             show_user_axes,
             show_user_planes,
@@ -231,6 +233,7 @@ def _append_object_sketches(
     parent_transform,
     layers: list[ViewerMesh],
     shapes_by_owner_id: dict[str, Any],
+    show_sketches: bool,
     show_user_points: bool,
     show_user_axes: bool,
     show_user_planes: bool,
@@ -297,6 +300,8 @@ def _append_object_sketches(
         )
     for child in obj.children:
         if child.kind == EntityKind.SKETCH:
+            if not show_sketches and obj.entity_id != editing_object_id:
+                continue
             if obj.container_type in (
                 ContainerType.PROTRUSION,
                 ContainerType.REVOLVE,
@@ -322,6 +327,7 @@ def _append_object_sketches(
                 world_transform,
                 layers,
                 shapes_by_owner_id,
+                show_sketches,
                 show_user_points,
                 show_user_axes,
                 show_user_planes,

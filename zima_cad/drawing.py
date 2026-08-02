@@ -1500,6 +1500,24 @@ class DrawingWorkspace(QWidget):
         self._refresh_controls(fit=True)
         self._store()
 
+    def remove_sheets(self, sheet_ids: set[str]) -> None:
+        if not sheet_ids:
+            return
+        remaining = [
+            sheet for sheet in self.sheets
+            if str(sheet.get("id", "")) not in sheet_ids
+        ]
+        if len(remaining) == len(self.sheets):
+            return
+        self.sheets = remaining or [default_sheet()]
+        self.active_sheet_index = min(
+            self.active_sheet_index,
+            len(self.sheets) - 1,
+        )
+        self._refresh_controls(fit=True)
+        self._store()
+        self.activeSheetChanged.emit()
+
     def _change_format(self, value: str) -> None:
         sheet = self.active_sheet()
         if sheet is None or value not in SHEET_FORMATS:

@@ -155,6 +155,7 @@ from zima_cad.viewer_scene import (
 )
 from zima_cad.viewer_mesh import (
     ViewerMesh,
+    combine_viewer_meshes,
     edge_visible_in_display,
     triangulate_shape,
 )
@@ -468,6 +469,7 @@ class HistoryTreeWidget(QTreeWidget):
     SKETCH_DIMENSION_ROLE = int(Qt.ItemDataRole.UserRole) + 9
     COMPONENT_INSTANCE_ROLE = int(Qt.ItemDataRole.UserRole) + 10
     COMPONENT_SOURCE_ENTITY_ROLE = int(Qt.ItemDataRole.UserRole) + 11
+    DRAWING_SHEET_ROLE = int(Qt.ItemDataRole.UserRole) + 12
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -532,6 +534,14 @@ class HistoryTreeWidget(QTreeWidget):
 
     def mousePressEvent(self, event) -> None:
         item = self.itemAt(event.position().toPoint())
+        if (
+            event.button() == Qt.MouseButton.RightButton
+            and item is not None
+            and item.isSelected()
+        ):
+            # Preserve a Ctrl multi-selection while opening its context menu.
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.RightButton
             and item is not None
@@ -6704,6 +6714,11 @@ class MainWindow(QMainWindow):
             tr("toolbar.show_planes"), tr("toolbar.show_planes.tooltip")
         )
         self.show_planes_action.setIcon(resource_icon("plane"))
+        self.show_sketches_action = self._add_reference_visibility_action(
+            tr("toolbar.show_sketches"),
+            tr("toolbar.show_sketches.tooltip"),
+        )
+        self.show_sketches_action.setIcon(resource_icon("sketch"))
 
         view_layout = QVBoxLayout()
         view_layout.setContentsMargins(0, 0, 0, 0)
@@ -10019,6 +10034,7 @@ class MainWindow(QMainWindow):
         self.view_menu.addAction(self.show_points_action)
         self.view_menu.addAction(self.show_axes_action)
         self.view_menu.addAction(self.show_planes_action)
+        self.view_menu.addAction(self.show_sketches_action)
         self.view_menu.addSeparator()
         self.colors_menu = self.view_menu.addMenu(tr("menu.view.colors"))
         preset_colors = (
@@ -10345,7 +10361,15 @@ class MainWindow(QMainWindow):
                 ):
                     item = QTreeWidgetItem([str(sheet.get("name", f"List {index + 1}"))])
                     item.setIcon(0, resource_icon("drawing"))
-                    item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    item.setFlags(
+                        Qt.ItemFlag.ItemIsEnabled
+                        | Qt.ItemFlag.ItemIsSelectable
+                    )
+                    item.setData(
+                        0,
+                        HistoryTreeWidget.DRAWING_SHEET_ROLE,
+                        str(sheet.get("id", "")),
+                    )
                     self.tree.addTopLevelItem(item)
                 self.tree.resizeColumnToContents(0)
                 return
@@ -14065,7 +14089,8 @@ class MainWindow(QMainWindow):
                     self.tree.setCurrentItem(item)
                 finally:
                     self.tree.blockSignals(signals_were_blocked)
-            else:
+            elif not item.isSelected():
+                self.tree.clearSelection()
                 self.tree.setCurrentItem(item)
         if self._sketch_edit_entity_id is not None:
             if sketch_dimension_id is not None:
@@ -14219,6 +14244,45 @@ class MainWindow(QMainWindow):
                 self._delete_sketch_external_reference(
                     str(sketch_external_reference_id)
                 )
+            return
+
+        selected_sheet_ids = {
+            str(sheet_id)
+            for selected_item in self.tree.selectedItems()
+            for sheet_id in (
+                selected_item.data(
+                    0,
+                    HistoryTreeWidget.DRAWING_SHEET_ROLE,
+                ),
+            )
+            if sheet_id
+        }
+        if selected_sheet_ids:
+            menu = QMenu(self)
+            delete_selected_action = menu.addAction(
+                resource_icon("delete"),
+                tr("menu.context.delete_selected"),
+            )
+            action = menu.exec(
+                self.tree.viewport().mapToGlobal(position)
+            )
+            if action == delete_selected_action:
+                self.drawing_workspace.remove_sheets(selected_sheet_ids)
+                self._populate_tree()
+            return
+
+        selected_objects = self._selected_tree_delete_objects()
+        if len(selected_objects) > 1:
+            menu = QMenu(self)
+            delete_selected_action = menu.addAction(
+                resource_icon("delete"),
+                tr("menu.context.delete_selected"),
+            )
+            action = menu.exec(
+                self.tree.viewport().mapToGlobal(position)
+            )
+            if action == delete_selected_action:
+                self._delete_tree_objects(selected_objects)
             return
 
         obj = self._object_from_tree_item(item)
@@ -16051,6 +16115,55 @@ class MainWindow(QMainWindow):
             self.selected_object_id = None
             self._populate_tree()
             self.rebuild_view(fit=False)
+
+    def _selected_tree_delete_objects(self) -> list[ZimaEntity]:
+        if self.document is None:
+            return []
+        objects: list[ZimaEntity] = []
+        seen_ids: set[str] = set()
+        for item in self.tree.selectedItems():
+            obj = self._object_from_tree_item(item)
+            if (
+                obj is None
+                or obj.entity_id in seen_ids
+                or obj.kind in (EntityKind.PART, EntityKind.ORIGIN)
+                or self._is_system_reference_plane(obj)
+                or (obj.kind != EntityKind.CONTAINER and obj.locked)
+            ):
+                continue
+            seen_ids.add(obj.entity_id)
+            objects.append(obj)
+
+        selected_ids = {obj.entity_id for obj in objects}
+        document = self._active_component_return_document or self.document
+        result: list[ZimaEntity] = []
+        for obj in objects:
+            parent = document.find_parent(obj.entity_id)
+            nested_in_selection = False
+            while parent is not None:
+                if parent.entity_id in selected_ids:
+                    nested_in_selection = True
+                    break
+                parent = document.find_parent(parent.entity_id)
+            if not nested_in_selection:
+                result.append(obj)
+        return result
+
+    def _delete_tree_objects(self, objects: list[ZimaEntity]) -> None:
+        document = self._active_component_return_document or self.document
+        if document is None:
+            return
+        deleted = False
+        for obj in objects:
+            deleted = document.delete_container(obj.entity_id) or deleted
+        if not deleted:
+            return
+        document.regeneration_required = True
+        self.selected_object_id = None
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._populate_tree()
+        self.rebuild_view(fit=False)
 
     def _set_object_suppressed(self, obj: ZimaEntity, suppressed: bool) -> None:
         if (
@@ -28871,6 +28984,7 @@ class MainWindow(QMainWindow):
                     and self.orientation_dialog.isVisible()
                 )
             ),
+            show_sketches=self.show_sketches_action.isChecked(),
             show_user_points=self.show_points_action.isChecked(),
             show_user_axes=self.show_axes_action.isChecked(),
             show_user_planes=self.show_planes_action.isChecked(),
@@ -29008,6 +29122,70 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_object_overlay(None)
             self._sync_constraint_reference_highlights()
             if self._sketch_edit_entity_id is not None:
+                return
+            selected_objects: list[ZimaEntity] = []
+            selected_ids: set[str] = set()
+            for item in self.tree.selectedItems():
+                selected_item = self._object_from_tree_item(item)
+                if (
+                    selected_item is None
+                    or selected_item.entity_id in selected_ids
+                ):
+                    continue
+                selected_ids.add(selected_item.entity_id)
+                selected_objects.append(selected_item)
+            if len(selected_objects) > 1:
+                overlay_meshes: list[ViewerMesh] = []
+                overlay_container_ids: set[str] = set()
+                highlighted_ids: set[str] = set()
+
+                def add_content_ids(parent: ZimaEntity) -> None:
+                    for child in parent.children:
+                        if child.kind == EntityKind.ORIGIN:
+                            continue
+                        highlighted_ids.add(child.entity_id)
+                        add_content_ids(child)
+
+                for selected_item in selected_objects:
+                    highlighted_ids.add(selected_item.entity_id)
+                    container = (
+                        selected_item
+                        if selected_item.kind == EntityKind.CONTAINER
+                        else self.document.find_owning_object(
+                            selected_item.entity_id
+                        )
+                    )
+                    if selected_item.kind == EntityKind.CONTAINER:
+                        add_content_ids(selected_item)
+                    if (
+                        selected_item.kind != EntityKind.CONTAINER
+                        and selected_item.kind not in SOLID_KINDS
+                        and selected_item.kind != EntityKind.BODY
+                    ):
+                        continue
+                    if container is None:
+                        continue
+                    if container.entity_id in overlay_container_ids:
+                        continue
+                    overlay_container_ids.add(container.entity_id)
+                    source_shape = self.document.build_standalone_shape(
+                        container
+                    )
+                    if source_shape is not None:
+                        overlay_meshes.append(
+                            triangulate_shape(
+                                source_shape,
+                                owner_id=container.entity_id,
+                            )
+                        )
+                self.native_viewer.set_selected_container_contents(
+                    highlighted_ids
+                )
+                if overlay_meshes:
+                    self.native_viewer.set_object_overlay(
+                        combine_viewer_meshes(tuple(overlay_meshes)),
+                        selected=True,
+                    )
                 return
             obj = self._selected_object()
             if obj is None:
@@ -29332,7 +29510,7 @@ def main(
             splash.close()
             window.showMaximized()
 
-        QTimer.singleShot(3000, reveal_main_window)
+        QTimer.singleShot(1000, reveal_main_window)
     else:
         window.showMaximized()
     if startup_context.document_path is not None:
