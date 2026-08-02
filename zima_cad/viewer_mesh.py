@@ -83,6 +83,13 @@ class ViewerMesh:
         )
 
 
+@dataclass(frozen=True)
+class SilhouetteEdge:
+    first: Point3
+    second: Point3
+    adjacent_normals: tuple[Point3, ...]
+
+
 def triangulate_shape(
     shape: Any,
     *,
@@ -316,11 +323,8 @@ def edge_visible_in_display(edge: EdgePolyline, display_mode: str) -> bool:
     return True
 
 
-def silhouette_segments(
-    mesh: ViewerMesh,
-    view_direction: Point3,
-) -> tuple[tuple[Point3, Point3], ...]:
-    """Return triangulation edges separating front- and back-facing facets."""
+def build_silhouette_edges(mesh: ViewerMesh) -> tuple[SilhouetteEdge, ...]:
+    """Precompute internal triangulation edges eligible for silhouettes."""
     topology_segments: set[tuple[str, Point3, Point3]] = set()
     seam_polylines: list[tuple[Point3, ...]] = []
     for edge in mesh.edges:
@@ -337,7 +341,7 @@ def silhouette_segments(
     owners = mesh.triangle_owner_ids
     shared: dict[
         tuple[str, Point3, Point3],
-        list[tuple[Point3, Point3, float, int]],
+        list[tuple[Point3, Point3, Point3, int]],
     ] = {}
     for triangle_index, offset in enumerate(range(0, len(positions), 9)):
         points = tuple(
@@ -349,10 +353,6 @@ def silhouette_segments(
             for vertex in range(3)
         )
         normal = _triangle_normal(*points)
-        facing = sum(
-            normal[axis] * view_direction[axis]
-            for axis in range(3)
-        )
         owner = owners[triangle_index]
         face_index = mesh.triangle_face_indices[triangle_index]
         for first, second in (
@@ -364,9 +364,9 @@ def silhouette_segments(
             second_key = tuple(round(value, 7) for value in second)
             low, high = sorted((first_key, second_key))
             shared.setdefault((owner, low, high), []).append(
-                (first, second, facing, face_index)
+                (first, second, normal, face_index)
             )
-    result: list[tuple[Point3, Point3]] = []
+    result: list[SilhouetteEdge] = []
     diagonal = sqrt(sum(
         (mesh.bounds_max[axis] - mesh.bounds_min[axis]) ** 2
         for axis in range(3)
@@ -393,10 +393,39 @@ def silhouette_segments(
         # It is already drawn by the topology edge pass as one smooth curve.
         if len({record[3] for record in records}) != 1:
             continue
-        facings = tuple(record[2] for record in records)
-        if min(facings) < -1e-9 and max(facings) > 1e-9:
-            result.append((records[0][0], records[0][1]))
+        result.append(SilhouetteEdge(
+            first=records[0][0],
+            second=records[0][1],
+            adjacent_normals=tuple(record[2] for record in records),
+        ))
     return tuple(result)
+
+
+def silhouette_segments_from_edges(
+    edges: tuple[SilhouetteEdge, ...],
+    view_direction: Point3,
+) -> tuple[tuple[Point3, Point3], ...]:
+    """Select cached edges separating front- and back-facing facets."""
+    result: list[tuple[Point3, Point3]] = []
+    for edge in edges:
+        facings = tuple(
+            sum(normal[axis] * view_direction[axis] for axis in range(3))
+            for normal in edge.adjacent_normals
+        )
+        if min(facings) < -1e-9 and max(facings) > 1e-9:
+            result.append((edge.first, edge.second))
+    return tuple(result)
+
+
+def silhouette_segments(
+    mesh: ViewerMesh,
+    view_direction: Point3,
+) -> tuple[tuple[Point3, Point3], ...]:
+    """Return triangulation edges separating front- and back-facing facets."""
+    return silhouette_segments_from_edges(
+        build_silhouette_edges(mesh),
+        view_direction,
+    )
 
 
 def _point_polyline_distance(

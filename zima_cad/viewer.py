@@ -43,9 +43,11 @@ from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
 from zima_cad.viewer_mesh import (
     Point3,
+    SilhouetteEdge,
     ViewerMesh,
+    build_silhouette_edges,
     edge_visible_in_display,
-    silhouette_segments,
+    silhouette_segments_from_edges,
 )
 
 TopologyKey = tuple[str, int]
@@ -127,6 +129,7 @@ GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
 GL_DEPTH_TEST = 0x0B71
 GL_LEQUAL = 0x0203
+GL_LINES = 0x0001
 GL_LINE_STRIP = 0x0003
 GL_MULTISAMPLE = 0x809D
 GL_POLYGON_OFFSET_FILL = 0x8037
@@ -311,12 +314,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._edge_program: QOpenGLShaderProgram | None = None
         self._surface_buffer: QOpenGLBuffer | None = None
         self._edge_buffer: QOpenGLBuffer | None = None
+        self._silhouette_buffer: QOpenGLBuffer | None = None
         self._surface_vao: QOpenGLVertexArrayObject | None = None
         self._edge_vao: QOpenGLVertexArrayObject | None = None
         self._background_vao: QOpenGLVertexArrayObject | None = None
         self._surface_vertex_count = 0
         self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
         self._edge_ranges: tuple[tuple[int, int], ...] = ()
+        self._silhouette_edges: tuple[SilhouetteEdge, ...] = ()
         self._buffers_dirty = False
         self._gpu_ready = False
         self._hovered_edge: TopologyKey | None = None
@@ -762,6 +767,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_mesh(self, mesh: ViewerMesh | None, *, fit: bool = True) -> None:
         self._mesh = mesh
+        self._silhouette_edges = (
+            build_silhouette_edges(mesh) if mesh is not None else ()
+        )
         self._set_hovered_edge(None)
         self._set_selected_edge(None)
         self._set_hovered_face(None)
@@ -1093,10 +1101,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._edge_buffer = QOpenGLBuffer(
             QOpenGLBuffer.Type.VertexBuffer
         )
+        self._silhouette_buffer = QOpenGLBuffer(
+            QOpenGLBuffer.Type.VertexBuffer
+        )
         self._surface_vao = QOpenGLVertexArrayObject()
         self._edge_vao = QOpenGLVertexArrayObject()
         self._background_vao = QOpenGLVertexArrayObject()
-        if not self._surface_buffer.create() or not self._edge_buffer.create():
+        if (
+            not self._surface_buffer.create()
+            or not self._edge_buffer.create()
+            or not self._silhouette_buffer.create()
+        ):
             raise RuntimeError("Unable to create Viewer OpenGL buffers")
         if (
             not self._surface_vao.create()
@@ -1164,7 +1179,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        self._paint_silhouette_edges()
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
@@ -1176,137 +1190,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_sketch_selection_box()
         self._paint_object_overlay()
         self._paint_edge_labels()
-
-    def _paint_silhouette_edges(self) -> None:
-        mesh = self._mesh
-        if (
-            mesh is None
-            or self._display_mode not in {"wire", "shaded_with_edges"}
-        ):
-            return
-        # The camera looks along its local Z axis. Transforming that axis back
-        # to world space gives the direction used for facet-facing tests.
-        view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
-        segments = self._visible_silhouette_segments(
-            silhouette_segments(mesh, view_direction)
-        )
-        if not segments:
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        pen = QPen(QColor("#16191E"), 1.0)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        for first, second in segments:
-            painter.drawLine(
-                self._screen_point(self._camera_point(first)),
-                self._screen_point(self._camera_point(second)),
-            )
-        painter.end()
-
-    def _visible_silhouette_segments(
-        self,
-        segments: tuple[tuple[Point3, Point3], ...],
-    ) -> tuple[tuple[Point3, Point3], ...]:
-        """Depth-test many silhouette segments with one triangle projection."""
-        mesh = self._mesh
-        if mesh is None or not mesh.triangle_face_indices:
-            return segments
-        positions = mesh.triangle_positions
-        projected_triangles: list[
-            tuple[tuple[QPointF, QPointF, QPointF], tuple[float, float, float],
-                  float, float, float, float]
-        ] = []
-        for offset in range(0, len(positions), 9):
-            camera_points = tuple(
-                self._camera_point((
-                    positions[offset + vertex * 3],
-                    positions[offset + vertex * 3 + 1],
-                    positions[offset + vertex * 3 + 2],
-                ))
-                for vertex in range(3)
-            )
-            screen_points = tuple(
-                self._screen_point(point) for point in camera_points
-            )
-            xs = tuple(point.x() for point in screen_points)
-            ys = tuple(point.y() for point in screen_points)
-            projected_triangles.append((
-                screen_points,
-                tuple(point[2] for point in camera_points),
-                min(xs), max(xs), min(ys), max(ys),
-            ))
-
-        tolerance = self._scene_radius * 1e-5
-        visible: list[tuple[Point3, Point3]] = []
-        def point_is_visible(point: Point3) -> bool:
-            camera_point = self._camera_point(point)
-            screen = self._screen_point(camera_point)
-            front_depth: float | None = None
-            for (
-                triangle_screen,
-                triangle_depths,
-                min_x,
-                max_x,
-                min_y,
-                max_y,
-            ) in projected_triangles:
-                if not (
-                    min_x <= screen.x() <= max_x
-                    and min_y <= screen.y() <= max_y
-                ):
-                    continue
-                weights = self._triangle_weights(
-                    screen,
-                    *triangle_screen,
-                )
-                if weights is None:
-                    continue
-                depth = sum(
-                    weight * item
-                    for weight, item in zip(weights, triangle_depths)
-                )
-                front_depth = (
-                    depth if front_depth is None else max(front_depth, depth)
-                )
-            return (
-                front_depth is None
-                or camera_point[2] >= front_depth - tolerance
-            )
-
-        for first, second in segments:
-            first_screen = self._screen_point(self._camera_point(first))
-            second_screen = self._screen_point(self._camera_point(second))
-            screen_length = hypot(
-                second_screen.x() - first_screen.x(),
-                second_screen.y() - first_screen.y(),
-            )
-            interval_count = max(1, min(128, int(screen_length / 4.0) + 1))
-
-            def interpolate(fraction: float) -> Point3:
-                return tuple(
-                    first[axis]
-                    + (second[axis] - first[axis]) * fraction
-                    for axis in range(3)
-                )
-
-            run_start: int | None = None
-            for interval in range(interval_count):
-                sample = interpolate((interval + 0.5) / interval_count)
-                is_visible = point_is_visible(sample)
-                if is_visible and run_start is None:
-                    run_start = interval
-                if run_start is not None and (
-                    not is_visible or interval == interval_count - 1
-                ):
-                    run_end = interval if not is_visible else interval + 1
-                    visible.append((
-                        interpolate(run_start / interval_count),
-                        interpolate(run_end / interval_count),
-                    ))
-                    run_start = None
-        return tuple(visible)
 
     def _paint_face_highlight_outlines(self) -> None:
         mesh = self._mesh
@@ -2250,7 +2133,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ):
             if vao is not None and vao.isCreated():
                 vao.destroy()
-        for buffer in (self._surface_buffer, self._edge_buffer):
+        for buffer in (
+            self._surface_buffer,
+            self._edge_buffer,
+            self._silhouette_buffer,
+        ):
             if buffer is not None and buffer.isCreated():
                 buffer.destroy()
         self._background_vao = None
@@ -2258,6 +2145,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._edge_vao = None
         self._surface_buffer = None
         self._edge_buffer = None
+        self._silhouette_buffer = None
         self._background_program = None
         self._surface_program = None
         self._edge_program = None
@@ -2563,10 +2451,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 QVector3D(0.0, 0.82, 1.0),
                 3.0,
             )
+        self._draw_gpu_silhouette_edges(gl, program)
         program.disableAttributeArray(0)
         buffer.release()
         program.release()
         vao.release()
+
+    def _draw_gpu_silhouette_edges(
+        self,
+        gl: QOpenGLFunctions_3_3_Core,
+        program: QOpenGLShaderProgram,
+    ) -> None:
+        buffer = self._silhouette_buffer
+        if (
+            buffer is None
+            or self._display_mode not in {"wire", "shaded_with_edges"}
+            or not self._silhouette_edges
+        ):
+            return
+        view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
+        segments = silhouette_segments_from_edges(
+            self._silhouette_edges,
+            view_direction,
+        )
+        if not segments:
+            return
+        values = array("f")
+        for first, second in segments:
+            values.extend(first)
+            values.extend(second)
+        data = values.tobytes()
+        buffer.bind()
+        buffer.allocate(data, len(data))
+        program.setAttributeBuffer(0, 0x1406, 0, 3, 12)
+        program.setUniformValue(
+            "edgeColor",
+            QVector3D(0.086, 0.098, 0.118),
+        )
+        gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
+        gl.glDrawArrays(GL_LINES, 0, len(values) // 3)
+        buffer.release()
 
     def _draw_highlighted_edge(
         self,
