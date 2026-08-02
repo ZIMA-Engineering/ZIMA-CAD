@@ -870,7 +870,128 @@ class PartDocument:
             parameters=parameters,
         )
         parent.add_child(primitive)
+        self.sync_generated_axes_for_object(parent)
         return primitive
+
+    def sync_generated_axes(self) -> None:
+        """Keep locked, feature-owned axes in step with their source geometry."""
+        for obj in self.history_objects():
+            self.sync_generated_axes_for_object(obj)
+
+    def sync_generated_axes_for_object(self, obj: ZimaEntity) -> None:
+        desired: dict[str, dict[str, Any]] = {}
+        feature = next(
+            (
+                child for child in obj.children
+                if child.kind == EntityKind.PROTRUSION and not child.locked
+            ),
+            None,
+        )
+        if feature is not None:
+            sketch = self.find_entity(str(feature.parameters.get("sketch_id", "")))
+            if sketch is not None and sketch.kind == EntityKind.SKETCH:
+                try:
+                    sketch_model = SketchModel.from_dict(json.loads(
+                        str(sketch.parameters.get("sketch_data", "{}"))
+                    ))
+                except (SketchModelError, TypeError, ValueError, json.JSONDecodeError):
+                    sketch_model = None
+                if sketch_model is not None:
+                    plane = str(sketch.parameters.get("plane", "xz"))
+                    direction = {"xy": "z", "xz": "y", "yz": "x"}.get(plane, "y")
+                    forward = max(0.0, float(feature.parameters.get(
+                        "length_forward", feature.parameters.get("length", 10.0)
+                    )))
+                    reverse = max(0.0, float(feature.parameters.get("length_reverse", 0.0)))
+                    mode = str(feature.parameters.get("extent_mode", "one_side"))
+                    if mode == "symmetric":
+                        reverse = forward
+                    elif mode == "one_side":
+                        if str(feature.parameters.get("direction", "forward")) == "reverse":
+                            reverse, forward = forward, 0.0
+                        else:
+                            reverse = 0.0
+                    span = max(forward + reverse, 1.0)
+                    axial_center = (forward - reverse) / 2.0
+                    for geometry_id, geometry in sketch_model.geometry.items():
+                        if geometry.geometry_type.value != "circle" or not geometry.point_ids:
+                            continue
+                        center = sketch_model.points.get(geometry.point_ids[0])
+                        if center is None:
+                            continue
+                        origin = {
+                            "xy": (center.x, center.y, axial_center),
+                            "xz": (center.x, axial_center, center.y),
+                            "yz": (axial_center, center.x, center.y),
+                        }.get(plane, (center.x, axial_center, center.y))
+                        axis_id = f"{feature.entity_id}:axis:circle:{geometry_id}"
+                        desired[axis_id] = {
+                            "owner": feature,
+                            "name": f"Axis {geometry_id}",
+                            "axis": direction,
+                            "origin": origin,
+                            "length": max(span * 1.2, span + 10.0),
+                            "source_geometry_id": geometry_id,
+                        }
+
+        for primitive in (
+            child for child in obj.children
+            if not child.locked and child.kind in (
+                EntityKind.CYLINDER, EntityKind.CONE, EntityKind.SPHERE
+            )
+        ):
+            axes = ("x", "y", "z") if primitive.kind == EntityKind.SPHERE else ("z",)
+            size = (
+                float(primitive.parameters.get("diameter", 30.0))
+                if primitive.kind == EntityKind.SPHERE
+                else float(primitive.parameters.get("height", 50.0))
+            )
+            for direction in axes:
+                axis_id = f"{primitive.entity_id}:axis:{direction}"
+                desired[axis_id] = {
+                    "owner": primitive,
+                    "name": f"{direction.upper()} Axis",
+                    "axis": direction,
+                    "origin": (0.0, 0.0, 0.0),
+                    "length": max(size * 1.2, size + 10.0),
+                    "source_geometry_id": "",
+                }
+
+        generated = {
+            child.entity_id: child
+            for owner in obj.children
+            for child in owner.children
+            if child.kind == EntityKind.AXIS
+            and child.parameters.get("generated_axis") == "true"
+        }
+        for axis_id, definition in desired.items():
+            axis = generated.pop(axis_id, None)
+            owner = definition["owner"]
+            if axis is None:
+                axis = ZimaEntity(
+                    name=definition["name"],
+                    kind=EntityKind.AXIS,
+                    entity_id=axis_id,
+                    locked=True,
+                    tree_exposure=TreeExposure.INTERNAL,
+                )
+                owner.add_child(axis)
+            origin = definition["origin"]
+            axis.parameters.update({
+                "generated_axis": "true",
+                "display_style": "centerline",
+                "axis": definition["axis"],
+                "origin_x": f"{origin[0]:.12g}",
+                "origin_y": f"{origin[1]:.12g}",
+                "origin_z": f"{origin[2]:.12g}",
+                "length": f"{definition['length']:.12g}",
+                "source_geometry_id": definition["source_geometry_id"],
+                "unit": "mm",
+            })
+        for stale in generated.values():
+            parent = self.find_parent(stale.entity_id)
+            if parent is not None:
+                parent.children.remove(stale)
 
     def rebuild_shape(self):
         self.resolve_attachments()
@@ -2401,8 +2522,12 @@ def make_datum_axis_shape(
         "z": (0.0, 0.0, 1.0),
     }.get(str(axis.parameters.get("axis", "z")), (0.0, 0.0, 1.0))
     half = length / 2.0
-    start = gp_Pnt(*(-half * value for value in direction))
-    end = gp_Pnt(*(half * value for value in direction))
+    origin = tuple(
+        float(axis.parameters.get(f"origin_{coordinate}", 0.0))
+        for coordinate in ("x", "y", "z")
+    )
+    start = gp_Pnt(*(origin[index] - half * direction[index] for index in range(3)))
+    end = gp_Pnt(*(origin[index] + half * direction[index] for index in range(3)))
     return transform_shape(BRepBuilderAPI_MakeEdge(start, end).Edge(), parent_transform)
 
 

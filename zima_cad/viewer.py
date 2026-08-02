@@ -41,7 +41,12 @@ from OCC.Core.gp import gp_Pnt
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 
 from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
-from zima_cad.viewer_mesh import Point3, ViewerMesh
+from zima_cad.viewer_mesh import (
+    Point3,
+    ViewerMesh,
+    edge_visible_in_display,
+    silhouette_segments,
+)
 
 TopologyKey = tuple[str, int]
 
@@ -1141,7 +1146,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glDepthFunc(GL_LEQUAL)
         gl.glEnable(GL_MULTISAMPLE)
         model_view, mvp = self._camera_matrices()
-        if self._display_mode != "wire":
+        if self._display_mode == "wire":
+            # Wire display still needs the solid surfaces in the depth buffer;
+            # otherwise rear topology edges shine through the body.  Suppress
+            # only their colour output and retain the depth values.
+            gl.glColorMask(False, False, False, False)
+            try:
+                self._draw_surfaces(model_view, mvp)
+            finally:
+                gl.glColorMask(True, True, True, True)
+        else:
             self._draw_surfaces(model_view, mvp)
         self._draw_edges(
             mvp,
@@ -1150,6 +1164,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
+        self._paint_silhouette_edges()
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
@@ -1161,6 +1176,137 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_sketch_selection_box()
         self._paint_object_overlay()
         self._paint_edge_labels()
+
+    def _paint_silhouette_edges(self) -> None:
+        mesh = self._mesh
+        if (
+            mesh is None
+            or self._display_mode not in {"wire", "shaded_with_edges"}
+        ):
+            return
+        # The camera looks along its local Z axis. Transforming that axis back
+        # to world space gives the direction used for facet-facing tests.
+        view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
+        segments = self._visible_silhouette_segments(
+            silhouette_segments(mesh, view_direction)
+        )
+        if not segments:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        pen = QPen(QColor("#16191E"), 1.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        for first, second in segments:
+            painter.drawLine(
+                self._screen_point(self._camera_point(first)),
+                self._screen_point(self._camera_point(second)),
+            )
+        painter.end()
+
+    def _visible_silhouette_segments(
+        self,
+        segments: tuple[tuple[Point3, Point3], ...],
+    ) -> tuple[tuple[Point3, Point3], ...]:
+        """Depth-test many silhouette segments with one triangle projection."""
+        mesh = self._mesh
+        if mesh is None or not mesh.triangle_face_indices:
+            return segments
+        positions = mesh.triangle_positions
+        projected_triangles: list[
+            tuple[tuple[QPointF, QPointF, QPointF], tuple[float, float, float],
+                  float, float, float, float]
+        ] = []
+        for offset in range(0, len(positions), 9):
+            camera_points = tuple(
+                self._camera_point((
+                    positions[offset + vertex * 3],
+                    positions[offset + vertex * 3 + 1],
+                    positions[offset + vertex * 3 + 2],
+                ))
+                for vertex in range(3)
+            )
+            screen_points = tuple(
+                self._screen_point(point) for point in camera_points
+            )
+            xs = tuple(point.x() for point in screen_points)
+            ys = tuple(point.y() for point in screen_points)
+            projected_triangles.append((
+                screen_points,
+                tuple(point[2] for point in camera_points),
+                min(xs), max(xs), min(ys), max(ys),
+            ))
+
+        tolerance = self._scene_radius * 1e-5
+        visible: list[tuple[Point3, Point3]] = []
+        def point_is_visible(point: Point3) -> bool:
+            camera_point = self._camera_point(point)
+            screen = self._screen_point(camera_point)
+            front_depth: float | None = None
+            for (
+                triangle_screen,
+                triangle_depths,
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+            ) in projected_triangles:
+                if not (
+                    min_x <= screen.x() <= max_x
+                    and min_y <= screen.y() <= max_y
+                ):
+                    continue
+                weights = self._triangle_weights(
+                    screen,
+                    *triangle_screen,
+                )
+                if weights is None:
+                    continue
+                depth = sum(
+                    weight * item
+                    for weight, item in zip(weights, triangle_depths)
+                )
+                front_depth = (
+                    depth if front_depth is None else max(front_depth, depth)
+                )
+            return (
+                front_depth is None
+                or camera_point[2] >= front_depth - tolerance
+            )
+
+        for first, second in segments:
+            first_screen = self._screen_point(self._camera_point(first))
+            second_screen = self._screen_point(self._camera_point(second))
+            screen_length = hypot(
+                second_screen.x() - first_screen.x(),
+                second_screen.y() - first_screen.y(),
+            )
+            interval_count = max(1, min(128, int(screen_length / 4.0) + 1))
+
+            def interpolate(fraction: float) -> Point3:
+                return tuple(
+                    first[axis]
+                    + (second[axis] - first[axis]) * fraction
+                    for axis in range(3)
+                )
+
+            run_start: int | None = None
+            for interval in range(interval_count):
+                sample = interpolate((interval + 0.5) / interval_count)
+                is_visible = point_is_visible(sample)
+                if is_visible and run_start is None:
+                    run_start = interval
+                if run_start is not None and (
+                    not is_visible or interval == interval_count - 1
+                ):
+                    run_end = interval if not is_visible else interval + 1
+                    visible.append((
+                        interpolate(run_start / interval_count),
+                        interpolate(run_end / interval_count),
+                    ))
+                    run_start = None
+        return tuple(visible)
 
     def _paint_face_highlight_outlines(self) -> None:
         mesh = self._mesh
@@ -2365,6 +2511,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             if not draw_base_edges and edge.element_kind == "edge":
                 continue
+            if not edge_visible_in_display(edge, self._display_mode):
+                continue
             if edge.element_kind in {"axis", "sketch", "dimension"}:
                 gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
@@ -2443,6 +2591,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         edge = mesh.edges[range_index]
         if edge.element_kind == "centerline":
             return
+        if not edge_visible_in_display(edge, self._display_mode):
+            return
         if edge.element_kind in {"axis", "sketch", "dimension"}:
             gl.glDisable(GL_DEPTH_TEST)
         program.setUniformValue("edgeColor", color)
@@ -2473,6 +2623,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if (
                 edge.owner_id != owner_id
                 or edge.element_kind not in {"edge", "sketch"}
+                or not edge_visible_in_display(edge, self._display_mode)
             ):
                 continue
             if edge.element_kind == "sketch":
@@ -5262,6 +5413,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if (
                     edge.owner_id != owner_id
                     or edge.element_kind not in {"edge", "sketch"}
+                    or not edge_visible_in_display(edge, self._display_mode)
                 ):
                     continue
                 projected = [
@@ -5303,6 +5455,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "edge",
                 "sketch",
             }:
+                continue
+            if not edge_visible_in_display(edge, self._display_mode):
                 continue
             painter.setPen(
                 self._datum_centerline_pen(color, 3.0)
@@ -5436,6 +5590,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
                 candidates.append(("point", marker.owner_id, marker.point_index))
         for edge in mesh.edges:
+            if not edge_visible_in_display(edge, self._display_mode):
+                continue
             projected = [
                 self._screen_point(self._camera_point(point))
                 for point in self._display_edge_points(edge)
@@ -5747,6 +5903,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         candidates: list[tuple[float, float, str, int]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for edge in mesh.edges:
+            if not edge_visible_in_display(edge, self._display_mode):
+                continue
             if self._selection_filter == "axis":
                 if edge.element_kind not in {"axis", "centerline"}:
                     continue
@@ -6099,6 +6257,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
         )
         for edge in mesh.edges:
+            if not edge_visible_in_display(edge, self._display_mode):
+                continue
             projected = [
                 self._screen_point(self._camera_point(point))
                 for point in edge.points
@@ -6129,6 +6289,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return (
             cos(roll) * pitch_x - sin(roll) * pitch_y,
             sin(roll) * pitch_x + cos(roll) * pitch_y,
+            pitch_z,
+        )
+
+    def _inverse_rotate(self, vector: Point3) -> Point3:
+        yaw = radians(self.camera.yaw_degrees)
+        pitch = radians(self.camera.pitch_degrees)
+        roll = radians(self.camera.roll_degrees)
+        roll_x = cos(roll) * vector[0] + sin(roll) * vector[1]
+        roll_y = -sin(roll) * vector[0] + cos(roll) * vector[1]
+        roll_z = vector[2]
+        pitch_x = roll_x
+        pitch_y = cos(pitch) * roll_y + sin(pitch) * roll_z
+        pitch_z = -sin(pitch) * roll_y + cos(pitch) * roll_z
+        return (
+            cos(yaw) * pitch_x + sin(yaw) * pitch_y,
+            -sin(yaw) * pitch_x + cos(yaw) * pitch_y,
             pitch_z,
         )
 

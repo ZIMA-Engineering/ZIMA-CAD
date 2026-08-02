@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import configparser
 import json
-from math import atan2, cos, degrees, hypot, radians, sin
+from math import atan2, cos, degrees, hypot, radians, sin, sqrt
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -10,6 +10,12 @@ from uuid import uuid4
 from OCC.Core.HLRAlgo import HLRAlgo_Projector
 from OCC.Core.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
 from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt
+from zima_cad.viewer_mesh import (
+    ViewerMesh,
+    combine_viewer_meshes,
+    edge_visible_in_display,
+    silhouette_segments,
+)
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -177,6 +183,15 @@ def project_polylines(
     polylines: list[list[tuple[float, float, float]]],
     orientation: str | dict,
 ) -> list[list[list[float]]]:
+    return _center_projected_groups(
+        _project_polylines_raw(polylines, orientation)
+    )[0]
+
+
+def _project_polylines_raw(
+    polylines: list[list[tuple[float, float, float]]],
+    orientation: str | dict,
+) -> list[list[list[float]]]:
     horizontal, vertical, _depth = projection_axes(orientation)
     result: list[list[list[float]]] = []
     for polyline in polylines:
@@ -187,7 +202,7 @@ def project_polylines(
             projected.append([float(u), float(v)])
         if len(projected) >= 2:
             result.append(projected)
-    return _center_projected_groups(result)[0]
+    return result
 
 
 def technical_projection(
@@ -196,16 +211,18 @@ def technical_projection(
     orientation: str | dict,
 ) -> dict[str, list[list[list[float]]]]:
     """Classify exact visible/hidden edges and return drawing-space curves."""
-    wireframe = project_polylines(wire_polylines, orientation)
+    wireframe = _project_polylines_raw(wire_polylines, orientation)
     valid_shapes = [
         shape for shape in shapes
         if shape is not None and not shape.IsNull()
     ]
     if not valid_shapes:
+        wireframe = _center_projected_groups(wireframe)[0]
         return {
             "polylines": wireframe,
             "hidden_polylines": [],
             "wireframe_polylines": wireframe,
+            "auxiliary_polylines": [],
         }
     try:
         horizontal, _vertical, depth = projection_axes(orientation)
@@ -233,21 +250,133 @@ def technical_projection(
 
         visible = projected_edges(result.VCompound())
         hidden = projected_edges(result.HCompound())
-        visible, hidden = _center_projected_groups(visible, hidden)
+        outlines = projected_edges(result.OutLineVCompound())
+        auxiliary = projected_edges(result.Rg1LineVCompound())
+        visible, hidden, wireframe, outlines, auxiliary = _center_projected_groups(
+            visible,
+            hidden,
+            wireframe,
+            outlines,
+            auxiliary,
+        )
         if not visible:
             visible = wireframe
         return {
             "polylines": visible,
             "hidden_polylines": hidden,
             "wireframe_polylines": wireframe,
+            "auxiliary_polylines": auxiliary,
         }
     except Exception:
         # Open or otherwise unsupported topology remains usable as wireframe.
+        wireframe = _center_projected_groups(wireframe)[0]
         return {
             "polylines": wireframe,
             "hidden_polylines": [],
             "wireframe_polylines": wireframe,
+            "auxiliary_polylines": [],
         }
+
+
+def shaded_projection(
+    meshes: list[tuple[ViewerMesh, str]],
+    orientation: str | dict,
+) -> list[dict[str, Any]]:
+    """Project model triangles for shaded technical drawing views."""
+    horizontal, vertical, depth_axis = projection_axes(orientation)
+    records: list[dict[str, Any]] = []
+    all_points: list[list[float]] = []
+    for mesh, color in meshes:
+        positions = mesh.triangle_positions
+        normals = mesh.triangle_normals
+        for offset in range(0, len(positions), 9):
+            polygon: list[list[float]] = []
+            depths: list[float] = []
+            normal = [0.0, 0.0, 0.0]
+            for vertex in range(3):
+                point = tuple(positions[offset + vertex * 3 + axis] for axis in range(3))
+                polygon.append([
+                    sum(horizontal[axis] * point[axis] for axis in range(3)),
+                    sum(vertical[axis] * point[axis] for axis in range(3)),
+                ])
+                depths.append(sum(depth_axis[axis] * point[axis] for axis in range(3)))
+                for axis in range(3):
+                    normal[axis] += normals[offset + vertex * 3 + axis] / 3.0
+            facing = abs(sum(normal[axis] * depth_axis[axis] for axis in range(3)))
+            records.append({
+                "points": polygon,
+                "depth": sum(depths) / 3.0,
+                "color": color,
+                "brightness": 0.58 + 0.42 * min(1.0, facing),
+            })
+            all_points.extend(polygon)
+    if not all_points:
+        return records
+    center_x = (min(p[0] for p in all_points) + max(p[0] for p in all_points)) * 0.5
+    center_y = (min(p[1] for p in all_points) + max(p[1] for p in all_points)) * 0.5
+    for record in records:
+        record["points"] = [[p[0] - center_x, p[1] - center_y] for p in record["points"]]
+    records.sort(key=lambda record: float(record["depth"]))
+    return records
+
+
+def model_visible_projection(
+    meshes: list[ViewerMesh],
+    orientation: str | dict,
+) -> list[list[list[float]]]:
+    """Project the same depth-tested visible edges used by the 3D model."""
+    mesh = combine_viewer_meshes(tuple(meshes))
+    horizontal, vertical, depth_axis = projection_axes(orientation)
+
+    def project(point):
+        return (
+            sum(horizontal[i] * point[i] for i in range(3)),
+            sum(vertical[i] * point[i] for i in range(3)),
+            sum(depth_axis[i] * point[i] for i in range(3)),
+        )
+
+    triangles = []
+    p = mesh.triangle_positions
+    for offset in range(0, len(p), 9):
+        points = tuple(project(tuple(p[offset + v * 3 + i] for i in range(3))) for v in range(3))
+        xs, ys = [x[0] for x in points], [x[1] for x in points]
+        triangles.append((points, min(xs), max(xs), min(ys), max(ys)))
+
+    def visible(point) -> bool:
+        u, v, depth = project(point)
+        front = None
+        for tri, min_x, max_x, min_y, max_y in triangles:
+            if not (min_x <= u <= max_x and min_y <= v <= max_y):
+                continue
+            ax, ay = tri[0][0], tri[0][1]
+            bx, by = tri[1][0], tri[1][1]
+            cx, cy = tri[2][0], tri[2][1]
+            denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if abs(denominator) <= 1e-12:
+                continue
+            wa = ((by - cy) * (u - cx) + (cx - bx) * (v - cy)) / denominator
+            wb = ((cy - ay) * (u - cx) + (ax - cx) * (v - cy)) / denominator
+            wc = 1.0 - wa - wb
+            if min(wa, wb, wc) < -1e-7:
+                continue
+            hit = wa * tri[0][2] + wb * tri[1][2] + wc * tri[2][2]
+            front = hit if front is None else max(front, hit)
+        diagonal = sqrt(sum((mesh.bounds_max[i] - mesh.bounds_min[i]) ** 2 for i in range(3)))
+        return front is None or depth >= front - max(diagonal * 1e-5, 1e-7)
+
+    candidates = [
+        edge.points for edge in mesh.edges
+        if edge_visible_in_display(edge, "wire")
+    ]
+    candidates.extend(silhouette_segments(mesh, depth_axis))
+    lines = []
+    for polyline in candidates:
+        for first, second in zip(polyline, polyline[1:]):
+            midpoint = tuple((first[i] + second[i]) * 0.5 for i in range(3))
+            if visible(midpoint):
+                a, b = project(first), project(second)
+                lines.append([[a[0], a[1]], [b[0], b[1]]])
+    return _center_projected_groups(lines)[0]
 
 
 def update_view_bounds(view: dict) -> dict:
@@ -264,6 +393,80 @@ def update_view_bounds(view: dict) -> dict:
         bounds = {"left": min(xs), "right": max(xs), "bottom": min(ys), "top": max(ys)}
     view["bounds"] = bounds
     return bounds
+
+
+def delete_drawing_view(sheet: dict, view_id: str) -> set[str]:
+    """Delete a view, its projected descendants and dependent dimensions."""
+    removed = {str(view_id)}
+    views = list(sheet.get("views", []))
+    changed = True
+    while changed:
+        changed = False
+        for view in views:
+            candidate_id = str(view.get("id", ""))
+            if (
+                candidate_id not in removed
+                and str(view.get("parent_view_id", "")) in removed
+            ):
+                removed.add(candidate_id)
+                changed = True
+    sheet["views"] = [
+        view for view in views
+        if str(view.get("id", "")) not in removed
+    ]
+
+    def dimension_uses_removed_view(dimension: dict) -> bool:
+        return any(
+            isinstance(reference, dict)
+            and str(reference.get("view_id", "")) in removed
+            for reference in (
+                dimension.get("first"), dimension.get("second")
+            )
+        )
+
+    sheet["dimensions"] = [
+        dimension for dimension in sheet.get("dimensions", [])
+        if not dimension_uses_removed_view(dimension)
+    ]
+    return removed
+
+
+def move_drawing_view(
+    sheet: dict,
+    view_id: str,
+    x: float,
+    y: float,
+) -> bool:
+    """Move one drawing view to an absolute paper-space position."""
+    view = next(
+        (
+            candidate for candidate in sheet.get("views", [])
+            if str(candidate.get("id", "")) == str(view_id)
+        ),
+        None,
+    )
+    if view is None:
+        return False
+    delta_x = float(x) - float(view.get("x", 0.0))
+    delta_y = float(y) - float(view.get("y", 0.0))
+    view["x"] = float(x)
+    view["y"] = float(y)
+    update_view_bounds(view)
+    for dimension in sheet.get("dimensions", []):
+        references = (dimension.get("first"), dimension.get("second"))
+        if not any(
+            isinstance(reference, dict)
+            and str(reference.get("view_id", "")) == str(view_id)
+            for reference in references
+        ):
+            continue
+        placement = dimension.get("placement")
+        if isinstance(placement, list) and len(placement) >= 2:
+            dimension["placement"] = [
+                float(placement[0]) + delta_x,
+                float(placement[1]) + delta_y,
+            ]
+    return True
 
 
 def parallel_dimension_geometry(
@@ -321,6 +524,8 @@ class DrawingCanvas(QWidget):
     projectViewRequested = Signal(str)
     dimensionCreated = Signal()
     dimensionToolCancelled = Signal()
+    viewDeleteRequested = Signal(str)
+    viewMoveFinished = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -341,6 +546,9 @@ class DrawingCanvas(QWidget):
         self._dimension_tool_active = False
         self._dimension_references: list[dict] = []
         self._dimension_cursor_sheet: tuple[float, float] | None = None
+        self._dragged_view_id: str | None = None
+        self._drag_start_sheet: tuple[float, float] | None = None
+        self._drag_view_start: tuple[float, float] | None = None
 
     def set_dimension_tool(self, active: bool) -> None:
         self._dimension_tool_active = bool(active)
@@ -360,6 +568,16 @@ class DrawingCanvas(QWidget):
     def set_sheet(self, sheet: dict, *, fit: bool = True) -> None:
         self._sheet = sheet
         self._pending_view = None
+        self._dragged_view_id = None
+        self._drag_start_sheet = None
+        self._drag_view_start = None
+        available_view_ids = {
+            str(view.get("id", "")) for view in sheet.get("views", [])
+        }
+        if self._selected_view_id not in available_view_ids:
+            self._selected_view_id = None
+        if self._hovered_view_id not in available_view_ids:
+            self._hovered_view_id = None
         if fit:
             self.fit_sheet()
         self.update()
@@ -593,14 +811,57 @@ class DrawingCanvas(QWidget):
                     painter.drawPolyline(QPolygonF(points))
 
         display_style = str(view.get("display_style", "no_hidden"))
+        if display_style == "no_hidden":
+            display_style = "wireframe"
+        if display_style in {"shaded", "shaded_edges"}:
+            # Antialiasing adjacent filled triangles creates hairline cracks.
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for triangle in view.get("shaded_triangles", []):
+                base = QColor(str(triangle.get("color", "#B9C2CC")))
+                brightness = float(triangle.get("brightness", 1.0))
+                fill = QColor(
+                    min(255, round(base.red() * brightness)),
+                    min(255, round(base.green() * brightness)),
+                    min(255, round(base.blue() * brightness)),
+                )
+                points = [
+                    self._screen_point(
+                        center_x - float(point[0]) * scale,
+                        center_y + float(point[1]) * scale,
+                    )
+                    for point in triangle.get("points", [])
+                ]
+                if len(points) == 3:
+                    painter.setBrush(fill)
+                    painter.drawPolygon(QPolygonF(points))
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if display_style == "shaded":
+                if str(view.get("auxiliary_edges", "hidden")) == "visible":
+                    draw_polylines(
+                        view.get("auxiliary_polylines", []),
+                        cosmetic_pen(color),
+                    )
+                return
         if display_style == "wireframe":
             draw_polylines(
-                view.get("wireframe_polylines", view.get("polylines", [])),
+                view.get("polylines", []),
                 cosmetic_pen(color),
             )
+            if str(view.get("auxiliary_edges", "hidden")) == "visible":
+                draw_polylines(
+                    view.get("auxiliary_polylines", []),
+                    cosmetic_pen(color),
+                )
             return
 
         draw_polylines(view.get("polylines", []), cosmetic_pen(color))
+        if str(view.get("auxiliary_edges", "hidden")) == "visible":
+            draw_polylines(
+                view.get("auxiliary_polylines", []),
+                cosmetic_pen(color),
+            )
         if display_style != "hidden_line":
             return
         hidden_style = str(view.get("hidden_lines", "dimmed"))
@@ -633,11 +894,11 @@ class DrawingCanvas(QWidget):
 
     @staticmethod
     def _view_line_source(view: dict) -> str:
-        return (
-            "wireframe_polylines"
-            if str(view.get("display_style", "no_hidden")) == "wireframe"
-            else "polylines"
-        )
+        # ZIMA's wire display follows the model convention: visible topology
+        # and silhouettes only, with rear edges removed by the common HLR
+        # projection. The raw wireframe remains cached for compatibility but
+        # is not the interactive drawing geometry.
+        return "polylines"
 
     @staticmethod
     def _sheet_geometry_point(view: dict, point: list) -> tuple[float, float]:
@@ -887,6 +1148,14 @@ class DrawingCanvas(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             view = self._view_at(event.position())
             self._selected_view_id = str(view.get("id", "")) if view else None
+            if view is not None:
+                self._dragged_view_id = self._selected_view_id
+                self._drag_start_sheet = self._sheet_point(event.position())
+                self._drag_view_start = (
+                    float(view.get("x", 0.0)),
+                    float(view.get("y", 0.0)),
+                )
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self.viewSelected.emit(self._selected_view_id or "")
             self.update()
             event.accept()
@@ -910,6 +1179,22 @@ class DrawingCanvas(QWidget):
             self._pan += current - self._last_mouse
             self._last_mouse = current
             self.update()
+        elif (
+            self._dragged_view_id is not None
+            and self._drag_start_sheet is not None
+            and self._drag_view_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            current = self._sheet_point(event.position())
+            move_drawing_view(
+                self._sheet,
+                self._dragged_view_id,
+                self._drag_view_start[0]
+                + current[0] - self._drag_start_sheet[0],
+                self._drag_view_start[1]
+                + current[1] - self._drag_start_sheet[1],
+            )
+            self.update()
         elif self._dimension_tool_active:
             self._dimension_cursor_sheet = self._sheet_point(event.position())
             self.update()
@@ -929,6 +1214,17 @@ class DrawingCanvas(QWidget):
             self._panning = False
             self.unsetCursor()
             event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._dragged_view_id is not None
+        ):
+            self._dragged_view_id = None
+            self._drag_start_sheet = None
+            self._drag_view_start = None
+            self.unsetCursor()
+            self.viewMoveFinished.emit()
+            event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._pending_view is None:
@@ -943,6 +1239,15 @@ class DrawingCanvas(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event) -> None:
+        if (
+            event.key() == Qt.Key.Key_Delete
+            and self._pending_view is None
+            and not self._dimension_tool_active
+            and self._selected_view_id
+        ):
+            self.viewDeleteRequested.emit(self._selected_view_id)
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape and self._dimension_tool_active:
             if self._dimension_references:
                 self._dimension_references = []
@@ -1008,6 +1313,8 @@ class DrawingWorkspace(QWidget):
         self.canvas.insertViewRequested.connect(self.insertViewRequested.emit)
         self.canvas.projectViewRequested.connect(self.projectViewRequested.emit)
         self.canvas.dimensionCreated.connect(self._store)
+        self.canvas.viewDeleteRequested.connect(self._delete_view)
+        self.canvas.viewMoveFinished.connect(self._store)
         self._pending_view: dict | None = None
         self.formats_directory = Path("config/formats")
 
@@ -1280,6 +1587,18 @@ class DrawingWorkspace(QWidget):
             (view for view in sheet.get("views", []) if str(view.get("id", "")) == view_id),
             None,
         )
+
+    def _delete_view(self, view_id: str) -> None:
+        sheet = self.active_sheet()
+        if sheet is None or self.find_view(view_id) is None:
+            return
+        removed = delete_drawing_view(sheet, view_id)
+        if self.canvas._selected_view_id in removed:
+            self.canvas._selected_view_id = None
+        if self.canvas._hovered_view_id in removed:
+            self.canvas._hovered_view_id = None
+        self.canvas.update()
+        self._store()
 
     def update_view(self, view_id: str, values: dict) -> bool:
         view = self.find_view(view_id)

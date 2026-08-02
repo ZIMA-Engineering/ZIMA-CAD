@@ -89,6 +89,7 @@ def build_document_viewer_scene_data(
         if history_boundary is None
         else history_boundary
     )
+    document.sync_generated_axes()
     document.resolve_attachments()
     layers: list[ViewerMesh] = []
     shapes_by_owner_id: dict[str, Any] = {}
@@ -247,7 +248,7 @@ def _append_object_sketches(
         )
     if (
         obj.kind == EntityKind.AXIS
-        and not obj.locked
+        and (not obj.locked or obj.parameters.get("generated_axis") == "true")
         and show_user_axes
     ):
         shape = make_datum_axis_shape(obj, world_transform)
@@ -298,7 +299,7 @@ def _append_object_sketches(
                         edge_color=SKETCH_COLOR,
                     )
                 )
-        elif not child.locked:
+        elif not child.locked or child.parameters.get("generated_axis") == "true":
             _append_object_sketches(
                 document,
                 child,

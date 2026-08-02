@@ -4,29 +4,217 @@ import json
 from PySide6.QtGui import QColor
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+from OCC.Core.TopAbs import TopAbs_FACE
+from OCC.Core.TopExp import TopExp_Explorer
 
-from zima_cad.app import MainWindow
+from zima_cad.app import (
+    AssemblyComponentPropertiesDialog,
+    AxisConstraintDialog,
+    MainWindow,
+)
 from zima_cad.drawing import (
+    DrawingCanvas,
     cosmetic_pen,
+    delete_drawing_view,
     drawing_sheets,
     parallel_dimension_geometry,
     project_polylines,
+    move_drawing_view,
     technical_projection,
+    shaded_projection,
     update_view_bounds,
 )
 from zima_cad.model import (
     ContainerType,
+    EntityKind,
     create_empty_drawing,
     create_empty_part,
     make_sketch_shape,
 )
 from zima_cad.sketch_model import SketchModel
 from zima_cad.viewer import CameraState, STANDARD_VIEW_ORIENTATIONS
-from zima_cad.viewer_mesh import triangulate_shape
+from zima_cad.viewer_mesh import (
+    EdgePolyline,
+    edge_visible_in_display,
+    silhouette_segments,
+    triangulate_shape,
+)
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_orientation_references_reduce_rotational_dof(self) -> None:
+        dof_for = AxisConstraintDialog._rotation_degrees_of_freedom
+
+        self.assertEqual(dof_for([]), 3)
+        self.assertEqual(dof_for([{"orientation_role": "normal"}]), 1)
+        self.assertEqual(dof_for([
+            {"orientation_role": "normal"},
+            {"orientation_role": "up"},
+        ]), 0)
+        editable_for = AxisConstraintDialog._editable_rotation_axes
+        self.assertEqual(editable_for([]), {"x", "y", "z"})
+        self.assertEqual(
+            editable_for([{"orientation_role": "normal"}]),
+            {"y"},
+        )
+        self.assertEqual(editable_for([
+            {"orientation_role": "normal"},
+            {"orientation_role": "up"},
+        ]), set())
+        drives = AxisConstraintDialog._reference_drives_rotation_kind
+        legacy_plane = {
+            "type": "entity",
+            "orientation_role": "normal",
+        }
+        axis = {
+            "type": "entity",
+            "orientation_role": "normal",
+        }
+        self.assertFalse(drives(legacy_plane, EntityKind.PLANE))
+        self.assertTrue(drives(axis, EntityKind.AXIS))
+        self.assertTrue(drives(
+            {**legacy_plane, "orientation_drives_rotation": True},
+            EntityKind.PLANE,
+        ))
+
+    def test_three_independent_assembly_mates_lock_full_transform(self) -> None:
+        rows = [
+            {"target": "x", "orientation": True},
+            {"target": "y", "orientation": True},
+            {"target": "z", "orientation": False},
+        ]
+        normals = {
+            "x": (1.0, 0.0, 0.0),
+            "y": (0.0, 1.0, 0.0),
+            "z": (0.0, 0.0, 1.0),
+        }
+
+        self.assertEqual(
+            AssemblyComponentPropertiesDialog._mate_transform_locks(
+                rows,
+                normals,
+            ),
+            (True, True),
+        )
+
+    def test_partial_assembly_mates_leave_transform_editable(self) -> None:
+        rows = [{"target": "z", "orientation": True}]
+
+        self.assertEqual(
+            AssemblyComponentPropertiesDialog._mate_transform_locks(
+                rows,
+                {"z": (0.0, 0.0, 1.0)},
+            ),
+            (False, False),
+        )
+
+    def test_drawing_wire_style_uses_hidden_line_removed_geometry(self) -> None:
+        self.assertEqual(
+            DrawingCanvas._view_line_source({"display_style": "wireframe"}),
+            "polylines",
+        )
+
+    def test_shaded_projection_contains_model_surface_triangles(self) -> None:
+        mesh = triangulate_shape(
+            BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()
+        )
+
+        triangles = shaded_projection(
+            [(mesh, "#B9C2CC")],
+            "isometric",
+        )
+
+        self.assertEqual(len(triangles), mesh.triangle_count)
+        self.assertTrue(all(len(item["points"]) == 3 for item in triangles))
+        self.assertTrue(all(item["color"] == "#B9C2CC" for item in triangles))
+
+    def test_model_edges_are_classified_by_topology(self) -> None:
+        box = BRepPrimAPI_MakeBox(10.0, 20.0, 30.0).Shape()
+        self.assertEqual(
+            {edge.topology_role for edge in triangulate_shape(box).edges},
+            {"sharp"},
+        )
+
+        face_explorer = TopExp_Explorer(box, TopAbs_FACE)
+        face_mesh = triangulate_shape(face_explorer.Current())
+        self.assertEqual(
+            {edge.topology_role for edge in face_mesh.edges},
+            {"boundary"},
+        )
+
+        cylinder = BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()
+        cylinder_roles = {
+            edge.topology_role for edge in triangulate_shape(cylinder).edges
+        }
+        self.assertIn("seam", cylinder_roles)
+        self.assertIn("sharp", cylinder_roles)
+
+    def test_edge_visibility_matches_display_mode(self) -> None:
+        def edge(role: str) -> EdgePolyline:
+            return EdgePolyline(
+                edge_index=1,
+                points=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                topology_role=role,
+            )
+
+        self.assertTrue(edge_visible_in_display(edge("boundary"), "wire"))
+        self.assertTrue(edge_visible_in_display(edge("tangent"), "wire"))
+        self.assertFalse(edge_visible_in_display(edge("seam"), "wire"))
+        self.assertFalse(
+            edge_visible_in_display(edge("periodic_tangent"), "wire")
+        )
+        self.assertFalse(
+            edge_visible_in_display(edge("tangent"), "shaded_with_edges")
+        )
+        self.assertTrue(
+            edge_visible_in_display(edge("sharp"), "shaded_with_edges")
+        )
+        self.assertFalse(edge_visible_in_display(edge("sharp"), "shaded"))
+
+    def test_curved_surface_produces_view_dependent_silhouette(self) -> None:
+        cylinder = triangulate_shape(
+            BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()
+        )
+
+        self.assertTrue(any(
+            len({
+                tuple(cylinder.triangle_normals[
+                    offset + vertex * 3:offset + vertex * 3 + 3
+                ])
+                for vertex in range(3)
+            }) > 1
+            for offset in range(0, len(cylinder.triangle_normals), 9)
+        ))
+
+        self.assertGreater(
+            len(silhouette_segments(cylinder, (1.0, 0.0, 0.0))),
+            0,
+        )
+        self.assertEqual(
+            silhouette_segments(cylinder, (0.0, 0.0, 1.0)),
+            (),
+        )
+        oblique_segments = silhouette_segments(
+            cylinder,
+            (1.0, 0.7, 0.3),
+        )
+        self.assertEqual(len(oblique_segments), 2)
+        self.assertTrue(all(
+            abs(first[2] - second[2]) > 19.0
+            for first, second in oblique_segments
+        ))
+
+    def test_topological_edges_are_not_duplicated_as_silhouettes(self) -> None:
+        box = triangulate_shape(
+            BRepPrimAPI_MakeBox(10.0, 20.0, 30.0).Shape()
+        )
+
+        self.assertEqual(
+            silhouette_segments(box, (1.0, 1.0, 1.0)),
+            (),
+        )
+
     def test_workspace_pen_is_one_pixel_and_cosmetic(self) -> None:
         pen = cosmetic_pen(QColor("#808080"))
         self.assertTrue(pen.isCosmetic())
@@ -65,6 +253,65 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual(sheet["default_scale_numerator"], 1.0)
         self.assertEqual(sheet["default_scale"], 1.0)
+
+    def test_deleting_drawing_view_removes_children_and_dimensions(self) -> None:
+        sheet = {
+            "views": [
+                {"id": "parent"},
+                {"id": "child", "parent_view_id": "parent"},
+                {"id": "grandchild", "parent_view_id": "child"},
+                {"id": "unrelated"},
+            ],
+            "dimensions": [
+                {
+                    "id": "dependent",
+                    "first": {"view_id": "child"},
+                    "second": {"view_id": "child"},
+                },
+                {
+                    "id": "kept",
+                    "first": {"view_id": "unrelated"},
+                    "second": {"view_id": "unrelated"},
+                },
+            ],
+        }
+
+        removed = delete_drawing_view(sheet, "parent")
+
+        self.assertEqual(removed, {"parent", "child", "grandchild"})
+        self.assertEqual([view["id"] for view in sheet["views"]], ["unrelated"])
+        self.assertEqual(
+            [dimension["id"] for dimension in sheet["dimensions"]],
+            ["kept"],
+        )
+
+    def test_moving_drawing_view_updates_position_and_bounds(self) -> None:
+        sheet = {
+            "views": [{
+                "id": "view",
+                "x": 10.0,
+                "y": 20.0,
+                "scale": 2.0,
+                "polylines": [[[-1.0, -2.0], [1.0, 2.0]]],
+            }],
+            "dimensions": [{
+                "first": {"view_id": "view"},
+                "second": {"view_id": "view"},
+                "placement": [15.0, 25.0],
+            }],
+        }
+
+        self.assertTrue(move_drawing_view(sheet, "view", 50.0, 60.0))
+
+        view = sheet["views"][0]
+        self.assertEqual((view["x"], view["y"]), (50.0, 60.0))
+        self.assertEqual(
+            view["bounds"],
+            {"left": 48.0, "right": 52.0, "bottom": 56.0, "top": 64.0},
+        )
+        self.assertEqual(
+            sheet["dimensions"][0]["placement"], [55.0, 65.0]
+        )
 
     @staticmethod
     def projected_axis(
@@ -128,6 +375,26 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(len(projection["wireframe_polylines"]), 12)
         self.assertEqual(len(projection["polylines"]), 4)
         self.assertEqual(len(projection["hidden_polylines"]), 4)
+
+    def test_drawing_wireframe_uses_filtered_cylinder_edges_and_outlines(
+        self,
+    ) -> None:
+        shape = BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()
+        mesh = triangulate_shape(shape)
+        wire_polylines = [
+            list(edge.points)
+            for edge in mesh.edges
+            if edge_visible_in_display(edge, "wire")
+        ]
+
+        projection = technical_projection(
+            [shape],
+            wire_polylines,
+            "isometric",
+        )
+
+        self.assertEqual(len(projection["wireframe_polylines"]), 2)
+        self.assertEqual(len(projection["polylines"]), 5)
 
     def test_new_direct_sketch_defaults_to_front_xz_plane(self) -> None:
         document = create_empty_part()

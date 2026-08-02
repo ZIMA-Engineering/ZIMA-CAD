@@ -5,9 +5,11 @@ from math import sqrt
 from typing import Any
 
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+from OCC.Core.BRepLib import BRepLib_ToolTriangulatedShape
 from OCC.Core.GCPnts import GCPnts_QuasiUniformDeflection
+from OCC.Core.GeomAbs import GeomAbs_Cylinder, GeomAbs_Sphere
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
@@ -30,6 +32,7 @@ class EdgePolyline:
     base_color: Point3 = (0.086, 0.098, 0.118)
     label: str = ""
     screen_constant: bool = False
+    topology_role: str = "sharp"
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,14 @@ def triangulate_shape(
         if triangulation is not None:
             transform = location.Transformation()
             reversed_face = face.Orientation() == TopAbs_REVERSED
+            try:
+                BRepLib_ToolTriangulatedShape.ComputeNormals(
+                    face,
+                    triangulation,
+                )
+                has_smooth_normals = triangulation.HasNormals()
+            except (RuntimeError, TypeError, ValueError):
+                has_smooth_normals = False
             for triangle_index in range(
                 1,
                 triangulation.NbTriangles() + 1,
@@ -138,9 +149,24 @@ def triangulate_shape(
                     for node_index in node_indices
                 ]
                 normal = _triangle_normal(*points)
-                for point in points:
+                for point, node_index in zip(points, node_indices):
                     triangle_positions.extend(point)
-                    triangle_normals.extend(normal)
+                    if has_smooth_normals:
+                        node_normal = triangulation.Normal(
+                            node_index
+                        ).Transformed(transform)
+                        smooth_normal = (
+                            node_normal.X(),
+                            node_normal.Y(),
+                            node_normal.Z(),
+                        )
+                        if reversed_face:
+                            smooth_normal = tuple(
+                                -value for value in smooth_normal
+                            )
+                        triangle_normals.extend(smooth_normal)
+                    else:
+                        triangle_normals.extend(normal)
                     all_points.append(point)
                 triangle_face_indices.append(face_index)
                 triangle_owner_ids.append(owner_id)
@@ -148,6 +174,49 @@ def triangulate_shape(
 
     edges: list[EdgePolyline] = []
     seen_edges: list[Any] = []
+    faces: list[Any] = []
+    face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    while face_explorer.More():
+        faces.append(face_explorer.Current())
+        face_explorer.Next()
+
+    def topology_role(edge: Any) -> str:
+        if edge_kind != "edge":
+            return "auxiliary"
+        adjacent_faces: list[Any] = []
+        for face in faces:
+            explorer = TopExp_Explorer(face, TopAbs_EDGE)
+            while explorer.More():
+                if edge.IsSame(explorer.Current()):
+                    adjacent_faces.append(face)
+                    break
+                explorer.Next()
+        for face in adjacent_faces:
+            try:
+                if BRep_Tool.IsClosed(edge, face):
+                    return "seam"
+            except (RuntimeError, TypeError, ValueError):
+                continue
+        if len(adjacent_faces) <= 1:
+            return "boundary"
+        try:
+            if int(BRep_Tool.Continuity(
+                edge, adjacent_faces[0], adjacent_faces[1]
+            )) >= 1:
+                surface_types = {
+                    BRepAdaptor_Surface(face).GetType()
+                    for face in adjacent_faces[:2]
+                }
+                if surface_types.intersection({
+                    GeomAbs_Cylinder,
+                    GeomAbs_Sphere,
+                }):
+                    return "periodic_tangent"
+                return "tangent"
+        except (RuntimeError, TypeError, ValueError):
+            pass
+        return "sharp"
+
     edge_index = 0
     edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
     while edge_explorer.More():
@@ -167,6 +236,7 @@ def triangulate_shape(
                     element_kind=edge_kind,
                     base_color=edge_color,
                     label=edge_label,
+                    topology_role=topology_role(edge),
                 )
             )
             all_points.extend(points)
@@ -228,6 +298,131 @@ def topology_subshape(
             return candidate
         explorer.Next()
     return None
+
+
+def edge_visible_in_display(edge: EdgePolyline, display_mode: str) -> bool:
+    """Apply the shared model/assembly edge visibility convention."""
+    if edge.element_kind != "edge":
+        return True
+    if display_mode == "shaded":
+        return False
+    if edge.topology_role in {"seam", "periodic_tangent"}:
+        return False
+    if (
+        display_mode == "shaded_with_edges"
+        and edge.topology_role == "tangent"
+    ):
+        return False
+    return True
+
+
+def silhouette_segments(
+    mesh: ViewerMesh,
+    view_direction: Point3,
+) -> tuple[tuple[Point3, Point3], ...]:
+    """Return triangulation edges separating front- and back-facing facets."""
+    topology_segments: set[tuple[str, Point3, Point3]] = set()
+    seam_polylines: list[tuple[Point3, ...]] = []
+    for edge in mesh.edges:
+        if edge.element_kind != "edge":
+            continue
+        if edge.topology_role == "seam":
+            seam_polylines.append(edge.points)
+        for first, second in zip(edge.points, edge.points[1:]):
+            first_key = tuple(round(value, 7) for value in first)
+            second_key = tuple(round(value, 7) for value in second)
+            low, high = sorted((first_key, second_key))
+            topology_segments.add((edge.owner_id, low, high))
+    positions = mesh.triangle_positions
+    owners = mesh.triangle_owner_ids
+    shared: dict[
+        tuple[str, Point3, Point3],
+        list[tuple[Point3, Point3, float, int]],
+    ] = {}
+    for triangle_index, offset in enumerate(range(0, len(positions), 9)):
+        points = tuple(
+            (
+                positions[offset + vertex * 3],
+                positions[offset + vertex * 3 + 1],
+                positions[offset + vertex * 3 + 2],
+            )
+            for vertex in range(3)
+        )
+        normal = _triangle_normal(*points)
+        facing = sum(
+            normal[axis] * view_direction[axis]
+            for axis in range(3)
+        )
+        owner = owners[triangle_index]
+        face_index = mesh.triangle_face_indices[triangle_index]
+        for first, second in (
+            (points[0], points[1]),
+            (points[1], points[2]),
+            (points[2], points[0]),
+        ):
+            first_key = tuple(round(value, 7) for value in first)
+            second_key = tuple(round(value, 7) for value in second)
+            low, high = sorted((first_key, second_key))
+            shared.setdefault((owner, low, high), []).append(
+                (first, second, facing, face_index)
+            )
+    result: list[tuple[Point3, Point3]] = []
+    diagonal = sqrt(sum(
+        (mesh.bounds_max[axis] - mesh.bounds_min[axis]) ** 2
+        for axis in range(3)
+    ))
+    seam_tolerance = max(diagonal * 1e-3, 1e-7)
+    for key, records in shared.items():
+        if len(records) < 2:
+            continue
+        # Real CAD edges are rendered by the regular edge pass with a proper
+        # depth test. Drawing them again as painter silhouettes lets concave
+        # rear edges shine through the solid, especially around sketch fillets.
+        if key in topology_segments:
+            continue
+        if any(
+            _point_polyline_distance(records[0][0], polyline)
+            <= seam_tolerance
+            and _point_polyline_distance(records[0][1], polyline)
+            <= seam_tolerance
+            for polyline in seam_polylines
+        ):
+            continue
+        # A real boundary between two CAD faces (for example the circular
+        # cap/side edge of a cylinder) is not a generated surface silhouette.
+        # It is already drawn by the topology edge pass as one smooth curve.
+        if len({record[3] for record in records}) != 1:
+            continue
+        facings = tuple(record[2] for record in records)
+        if min(facings) < -1e-9 and max(facings) > 1e-9:
+            result.append((records[0][0], records[0][1]))
+    return tuple(result)
+
+
+def _point_polyline_distance(
+    point: Point3,
+    polyline: tuple[Point3, ...],
+) -> float:
+    best = float("inf")
+    for first, second in zip(polyline, polyline[1:]):
+        direction = tuple(second[axis] - first[axis] for axis in range(3))
+        length_squared = sum(value * value for value in direction)
+        if length_squared <= 1e-20:
+            fraction = 0.0
+        else:
+            fraction = max(0.0, min(1.0, sum(
+                (point[axis] - first[axis]) * direction[axis]
+                for axis in range(3)
+            ) / length_squared))
+        closest = tuple(
+            first[axis] + fraction * direction[axis]
+            for axis in range(3)
+        )
+        best = min(best, sqrt(sum(
+            (point[axis] - closest[axis]) ** 2
+            for axis in range(3)
+        )))
+    return best
 
 
 def combine_viewer_meshes(meshes: tuple[ViewerMesh, ...]) -> ViewerMesh:
@@ -351,6 +546,7 @@ def transform_viewer_mesh(mesh: ViewerMesh, transform) -> ViewerMesh:
             base_color=edge.base_color,
             label=edge.label,
             screen_constant=edge.screen_constant,
+            topology_role=edge.topology_role,
         )
         for edge in mesh.edges
     )
