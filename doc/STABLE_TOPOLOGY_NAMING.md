@@ -34,8 +34,9 @@ ZIMA-owned provenance through the initial additive/subtractive Part subset.
 The next supported operation is wider curved-profile and multi-intersection
 coverage. Circular, closed-spline and mixed nested segment/arc/spline Extrusion,
 full closed-spline Revolve and repeated full center-arc Revolve cuts are covered
-through dimension changes and save/reload. General multi-body Booleans, Fillet
-and Chamfer are not yet
+through dimension changes and save/reload. Three-level Extrusion nesting keeps
+outer/hole/island lateral provenance and deterministically fragments multiple
+cap faces. General multi-body Booleans, Fillet and Chamfer are not yet
 implemented. Legacy numerical topology references are intentionally not
 migrated from an index alone; development files may be recreated.
 

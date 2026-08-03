@@ -2471,6 +2471,7 @@ def protrusion_face_registry(
 
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     runtime_index = 0
+    cap_faces: dict[str, list[tuple[Any, int]]] = {"start": [], "end": []}
     while explorer.More():
         runtime_index += 1
         face = explorer.Current()
@@ -2529,11 +2530,7 @@ def protrusion_face_registry(
             else None
         )
         if role is not None:
-            registry.register_face(
-                FaceRef(feature_id=feature.entity_id, role=role),
-                face,
-                runtime_index=runtime_index,
-            )
+            cap_faces[role].append((face, runtime_index))
         else:
             plane = adaptor.Plane()
             location = plane.Location()
@@ -2560,6 +2557,100 @@ def protrusion_face_registry(
                     runtime_index=runtime_index,
                 )
         explorer.Next()
+
+    for role, candidates in cap_faces.items():
+        if len(candidates) == 1:
+            face, face_index = candidates[0]
+            registry.register_face(
+                FaceRef(feature_id=feature.entity_id, role=role),
+                face,
+                runtime_index=face_index,
+            )
+            continue
+        ordered_candidates = sorted(
+            candidates,
+            key=lambda candidate: _topology_fragment_key(
+                candidate[0], TopAbs_FACE
+            ),
+        )
+        for fragment, (face, face_index) in enumerate(
+            ordered_candidates, 1
+        ):
+            boundary_sources: list[str] = []
+            face_edges = TopExp_Explorer(face, TopAbs_EDGE)
+            edges = []
+            while face_edges.More():
+                edges.append(face_edges.Current())
+                face_edges.Next()
+            for source_id, midpoint in curve_midpoints.items():
+                source_points = curve_point_ids[source_id]
+                expected = tuple(
+                    point_positions[point_id][role]
+                    for point_id in source_points
+                )
+                sample = tuple(
+                    midpoint[index]
+                    + extrusion_direction[index]
+                    * (start if role == "start" else end)
+                    for index in range(3)
+                )
+                vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*sample)).Vertex()
+                touches_boundary = False
+                for edge in edges:
+                    try:
+                        adaptor = BRepAdaptor_Curve(edge)
+                        edge_endpoints = (
+                            adaptor.Value(adaptor.FirstParameter()),
+                            adaptor.Value(adaptor.LastParameter()),
+                        )
+                        endpoint_positions = tuple(
+                            (point.X(), point.Y(), point.Z())
+                            for point in edge_endpoints
+                        )
+                    except (AttributeError, RuntimeError):
+                        continue
+                    endpoints_match = (
+                        sum(
+                            (endpoint_positions[0][index] - expected[0][index]) ** 2
+                            for index in range(3)
+                        ) <= 1.0e-12
+                        and sum(
+                            (endpoint_positions[1][index] - expected[1][index]) ** 2
+                            for index in range(3)
+                        ) <= 1.0e-12
+                    ) or (
+                        sum(
+                            (endpoint_positions[0][index] - expected[1][index]) ** 2
+                            for index in range(3)
+                        ) <= 1.0e-12
+                        and sum(
+                            (endpoint_positions[1][index] - expected[0][index]) ** 2
+                            for index in range(3)
+                        ) <= 1.0e-12
+                    )
+                    if not endpoints_match:
+                        continue
+                    distance = BRepExtrema_DistShapeShape(vertex, edge)
+                    distance.Perform()
+                    if distance.IsDone() and distance.Value() <= 1.0e-6:
+                        touches_boundary = True
+                        break
+                if touches_boundary:
+                    boundary_sources.append(source_id)
+            source_id = semantic_provenance_id(*(
+                EdgeRef(feature.entity_id, role, boundary_source)
+                for boundary_source in boundary_sources
+            )) if boundary_sources else None
+            registry.register_face(
+                FaceRef(
+                    feature.entity_id,
+                    role,
+                    source_id,
+                    fragment if source_id is None else None,
+                ),
+                face,
+                runtime_index=face_index,
+            )
 
     def point_tuple(point) -> tuple[float, float, float]:
         return (point.X(), point.Y(), point.Z())

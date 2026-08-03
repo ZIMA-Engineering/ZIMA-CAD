@@ -1096,6 +1096,101 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(set(loaded_registry.references), expected_faces)
         self.assertEqual(set(loaded_registry.edge_references), expected_edges)
 
+    def test_three_level_extrusion_keeps_cap_and_island_provenance(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "IslandExtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = []
+        loop_sources: dict[str, tuple[str, ...]] = {}
+        for prefix, coordinates in (
+            ("outer", ((0, 0), (60, 0), (60, 50), (0, 50))),
+            ("hole", ((10, 10), (50, 10), (50, 40), (10, 40))),
+            ("island", ((20, 18), (40, 18), (40, 32), (20, 32))),
+        ):
+            point_ids = tuple(f"{prefix}-p{index}" for index in range(4))
+            source_ids = tuple(f"{prefix}-e{index}" for index in range(4))
+            loop_sources[prefix] = source_ids
+            entities.extend(
+                {"id": point_id, "type": "point", "x": x, "y": y}
+                for point_id, (x, y) in zip(point_ids, coordinates)
+            )
+            entities.extend(
+                {
+                    "id": source_ids[index],
+                    "type": "segment",
+                    "point_ids": [
+                        point_ids[index], point_ids[(index + 1) % 4]
+                    ],
+                }
+                for index in range(4)
+            )
+        sketch = ZimaEntity(
+            "IslandSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "IslandFeature",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "12"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        cap_references = {
+            FaceRef(feature.entity_id, role, fragment=fragment)
+            for role in ("start", "end")
+            for fragment in (1, 2)
+        }
+        generated_references = {
+            FaceRef(feature.entity_id, "generated", source_id)
+            for source_ids in loop_sources.values()
+            for source_id in source_ids
+        }
+        shape = make_protrusion_shape(document, container)
+        self.assertEqual(self._subshape_count(shape, TopAbs_SOLID), 2)
+        registry = active_face_registry(document)
+        self.assertEqual(
+            set(registry.references),
+            cap_references | generated_references,
+        )
+        for reference in cap_references:
+            self.assertEqual(
+                registry.resolve(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if str(entity.get("id", "")).startswith("island-p"):
+                entity["x"] = float(entity["x"]) + 2.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        self.assertEqual(
+            set(active_face_registry(document).references),
+            cap_references | generated_references,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "three-level-island.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(
+            set(loaded_registry.references),
+            cap_references | generated_references,
+        )
+
     def test_full_arc_revolve_cut_names_repeated_curved_intersections(self) -> None:
         document = create_empty_part()
         base_container = document.create_container("Box", ContainerType.BOX)
