@@ -450,6 +450,110 @@ class StableTopologyTests(unittest.TestCase):
                 TopologyResolutionState.RESOLVED,
             )
 
+    def test_boolean_chain_propagates_two_solid_feature_ancestry(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "TwoSolidExtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = []
+        for prefix, x_offset in (("left", 0.0), ("right", 40.0)):
+            coordinates = (
+                (x_offset, 0.0), (x_offset + 20.0, 0.0),
+                (x_offset + 20.0, 20.0), (x_offset, 20.0),
+            )
+            point_ids = tuple(f"{prefix}-p{index}" for index in range(4))
+            entities.extend(
+                {"id": point_id, "type": "point", "x": x, "y": y}
+                for point_id, (x, y) in zip(point_ids, coordinates)
+            )
+            entities.extend(
+                {
+                    "id": f"{prefix}-e{index}",
+                    "type": "segment",
+                    "point_ids": [
+                        point_ids[index], point_ids[(index + 1) % 4]
+                    ],
+                }
+                for index in range(4)
+            )
+        sketch = ZimaEntity(
+            "TwoSolidSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "TwoSolidFeature",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "12"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        cutters = []
+        for name, origin, dimensions in (
+            ("FirstCrossCut", (8.0, 0.0, 0.0), (44.0, 6.0, 20.0)),
+            ("SecondCrossCut", (-5.0, 7.0, 7.0), (70.0, 3.0, 6.0)),
+        ):
+            cut_container = document.create_container(name, ContainerType.BOX)
+            cutter = document.create_primitive(
+                cut_container.entity_id, EntityKind.BOX
+            )
+            self.assertIsNotNone(cutter)
+            cutter.parameters.update({
+                "length": str(dimensions[0]),
+                "width": str(dimensions[1]),
+                "height": str(dimensions[2]),
+            })
+            cutter.combine_mode = CombineMode.SUBTRACT
+            cut_container.coordinate_system.origin = origin
+            cutters.append((cut_container, cutter))
+
+        registry = active_face_registry(document)
+        self.assertGreaterEqual(
+            self._subshape_count(document.build_active_shape(), TopAbs_SOLID),
+            2,
+        )
+        remembered_faces = set(registry.references)
+        remembered_edges = set(registry.edge_references)
+        remembered_vertices = set(registry.vertex_references)
+        for _container, cutter in cutters:
+            intersections = {
+                reference for reference in registry.edge_references
+                if reference.feature_id == cutter.entity_id
+                and reference.role == "intersection"
+            }
+            self.assertTrue(intersections)
+            self.assertTrue(any(
+                registry.resolve_edge(reference).state
+                == TopologyResolutionState.RESOLVED
+                for reference in intersections
+            ))
+
+        cutters[1][0].coordinate_system.origin = (-5.0, 7.0, 8.0)
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), remembered_faces)
+        self.assertEqual(set(edited_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), remembered_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "two-solid-boolean-chain.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(set(loaded_registry.references), remembered_faces)
+        self.assertEqual(set(loaded_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), remembered_vertices
+        )
+
     def test_circular_protrusion_cut_keeps_curved_provenance(self) -> None:
         document = create_empty_part()
         base_container = document.create_container("Box", ContainerType.BOX)

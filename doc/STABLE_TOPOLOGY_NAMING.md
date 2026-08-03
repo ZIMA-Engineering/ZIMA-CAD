@@ -38,7 +38,8 @@ through dimension changes and save/reload. Three-level Extrusion nesting keeps
 outer/hole/island lateral provenance and deterministically fragments multiple
 cap faces. Partial Revolve now applies the same rule to its repeated start/end
 faces, edges and vertices. General multi-body Booleans, Fillet and Chamfer are
-not yet
+not yet implemented, but repeated cuts across a two-solid source now have
+regression coverage for face, edge and vertex ancestry.
 implemented. Legacy numerical topology references are intentionally not
 migrated from an index alone; development files may be recreated.
 

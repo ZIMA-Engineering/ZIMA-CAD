@@ -68,7 +68,9 @@
   topology references. Three-level Extrusion nesting also keeps the island
   provenance and gives repeated cap roles deterministic fragments. Partial
   Revolve now has equivalent outer/hole/island coverage for faces, edges and
-  vertices.
+  vertices. Repeated non-overlapping cuts through a two-solid feature preserve
+  the complete supported face/edge/vertex reference sets across edits and
+  save/reload.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
@@ -95,8 +97,9 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable multi-level Extrusion/Revolve references to wider
-  Boolean chains and multi-body ancestry.
+- Extend the now-stable multi-level Extrusion/Revolve and repeated multi-solid
+  cut references to additive joining, more complex intersecting tools and
+  wider multi-body ancestry.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the
