@@ -189,6 +189,105 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(self._subshape_count(connected, TopAbs_SOLID), 1)
         self.assertNotIn("build_status", second.parameters)
 
+    def test_boolean_cut_propagates_both_feature_face_identities(self) -> None:
+        document = create_empty_part()
+        outer_container = document.create_container("Box", ContainerType.BOX)
+        outer = document.create_primitive(
+            outer_container.entity_id, EntityKind.BOX
+        )
+        tool_container = document.create_container("Box", ContainerType.BOX)
+        tool = document.create_primitive(
+            tool_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(outer)
+        self.assertIsNotNone(tool)
+        outer.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+        tool.parameters.update({
+            "length": "20", "width": "20", "height": "20"
+        })
+        tool.combine_mode = CombineMode.SUBTRACT
+        expected = {
+            FaceRef(feature.entity_id, role)
+            for feature in (outer, tool)
+            for role in (
+                "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+            )
+        }
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected)
+        for reference in expected:
+            self.assertEqual(
+                registry.resolve(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cut.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(set(loaded_registry.references), expected)
+        for reference in expected:
+            self.assertEqual(
+                loaded_registry.resolve(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+
+    def test_boolean_split_exposes_fragments_without_silent_rebinding(self) -> None:
+        document = create_empty_part()
+        first_container = document.create_container("Box", ContainerType.BOX)
+        first = document.create_primitive(
+            first_container.entity_id, EntityKind.BOX
+        )
+        second_container = document.create_container("Box", ContainerType.BOX)
+        second = document.create_primitive(
+            second_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        second_container.coordinate_system.origin = (20.0, 0.0, 0.0)
+        original = FaceRef(first.entity_id, "y_max")
+
+        first_registry = active_face_registry(document)
+        self.assertEqual(
+            first_registry.resolve(original).state,
+            TopologyResolutionState.AMBIGUOUS,
+        )
+        fragments = {
+            reference
+            for reference in first_registry.references
+            if reference.feature_id == first.entity_id
+            and reference.role == "y_max"
+            and reference.fragment is not None
+        }
+        self.assertEqual(
+            fragments,
+            {
+                FaceRef(first.entity_id, "y_max", fragment=1),
+                FaceRef(first.entity_id, "y_max", fragment=2),
+            },
+        )
+
+        second_container.coordinate_system.origin = (25.0, 0.0, 0.0)
+        edited_registry = active_face_registry(document)
+        self.assertEqual(
+            edited_registry.resolve(original).state,
+            TopologyResolutionState.AMBIGUOUS,
+        )
+        self.assertTrue(fragments.issubset(set(edited_registry.references)))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fuse.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(
+            loaded_registry.resolve(original).state,
+            TopologyResolutionState.AMBIGUOUS,
+        )
+        self.assertTrue(fragments.issubset(set(loaded_registry.references)))
+
     def test_history_orientation_mapping_tracks_runtime_part_id(self) -> None:
         document = create_empty_part()
         container = document.create_container("Box", ContainerType.BOX)

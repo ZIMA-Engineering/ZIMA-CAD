@@ -15,15 +15,21 @@ The central implementation is active, not only a design proposal:
 - newly selected container face/orientation constraints persist semantic
   `FaceRef` dictionaries; current development files with one uniquely matching
   stored plane equation are upgraded without trusting their numerical index;
+- supported Part `Fuse`/`Cut` history propagates existing semantic face, edge
+  and vertex ancestry; splits expose deterministic fragment references while
+  the pre-split reference remains explicitly ambiguous, and merges never bind
+  silently to one ancestry;
 - point, edge and face references survive tested parent dimension/profile
   edits, save/reload and automatic descendant regeneration;
 - unresolved or ambiguous registry entries do not silently select another
   runtime shape.
 
-The next supported operation is identity propagation through additive and
-subtractive results. General Booleans, Fillet and Chamfer are not yet
-implemented. Legacy numerical topology references are intentionally not
-migrated at this stage; development files may be recreated.
+The next supported operation is assigning ZIMA-owned provenance to entirely
+new Boolean intersection edges and vertices. Existing supported ancestry is
+already propagated through the initial additive/subtractive Part subset.
+General multi-body Booleans, Fillet and Chamfer are not yet implemented. Legacy
+numerical topology references are intentionally not migrated from an index
+alone; development files may be recreated.
 
 ## Problem
 
@@ -212,8 +218,10 @@ correct result.
    references.
 5. **Done:** implement equivalent face, edge and vertex mapping for Revolve.
 6. Add complete missing/ambiguous diagnostics, UI indication and manual repair.
-7. Extend history propagation to additive/subtractive results and general
-   Boolean operations.
+7. **Initial supported subset done:** propagate existing semantic ancestry
+   through additive/subtractive Part results, including explicit split and
+   merge ambiguity. Next assign ZIMA-owned intersection-edge/vertex identities
+   before expanding to general Boolean operations.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
 9. Add Fillet and Chamfer only after split/merge behavior is covered by tests.
 10. Consider legacy numerical-reference migration only if it becomes a product

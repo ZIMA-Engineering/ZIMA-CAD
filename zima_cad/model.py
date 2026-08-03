@@ -2776,6 +2776,238 @@ def revolve_face_registry(
     return registry
 
 
+def _standalone_topology_registry(
+    document: PartDocument,
+    container: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    if container.container_type == ContainerType.PROTRUSION:
+        return protrusion_face_registry(document, container, shape)
+    if container.container_type == ContainerType.REVOLVE:
+        return revolve_face_registry(document, container, shape)
+    solid = next((
+        child for child in container.children
+        if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
+        and not child.locked
+    ), None)
+    return (
+        semantic_face_registry(document, solid, shape)
+        if solid is not None
+        else TopologyRegistry()
+    )
+
+
+def _container_boolean_operation(container: ZimaEntity) -> CombineMode:
+    feature = next((
+        child for child in container.children
+        if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+        and not child.locked
+    ), None)
+    if feature is not None:
+        try:
+            return CombineMode(str(feature.parameters.get(
+                "operation", CombineMode.ADD.value
+            )))
+        except ValueError:
+            return CombineMode.ADD
+    solid = next((
+        child for child in container.children
+        if child.kind in SOLID_KINDS and not child.locked
+    ), None)
+    return solid.combine_mode if solid is not None else CombineMode.NONE
+
+
+def _unique_subshapes(shape, shape_type: int) -> list[Any]:
+    explorer = TopExp_Explorer(shape, shape_type)
+    result = []
+    while explorer.More():
+        candidate = explorer.Current()
+        if not any(candidate.IsSame(existing) for existing in result):
+            result.append(candidate)
+        explorer.Next()
+    return result
+
+
+def _boolean_history_shapes(builder, source_shape) -> list[Any]:
+    candidates = []
+    for method_name in ("Modified", "Generated"):
+        try:
+            history = getattr(builder, method_name)(source_shape)
+        except (AttributeError, RuntimeError, TypeError):
+            continue
+        try:
+            iterator = iter(history)
+        except TypeError:
+            continue
+        for candidate in iterator:
+            if not any(candidate.IsSame(existing) for existing in candidates):
+                candidates.append(candidate)
+    return candidates
+
+
+def _topology_fragment_key(shape, shape_type: int) -> tuple[float, ...]:
+    if shape_type == TopAbs_VERTEX:
+        point = BRep_Tool.Pnt(shape)
+        return (point.X(), point.Y(), point.Z())
+    properties = GProp_GProps()
+    if shape_type == TopAbs_FACE:
+        brepgprop.SurfaceProperties(shape, properties)
+    else:
+        brepgprop.LinearProperties(shape, properties)
+    center = properties.CentreOfMass()
+    return (
+        center.X(), center.Y(), center.Z(), abs(float(properties.Mass()))
+    )
+
+
+def _reference_with_fragment(reference, fragment: int):
+    return type(reference)(
+        reference.feature_id,
+        reference.role,
+        reference.source_id,
+        fragment,
+    )
+
+
+def _propagate_boolean_registry(
+    builder,
+    result_shape,
+    left: TopologyRegistry,
+    right: TopologyRegistry,
+) -> TopologyRegistry:
+    """Propagate semantic ancestry through one OCCT Boolean operation."""
+
+    result = TopologyRegistry()
+    kinds = (
+        (
+            TopAbs_FACE,
+            (*left.face_entries, *right.face_entries),
+            result.register_face,
+        ),
+        (
+            TopAbs_EDGE,
+            (*left.edge_entries, *right.edge_entries),
+            result.register_edge,
+        ),
+        (
+            TopAbs_VERTEX,
+            (*left.vertex_entries, *right.vertex_entries),
+            result.register_vertex,
+        ),
+    )
+    for shape_type, entries, register in kinds:
+        final_shapes = _unique_subshapes(result_shape, shape_type)
+        assignments: list[tuple[Any, list[int], Any, bool]] = []
+        for reference, source_shapes in entries:
+            candidate_indices = []
+            for source_shape in source_shapes:
+                history_shapes = _boolean_history_shapes(builder, source_shape)
+                if not history_shapes:
+                    try:
+                        deleted = bool(builder.IsDeleted(source_shape))
+                    except (AttributeError, RuntimeError, TypeError):
+                        deleted = True
+                    if not deleted:
+                        history_shapes = [source_shape]
+                for candidate in history_shapes:
+                    index = next((
+                        item_index
+                        for item_index, final_shape in enumerate(final_shapes)
+                        if candidate.IsSame(final_shape)
+                    ), None)
+                    if index is not None and index not in candidate_indices:
+                        candidate_indices.append(index)
+            candidate_indices.sort(
+                key=lambda index: _topology_fragment_key(
+                    final_shapes[index], shape_type
+                )
+            )
+            if not candidate_indices:
+                continue
+            if len(candidate_indices) == 1:
+                assignments.append((
+                    reference, candidate_indices, reference, True
+                ))
+                continue
+            # Keep the pre-split identity explicitly ambiguous and expose
+            # deterministic fragment references for subsequent selections.
+            assignments.append((
+                reference, candidate_indices, reference, False
+            ))
+            for fragment, index in enumerate(candidate_indices, 1):
+                assignments.append((
+                    _reference_with_fragment(reference, fragment),
+                    [index],
+                    reference,
+                    True,
+                ))
+
+        origins_by_index: dict[int, set[Any]] = {}
+        for _reference, indices, origin, _runtime in assignments:
+            for index in indices:
+                origins_by_index.setdefault(index, set()).add(origin)
+        for reference, indices, _origin, expose_runtime in assignments:
+            merged = any(
+                len(origins_by_index.get(index, ())) > 1
+                for index in indices
+            )
+            for index in indices:
+                shape = final_shapes[index]
+                register(
+                    reference,
+                    shape,
+                    runtime_index=(index + 1)
+                    if expose_runtime and not merged
+                    else None,
+                )
+                if merged:
+                    # Duplicate registration deliberately yields AMBIGUOUS;
+                    # a merge must never silently pick one ancestry.
+                    register(reference, shape)
+    return result
+
+
+def boolean_topology_registry_at(
+    document: PartDocument,
+    cursor: int,
+) -> TopologyRegistry:
+    """Evaluate supported feature ancestry through the Part Boolean history."""
+
+    result_shape = None
+    result_registry = TopologyRegistry()
+    for container in document.history_objects_at(cursor):
+        tool_shape = document.build_standalone_shape(container)
+        if tool_shape is None:
+            continue
+        tool_registry = _standalone_topology_registry(
+            document, container, tool_shape
+        )
+        operation = _container_boolean_operation(container)
+        if result_shape is None:
+            result_shape = tool_shape
+            result_registry = tool_registry
+            continue
+        builder = (
+            BRepAlgoAPI_Cut(result_shape, tool_shape)
+            if operation == CombineMode.SUBTRACT
+            else BRepAlgoAPI_Fuse(result_shape, tool_shape)
+        )
+        combined = builder.Shape()
+        if operation == CombineMode.ADD and len(
+            _unique_subshapes(combined, TopAbs_SOLID)
+        ) != 1:
+            continue
+        if operation == CombineMode.SUBTRACT and not _unique_subshapes(
+            combined, TopAbs_SOLID
+        ):
+            continue
+        result_registry = _propagate_boolean_registry(
+            builder, combined, result_registry, tool_registry
+        )
+        result_shape = combined
+    return result_registry
+
+
 def face_registry_at(
     document: PartDocument,
     cursor: int,
@@ -2783,6 +3015,8 @@ def face_registry_at(
     """Return semantic faces for a single-feature history snapshot."""
 
     objects = document.history_objects_at(cursor)
+    if len(objects) > 1:
+        return boolean_topology_registry_at(document, cursor)
     if len(objects) != 1:
         return TopologyRegistry()
     container = objects[0]

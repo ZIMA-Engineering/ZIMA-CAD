@@ -58,8 +58,10 @@
   and vertices now have semantic identities; Revolve faces, edges and vertices
   have equivalent provenance-based identities. Supported external Sketch
   references survive parent edits, save/reload and automatic descendant
-  regeneration. Propagate identities through additive/subtractive and general
-  Boolean results next. Missing
+  regeneration. Existing supported ancestry now propagates through the initial
+  additive/subtractive Part subset with explicit split/merge ambiguity. Add
+  ZIMA-owned identities for new Boolean intersection edges and vertices next,
+  then expand to general Boolean results. Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
 - Add grounding/un-grounding of components and visualize remaining component

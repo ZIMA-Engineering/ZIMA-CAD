@@ -364,15 +364,55 @@ class TopologyRegistry:
 
     @property
     def references(self) -> tuple[FaceRef, ...]:
-        return tuple(sorted(self._faces_by_ref))
+        return tuple(sorted(self._faces_by_ref, key=self._reference_sort_key))
 
     @property
     def edge_references(self) -> tuple[EdgeRef, ...]:
-        return tuple(sorted(self._edges_by_ref))
+        return tuple(sorted(
+            self._edges_by_ref, key=self._reference_sort_key
+        ))
 
     @property
     def vertex_references(self) -> tuple[VertexRef, ...]:
-        return tuple(sorted(self._vertices_by_ref))
+        return tuple(sorted(
+            self._vertices_by_ref, key=self._reference_sort_key
+        ))
+
+    @staticmethod
+    def _reference_sort_key(reference) -> tuple[Any, ...]:
+        return (
+            reference.feature_id,
+            reference.role,
+            reference.source_id or "",
+            -1 if reference.fragment is None else reference.fragment,
+        )
+
+    @property
+    def face_entries(self) -> tuple[tuple[FaceRef, tuple[Any, ...]], ...]:
+        return tuple(
+            (reference, tuple(self._faces_by_ref[reference]))
+            for reference in sorted(
+                self._faces_by_ref, key=self._reference_sort_key
+            )
+        )
+
+    @property
+    def edge_entries(self) -> tuple[tuple[EdgeRef, tuple[Any, ...]], ...]:
+        return tuple(
+            (reference, tuple(self._edges_by_ref[reference]))
+            for reference in sorted(
+                self._edges_by_ref, key=self._reference_sort_key
+            )
+        )
+
+    @property
+    def vertex_entries(self) -> tuple[tuple[VertexRef, tuple[Any, ...]], ...]:
+        return tuple(
+            (reference, tuple(self._vertices_by_ref[reference]))
+            for reference in sorted(
+                self._vertices_by_ref, key=self._reference_sort_key
+            )
+        )
 
 
 def parse_face_reference(value: Any) -> FaceRef | None:
