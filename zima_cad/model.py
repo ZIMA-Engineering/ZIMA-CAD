@@ -93,6 +93,11 @@ def default_user_parameters() -> dict[str, str]:
         "schvalil": "",
         "verze": "00",
         "datum": "",
+        "presnost": "ISO 2768-mK",
+        "tolerovani": "ISO 8015",
+        "hmotnost_sestavy": "",
+        "mnozstvi_sestav": "",
+        "hmotnost": "",
     }
 
 
@@ -107,6 +112,11 @@ def default_user_parameter_order() -> list[str]:
         "schvalil",
         "verze",
         "datum",
+        "presnost",
+        "tolerovani",
+        "hmotnost_sestavy",
+        "mnozstvi_sestav",
+        "hmotnost",
     ]
 
 
@@ -118,6 +128,18 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "de": "Gezeichnet von",
             "en": "Drew",
             "fr": "Dessiné par",
+        },
+        "hmotnost_sestavy": {
+            "cs": "Hmotnost sestavy",
+            "de": "Baugruppengewicht",
+            "en": "Assembly weight",
+            "fr": "Masse de l'assemblage",
+        },
+        "hmotnost": {
+            "cs": "Hmotnost",
+            "de": "Gewicht",
+            "en": "Weight",
+            "fr": "Masse",
         },
         "material": {
             "cs": "Materi\u00e1l",
@@ -131,7 +153,19 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "en": "Quantity",
             "fr": "Quantité",
         },
+        "mnozstvi_sestav": {
+            "cs": "Mno\u017estv\u00ed sestav",
+            "de": "Baugruppenmenge",
+            "en": "Assembly quantity",
+            "fr": "Quantit\u00e9 d'assemblages",
+        },
         "nazev": {"cs": "N\u00e1zev", "de": "Name", "en": "Name", "fr": "Nom"},
+        "presnost": {
+            "cs": "P\u0159esnost",
+            "de": "Genauigkeit",
+            "en": "Accuracy",
+            "fr": "Pr\u00e9cision",
+        },
         "norma": {"cs": "Norma", "de": "Norm", "en": "Standard", "fr": "Norme"},
         "polotovar": {
             "cs": "Polotovar",
@@ -146,6 +180,12 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "fr": "Approuvé par",
         },
         "verze": {"cs": "Verze", "de": "Version", "en": "Version", "fr": "Version"},
+        "tolerovani": {
+            "cs": "Tolerov\u00e1n\u00ed",
+            "de": "Tolerierung",
+            "en": "Tolerancing",
+            "fr": "Tol\u00e9rancement",
+        },
     }
 
 

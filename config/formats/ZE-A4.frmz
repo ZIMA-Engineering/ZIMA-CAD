@@ -1,0 +1,72 @@
+[Format]
+SchemaVersion = 2
+Name = ZE A4 frame
+SheetFormat = A4
+Orientation = portrait
+DocumentType = any
+
+[Frame]
+LeftMargin = 20
+RightMargin = 10
+TopMargin = 10
+BottomMargin = 10
+Color = #FFFFFF
+LineWidth = 0.50
+
+[TitleBlock]
+Enabled = no
+
+[FrameGeometry]
+; Green zone boundary. The paper-edge rectangle from DXF is intentionally omitted.
+Line001 = 15, 5, 204.85, 5, GREEN
+Line002 = 204.85, 5, 204.85, 292, GREEN
+Line003 = 204.85, 292, 15, 292, GREEN
+Line004 = 15, 292, 15, 5, GREEN
+
+; White main frame.
+Line005 = 20, 10, 200, 10, WHITE
+Line006 = 200, 10, 200, 287, WHITE
+Line007 = 200, 287, 20, 287, WHITE
+Line008 = 20, 287, 20, 10, WHITE
+
+; Side zone and folding marks.
+Line009 = 15, 48.5, 20, 48.5, GREEN
+Line010 = 204.85, 48.5, 200, 48.5, GREEN
+Line011 = 15, 98.5, 20, 98.5, GREEN
+Line012 = 204.85, 98.5, 200, 98.5, GREEN
+Line013 = 15.14684, 148.38008, 20.14684, 148.38008, GREEN
+Line014 = 204.85316, 148.38008, 199.85316, 148.38008, GREEN
+Line015 = 15, 198.5, 20, 198.5, GREEN
+Line016 = 204.85, 198.5, 200, 198.5, GREEN
+Line017 = 15, 248.5, 20, 248.5, GREEN
+Line018 = 204.85, 248.5, 200, 248.5, GREEN
+
+; Top and bottom zone/folding marks copied from the useful DXF geometry.
+Line019 = 65, 5, 65, 10, GREEN
+Line020 = 115, 5, 115, 10, GREEN
+Line021 = 161, 5, 161, 10, GREEN
+Line022 = 65, 292, 65, 287, GREEN
+Line023 = 160, 292, 160, 287, GREEN
+Line024 = 115, 292, 115, 287, GREEN
+
+; Fixed zone labels. Title-block text is intentionally not part of the frame.
+Text001 = 1, 39.2391, 5.75, 3.5, GREEN
+Text002 = 2, 88.91325, 5.75, 3.5, GREEN
+Text003 = 3, 138.91325, 5.75, 3.5, GREEN
+Text004 = 4, 178.91325, 5.75, 3.5, GREEN
+Text005 = 1, 39.2391, 287.75, 3.5, GREEN
+Text006 = 2, 88.91325, 287.75, 3.5, GREEN
+Text007 = 3, 132.91325, 287.75, 3.5, GREEN
+Text008 = 4, 180.91325, 287.75, 3.5, GREEN
+Text009 = F, 16.5676, 21.75, 3.5, GREEN
+Text010 = E, 16.499, 71.75, 3.5, GREEN
+Text011 = D, 16.3275, 121.75, 3.5, GREEN
+Text012 = C, 16.3275, 171.75, 3.5, GREEN
+Text013 = B, 16.3275, 221.75, 3.5, GREEN
+Text014 = A, 16.24175, 271.75, 3.5, GREEN
+Text015 = F, 201.5676, 21.75, 3.5, GREEN
+Text016 = E, 201.499, 71.75, 3.5, GREEN
+Text017 = D, 201.3275, 121.75, 3.5, GREEN
+Text018 = C, 201.3275, 171.75, 3.5, GREEN
+Text019 = B, 201.3275, 221.75, 3.5, GREEN
+Text020 = A, 201.24175, 271.75, 3.5, GREEN

@@ -1,0 +1,160 @@
+from pathlib import Path
+import tempfile
+import unittest
+
+from zima_cad.drawing_format import load_drawing_format
+from zima_cad.title_block import load_title_block
+
+
+class DrawingFormatTests(unittest.TestCase):
+    def test_all_native_sheet_frames_load_without_title_blocks(self) -> None:
+        for sheet_format in ("A0", "A1", "A2", "A3", "A4"):
+            with self.subTest(sheet_format=sheet_format):
+                definition = load_drawing_format(
+                    Path(f"config/formats/ZE-{sheet_format}.frmz")
+                )
+                self.assertEqual(definition["sheet_format"], sheet_format)
+                self.assertEqual(definition["document_type"], "any")
+                self.assertFalse(definition["title_block"]["enabled"])
+                geometry = definition["frame"]["geometry"]
+                self.assertGreaterEqual(len(geometry), 32)
+                self.assertFalse(any(
+                    entity.get("text") == "ZIMA-Engineering"
+                    for entity in geometry
+                ))
+
+    def test_loads_native_frame_geometry_without_title_block(self) -> None:
+        source = Path("config/formats/ZE-A4.frmz")
+        definition = load_drawing_format(source)
+
+        self.assertEqual(definition["sheet_format"], "A4")
+        self.assertEqual(definition["document_type"], "any")
+        self.assertFalse(definition["title_block"]["enabled"])
+        geometry = definition["frame"]["geometry"]
+        self.assertEqual(len(geometry), 44)
+        self.assertEqual(geometry[0]["pen"], "GREEN")
+        self.assertEqual(geometry[4]["pen"], "WHITE")
+        self.assertFalse(any(
+            entity.get("text") == "ZIMA-Engineering"
+            for entity in geometry
+        ))
+
+    def test_rejects_unknown_geometry_pen(self) -> None:
+        content = """[Format]
+SheetFormat = A4
+Orientation = portrait
+DocumentType = part
+[Frame]
+[FrameGeometry]
+Line001 = 0, 0, 1, 1, BLUE
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.frmz"
+            path.write_text(content, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Unsupported drawing pen"):
+                load_drawing_format(path)
+
+    def test_loads_static_reference_title_block(self) -> None:
+        definition = load_title_block(
+            Path("config/title_blocks/ZE-RAZITKO.tblz")
+        )
+        self.assertEqual(definition["anchor"], "bottom-right")
+        self.assertEqual(definition["width"], 180.0)
+        self.assertEqual(definition["height"], 60.0)
+        self.assertTrue(any(
+            entity.get("text") == "ZIMA-Engineering"
+            for entity in definition["geometry"]
+        ))
+        self.assertEqual(
+            sum(entity["kind"] == "circle" for entity in definition["geometry"]),
+            2,
+        )
+        fields = {field["id"]: field for field in definition["fields"]}
+        self.assertEqual(set(fields), {
+            "DRAWN_BY", "APPROVED_BY", "DATE", "DOCUMENT_NUMBER",
+            "VERSION", "SHEET_NUMBER", "NAME", "SCALE", "SHEET_FORMAT",
+            "ACCURACY", "TOLERANCING",
+            "ASSEMBLY_WEIGHT", "ASSEMBLY_QUANTITY",
+        })
+        self.assertEqual(fields["DRAWN_BY"]["parameter"], "kreslil")
+        self.assertEqual(fields["DRAWN_BY"]["default"], "ING. VLADIMÍR ZIMA")
+        self.assertEqual(fields["DRAWN_BY"]["align"], "right")
+        self.assertEqual(fields["DRAWN_BY"]["offset_y"], -0.7)
+        self.assertEqual(fields["APPROVED_BY"]["parameter"], "schvalil")
+        self.assertEqual(fields["APPROVED_BY"]["align"], "right")
+        self.assertEqual(fields["APPROVED_BY"]["offset_y"], -0.5)
+        self.assertEqual(fields["DATE"]["parameter"], "datum")
+        self.assertEqual(fields["DOCUMENT_NUMBER"]["source"], "document.file_stem")
+        self.assertEqual(fields["VERSION"]["parameter"], "verze")
+        self.assertEqual(fields["SHEET_NUMBER"]["source"], "sheet.position")
+        self.assertEqual(fields["SHEET_NUMBER"]["format"], "{index}/{count}")
+        self.assertEqual(fields["SHEET_NUMBER"]["align"], "left")
+        self.assertEqual(fields["SHEET_NUMBER"]["vertical_align"], "center")
+        self.assertFalse(fields["SHEET_NUMBER"]["editable"])
+        self.assertFalse(fields["SHEET_NUMBER"]["write_back"])
+        self.assertEqual(fields["NAME"]["parameter"], "nazev")
+        self.assertEqual(fields["NAME"]["pen"], "WHITE")
+        self.assertEqual(fields["DOCUMENT_NUMBER"]["pen"], "WHITE")
+        self.assertEqual(fields["VERSION"]["pen"], "WHITE")
+        self.assertEqual(fields["NAME"]["height"], 5.0)
+        self.assertEqual(fields["DOCUMENT_NUMBER"]["height"], 5.0)
+        self.assertEqual(fields["VERSION"]["height"], 5.0)
+        self.assertTrue(all(
+            entity["height"] == 2.5
+            for entity in definition["geometry"]
+            if entity["kind"] == "text" and entity["pen"] != "WHITE"
+        ))
+        company_heading = next(
+            entity for entity in definition["geometry"]
+            if entity.get("text") == "ZIMA-Engineering"
+        )
+        self.assertEqual(company_heading["pen"], "WHITE")
+        self.assertEqual(company_heading["height"], 5.0)
+        self.assertTrue(all(
+            field["height"] == 2.5
+            for field in fields.values()
+            if field["pen"] != "WHITE"
+        ))
+        self.assertTrue(fields["NAME"]["editable"])
+        self.assertTrue(fields["NAME"]["write_back"])
+        self.assertEqual(fields["DATE"]["align"], "right")
+        self.assertEqual(fields["DATE"]["offset_y"], -0.3)
+        self.assertEqual(fields["DATE"]["box_height"], 5.0)
+        self.assertEqual(fields["DATE"]["x"], 52.5)
+        self.assertEqual(fields["DATE"]["x"] + fields["DATE"]["box_width"], 98.5)
+        self.assertEqual(fields["SCALE"]["source"], "sheet.scale")
+        self.assertEqual(fields["SCALE"]["pen"], "WHITE")
+        self.assertEqual(fields["SCALE"]["format"], "M{numerator}:{denominator}")
+        self.assertEqual(fields["SHEET_FORMAT"]["align"], "right")
+        self.assertEqual(fields["ACCURACY"]["parameter"], "presnost")
+        self.assertEqual(fields["TOLERANCING"]["parameter"], "tolerovani")
+        self.assertEqual(
+            fields["ASSEMBLY_WEIGHT"]["parameter"], "hmotnost_sestavy"
+        )
+        self.assertEqual(
+            fields["ASSEMBLY_QUANTITY"]["parameter"], "mnozstvi_sestav"
+        )
+        static_texts = {
+            entity.get("text") for entity in definition["geometry"]
+        }
+        self.assertIn("Schválil:", static_texts)
+        self.assertIn("Chráněno podle ISO 16016", static_texts)
+        self.assertIn("Název:", static_texts)
+        self.assertIn("NÁZEV – OZNAČENÍ", static_texts)
+        self.assertNotIn("TR51x5-40", static_texts)
+        self.assertNotIn("CSN 42 5715", static_texts)
+        white_lines = {
+            (entity["x1"], entity["y1"], entity["x2"], entity["y2"])
+            for entity in definition["geometry"]
+            if entity["kind"] == "line" and entity["pen"] == "WHITE"
+        }
+        self.assertIn((99.0, 0.0, 99.0, 20.0), white_lines)
+        self.assertIn((180.0, 0.0, 180.0, 20.0), white_lines)
+        self.assertIn((180.0, 10.0, 99.0, 10.0), white_lines)
+        self.assertIn(
+            "e-mail: vladimir.zima@zima-engineering.cz", static_texts
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -11887,6 +11887,7 @@ class MainWindow(QMainWindow):
         if is_drawing:
             self._refresh_drawing_geometry(self.document, self.current_file_path)
             self._refresh_drawing_family_instances()
+            self._refresh_drawing_title_block_context()
         self.standard_view_combo.setEnabled(not is_drawing)
         self._refresh_standard_view_combo()
         self.normal_view_action.setEnabled(not is_drawing)
@@ -13139,6 +13140,103 @@ class MainWindow(QMainWindow):
             source_path.name,
             *(item["name"] for item in data["instances"]),
         ])
+
+    @staticmethod
+    def _title_block_row(
+        source_document: PartDocument,
+        source_path: Path,
+        *,
+        item: str,
+        quantity: str,
+        part_head: bool = False,
+    ) -> dict[str, str]:
+        parameters = source_document.user_parameters
+        norma = str(parameters.get("norma", "")).strip()
+        return {
+            "item": item,
+            "name": "-" if part_head else (
+                str(parameters.get("nazev", "")).strip() or source_path.stem
+            ),
+            "drawing_norm": norma if part_head else (
+                f"{source_path.stem} - {norma}".rstrip()
+            ),
+            "stock": str(parameters.get("polotovar", "")).strip(),
+            "material": str(parameters.get("material", "")).strip(),
+            "weight": str(parameters.get("hmotnost", "")).strip() or "-",
+            "quantity": quantity,
+        }
+
+    def _refresh_drawing_title_block_context(self) -> None:
+        if self.document is None or self._document_type(self.document) != "drawing":
+            self.drawing_workspace.set_title_block_context(None)
+            return
+        source_path = self._drawing_source_path()
+        if source_path is None or not source_path.is_file():
+            self.drawing_workspace.set_title_block_context(None)
+            return
+        source_document = next((
+            session.document for session in self.document_sessions
+            if session.file_path is not None
+            and canonical_document_path(session.file_path) == source_path
+        ), None)
+        try:
+            source_document = source_document or load_part_document(source_path)
+        except Exception:
+            self.drawing_workspace.set_title_block_context(None)
+            return
+        document_type = str(
+            source_document.document_settings.get("type", "part")
+        )
+        rows: list[dict[str, str]] = []
+        if document_type == "assembly":
+            grouped: dict[Path, tuple[PartDocument, int]] = {}
+            assembly_path = source_document.source_file_path or source_path
+            for component in source_document.history_objects_at(
+                source_document.history_cursor()
+            ):
+                if component.container_type != ContainerType.COMPONENT:
+                    continue
+                raw_path = str(component.parameters.get("source_path", "")).strip()
+                if not raw_path:
+                    continue
+                component_path = Path(raw_path)
+                if not component_path.is_absolute():
+                    component_path = assembly_path.parent / component_path
+                component_path = canonical_document_path(component_path)
+                if component_path in grouped:
+                    part_document, count = grouped[component_path]
+                    grouped[component_path] = part_document, count + 1
+                    continue
+                part_document = next((
+                    session.document for session in self.document_sessions
+                    if session.file_path is not None
+                    and canonical_document_path(session.file_path) == component_path
+                ), None)
+                try:
+                    part_document = part_document or load_part_document(component_path)
+                except Exception:
+                    continue
+                grouped[component_path] = part_document, 1
+            rows = [
+                self._title_block_row(
+                    part_document, component_path,
+                    item=str(index), quantity=str(count),
+                )
+                for index, (component_path, (part_document, count))
+                in enumerate(grouped.items(), start=1)
+            ]
+        else:
+            rows = [self._title_block_row(
+                source_document, source_path, item="-",
+                quantity=str(source_document.user_parameters.get("mnozstvi", "1")),
+                part_head=True,
+            )]
+        self.drawing_workspace.set_title_block_context({
+            "document_type": document_type,
+            "file_stem": source_path.stem,
+            "parameters": dict(source_document.user_parameters),
+            "head_rows": rows,
+        })
 
     def _refresh_drawing_geometry(
         self,
@@ -31037,6 +31135,7 @@ class MainWindow(QMainWindow):
                         self.current_file_path,
                     )
                 self._refresh_drawing_family_instances()
+                self._refresh_drawing_title_block_context()
             if fit:
                 self.drawing_workspace.fit_sheet()
             return

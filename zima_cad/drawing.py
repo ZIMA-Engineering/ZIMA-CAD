@@ -31,10 +31,12 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontMetricsF,
     QImage,
     QMouseEvent,
     QPainter,
     QPen,
+    QPicture,
     QPolygonF,
     QWheelEvent,
 )
@@ -53,8 +55,10 @@ from PySide6.QtWidgets import (
 )
 
 from zima_cad.drawing_format import load_drawing_format
+from zima_cad.drawing_style import drawing_font_family, load_drawing_style
 from zima_cad.localization import tr
 from zima_cad.model import PartDocument
+from zima_cad.title_block import load_title_block
 from zima_cad.viewer_mesh import triangulate_shape
 
 
@@ -939,6 +943,13 @@ class DrawingCanvas(QWidget):
         self._hovered_view_id: str | None = None
         self._selected_view_id: str | None = None
         self._format_definition: dict | None = None
+        self._format_picture: QPicture | None = None
+        self._format_picture_key: tuple | None = None
+        self._title_block_definition: dict | None = None
+        self._title_block_context: dict = {}
+        self._title_block_picture: QPicture | None = None
+        self._title_block_picture_key: tuple | None = None
+        self._lineweight_preview = False
         self._dimension_tool_active = False
         self._dimension_references: list[dict] = []
         self._dimension_cursor_sheet: tuple[float, float] | None = None
@@ -1058,7 +1069,41 @@ class DrawingCanvas(QWidget):
 
     def set_format_definition(self, definition: dict | None) -> None:
         self._format_definition = definition
+        self._format_picture = None
+        self._format_picture_key = None
         self.update()
+
+    def set_lineweight_preview(self, enabled: bool) -> None:
+        self._lineweight_preview = bool(enabled)
+        self._format_picture = None
+        self._format_picture_key = None
+        self._title_block_picture = None
+        self._title_block_picture_key = None
+        self.update()
+
+    def set_title_block_definition(self, definition: dict | None) -> None:
+        self._title_block_definition = definition
+        self._title_block_picture = None
+        self._title_block_picture_key = None
+        self.update()
+
+    def set_title_block_context(self, context: dict | None) -> None:
+        self._title_block_context = dict(context or {})
+        self._title_block_picture = None
+        self._title_block_picture_key = None
+        self.update()
+
+    def _drawing_pen(
+        self,
+        color: QColor,
+        width_mm: float,
+        style: Qt.PenStyle = Qt.PenStyle.SolidLine,
+    ) -> QPen:
+        if not self._lineweight_preview:
+            return cosmetic_pen(color, style)
+        pen = QPen(color, max(0.5, float(width_mm) * self._pixels_per_mm), style)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        return pen
 
     def set_sheet(self, sheet: dict, *, fit: bool = True) -> None:
         self._sheet = sheet
@@ -1186,11 +1231,17 @@ class DrawingCanvas(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        drawing_font = QFont(painter.font())
+        drawing_font.setFamily(drawing_font_family())
+        painter.setFont(drawing_font)
         painter.fillRect(self.rect(), QColor("#000000"))
         width, height = self.sheet_size()
         lower_right = self._screen_point(0.0, 0.0)
         upper_left = self._screen_point(width, height)
-        painter.setPen(cosmetic_pen(QColor("#4DD811")))
+        boundary_color = load_drawing_style()["workspace"][
+            "paper_boundary_color"
+        ]
+        painter.setPen(cosmetic_pen(QColor(str(boundary_color))))
         painter.drawRect(QRectF(
             min(upper_left.x(), lower_right.x()),
             min(upper_left.y(), lower_right.y()),
@@ -1198,6 +1249,7 @@ class DrawingCanvas(QWidget):
             abs(lower_right.y() - upper_left.y()),
         ))
         self._draw_format(painter)
+        self._draw_title_block(painter)
         self._draw_origin_indicator(painter)
         for view in self._sheet.get("views", []):
             view_id = str(view.get("id", ""))
@@ -1317,6 +1369,57 @@ class DrawingCanvas(QWidget):
             return
         width, height = self.sheet_size()
         frame = definition["frame"]
+        geometry = frame.get("geometry", [])
+        if geometry:
+            cache_key = (
+                id(definition),
+                self.width(),
+                self.height(),
+                round(self._pixels_per_mm, 6),
+                round(self._pan.x(), 3),
+                round(self._pan.y(), 3),
+                self._lineweight_preview,
+            )
+            if (
+                self._format_picture_key == cache_key
+                and self._format_picture is not None
+            ):
+                painter.drawPicture(0, 0, self._format_picture)
+                return
+            picture = QPicture()
+            format_painter = QPainter(picture)
+            format_painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            format_painter.setFont(painter.font())
+            original_font = format_painter.font()
+            pens = frame.get("pens", {})
+            for entity in geometry:
+                pen_definition = pens[str(entity["pen"])]
+                pen = self._drawing_pen(
+                    QColor(str(pen_definition["color"])),
+                    float(pen_definition["width"]),
+                )
+                format_painter.setPen(pen)
+                if entity["kind"] == "line":
+                    format_painter.drawLine(
+                        self._format_point(float(entity["x1"]), float(entity["y1"])),
+                        self._format_point(float(entity["x2"]), float(entity["y2"])),
+                    )
+                elif entity["kind"] == "text":
+                    font = QFont(original_font)
+                    font.setPixelSize(max(
+                        1,
+                        round(float(entity["height"]) * self._pixels_per_mm),
+                    ))
+                    format_painter.setFont(font)
+                    format_painter.drawText(
+                        self._format_point(float(entity["x"]), float(entity["y"])),
+                        str(entity["text"]),
+                    )
+            format_painter.end()
+            self._format_picture = picture
+            self._format_picture_key = cache_key
+            painter.drawPicture(0, 0, picture)
+            return
         left = float(frame["left"])
         right = width - float(frame["right"])
         bottom = float(frame["bottom"])
@@ -1356,6 +1459,200 @@ class DrawingCanvas(QWidget):
             self._format_point(upper_split, bottom + 30.0),
             self._format_point(upper_split, block_top),
         )
+
+    def _draw_title_block(self, painter: QPainter) -> None:
+        definition = self._title_block_definition
+        if not definition:
+            return
+        sheet_width, _sheet_height = self.sheet_size()
+        block_width = float(definition["width"])
+        block_left = sheet_width - 10.0 - block_width
+        block_bottom = 10.0
+        cache_key = (
+            id(definition),
+            self.width(),
+            self.height(),
+            round(self._pixels_per_mm, 6),
+            round(self._pan.x(), 3),
+            round(self._pan.y(), 3),
+            self._lineweight_preview,
+        )
+        if (
+            self._title_block_picture_key == cache_key
+            and self._title_block_picture is not None
+        ):
+            painter.drawPicture(0, 0, self._title_block_picture)
+            return
+
+        picture = QPicture()
+        block_painter = QPainter(picture)
+        block_painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        block_painter.setFont(painter.font())
+        original_font = block_painter.font()
+        pens = definition.get("pens", {})
+
+        def point(x: float, y: float) -> QPointF:
+            return self._format_point(block_left + x, block_bottom + y)
+
+        def draw_box_text(
+            text: str,
+            *,
+            x: float,
+            y: float,
+            width: float,
+            height: float,
+            text_height: float = 2.5,
+            pen_name: str = "GREEN",
+            align: str = "left",
+            vertical_align: str = "center",
+            offset_y: float = 0.0,
+        ) -> None:
+            pen_definition = pens[pen_name]
+            block_painter.setPen(self._drawing_pen(
+                QColor(str(pen_definition["color"])),
+                float(pen_definition["width"]),
+            ))
+            font = QFont(original_font)
+            font.setPixelSize(max(1, round(text_height * self._pixels_per_mm)))
+            block_painter.setFont(font)
+            top_left = point(x, y + height)
+            rectangle = QRectF(
+                top_left.x(), top_left.y(),
+                width * self._pixels_per_mm,
+                height * self._pixels_per_mm,
+            )
+            metrics = QFontMetricsF(font)
+            ink_bounds = metrics.tightBoundingRect(text)
+            if align == "right":
+                text_x = rectangle.right() - ink_bounds.right()
+            elif align == "center":
+                text_x = rectangle.center().x() - (
+                    ink_bounds.left() + ink_bounds.right()
+                ) * 0.5
+            else:
+                text_x = rectangle.left() - ink_bounds.left()
+            if vertical_align == "top":
+                baseline_y = rectangle.top() - ink_bounds.top()
+            elif vertical_align == "bottom":
+                baseline_y = rectangle.bottom() - ink_bounds.bottom()
+            else:
+                baseline_y = rectangle.center().y() - (
+                    ink_bounds.top() + ink_bounds.bottom()
+                ) * 0.5
+            baseline_y -= offset_y * self._pixels_per_mm
+            block_painter.drawText(QPointF(text_x, baseline_y), text)
+
+        for entity in definition.get("geometry", []):
+            pen_definition = pens[str(entity["pen"])]
+            block_painter.setPen(self._drawing_pen(
+                QColor(str(pen_definition["color"])),
+                float(pen_definition["width"]),
+            ))
+            if entity["kind"] == "line":
+                block_painter.drawLine(
+                    point(float(entity["x1"]), float(entity["y1"])),
+                    point(float(entity["x2"]), float(entity["y2"])),
+                )
+            elif entity["kind"] == "circle":
+                center = point(float(entity["x"]), float(entity["y"]))
+                radius = float(entity["radius"]) * self._pixels_per_mm
+                block_painter.drawEllipse(center, radius, radius)
+            elif entity["kind"] == "text":
+                font = QFont(original_font)
+                font.setPixelSize(max(
+                    1,
+                    round(float(entity["height"]) * self._pixels_per_mm),
+                ))
+                block_painter.setFont(font)
+                block_painter.drawText(
+                    point(float(entity["x"]), float(entity["y"])),
+                    str(entity["text"]),
+                )
+        for field in definition.get("fields", []):
+            pen_definition = pens[str(field["pen"])]
+            block_painter.setPen(self._drawing_pen(
+                QColor(str(pen_definition["color"])),
+                float(pen_definition["width"]),
+            ))
+            value = self._title_block_field_value(field)
+            box_width = float(field.get("box_width", 0.0))
+            box_height = float(field.get("box_height", 0.0))
+            if box_width > 0.0 and box_height > 0.0:
+                draw_box_text(
+                    value,
+                    x=float(field["x"]), y=float(field["y"]),
+                    width=box_width, height=box_height,
+                    text_height=float(field["height"]),
+                    pen_name=str(field["pen"]),
+                    align=str(field.get("align", "left")),
+                    vertical_align=str(field.get("vertical_align", "center")),
+                    offset_y=float(field.get("offset_y", 0.0)),
+                )
+            else:
+                font = QFont(original_font)
+                font.setPixelSize(max(
+                    1, round(float(field["height"]) * self._pixels_per_mm)
+                ))
+                block_painter.setFont(font)
+                block_painter.drawText(
+                    point(float(field["x"]), float(field["y"])),
+                    value,
+                )
+        self._draw_title_block_head(block_painter, point, draw_box_text, pens)
+        block_painter.end()
+        self._title_block_picture = picture
+        self._title_block_picture_key = cache_key
+        painter.drawPicture(0, 0, picture)
+
+    def _title_block_field_value(self, field: dict) -> str:
+        context = self._title_block_context
+        parameter = str(field.get("parameter", ""))
+        if parameter:
+            value = context.get("parameters", {}).get(parameter, "")
+            return str(value) if str(value).strip() else str(field.get("default", ""))
+        source = str(field.get("source", ""))
+        if source == "document.file_stem":
+            return str(context.get("file_stem") or field.get("default", ""))
+        if source == "sheet.format":
+            return str(self._sheet.get("format", field.get("default", "")))
+        if source == "sheet.position":
+            index = int(context.get("sheet_index", 0)) + 1
+            count = max(1, int(context.get("sheet_count", 1)))
+            return str(field.get("format", "{index}/{count}")).format(
+                index=index, count=count
+            )
+        if source == "sheet.scale":
+            numerator = int(round(float(self._sheet.get("default_scale_numerator", 1))))
+            denominator = int(round(float(self._sheet.get("default_scale", 1))))
+            return str(field.get("format", "{numerator}:{denominator}")).format(
+                numerator=numerator, denominator=denominator
+            )
+        return str(field.get("default", ""))
+
+    def _draw_title_block_head(self, painter, point, draw_text, pens) -> None:
+        rows = list(self._title_block_context.get("head_rows", []))
+        if not rows:
+            return
+        line_pen = pens["YELLOW"]
+        painter.setPen(self._drawing_pen(
+            QColor(str(line_pen["color"])), float(line_pen["width"])
+        ))
+        for index in range(1, len(rows)):
+            bottom = 50.0 + index * 10.0
+            top = bottom + 10.0
+            for x in (0.0, 15.0, 77.0, 145.0, 162.5, 180.0):
+                painter.drawLine(point(x, bottom), point(x, top))
+            painter.drawLine(point(0.0, top), point(180.0, top))
+            painter.drawLine(point(15.0, bottom + 5.0), point(145.0, bottom + 5.0))
+        for index, row in enumerate(rows):
+            y = 50.0 + index * 10.0
+            draw_text(str(row.get("item", "-")), x=1.5, y=y, width=13.0, height=10.0)
+            draw_text(str(row.get("name", "-")), x=16.5, y=y + 5.0, width=59.0, height=5.0)
+            draw_text(str(row.get("drawing_norm", "")), x=16.5, y=y, width=59.0, height=5.0)
+            draw_text(str(row.get("stock", "")), x=78.5, y=y + 5.0, width=65.0, height=5.0)
+            draw_text(str(row.get("material", "")), x=78.5, y=y, width=65.0, height=5.0)
+            draw_text(str(row.get("weight", "-")), x=146.5, y=y, width=15.0, height=10.0)
+            draw_text(str(row.get("quantity", "1")), x=164.0, y=y, width=14.5, height=10.0)
 
     def _draw_origin_indicator(self, painter: QPainter) -> None:
         # Drawing coordinates use the lower-right paper corner as zero:
@@ -1547,59 +1844,61 @@ class DrawingCanvas(QWidget):
                     painter.drawPolyline(QPolygonF(points))
 
         display_style = str(view.get("display_style", "no_hidden"))
+        visible_pen = self._drawing_pen(color, 0.50)
+        auxiliary_pen = self._drawing_pen(color, 0.25)
         if display_style in {"shaded", "shaded_edges"}:
             self._draw_depth_shaded_surface(painter, view)
             if display_style == "shaded":
                 if str(view.get("auxiliary_edges", "hidden")) == "visible":
                     draw_polylines(
                         view.get("auxiliary_polylines", []),
-                        cosmetic_pen(color),
+                        auxiliary_pen,
                     )
                 return
         if display_style == "wireframe":
             draw_polylines(
                 view.get("wireframe_polylines", view.get("polylines", [])),
-                cosmetic_pen(color),
+                visible_pen,
             )
             if str(view.get("auxiliary_edges", "hidden")) == "visible":
                 draw_polylines(
                     view.get("auxiliary_polylines", []),
-                    cosmetic_pen(color),
+                    auxiliary_pen,
                 )
             return
 
         if display_style == "no_hidden":
-            draw_polylines(view.get("polylines", []), cosmetic_pen(color))
+            draw_polylines(view.get("polylines", []), visible_pen)
             if str(view.get("auxiliary_edges", "hidden")) == "visible":
                 draw_polylines(
                     view.get("auxiliary_polylines", []),
-                    cosmetic_pen(color),
+                    auxiliary_pen,
                 )
             return
 
         if display_style == "hidden_line":
             hidden_style = str(view.get("hidden_lines", "dimmed"))
             if hidden_style != "none":
-                hidden_pen = cosmetic_pen(QColor("#808080"))
+                hidden_pen = self._drawing_pen(QColor("#808080"), 0.25)
                 if hidden_style == "dimmed":
                     hidden_pen.setStyle(Qt.PenStyle.DashLine)
                 # Hidden geometry is the underlay.  Drawing visible edges
                 # afterwards guarantees that coincident rear edges cannot
                 # shine through the visible outline as dashes.
                 draw_polylines(view.get("hidden_polylines", []), hidden_pen)
-            draw_polylines(view.get("polylines", []), cosmetic_pen(color))
+            draw_polylines(view.get("polylines", []), visible_pen)
             if str(view.get("auxiliary_edges", "hidden")) == "visible":
                 draw_polylines(
                     view.get("auxiliary_polylines", []),
-                    cosmetic_pen(color),
+                    auxiliary_pen,
                 )
             return
 
-        draw_polylines(view.get("polylines", []), cosmetic_pen(color))
+        draw_polylines(view.get("polylines", []), visible_pen)
         if str(view.get("auxiliary_edges", "hidden")) == "visible":
             draw_polylines(
                 view.get("auxiliary_polylines", []),
-                cosmetic_pen(color),
+                auxiliary_pen,
             )
 
     def _draw_view_bounds(self, painter: QPainter, view: dict, color: QColor) -> None:
@@ -1747,7 +2046,7 @@ class DrawingCanvas(QWidget):
             return
 
         yellow = QColor("#FFD400")
-        painter.setPen(cosmetic_pen(yellow))
+        painter.setPen(self._drawing_pen(yellow, 0.25))
         first_point = geometry["first_point"]
         second_point = geometry["second_point"]
         for anchor, point in (
@@ -1814,7 +2113,7 @@ class DrawingCanvas(QWidget):
         bounds = painter.fontMetrics().boundingRect(text).adjusted(-3, -1, 3, 1)
         bounds.moveCenter(QPoint(0, -max(3, round(1.2 * self._pixels_per_mm))))
         painter.fillRect(bounds, QColor("#000000"))
-        painter.setPen(cosmetic_pen(yellow))
+        painter.setPen(self._drawing_pen(yellow, 0.25))
         painter.drawText(bounds, Qt.AlignmentFlag.AlignCenter, text)
         painter.restore()
 
@@ -2127,6 +2426,7 @@ class DrawingWorkspace(QWidget):
         self.canvas.viewMoveFinished.connect(self._store)
         self._pending_view: dict | None = None
         self.formats_directory = Path("config/formats")
+        self.title_blocks_directory = Path("config/title_blocks")
 
         self.sheet_tabs = QTabBar()
         self.sheet_tabs.setExpanding(False)
@@ -2142,6 +2442,18 @@ class DrawingWorkspace(QWidget):
         self.format_combo.currentTextChanged.connect(self._change_format)
         self.add_format_button = QPushButton(tr("drawing.command.add_format"))
         self.add_format_button.clicked.connect(self._choose_format)
+        self.remove_format_button = QPushButton(
+            tr("drawing.command.remove_format")
+        )
+        self.remove_format_button.clicked.connect(self._remove_format)
+        self.add_title_block_button = QPushButton(
+            tr("drawing.command.add_title_block")
+        )
+        self.add_title_block_button.clicked.connect(self._choose_title_block)
+        self.remove_title_block_button = QPushButton(
+            tr("drawing.command.remove_title_block")
+        )
+        self.remove_title_block_button.clicked.connect(self._remove_title_block)
         self.projection_method_combo = QComboBox()
         self.projection_method_combo.addItem(
             tr("drawing.projection.first_angle"), "first_angle"
@@ -2157,6 +2469,17 @@ class DrawingWorkspace(QWidget):
             self._change_family_instance
         )
         self._family_instances: list[str] = []
+        self._title_block_context: dict = {}
+        self.lineweight_combo = UpwardComboBox()
+        self.lineweight_combo.addItem(
+            tr("drawing.lineweight.hairline"), False
+        )
+        self.lineweight_combo.addItem(
+            tr("drawing.lineweight.preview"), True
+        )
+        self.lineweight_combo.currentIndexChanged.connect(
+            self._change_lineweight_mode
+        )
         self.default_scale_numerator_spin = QDoubleSpinBox()
         self.default_scale_spin = QDoubleSpinBox()
         for spin in (
@@ -2175,6 +2498,8 @@ class DrawingWorkspace(QWidget):
         bottom.addWidget(remove_button)
         bottom.addWidget(add_button)
         bottom.addSpacing(16)
+        bottom.addWidget(QLabel(tr("drawing.lineweight.mode")))
+        bottom.addWidget(self.lineweight_combo)
         bottom.addWidget(QLabel("Měřítko:"))
         bottom.addWidget(self.default_scale_numerator_spin)
         bottom.addWidget(QLabel(":"))
@@ -2182,6 +2507,9 @@ class DrawingWorkspace(QWidget):
         bottom.addWidget(QLabel("Formát:"))
         bottom.addWidget(self.format_combo)
         bottom.addWidget(self.add_format_button)
+        bottom.addWidget(self.remove_format_button)
+        bottom.addWidget(self.add_title_block_button)
+        bottom.addWidget(self.remove_title_block_button)
         bottom.addWidget(QLabel(tr("drawing.projection_method")))
         bottom.addWidget(self.projection_method_combo)
         bottom.addWidget(QLabel(tr("drawing.family_table")))
@@ -2194,7 +2522,11 @@ class DrawingWorkspace(QWidget):
 
     def set_formats_directory(self, directory: Path) -> None:
         self.formats_directory = directory.resolve()
+        self.title_blocks_directory = (
+            self.formats_directory.parent / "title_blocks"
+        )
         self._load_active_format()
+        self._load_active_title_block()
 
     def set_document(self, document: PartDocument | None) -> None:
         self.document = document
@@ -2214,6 +2546,16 @@ class DrawingWorkspace(QWidget):
         colors: dict[str, str] | None = None,
     ) -> None:
         self.canvas.set_view_render_data(view_id, mesh, colors)
+
+    def set_title_block_context(self, context: dict | None) -> None:
+        self._title_block_context = dict(context or {})
+        self._apply_title_block_context()
+
+    def _apply_title_block_context(self) -> None:
+        context = dict(self._title_block_context)
+        context["sheet_index"] = self.active_sheet_index
+        context["sheet_count"] = len(self.sheets)
+        self.canvas.set_title_block_context(context)
 
     def copy_view_render_data(self, source_id: str, target_id: str) -> None:
         self.canvas.copy_view_render_data(source_id, target_id)
@@ -2261,6 +2603,10 @@ class DrawingWorkspace(QWidget):
         self.format_combo.blockSignals(True)
         self.format_combo.setCurrentText(str(sheet.get("format", "A4")))
         self.format_combo.blockSignals(False)
+        self.remove_format_button.setEnabled(bool(sheet.get("format_template")))
+        self.remove_title_block_button.setEnabled(
+            bool(sheet.get("title_block_template"))
+        )
         self.default_scale_numerator_spin.blockSignals(True)
         self.default_scale_spin.blockSignals(True)
         numerator = float(sheet.get("default_scale_numerator", 1.0))
@@ -2279,6 +2625,8 @@ class DrawingWorkspace(QWidget):
         self.projection_method_combo.blockSignals(False)
         self._refresh_family_instance_combo()
         self._load_active_format()
+        self._load_active_title_block()
+        self._apply_title_block_context()
         self.canvas.set_sheet(sheet, fit=fit)
 
     def _load_active_format(self) -> None:
@@ -2324,6 +2672,70 @@ class DrawingWorkspace(QWidget):
         self._refresh_controls(fit=True)
         self._store()
 
+    def _load_active_title_block(self) -> None:
+        sheet = self.active_sheet()
+        template_name = (
+            str(sheet.get("title_block_template", "")) if sheet else ""
+        )
+        if not template_name:
+            self.canvas.set_title_block_definition(None)
+            return
+        path = Path(template_name)
+        if not path.is_absolute():
+            path = self.title_blocks_directory / path
+        try:
+            self.canvas.set_title_block_definition(load_title_block(path))
+        except (OSError, ValueError, configparser.Error):
+            self.canvas.set_title_block_definition(None)
+
+    def _choose_title_block(self) -> None:
+        file_name, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            tr("drawing.file.select_title_block"),
+            str(self.title_blocks_directory),
+            tr("drawing.file.filter.title_block"),
+        )
+        if not file_name:
+            return
+        path = Path(file_name)
+        try:
+            definition = load_title_block(path)
+        except (OSError, ValueError, configparser.Error) as exc:
+            QMessageBox.warning(
+                self, tr("drawing.file.invalid_title_block"), str(exc)
+            )
+            return
+        sheet = self.active_sheet()
+        if sheet is None:
+            return
+        try:
+            stored_path = path.resolve().relative_to(self.title_blocks_directory)
+        except ValueError:
+            stored_path = path.resolve()
+        sheet["title_block_template"] = str(stored_path)
+        self.canvas.set_title_block_definition(definition)
+        self.remove_title_block_button.setEnabled(True)
+        self._store()
+
+    def _remove_format(self) -> None:
+        sheet = self.active_sheet()
+        if sheet is None:
+            return
+        sheet.pop("format_template", None)
+        sheet.pop("document_type", None)
+        self.canvas.set_format_definition(None)
+        self.remove_format_button.setEnabled(False)
+        self._store()
+
+    def _remove_title_block(self) -> None:
+        sheet = self.active_sheet()
+        if sheet is None:
+            return
+        sheet.pop("title_block_template", None)
+        self.canvas.set_title_block_definition(None)
+        self.remove_title_block_button.setEnabled(False)
+        self._store()
+
     def _store(self) -> None:
         if self.document is None:
             return
@@ -2336,6 +2748,8 @@ class DrawingWorkspace(QWidget):
             return
         self.active_sheet_index = index
         self._load_active_format()
+        self._load_active_title_block()
+        self._apply_title_block_context()
         self.canvas.set_sheet(self.sheets[index], fit=True)
         self._store()
         self.activeSheetChanged.emit()
@@ -2376,10 +2790,18 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None or value not in SHEET_FORMATS:
             return
+        had_frame = bool(sheet.get("format_template"))
         sheet["format"] = value
         sheet["orientation"] = "portrait" if value == "A4" else "landscape"
-        sheet.pop("format_template", None)
-        self.canvas.set_format_definition(None)
+        if had_frame:
+            matching_frame = self.formats_directory / f"ZE-{value}.frmz"
+            if matching_frame.is_file():
+                sheet["format_template"] = matching_frame.name
+            else:
+                sheet.pop("format_template", None)
+        self._load_active_format()
+        self._apply_title_block_context()
+        self.remove_format_button.setEnabled(bool(sheet.get("format_template")))
         self.canvas.set_sheet(sheet, fit=True)
         self._store()
 
@@ -2398,8 +2820,14 @@ class DrawingWorkspace(QWidget):
             if str(view.get("scale_mode", "sheet")) == "sheet":
                 view["scale"] = scale
                 update_view_bounds(view)
+        self._apply_title_block_context()
         self.canvas.update()
         self._store()
+
+    def _change_lineweight_mode(self, _index: int) -> None:
+        self.canvas.set_lineweight_preview(
+            bool(self.lineweight_combo.currentData())
+        )
 
     def _change_projection_method(self, _index: int) -> None:
         sheet = self.active_sheet()

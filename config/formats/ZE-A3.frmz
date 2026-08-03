@@ -1,0 +1,83 @@
+[Format]
+SchemaVersion = 2
+Name = ZE A3 frame
+SheetFormat = A3
+Orientation = landscape
+DocumentType = any
+
+[Frame]
+LeftMargin = 20
+RightMargin = 10
+TopMargin = 10
+BottomMargin = 10
+Color = #FFFFFF
+LineWidth = 0.50
+
+[TitleBlock]
+Enabled = no
+
+[FrameGeometry]
+; Clean native frame geometry. Paper edge and title block are intentionally omitted.
+Line001 = 15, 5, 415, 5, GREEN
+Line002 = 415, 5, 415, 292, GREEN
+Line003 = 415, 292, 15, 292, GREEN
+Line004 = 15, 292, 15, 5, GREEN
+Line005 = 20, 10, 410, 10, WHITE
+Line006 = 410, 10, 410, 287, WHITE
+Line007 = 410, 287, 20, 287, WHITE
+Line008 = 20, 287, 20, 10, WHITE
+Line009 = 365, 10, 365, 5, GREEN
+Line010 = 365, 292, 365, 287, GREEN
+Line011 = 315, 10, 315, 5, GREEN
+Line012 = 315, 292, 315, 287, GREEN
+Line013 = 410, 248.5, 415, 248.5, GREEN
+Line014 = 15, 248.5, 20, 248.5, GREEN
+Line015 = 410, 198.5, 415, 198.5, GREEN
+Line016 = 15, 198.5, 20, 198.5, GREEN
+Line017 = 265, 10, 265, 5, GREEN
+Line018 = 265, 292, 265, 287, GREEN
+Line019 = 215, 10, 215, 5, GREEN
+Line020 = 215, 292, 215, 287, GREEN
+Line021 = 410, 148.5, 415, 148.5, GREEN
+Line022 = 15, 148.5, 20, 148.5, GREEN
+Line023 = 410, 98.5, 415, 98.5, GREEN
+Line024 = 15, 98.5, 20, 98.5, GREEN
+Line025 = 165, 10, 165, 5, GREEN
+Line026 = 165, 292, 165, 287, GREEN
+Line027 = 410, 48.5, 415, 48.5, GREEN
+Line028 = 15, 48.5, 20, 48.5, GREEN
+Line029 = 115, 10, 115, 5, GREEN
+Line030 = 115, 292, 115, 287, GREEN
+Line031 = 65, 10, 65, 5, GREEN
+Line032 = 65, 292, 65, 287, GREEN
+
+; Fixed zone labels.
+Text001 = 2, 88.91325, 5.75, 3.5, GREEN
+Text002 = 3, 138.91325, 5.75, 3.5, GREEN
+Text003 = 4, 188.91325, 5.75, 3.5, GREEN
+Text004 = 5, 238.91325, 5.75, 3.5, GREEN
+Text005 = 6, 288.91325, 5.75, 3.5, GREEN
+Text006 = 7, 338.91325, 5.75, 3.5, GREEN
+Text007 = 8, 388.91325, 5.75, 3.5, GREEN
+Text008 = 1, 39.2391, 5.75, 3.5, GREEN
+Text009 = B, 16.3275, 221.75, 3.5, GREEN
+Text010 = A, 16.24175, 271.75, 3.5, GREEN
+Text011 = C, 16.3275, 171.75, 3.5, GREEN
+Text012 = D, 16.3275, 121.75, 3.5, GREEN
+Text013 = E, 16.499, 71.75, 3.5, GREEN
+Text014 = F, 16.5676, 21.75, 3.5, GREEN
+Text015 = 1, 39.2391, 287.75, 3.5, GREEN
+Text016 = 2, 88.91325, 287.75, 3.5, GREEN
+Text017 = 3, 138.91325, 287.75, 3.5, GREEN
+Text018 = 4, 188.91325, 287.75, 3.5, GREEN
+Text019 = 5, 238.91325, 287.75, 3.5, GREEN
+Text020 = 6, 288.91325, 287.75, 3.5, GREEN
+Text021 = 7, 338.91325, 287.75, 3.5, GREEN
+Text022 = 8, 388.91325, 287.75, 3.5, GREEN
+Text023 = F, 411.5676, 21.75, 3.5, GREEN
+Text024 = E, 411.499, 71.75, 3.5, GREEN
+Text025 = D, 411.3275, 121.75, 3.5, GREEN
+Text026 = C, 411.3275, 171.75, 3.5, GREEN
+Text027 = B, 411.3275, 221.75, 3.5, GREEN
+Text028 = A, 411.24175, 271.75, 3.5, GREEN
+
