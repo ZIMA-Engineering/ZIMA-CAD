@@ -3733,12 +3733,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             geometry = reference.get("geometry", {})
             if not isinstance(geometry, dict):
                 continue
+            reference_hovered = (
+                str(reference.get("id", ""))
+                == self._hovered_sketch_external_reference_id
+            )
             reference_color = (
                 QColor("#FF7A00")
-                if (
-                    str(reference.get("id", ""))
-                    == self._hovered_sketch_external_reference_id
-                )
+                if reference_hovered
                 else (
                     cyan
                     if reference.get("selected")
@@ -3753,7 +3754,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 reference_color,
                 (
                     highlight_centerline_width
-                    if reference.get("selected")
+                    if reference.get("selected") or reference_hovered
                     else base_centerline_width
                 ),
                 Qt.PenStyle.CustomDashLine,
@@ -3765,7 +3766,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         base_centerline_width
                         / highlight_centerline_width
                     )
-                    if reference.get("selected")
+                    if reference.get("selected") or reference_hovered
                     else value
                     for value in (12.0, 10.0)
                 ]
@@ -5716,20 +5717,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
         if origin_distance <= tolerance:
             return ("sketch_origin", (0.0, 0.0))
-        consider_line(
-            "sketch_axis:x",
-            {
-                "point": (0.0, 0.0),
-                "direction": (1.0, 0.0),
-            },
-        )
-        consider_line(
-            "sketch_axis:y",
-            {
-                "point": (0.0, 0.0),
-                "direction": (0.0, 1.0),
-            },
-        )
+        # External geometry is considered before the sketch axes.  The
+        # nearest-candidate comparison intentionally keeps the first item on
+        # an equal distance, so this order makes an external line selectable
+        # even when it lies exactly on a main axis.
         for reference in self._sketch_external_references:
             reference_id = str(reference.get("id", ""))
             geometry = reference.get("geometry")
@@ -5792,6 +5783,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     and (nearest is None or distance < nearest[0])
                 ):
                     nearest = (distance, reference_id, snapped)
+        consider_line(
+            "sketch_axis:x",
+            {
+                "point": (0.0, 0.0),
+                "direction": (1.0, 0.0),
+            },
+        )
+        consider_line(
+            "sketch_axis:y",
+            {
+                "point": (0.0, 0.0),
+                "direction": (0.0, 1.0),
+            },
+        )
         return (
             (nearest[1], nearest[2])
             if nearest is not None

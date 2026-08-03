@@ -50,8 +50,11 @@
   - robust recovery after a referenced entity disappears;
   - wider coverage of axis-to-plane angular combinations and non-origin datum
     references.
-- Replace persisted `Face N` indices with stable semantic face references before
-  assembly constraints are considered production-safe.
+- TODO: Replace persisted `Face N` indices with stable semantic face references
+  before assembly constraints are considered production-safe. References must
+  survive model recomputation and topology/order changes; missing or ambiguous
+  faces must be reported instead of silently binding a mate to a different face.
+  Follow the staged design in `doc/STABLE_TOPOLOGY_NAMING.md`.
 - Add grounding/un-grounding of components and visualize remaining component
   degrees of freedom independently of the mate editor.
 - Keep instance placement in the assembly document. In-context feature edits

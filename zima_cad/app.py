@@ -109,6 +109,8 @@ from zima_cad.model import (
     PlaneOnFaceAttachment,
     TreeExposure,
     ZimaEntity,
+    active_face_registry,
+    face_registry_at,
     solid_face_frames,
     coordinate_system_transform,
     create_empty_part,
@@ -121,6 +123,11 @@ from zima_cad.model import (
     sketch_plane_transform,
     transform_shape,
     transform_point,
+)
+from zima_cad.topology import (
+    decode_face_reference,
+    encode_face_reference,
+    parse_face_reference,
 )
 from zima_cad.sketch_model import (
     GeometryType,
@@ -4223,6 +4230,18 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             stored = json.loads(str(component.parameters.get("assembly_mates", "[]")))
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
+        available_descriptors = {
+            descriptor
+            for _label, descriptor, _point, _normal
+            in (*source_choices, *target_choices)
+        }
+        stored = [
+            row
+            for row in stored
+            if isinstance(row, dict)
+            and row.get("source") in available_descriptors
+            and row.get("target") in available_descriptors
+        ]
         for row in range(3):
             remove_button = QPushButton("×")
             remove_button.setFixedSize(30, 30)
@@ -4735,7 +4754,14 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             else ""
         )
 
-    def accept_face(self, owner_id: str, face_index: int, owner_name: str) -> bool:
+    def accept_face(
+        self,
+        owner_id: str,
+        face_index: int,
+        owner_name: str,
+        descriptor: str | None = None,
+        label: str | None = None,
+    ) -> bool:
         if self.selection_paused:
             return False
         row, side = self.active_pick
@@ -4745,9 +4771,12 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             return False
         self.reference_list.setRowHidden(row, False)
         button = self.rows[row][0 if side == "source" else 1]
-        button.setProperty("reference", f"{owner_id}:face:{face_index}")
+        button.setProperty(
+            "reference",
+            descriptor or f"{owner_id}:face:{face_index}",
+        )
         button.setChecked(True)
-        button.setText(f"{owner_name} / Face {face_index}")
+        button.setText(label or f"{owner_name} / Face {face_index}")
         self._update_remove_buttons()
         self._update_available_mate_types(row)
         self._advance_pick(row, side)
@@ -8794,6 +8823,17 @@ class MainWindow(QMainWindow):
             dialog.adopt_created_point(*created)
 
     def _point_constraint_dialog_finished(self, _result: int) -> None:
+        finished_dialog = self.sender()
+        if (
+            finished_dialog is not None
+            and self.point_constraint_dialog is not finished_dialog
+            and self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            # A previously hidden dialog may deliver ``finished`` after a new
+            # properties window has already opened.  It must not clear the
+            # new window's edit state.
+            return
         self.point_constraint_dialog = None
         self._pending_assembly_cut_targets = []
         self._point_constraint_cycle_keys = ()
@@ -11138,6 +11178,40 @@ class MainWindow(QMainWindow):
             return source_document
         except Exception:
             return None
+
+    def _stable_component_face_descriptor(
+        self,
+        component: ZimaEntity,
+        face_index: int,
+    ) -> tuple[str, str] | None:
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return None
+        reference = active_face_registry(
+            source_document
+        ).reference_for_runtime_index(face_index)
+        if reference is None:
+            return None
+        return (
+            f"{component.entity_id}:face-ref:"
+            f"{encode_face_reference(reference)}",
+            f"{component.name} / {reference.role}",
+        )
+
+    def _component_face_runtime_index(self, descriptor: str) -> int | None:
+        parts = descriptor.split(":")
+        if len(parts) != 3 or parts[1] != "face-ref":
+            return None
+        component = self.document.find_entity(parts[0]) if self.document else None
+        if component is None or component.container_type != ContainerType.COMPONENT:
+            return None
+        source_document = self._component_source_document(component)
+        reference = decode_face_reference(parts[2])
+        if source_document is None or reference is None:
+            return None
+        return active_face_registry(
+            source_document
+        ).runtime_index_for_reference(reference)
 
     def _component_source_path(
         self,
@@ -14340,8 +14414,23 @@ class MainWindow(QMainWindow):
                 selected_shape is not None
                 and BRepAdaptor_Surface(selected_shape).GetType() == GeomAbs_Plane
             )
+            stable_face = (
+                self._stable_component_face_descriptor(owner, face_index)
+                if owner is not None
+                and owner.container_type == ContainerType.COMPONENT
+                else None
+            )
+            if owner is not None and is_planar and stable_face is None:
+                self.statusBar().showMessage(
+                    tr("assembly.properties.face_without_stable_identity"),
+                    4000,
+                )
+                return
             if owner is not None and is_planar and assembly_dialog.accept_face(
-                owner_id, face_index, owner.name
+                owner_id,
+                face_index,
+                owner.name,
+                *(stable_face or (None, None)),
             ):
                 self._apply_native_view_selection(owner_id, selected_shape)
                 return
@@ -17591,6 +17680,14 @@ class MainWindow(QMainWindow):
         return target
 
     def show_object_properties(self, obj: ZimaEntity) -> None:
+        # A properties window can already be hidden while its deferred
+        # ``finished`` signal has not cleared our guard yet.  Do not let that
+        # stale window block opening every subsequent container.
+        if (
+            self.point_constraint_dialog is not None
+            and not self.point_constraint_dialog.isVisible()
+        ):
+            self.point_constraint_dialog = None
         if obj.container_type == ContainerType.COMPONENT:
             self._edit_assembly_component(obj)
             return
@@ -17748,12 +17845,18 @@ class MainWindow(QMainWindow):
                     brepgprop.SurfaceProperties(face, props)
                     center = props.CentreOfMass()
                     axis = adaptor.Plane().Axis().Direction()
-                    choices.append((
-                        f"{owner.name} / Face {face_index}",
-                        f"{owner.entity_id}:face:{face_index}",
-                        (center.X(), center.Y(), center.Z()),
-                        (axis.X(), axis.Y(), axis.Z()),
-                    ))
+                    stable_face = self._stable_component_face_descriptor(
+                        owner,
+                        face_index,
+                    )
+                    if stable_face is not None:
+                        descriptor, label = stable_face
+                        choices.append((
+                            label,
+                            descriptor,
+                            (center.X(), center.Y(), center.Z()),
+                            (axis.X(), axis.Y(), axis.Z()),
+                        ))
                 explorer.Next()
         return choices
 
@@ -17945,11 +18048,12 @@ class MainWindow(QMainWindow):
                         continue
                     descriptor_text = str(descriptor)
                     parts = descriptor_text.split(":")
-                    if len(parts) == 3 and parts[1] == "face":
-                        try:
-                            faces.add((parts[0], int(parts[2])))
-                        except ValueError:
-                            pass
+                    if len(parts) == 3 and parts[1] == "face-ref":
+                        face_index = self._component_face_runtime_index(
+                            descriptor_text
+                        )
+                        if face_index is not None:
+                            faces.add((parts[0], face_index))
                         continue
                     if ":datum_axis:" in descriptor_text:
                         component_id, source_axis_id = descriptor_text.split(
@@ -18010,7 +18114,7 @@ class MainWindow(QMainWindow):
             if not dialog.selection_paused:
                 for _label, reference, _point, _normal in choices:
                     parts = reference.split(":")
-                    if len(parts) == 3 and parts[1] == "face":
+                    if len(parts) == 3 and parts[1] == "face-ref":
                         allowed_owner_ids.add(parts[0])
                         continue
                     if ":datum_axis:" in reference:
@@ -18062,10 +18166,9 @@ class MainWindow(QMainWindow):
                 if not descriptor:
                     return
                 parts = descriptor.split(":")
-                if len(parts) == 3 and parts[1] == "face":
-                    try:
-                        face_index = int(parts[2])
-                    except ValueError:
+                if len(parts) == 3 and parts[1] == "face-ref":
+                    face_index = self._component_face_runtime_index(descriptor)
+                    if face_index is None:
                         return
                     self.native_viewer._set_selected_face((parts[0], face_index))
                     return
@@ -18887,6 +18990,30 @@ class MainWindow(QMainWindow):
             != "assembly_component"
         ):
             descriptor["reference_scope"] = "history_result"
+            if source_kind == "face":
+                owner = self.document.find_owning_object(sketch.entity_id)
+                history_index = (
+                    self.document.history_index(owner.entity_id)
+                    if owner is not None
+                    else None
+                )
+                reference = (
+                    face_registry_at(
+                        self.document,
+                        history_index,
+                    ).reference_for_runtime_index(element_index)
+                    if history_index is not None
+                    else None
+                )
+                if reference is None:
+                    self.statusBar().showMessage(
+                        tr("sketch.status.reference_unsupported")
+                    )
+                    return
+                descriptor["face_ref"] = reference.to_dict()
+                descriptor["id"] = (
+                    f"face-ref:{encode_face_reference(reference)}"
+                )
         geometry = self._project_sketch_external_reference(
             sketch,
             descriptor,
@@ -19056,7 +19183,8 @@ class MainWindow(QMainWindow):
             str(reference.get("assembly_path", "")),
             str(reference.get("component_id", reference.get("owner_id", ""))),
             str(reference.get("source_kind", "")),
-            int(reference.get("element_index", 0)),
+            str(reference.get("face_ref", ""))
+            or int(reference.get("element_index", 0)),
         )
 
     @staticmethod
@@ -19320,16 +19448,33 @@ class MainWindow(QMainWindow):
                     projected_line,
                 )
 
+        stable_face = parse_face_reference(descriptor.get("face_ref"))
+        stable_shape = None
+        if stable_face is not None and source_kind == "face":
+            sketch_owner = self.document.find_owning_object(sketch.entity_id)
+            history_index = (
+                self.document.history_index(sketch_owner.entity_id)
+                if sketch_owner is not None
+                else None
+            )
+            if history_index is not None:
+                stable_shape = face_registry_at(
+                    self.document,
+                    history_index,
+                ).resolve(stable_face).shape
+            if stable_shape is None:
+                return None
         scene = self._native_viewer_scene
-        if scene is None or source_kind not in ("face", "edge", "point"):
+        if (
+            stable_shape is None
+            and (scene is None or source_kind not in ("face", "edge", "point"))
+        ):
             return None
         topology_kind = (
             "vertex" if source_kind == "point" else source_kind
         )
-        shape = scene.resolve_topology(
-            owner_id,
-            topology_kind,
-            element_index,
+        shape = stable_shape or scene.resolve_topology(
+            owner_id, topology_kind, element_index
         )
         if shape is None:
             return None
@@ -20463,13 +20608,62 @@ class MainWindow(QMainWindow):
             dimension_type = str(dimension.get("type", ""))
             if (
                 dimension_type
-                not in ("distance", "distance_x", "distance_y")
+                not in (
+                    "distance",
+                    "distance_x",
+                    "distance_y",
+                    "distance_line",
+                )
                 or bool(dimension.get("reference", False))
                 or not bool(dimension.get("driving", True))
             ):
                 continue
             point_ids = dimension.get("point_ids", ())
             if not isinstance(point_ids, list) or len(point_ids) < 2:
+                continue
+            if dimension_type == "distance_line":
+                if len(point_ids) < 3:
+                    continue
+                point_id, line_first_id, line_second_id = map(
+                    str, point_ids[:3]
+                )
+                point = points.get(point_id)
+                line_first = points.get(line_first_id)
+                line_second = points.get(line_second_id)
+                if point is None or line_first is None or line_second is None:
+                    continue
+                try:
+                    target_length = float(dimension.get("value", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                if target_length < 0.0:
+                    continue
+                px, py = self._sketch_point_position(point)
+                ax, ay = self._sketch_point_position(line_first)
+                bx, by = self._sketch_point_position(line_second)
+                dx, dy = bx - ax, by - ay
+                squared_length = dx * dx + dy * dy
+                if squared_length <= 1.0e-18:
+                    continue
+                factor = ((px - ax) * dx + (py - ay) * dy) / squared_length
+                projection_x = ax + factor * dx
+                projection_y = ay + factor * dy
+                offset_x = px - projection_x
+                offset_y = py - projection_y
+                offset_length = math.hypot(offset_x, offset_y)
+                if offset_length <= 1.0e-12:
+                    line_length = math.sqrt(squared_length)
+                    offset_x, offset_y = -dy / line_length, dx / line_length
+                else:
+                    offset_x /= offset_length
+                    offset_y /= offset_length
+                point_group = group(point_id)
+                if group_locks(point_group) != {"x", "y"}:
+                    set_group_position(
+                        point_group,
+                        projection_x + offset_x * target_length,
+                        projection_y + offset_y * target_length,
+                    )
                 continue
             first_id, second_id = map(str, point_ids[:2])
             first = points.get(first_id)
@@ -21009,13 +21203,21 @@ class MainWindow(QMainWindow):
         self._sketch_return_properties_id = return_properties_id
         self._clear_dimension_overlays()
         self._ensure_sketch_entity_ids(sketch)
+        # Establish the edit-history boundary before any regeneration.  A
+        # broken downstream profile must not be built while opening an
+        # earlier sketch; the editor is precisely where such geometry needs
+        # to remain repairable.
+        self._sketch_edit_entity_id = sketch.entity_id
         # Reconnect and enforce external references before taking the edit
         # baseline. A loaded history-result reference receives a fresh
         # runtime owner ID, and its attached points must be projected before
         # the sketch is first displayed or the constraint can look present
         # while its geometry remains visibly detached.
-        self._regenerate_active_sketch_constraints(sketch)
-        self._sketch_edit_entity_id = sketch.entity_id
+        try:
+            self._regenerate_active_sketch_constraints(sketch)
+        except Exception:
+            self._sketch_edit_entity_id = None
+            raise
         self._sketch_previous_camera = copy.deepcopy(self.native_viewer.camera)
         self._sketch_baseline_parameters = copy.deepcopy(sketch.parameters)
         self._sketch_tool = "select"
@@ -21053,6 +21255,16 @@ class MainWindow(QMainWindow):
         self._sketch_show_all_dimensions = True
         self._sketch_reference_mode = False
         self._sketch_selected_external_reference_id = None
+        # The object that launched Sketcher was marked as a confirmed view
+        # selection.  Keeping that latch after leaving Sketcher locks hover
+        # cycling to the result body and prevents picking history containers.
+        self._view_selection_confirmed = False
+        self._history_source_cycle_active = False
+        self._history_source_cycle_ids = ()
+        self._history_source_cycle_index = -1
+        self._cycled_history_source_id = None
+        self._view_candidate_cycle_ids = ()
+        self._view_candidate_cycle_index = -1
         self._populate_tree()
         signals_were_blocked = self.native_viewer.blockSignals(True)
         try:
@@ -21355,9 +21567,33 @@ class MainWindow(QMainWindow):
             return
         if (
             self._sketch_tool == "dimension"
-            and reference_id in ("sketch_axis:x", "sketch_axis:y")
+            and reference_id
         ):
+            if reference_id not in ("sketch_axis:x", "sketch_axis:y"):
+                proxy_id = self._external_dimension_reference_proxy(
+                    reference_id
+                )
+                if proxy_id is not None:
+                    self._handle_unified_dimension_selection(proxy_id)
+                return
             self._handle_unified_dimension_reference_selection(reference_id)
+            return
+        if (
+            self._sketch_tool == "coincident"
+            and reference_id
+            and self.document is not None
+            and self._sketch_edit_entity_id is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None:
+                # The coincidence workflow only needs the external reference
+                # identity here. Its exact snapped position is resolved again
+                # while applying the point-on-reference constraint.
+                self._handle_sketch_coincident_click(
+                    sketch,
+                    (0.0, 0.0),
+                    reference_id,
+                )
             return
         if not reference_id and self._sketch_tool == "select":
             self._clear_sketch_view_selection()
@@ -21720,13 +21956,11 @@ class MainWindow(QMainWindow):
             return
 
         completed = False
-        if candidate_id and candidate_id != first_id:
-            completed = self._add_sketch_coincident_constraint(
-                sketch,
-                candidate_id,
-                first_id,
-            )
-        elif reference_id:
+        if reference_id:
+            # A click routed as an external reference must never fall back to
+            # a local point found near the synthetic event position.  Doing
+            # so merged two unrelated sketch vertices and could collapse a
+            # rectangle into a line before the reference was even applied.
             first_point = next(
                 (
                     entity
@@ -21779,6 +22013,12 @@ class MainWindow(QMainWindow):
                     self._apply_sketch_coincident_constraints(entities)
                     self._store_sketch_entities(sketch, entities)
                     completed = True
+        elif candidate_id and candidate_id != first_id:
+            completed = self._add_sketch_coincident_constraint(
+                sketch,
+                candidate_id,
+                first_id,
+            )
         if not completed:
             self.statusBar().showMessage(
                 tr("sketch.status.coincident.invalid_second")
@@ -22110,16 +22350,26 @@ class MainWindow(QMainWindow):
             for constraint in constraints
         ):
             return point
+        base_reference_id = reference_id
+        requested_line_index: int | None = None
+        if "::line:" in reference_id:
+            base_reference_id, raw_line_index = reference_id.rsplit(
+                "::line:", 1
+            )
+            try:
+                requested_line_index = int(raw_line_index)
+            except ValueError:
+                requested_line_index = None
         constraint = {
             "type": "point_on_reference",
-            "reference_id": reference_id,
+            "reference_id": base_reference_id,
         }
         resolved = next(
             (
                 reference
                 for reference in
                 self._resolved_sketch_external_references(sketch)
-                if str(reference.get("id", "")) == reference_id
+                if str(reference.get("id", "")) == base_reference_id
             ),
             None,
         )
@@ -22128,7 +22378,9 @@ class MainWindow(QMainWindow):
             if isinstance(resolved, dict)
             else None
         )
-        if (
+        if requested_line_index is not None:
+            constraint["geometry_index"] = requested_line_index
+        elif (
             isinstance(geometry, dict)
             and geometry.get("type") == "lines"
             and isinstance(geometry.get("lines"), list)
@@ -22526,6 +22778,34 @@ class MainWindow(QMainWindow):
             overlay.set_selected(False)
         if self._sketch_tool == "dimension":
             self._handle_unified_dimension_selection(entity_id)
+            return
+        if (
+            self._sketch_tool == "coincident"
+            and self.document is not None
+            and self._sketch_edit_entity_id is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is None:
+                return
+            point = next(
+                (
+                    entity
+                    for entity in self._stored_sketch_entities(sketch)
+                    if entity.get("type") == "point"
+                    and str(entity.get("id", "")) == entity_id
+                ),
+                None,
+            )
+            if point is None:
+                self.statusBar().showMessage(
+                    tr("sketch.status.coincident.point_required")
+                )
+                return
+            self._handle_sketch_coincident_click(
+                sketch,
+                self._sketch_point_position(point),
+                None,
+            )
             return
         if self._sketch_tool == "dimension_distance":
             self._handle_sketch_distance_selection(entity_id)
@@ -23709,6 +23989,171 @@ class MainWindow(QMainWindow):
                 else "sketch.status.dimension.select_first"
             )
         )
+
+    def _external_dimension_reference_proxy(
+        self,
+        reference_id: str,
+    ) -> str | None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return None
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return None
+        base_reference_id, separator, raw_line_index = (
+            reference_id.partition("::line:")
+        )
+        resolved = next(
+            (
+                reference
+                for reference in self._resolved_sketch_external_references(sketch)
+                if str(reference.get("id", "")) == base_reference_id
+            ),
+            None,
+        )
+        geometry = (
+            resolved.get("geometry")
+            if isinstance(resolved, dict)
+            else None
+        )
+        raw_point = (
+            geometry.get("point")
+            if isinstance(geometry, dict)
+            and geometry.get("type") in ("point", "axis_point")
+            else None
+        )
+        raw_line = None
+        if isinstance(geometry, dict) and geometry.get("type") == "line":
+            raw_line = geometry
+        elif (
+            isinstance(geometry, dict)
+            and geometry.get("type") == "lines"
+            and isinstance(geometry.get("lines"), list)
+            and separator
+            and raw_line_index.isdigit()
+        ):
+            requested_index = int(raw_line_index)
+            raw_line = next(
+                (
+                    line
+                    for index, line in enumerate(geometry["lines"])
+                    if isinstance(line, dict)
+                    and int(line.get("_reference_line_index", index))
+                    == requested_index
+                ),
+                None,
+            )
+        if isinstance(raw_line, dict):
+            point = raw_line.get("point")
+            direction = raw_line.get("direction")
+            if not (
+                isinstance(point, (list, tuple))
+                and isinstance(direction, (list, tuple))
+                and len(point) >= 2
+                and len(direction) >= 2
+                and math.hypot(float(direction[0]), float(direction[1]))
+                > 1.0e-12
+            ):
+                return None
+            entities = self._stored_sketch_entities(sketch)
+            existing_line = next(
+                (
+                    entity
+                    for entity in entities
+                    if entity.get("type") == "construction"
+                    and str(entity.get(
+                        "external_dimension_reference_id", ""
+                    )) == reference_id
+                ),
+                None,
+            )
+            if existing_line is not None:
+                return str(existing_line.get("id", "")) or None
+            length = math.hypot(float(direction[0]), float(direction[1]))
+            unit = (
+                float(direction[0]) / length,
+                float(direction[1]) / length,
+            )
+            point_ids = []
+            for factor in (-10.0, 10.0):
+                point_id = self._next_sketch_point_id(entities)
+                entities.append({
+                    "type": "point",
+                    "id": point_id,
+                    "x": float(point[0]) + factor * unit[0],
+                    "y": float(point[1]) + factor * unit[1],
+                    "construction": True,
+                    "dimension_locks": ["x", "y"],
+                })
+                point_ids.append(point_id)
+            geometry_id = self._next_sketch_geometry_id(entities)
+            entities.append({
+                "type": "construction",
+                "id": geometry_id,
+                "point_ids": point_ids,
+                "external_dimension_reference_id": reference_id,
+            })
+            self._store_sketch_entities(sketch, entities)
+            for point_id in point_ids:
+                self._add_sketch_point_reference_constraint(
+                    sketch, point_id, reference_id
+                )
+            self._mark_model_for_regeneration()
+            self._refresh_sketch_overlay()
+            return geometry_id
+        if not isinstance(raw_point, (list, tuple)) or len(raw_point) < 2:
+            self.statusBar().showMessage(
+                tr("sketch.status.dimension.point_required")
+            )
+            return None
+        entities = self._stored_sketch_entities(sketch)
+        existing = next(
+            (
+                entity
+                for entity in entities
+                if entity.get("type") == "point"
+                and str(entity.get("external_dimension_reference_id", ""))
+                == reference_id
+            ),
+            None,
+        )
+        if existing is not None:
+            # This is a read-only anchor owned by the external geometry, not
+            # another free sketch point.  Exposing both coordinates as fixed
+            # lets the DOF check recognise a dimension from/to the reference
+            # as a constraint on the local geometry.
+            if set(map(str, existing.get("dimension_locks", ()))) != {
+                "x", "y"
+            }:
+                existing["dimension_locks"] = ["x", "y"]
+                self._store_sketch_entities(sketch, entities)
+            return str(existing.get("id", "")) or None
+        point_id = self._next_sketch_point_id(entities)
+        entities.append({
+            "type": "point",
+            "id": point_id,
+            "x": float(raw_point[0]),
+            "y": float(raw_point[1]),
+            "construction": True,
+            "dimension_locks": ["x", "y"],
+            "external_dimension_reference_id": reference_id,
+        })
+        self._store_sketch_entities(sketch, entities)
+        point = self._add_sketch_point_reference_constraint(
+            sketch,
+            point_id,
+            reference_id,
+        )
+        if point is None:
+            entities = [
+                entity
+                for entity in self._stored_sketch_entities(sketch)
+                if str(entity.get("id", "")) != point_id
+            ]
+            self._store_sketch_entities(sketch, entities)
+            return None
+        self._mark_model_for_regeneration()
+        self._refresh_sketch_overlay()
+        return point_id
 
     def _on_sketch_dimension_dragged(
         self,
@@ -27741,6 +28186,7 @@ class MainWindow(QMainWindow):
                 "arc",
                 "construction",
                 "coincident",
+                "dimension",
             ),
             sketch_tool=self._sketch_tool,
         )
@@ -27795,6 +28241,11 @@ class MainWindow(QMainWindow):
             or any(
                 geometry.geometry_type == GeometryType.ARC
                 for geometry in candidate.geometry.values()
+            )
+            or any(
+                dimension.driving
+                and dimension.dimension_type == "distance_line"
+                for dimension in candidate.dimensions.values()
             )
         )
         if requires_numeric_solve and candidate.solve():
@@ -28770,15 +29221,13 @@ class MainWindow(QMainWindow):
     def _finish_sketch_edit(self) -> None:
         if self._sketch_edit_entity_id is None:
             return
-        sketch_id = self._sketch_edit_entity_id
         if self._sketch_tool == "spline" and len(self._sketch_pending_points) >= 2:
             self._commit_pending_sketch_entity()
+        # A successful Finish returns to normal modeling.  Reopening the
+        # owning container's properties here kept topology-reference picking
+        # active and made ordinary containers impossible to select.
+        self._sketch_return_properties_id = None
         self._leave_sketch_edit(restore=False)
-        if self._sketch_return_properties_id is not None:
-            QTimer.singleShot(
-                0,
-                lambda: self._reopen_sketch_properties(sketch_id),
-            )
 
     def _cancel_sketch_edit(self) -> None:
         if self._sketch_edit_entity_id is None:
@@ -28843,7 +29292,15 @@ class MainWindow(QMainWindow):
         self._sketch_selected_external_reference_id = None
         self._populate_tree()
         self._rebuild_application_toolbar()
-        self.rebuild_view(fit=False)
+        if self.document is not None and not restore:
+            # Finishing a sketch is always a history change from the user's
+            # point of view.  Do not depend on a dirty flag that may have been
+            # consumed by an intermediate preview rebuild: recompute the
+            # parent and all external-reference descendants unconditionally.
+            self.document.regeneration_required = True
+            self.regenerate_model()
+        else:
+            self.rebuild_view(fit=False)
         self.statusBar().showMessage(
             tr(
                 "sketch.status.cancelled"
@@ -28948,6 +29405,14 @@ class MainWindow(QMainWindow):
         return self.document.history_cursor()
 
     def show_properties(self, obj: ZimaEntity) -> None:
+        # Internal solids, sketches and datums bypass
+        # ``show_object_properties``.  Clear the same stale-dialog guard here
+        # so every properties entry path behaves consistently.
+        if (
+            self.point_constraint_dialog is not None
+            and not self.point_constraint_dialog.isVisible()
+        ):
+            self.point_constraint_dialog = None
         if obj.kind == EntityKind.CONTAINER:
             self.show_object_properties(obj)
         elif obj.kind in SOLID_KINDS:
@@ -29901,6 +30366,11 @@ class MainWindow(QMainWindow):
                             or edited_sketch_dimension.get("type") != "angle"
                         )
                         and value <= 0.0
+                        and (
+                            edited_sketch_dimension is None
+                            or edited_sketch_dimension.get("type")
+                            != "distance_line"
+                        )
                     )
                 )
             )
@@ -30309,7 +30779,14 @@ class MainWindow(QMainWindow):
         else:
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
-        self.rebuild_view(fit=False)
+        if entity.kind == EntityKind.SKETCH:
+            # A committed parent-sketch dimension changes the feature
+            # history immediately.  Recompute external-reference descendants
+            # now, while keeping the parent sketch editor active, instead of
+            # waiting for Finish or an explicit Regenerate command.
+            self.regenerate_model()
+        else:
+            self.rebuild_view(fit=False)
         preview_owner = (
             self.document.find_owning_object(entity.entity_id)
             if entity.kind == EntityKind.SKETCH
@@ -31182,6 +31659,41 @@ class MainWindow(QMainWindow):
             regenerated_entities += 1
 
         self.document.resolve_attachments()
+
+        # Sketch references are dependencies of the feature history just as
+        # datum attachments are.  Reproject them after their parent geometry
+        # has changed, before rebuilding descendant solids and the view.
+        def dependent_sketches(entity: ZimaEntity):
+            if (
+                entity.kind == EntityKind.SKETCH
+                and self._stored_sketch_external_references(entity)
+            ):
+                yield entity
+            for child in entity.children:
+                yield from dependent_sketches(child)
+
+        active_object_ids = {
+            obj.entity_id for obj in self.document.active_history_objects()
+        }
+        for sketch in dependent_sketches(self.document.root):
+            owner = self.document.find_owning_object(sketch.entity_id)
+            if owner is None or owner.entity_id not in active_object_ids:
+                continue
+            owner_index = self.document.history_index(owner.entity_id)
+            if owner_index is None:
+                continue
+            # External topology must be resolved from the freshly generated
+            # result immediately before this child in history.  The cached
+            # viewer scene may still describe the geometry from before the
+            # parent's parameter change (or the final result after child).
+            self._native_viewer_scene = build_document_viewer_scene_data(
+                self.document,
+                history_boundary=owner_index,
+                show_sketches=False,
+            )
+            self._regenerate_active_sketch_constraints(sketch)
+            regenerated_entities += 1
+
         self.document.regeneration_required = False
         selected_id = self.selected_object_id
         self._populate_tree()

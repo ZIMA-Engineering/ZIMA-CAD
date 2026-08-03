@@ -23,7 +23,9 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRep import BRep_Builder
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle
+from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
@@ -39,13 +41,16 @@ from OCC.Core.BRepPrimAPI import (
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
+from zima_cad.topology import FaceRef, TopologyRegistry
 
 
 ORIGIN_WIDGET_SIZE = 320.0
-DOCUMENT_FORMAT_VERSION = "8"
+DOCUMENT_FORMAT_VERSION = "9"
 
 
 def default_document_settings() -> dict[str, str]:
@@ -1613,7 +1618,19 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
     if not wires:
         return None
 
-    return [BRepBuilderAPI_MakeFace(wire).Face() for wire in wires]
+    faces = []
+    for wire in wires:
+        try:
+            face = BRepBuilderAPI_MakeFace(wire).Face()
+        except (RuntimeError, ValueError):
+            # A zero-length edge can survive in a damaged/temporarily
+            # under-constrained sketch.  Keep the document and Sketcher
+            # usable so the profile can be repaired instead of aborting the
+            # entire view rebuild in OpenCASCADE.
+            continue
+        if not face.IsNull():
+            faces.append(face)
+    return faces
 
 
 def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
@@ -2172,6 +2189,242 @@ def solid_face_frames(
         if frame is not None:
             frames[role] = frame
     return frames
+
+
+def semantic_face_registry(
+    document: PartDocument,
+    solid: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    """Name supported primitive faces by their modeling role, never by order."""
+
+    registry = TopologyRegistry()
+    frames = solid_face_frames(document, solid)
+    if not frames or shape is None:
+        return registry
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    runtime_index = 0
+    while explorer.More():
+        runtime_index += 1
+        face = explorer.Current()
+        adaptor = BRepAdaptor_Surface(face)
+        if adaptor.GetType() != GeomAbs_Plane:
+            explorer.Next()
+            continue
+        direction = adaptor.Plane().Axis().Direction()
+        sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
+        normal = (
+            sign * direction.X(),
+            sign * direction.Y(),
+            sign * direction.Z(),
+        )
+        ranked = sorted(
+            (
+                vector_dot(normal, frame_normal),
+                role,
+            )
+            for role, (_point, frame_normal) in frames.items()
+        )
+        if not ranked or ranked[-1][0] < 1.0 - 1.0e-7:
+            explorer.Next()
+            continue
+        role = ranked[-1][1]
+        registry.register_face(
+            FaceRef(feature_id=solid.entity_id, role=role),
+            face,
+            runtime_index=runtime_index,
+        )
+        explorer.Next()
+    return registry
+
+
+def protrusion_face_registry(
+    document: PartDocument,
+    container: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    """Name the two cap faces of a straight extrusion by feature provenance."""
+
+    registry = TopologyRegistry()
+    if container.container_type != ContainerType.PROTRUSION or shape is None:
+        return registry
+    feature = next(
+        (
+            child
+            for child in container.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ),
+        None,
+    )
+    if feature is None:
+        return registry
+    sketch = document.find_entity(str(feature.parameters.get("sketch_id", "")))
+    if sketch is None or sketch.kind != EntityKind.SKETCH:
+        return registry
+    local_direction = {
+        "xy": (0.0, 0.0, 1.0),
+        "xz": (0.0, 1.0, 0.0),
+        "yz": (1.0, 0.0, 0.0),
+    }.get(str(sketch.parameters.get("plane", "xz")), (0.0, 1.0, 0.0))
+    world_transform = entity_world_transform(document, container.entity_id)
+    if world_transform is None:
+        return registry
+    extrusion_direction = normalized(
+        transform_vector(world_transform, local_direction)
+    )
+    if extrusion_direction is None:
+        return registry
+    try:
+        sketch_model = SketchModel.from_dict(
+            json.loads(str(sketch.parameters.get("sketch_data", "{}")))
+        )
+        sketch_entities, _dimensions = sketch_model.to_editor_data()
+    except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+        sketch_entities = []
+    sketch_points = {
+        str(entity.get("id", "")): (
+            float(entity.get("x", 0.0)),
+            float(entity.get("y", 0.0)),
+        )
+        for entity in sketch_entities
+        if isinstance(entity, dict) and entity.get("type") == "point"
+    }
+    plane_transform = sketch_plane_transform(
+        str(sketch.parameters.get("plane", "xz"))
+    )
+    forward = max(
+        0.0,
+        float(feature.parameters.get(
+            "length_forward",
+            feature.parameters.get("length", 10.0),
+        )),
+    )
+    reverse = max(0.0, float(feature.parameters.get("length_reverse", 0.0)))
+    extent_mode = str(feature.parameters.get("extent_mode", "one_side"))
+    if extent_mode == "symmetric":
+        reverse = forward
+    elif extent_mode == "one_side":
+        if str(feature.parameters.get("direction", "forward")) == "reverse":
+            reverse, forward = forward, 0.0
+        else:
+            reverse = 0.0
+    start = -reverse
+    segment_sources = []
+    for entity in sketch_entities:
+        if not isinstance(entity, dict) or entity.get("type") != "segment":
+            continue
+        point_ids = tuple(map(str, entity.get("point_ids", ())))
+        if len(point_ids) != 2 or any(
+            point_id not in sketch_points for point_id in point_ids
+        ):
+            continue
+        first_2d, second_2d = (sketch_points[point_id] for point_id in point_ids)
+        midpoint_2d = (
+            (first_2d[0] + second_2d[0]) * 0.5,
+            (first_2d[1] + second_2d[1]) * 0.5,
+        )
+        midpoint = transform_point(
+            world_transform,
+            transform_point(plane_transform, (*midpoint_2d, 0.0)),
+        )
+        midpoint = tuple(
+            midpoint[index] + extrusion_direction[index] * start
+            for index in range(3)
+        )
+        segment_sources.append((str(entity.get("id", "")), midpoint))
+
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    runtime_index = 0
+    while explorer.More():
+        runtime_index += 1
+        face = explorer.Current()
+        adaptor = BRepAdaptor_Surface(face)
+        if adaptor.GetType() != GeomAbs_Plane:
+            explorer.Next()
+            continue
+        direction = adaptor.Plane().Axis().Direction()
+        sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
+        normal = (
+            sign * direction.X(),
+            sign * direction.Y(),
+            sign * direction.Z(),
+        )
+        agreement = vector_dot(normal, extrusion_direction)
+        role = (
+            "end"
+            if agreement > 1.0 - 1.0e-7
+            else "start"
+            if agreement < -1.0 + 1.0e-7
+            else None
+        )
+        if role is not None:
+            registry.register_face(
+                FaceRef(feature_id=feature.entity_id, role=role),
+                face,
+                runtime_index=runtime_index,
+            )
+        else:
+            plane = adaptor.Plane()
+            location = plane.Location()
+            plane_point = (location.X(), location.Y(), location.Z())
+            matching_sources = [
+                source_id
+                for source_id, midpoint in segment_sources
+                if abs(vector_dot(
+                    normal,
+                    tuple(
+                        midpoint[index] - plane_point[index]
+                        for index in range(3)
+                    ),
+                )) <= 1.0e-6
+            ]
+            if len(matching_sources) == 1:
+                registry.register_face(
+                    FaceRef(
+                        feature_id=feature.entity_id,
+                        role="generated",
+                        source_id=matching_sources[0],
+                    ),
+                    face,
+                    runtime_index=runtime_index,
+                )
+        explorer.Next()
+    return registry
+
+
+def face_registry_at(
+    document: PartDocument,
+    cursor: int,
+) -> TopologyRegistry:
+    """Return semantic faces for a single-feature history snapshot."""
+
+    objects = document.history_objects_at(cursor)
+    if len(objects) != 1:
+        return TopologyRegistry()
+    container = objects[0]
+    shape = document.build_shape_at(cursor)
+    if container.container_type == ContainerType.PROTRUSION:
+        return protrusion_face_registry(document, container, shape)
+    solid = next(
+        (
+            child
+            for child in container.children
+            if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
+            and not child.locked
+        ),
+        None,
+    )
+    return (
+        semantic_face_registry(document, solid, shape)
+        if solid is not None
+        else TopologyRegistry()
+    )
+
+
+def active_face_registry(document: PartDocument) -> TopologyRegistry:
+    """Return semantic faces when the active result has unambiguous provenance."""
+
+    return face_registry_at(document, document.history_cursor())
 
 
 def resolve_entity_attachments(document: PartDocument, obj: ZimaEntity) -> None:
