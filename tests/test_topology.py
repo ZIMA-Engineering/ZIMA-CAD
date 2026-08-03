@@ -1699,6 +1699,128 @@ class StableTopologyTests(unittest.TestCase):
             set(loaded_registry.vertex_references), remembered_vertices
         )
 
+    def test_spline_cut_keeps_ancestry_across_cylindrical_cut(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Box", ContainerType.BOX)
+        base = document.create_primitive(
+            base_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+
+        cylinder_container = ZimaEntity(
+            "CylinderCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        cylinder_container.coordinate_system.origin = (45.0, 0.0, 0.0)
+        cylinder_sketch = ZimaEntity(
+            "CylinderSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "yz", "profile": "circle", "diameter": "20",
+                "sketch_data": json.dumps(SketchModel().to_dict()),
+            },
+        )
+        cylinder = ZimaEntity(
+            "CylinderFeature",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": cylinder_sketch.entity_id,
+                "length_forward": "30",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        cylinder_container.add_child(cylinder_sketch)
+        cylinder_container.add_child(cylinder)
+        document.root.add_child(cylinder_container)
+
+        spline_container = ZimaEntity(
+            "SplineCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        spline_container.coordinate_system.origin = (45.0, 0.0, 0.0)
+        spline_entities = [
+            {"id": "a", "type": "point", "x": -5.0, "y": -5.0},
+            {"id": "b", "type": "point", "x": 15.0, "y": -5.0},
+            {"id": "c", "type": "point", "x": 15.0, "y": 15.0},
+            {"id": "d", "type": "point", "x": -5.0, "y": 15.0},
+            {
+                "id": "spline", "type": "spline",
+                "point_ids": ["a", "b", "c", "d", "a"],
+            },
+        ]
+        spline_sketch = ZimaEntity(
+            "SplineCutSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "yz", "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(spline_entities).to_dict()
+                ),
+            },
+        )
+        spline = ZimaEntity(
+            "SplineFeature",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": spline_sketch.entity_id,
+                "length_forward": "30",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        spline_container.add_child(spline_sketch)
+        spline_container.add_child(spline)
+        document.root.add_child(spline_container)
+        document.set_history_cursor(len(document.history_objects()))
+
+        registry = active_face_registry(document)
+        remembered_faces = set(registry.references)
+        remembered_edges = set(registry.edge_references)
+        remembered_vertices = set(registry.vertex_references)
+        spline_face = FaceRef(spline.entity_id, "generated", "spline")
+        self.assertIn(spline_face, remembered_faces)
+        crossing_references = {
+            reference for reference in remembered_edges
+            if reference.feature_id == spline.entity_id
+            and reference.role == "intersection"
+            and cylinder.entity_id in str(reference.source_id)
+        }
+        self.assertTrue(crossing_references)
+        self.assertTrue(any(
+            registry.resolve_edge(reference).state
+            == TopologyResolutionState.RESOLVED
+            for reference in crossing_references
+        ))
+
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(spline_sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "c":
+                entity["x"] = 14.0
+        spline_sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), remembered_faces)
+        self.assertEqual(set(edited_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), remembered_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "spline-cylinder-cuts.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(set(loaded_registry.references), remembered_faces)
+        self.assertEqual(set(loaded_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), remembered_vertices
+        )
+
     def test_closed_spline_full_revolve_keeps_generated_provenance(self) -> None:
         document = create_empty_part()
         container = ZimaEntity(

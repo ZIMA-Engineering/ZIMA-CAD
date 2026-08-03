@@ -72,7 +72,8 @@ is supported with deterministic cap fragments. General multi-island Boolean
 chains now preserve supported ancestry through repeated cuts; disconnected
 solids can also be joined by an additive bridge before a subsequent cut.
 Crossing cylindrical Extrusion and full center-arc Revolve cuts preserve curved
-intersection ancestry. Unjoined additive multi-body results and the remaining
+intersection ancestry; a closed-spline Extrusion cut preserves the same ancestry
+when crossing the cylinder. Unjoined additive multi-body results and the remaining
 Assembly cases are not yet
 production-safe. A disconnected additive feature or non-intersecting cut
 preserves the last valid Part body and is reported as invalid.

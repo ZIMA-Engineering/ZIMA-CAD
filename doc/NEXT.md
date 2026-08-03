@@ -73,7 +73,8 @@
   save/reload. An additive bridge joining both source solids into one body also
   preserves source and bridge ancestry through a following cut. Crossing
   cylindrical and toroidal cuts retain curved-to-curved intersection ancestry
-  through simultaneous radius edits and save/reload.
+  through simultaneous radius edits and save/reload. A following closed-spline
+  cut also retains the cylindrical ancestry through control-point edits.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
