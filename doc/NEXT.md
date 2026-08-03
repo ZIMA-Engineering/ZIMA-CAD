@@ -71,7 +71,9 @@
   vertices. Repeated non-overlapping cuts through a two-solid feature preserve
   the complete supported face/edge/vertex reference sets across edits and
   save/reload. An additive bridge joining both source solids into one body also
-  preserves source and bridge ancestry through a following cut.
+  preserves source and bridge ancestry through a following cut. Crossing
+  cylindrical and toroidal cuts retain curved-to-curved intersection ancestry
+  through simultaneous radius edits and save/reload.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
@@ -99,8 +101,8 @@
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
 - Extend the now-stable multi-level Extrusion/Revolve, repeated multi-solid cuts
-  and additive joining to more complex intersecting curved tools and wider
-  multi-body ancestry.
+  and additive joining to wider multi-body ancestry and additional curved
+  profile combinations.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

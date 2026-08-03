@@ -1558,6 +1558,147 @@ class StableTopologyTests(unittest.TestCase):
             set(edited_registry.edge_references),
         )
 
+    def test_crossing_cylinder_and_torus_cuts_keep_curved_ancestry(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Box", ContainerType.BOX)
+        base = document.create_primitive(
+            base_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+
+        cylinder_container = ZimaEntity(
+            "CylinderCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        cylinder_container.coordinate_system.origin = (45.0, 0.0, 0.0)
+        cylinder_sketch = ZimaEntity(
+            "CylinderSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "yz",
+                "profile": "circle",
+                "diameter": "20",
+                "sketch_data": json.dumps(SketchModel().to_dict()),
+            },
+        )
+        cylinder = ZimaEntity(
+            "CylinderFeature",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": cylinder_sketch.entity_id,
+                "length_forward": "30",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        cylinder_container.add_child(cylinder_sketch)
+        cylinder_container.add_child(cylinder)
+        document.root.add_child(cylinder_container)
+
+        torus_container = ZimaEntity(
+            "TorusCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        torus_entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 10.0},
+            {
+                "id": "axis", "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "center", "type": "point", "x": 48.0, "y": 0.0},
+            {"id": "start", "type": "point", "x": 48.0, "y": -5.0},
+            {"id": "end", "type": "point", "x": 48.0, "y": 5.0},
+            {
+                "id": "arc", "type": "arc", "arc_mode": "center",
+                "clockwise": False,
+                "point_ids": ["center", "start", "end"],
+            },
+            {
+                "id": "closure", "type": "segment",
+                "point_ids": ["end", "start"],
+            },
+        ]
+        torus_sketch = ZimaEntity(
+            "TorusSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(torus_entities).to_dict()
+                ),
+            },
+        )
+        torus = ZimaEntity(
+            "TorusFeature",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": torus_sketch.entity_id,
+                "angle": "360",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        torus_container.add_child(torus_sketch)
+        torus_container.add_child(torus)
+        document.root.add_child(torus_container)
+        document.set_history_cursor(len(document.history_objects()))
+
+        registry = active_face_registry(document)
+        remembered_faces = set(registry.references)
+        remembered_edges = set(registry.edge_references)
+        remembered_vertices = set(registry.vertex_references)
+        for feature in (cylinder, torus):
+            curved_intersections = {
+                reference for reference in remembered_edges
+                if reference.feature_id == feature.entity_id
+                and reference.role == "intersection"
+            }
+            self.assertTrue(curved_intersections)
+            self.assertTrue(any(
+                registry.resolve_edge(reference).state
+                == TopologyResolutionState.RESOLVED
+                for reference in curved_intersections
+            ))
+        self.assertTrue(any(
+            reference.feature_id == torus.entity_id
+            and reference.role == "intersection"
+            and cylinder.entity_id in str(reference.source_id)
+            for reference in remembered_edges
+        ))
+
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(torus_sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") in ("center", "start", "end"):
+                entity["x"] = 47.0
+        torus_sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        cylinder_sketch.parameters["diameter"] = "19"
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), remembered_faces)
+        self.assertEqual(set(edited_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), remembered_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "crossing-curved-cuts.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(set(loaded_registry.references), remembered_faces)
+        self.assertEqual(set(loaded_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), remembered_vertices
+        )
+
     def test_closed_spline_full_revolve_keeps_generated_provenance(self) -> None:
         document = create_empty_part()
         container = ZimaEntity(

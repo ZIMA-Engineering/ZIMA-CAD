@@ -41,7 +41,9 @@ faces, edges and vertices. General multi-body Booleans, Fillet and Chamfer are
 not yet implemented, but repeated cuts across a two-solid source now have
 regression coverage for face, edge and vertex ancestry. An additive bridge can
 join that source into one solid while preserving supported source/bridge
-ancestry through a following cut.
+ancestry through a following cut. Crossing cylindrical Extrusion and toroidal
+center-arc Revolve cuts also preserve the first curved tool's ancestry in the
+second tool's intersection references.
 implemented. Legacy numerical topology references are intentionally not
 migrated from an index alone; development files may be recreated.
 
