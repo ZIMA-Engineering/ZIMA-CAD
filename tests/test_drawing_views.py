@@ -259,6 +259,22 @@ class DrawingViewConventionTests(unittest.TestCase):
             [unresolved],
         )
 
+    def test_assembly_edge_descriptor_is_an_axis_mate_reference(self) -> None:
+        descriptor = "assembly-edge-ref:stable-edge"
+        self.assertTrue(
+            AssemblyComponentPropertiesDialog._is_axis_reference(descriptor)
+        )
+        self.assertTrue(
+            AssemblyComponentPropertiesDialog._reference_matches_mate_type(
+                descriptor, "axis"
+            )
+        )
+        self.assertFalse(
+            AssemblyComponentPropertiesDialog._reference_matches_mate_type(
+                descriptor, "plane"
+            )
+        )
+
     def test_shaded_projection_contains_model_surface_triangles(self) -> None:
         mesh = triangulate_shape(
             BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()

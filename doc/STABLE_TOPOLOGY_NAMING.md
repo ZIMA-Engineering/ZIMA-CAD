@@ -8,7 +8,8 @@ The central implementation is active, not only a design proposal:
   states and `TopologyRegistry` are implemented;
 - `AssemblyEdgeRef` has canonical instance-plus-edge descriptors and
   per-instance `RESOLVED`/`MISSING`/`AMBIGUOUS` resolution; runtime edge indices
-  and legacy edge descriptors are rejected;
+  and legacy edge descriptors are rejected. Circular component edges use these
+  descriptors in concentric mate choices, view picking and highlighting;
 - `AssemblyFaceRef` has canonical serialization and resolution through a
   per-instance registry map, so two occurrences of the same Part remain
   distinct; the UI stores only this format and rejects legacy descriptors;

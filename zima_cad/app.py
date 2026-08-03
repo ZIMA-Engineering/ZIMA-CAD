@@ -24,6 +24,7 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GeomAbs import (
+    GeomAbs_Circle,
     GeomAbs_Cylinder,
     GeomAbs_Line,
     GeomAbs_Plane,
@@ -125,15 +126,18 @@ from zima_cad.model import (
     transform_point,
 )
 from zima_cad.topology import (
+    AssemblyEdgeRef,
     AssemblyFaceRef,
     TopologyResolutionState,
     assembly_face_descriptor,
+    assembly_edge_descriptor,
     decode_face_reference,
     encode_edge_reference,
     encode_face_reference,
     encode_vertex_reference,
     parse_edge_reference,
     parse_assembly_face_descriptor,
+    parse_assembly_edge_descriptor,
     parse_face_reference,
     parse_vertex_reference,
 )
@@ -4510,7 +4514,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
     @staticmethod
     def _is_axis_reference(reference) -> bool:
         text = str(reference or "")
-        return ":axis:" in text or ":datum_axis:" in text
+        return (
+            ":axis:" in text
+            or ":datum_axis:" in text
+            or text.startswith("assembly-edge-ref:")
+        )
 
     def _update_transform_editability(self) -> None:
         """Lock only the transform degrees of freedom owned by assembly mates."""
@@ -4889,7 +4897,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
 
     @staticmethod
     def _reference_matches_mate_type(reference: str, mate_type: str) -> bool:
-        is_axis = ":axis:" in reference or ":datum_axis:" in reference
+        is_axis = (
+            ":axis:" in reference
+            or ":datum_axis:" in reference
+            or reference.startswith("assembly-edge-ref:")
+        )
         if mate_type == "axis":
             return is_axis
         if mate_type == "plane":
@@ -11374,6 +11386,38 @@ class MainWindow(QMainWindow):
             f"{component.name} / {reference.role}",
         )
 
+    def _stable_component_edge_descriptor(
+        self, component: ZimaEntity, edge_index: int
+    ) -> tuple[str, str] | None:
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return None
+        reference = active_face_registry(
+            source_document
+        ).edge_reference_for_runtime_index(edge_index)
+        if reference is None:
+            return None
+        return (
+            assembly_edge_descriptor(AssemblyEdgeRef(
+                component.entity_id, reference
+            )),
+            f"{component.name} / {reference.role}",
+        )
+
+    def _component_edge_runtime_index(self, descriptor: str) -> int | None:
+        reference = parse_assembly_edge_descriptor(descriptor)
+        if reference is None or self.document is None:
+            return None
+        component = self.document.find_entity(reference.instance_id)
+        if component is None or component.container_type != ContainerType.COMPONENT:
+            return None
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return None
+        return active_face_registry(
+            source_document
+        ).edge_runtime_index_for_reference(reference.edge)
+
     def _component_face_runtime_index(self, descriptor: str) -> int | None:
         assembly_reference = self._assembly_face_reference_from_descriptor(
             descriptor
@@ -11395,6 +11439,20 @@ class MainWindow(QMainWindow):
 
     def _assembly_face_descriptor_state(self, descriptor: str) -> str:
         reference = self._assembly_face_reference_from_descriptor(descriptor)
+        edge_reference = parse_assembly_edge_descriptor(descriptor)
+        if edge_reference is not None:
+            if self.document is None:
+                return TopologyResolutionState.MISSING.value
+            component = self.document.find_entity(edge_reference.instance_id)
+            source_document = (
+                self._component_source_document(component)
+                if component is not None else None
+            )
+            if source_document is None:
+                return TopologyResolutionState.MISSING.value
+            return active_face_registry(source_document).resolve_edge(
+                edge_reference.edge
+            ).state.value
         if reference is None or self.document is None:
             return TopologyResolutionState.MISSING.value
         component = self.document.find_entity(reference.instance_id)
@@ -14266,6 +14324,28 @@ class MainWindow(QMainWindow):
             if separator and source_axis_id:
                 descriptor = f"{component_id}:datum_axis:{source_axis_id}"
                 if assembly_dialog.accept_axis(descriptor):
+                    return
+            component = (
+                self.document.find_entity(owner_id)
+                if self.document is not None else None
+            )
+            scene = self._native_viewer_scene
+            edge = (
+                scene.resolve_topology(owner_id, "edge", edge_index)
+                if scene is not None else None
+            )
+            if (
+                component is not None
+                and component.container_type == ContainerType.COMPONENT
+                and edge is not None
+                and BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle
+            ):
+                stable_edge = self._stable_component_edge_descriptor(
+                    component, edge_index
+                )
+                if stable_edge is not None and assembly_dialog.accept_axis(
+                    stable_edge[0]
+                ):
                     return
         if self._sketch_reference_mode:
             owner = (
@@ -18086,6 +18166,33 @@ class MainWindow(QMainWindow):
                             (axis.X(), axis.Y(), axis.Z()),
                         ))
                 explorer.Next()
+            edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+            edge_index = 0
+            seen_edges = []
+            while edge_explorer.More():
+                edge = edge_explorer.Current()
+                if any(edge.IsSame(existing) for existing in seen_edges):
+                    edge_explorer.Next()
+                    continue
+                seen_edges.append(edge)
+                edge_index += 1
+                adaptor = BRepAdaptor_Curve(edge)
+                if adaptor.GetType() == GeomAbs_Circle:
+                    stable_edge = self._stable_component_edge_descriptor(
+                        owner, edge_index
+                    )
+                    if stable_edge is not None:
+                        circle = adaptor.Circle()
+                        center = circle.Location()
+                        direction = circle.Axis().Direction()
+                        descriptor, label = stable_edge
+                        choices.append((
+                            label,
+                            descriptor,
+                            (center.X(), center.Y(), center.Z()),
+                            (direction.X(), direction.Y(), direction.Z()),
+                        ))
+                edge_explorer.Next()
         return choices
 
     def _edit_assembly_component(
@@ -18287,6 +18394,16 @@ class MainWindow(QMainWindow):
                         if face_index is not None:
                             faces.add((assembly_face.instance_id, face_index))
                         continue
+                    assembly_edge = parse_assembly_edge_descriptor(
+                        descriptor_text
+                    )
+                    if assembly_edge is not None:
+                        edge_index = self._component_edge_runtime_index(
+                            descriptor_text
+                        )
+                        if edge_index is not None:
+                            edges.add((assembly_edge.instance_id, edge_index))
+                        continue
                     if ":datum_axis:" in descriptor_text:
                         component_id, source_axis_id = descriptor_text.split(
                             ":datum_axis:", 1
@@ -18352,6 +18469,10 @@ class MainWindow(QMainWindow):
                     if assembly_face is not None:
                         allowed_owner_ids.add(assembly_face.instance_id)
                         continue
+                    assembly_edge = parse_assembly_edge_descriptor(reference)
+                    if assembly_edge is not None:
+                        allowed_owner_ids.add(assembly_edge.instance_id)
+                        continue
                     if ":datum_axis:" in reference:
                         component_id, source_axis_id = reference.split(
                             ":datum_axis:", 1
@@ -18410,6 +18531,15 @@ class MainWindow(QMainWindow):
                         return
                     self.native_viewer._set_selected_face((
                         assembly_face.instance_id, face_index
+                    ))
+                    return
+                assembly_edge = parse_assembly_edge_descriptor(descriptor)
+                if assembly_edge is not None:
+                    edge_index = self._component_edge_runtime_index(descriptor)
+                    if edge_index is None:
+                        return
+                    self.native_viewer._set_selected_edge((
+                        assembly_edge.instance_id, edge_index
                     ))
                     return
                 if ":datum_axis:" in descriptor:
