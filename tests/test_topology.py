@@ -554,6 +554,129 @@ class StableTopologyTests(unittest.TestCase):
             set(loaded_registry.vertex_references), remembered_vertices
         )
 
+    def test_additive_bridge_joins_two_solid_ancestry_before_cut(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "BridgeSource",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = []
+        for prefix, x_offset in (("left", 0.0), ("right", 40.0)):
+            coordinates = (
+                (x_offset, 0.0), (x_offset + 20.0, 0.0),
+                (x_offset + 20.0, 20.0), (x_offset, 20.0),
+            )
+            point_ids = tuple(f"{prefix}-p{index}" for index in range(4))
+            entities.extend(
+                {"id": point_id, "type": "point", "x": x, "y": y}
+                for point_id, (x, y) in zip(point_ids, coordinates)
+            )
+            entities.extend(
+                {
+                    "id": f"{prefix}-e{index}",
+                    "type": "segment",
+                    "point_ids": [
+                        point_ids[index], point_ids[(index + 1) % 4]
+                    ],
+                }
+                for index in range(4)
+            )
+        sketch = ZimaEntity(
+            "BridgeSourceSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        source = ZimaEntity(
+            "BridgeSourceFeature",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "12"},
+        )
+        container.add_child(sketch)
+        container.add_child(source)
+        document.root.add_child(container)
+
+        bridge_container = document.create_container("Bridge", ContainerType.BOX)
+        bridge = document.create_primitive(
+            bridge_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(bridge)
+        bridge.parameters.update({
+            "length": "60", "width": "16", "height": "10"
+        })
+        bridge.combine_mode = CombineMode.ADD
+        bridge_container.coordinate_system.origin = (15.0, -2.0, 5.0)
+
+        cut_container = document.create_container("BridgeCut", ContainerType.BOX)
+        cutter = document.create_primitive(
+            cut_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(cutter)
+        cutter.parameters.update({
+            "length": "10", "width": "12", "height": "4"
+        })
+        cutter.combine_mode = CombineMode.SUBTRACT
+        cut_container.coordinate_system.origin = (5.0, 0.0, 8.0)
+
+        shape = document.build_active_shape()
+        self.assertEqual(
+            self._subshape_count(shape, TopAbs_SOLID),
+            1,
+            (bridge.parameters.get("build_status"), cutter.parameters.get("build_status")),
+        )
+        self.assertNotIn("build_status", bridge.parameters)
+        self.assertNotIn("build_status", cutter.parameters)
+        registry = active_face_registry(document)
+        remembered_faces = set(registry.references)
+        remembered_edges = set(registry.edge_references)
+        remembered_vertices = set(registry.vertex_references)
+        self.assertTrue(any(
+            reference.feature_id == source.entity_id
+            for reference in remembered_faces
+        ))
+        self.assertTrue(any(
+            reference.feature_id == bridge.entity_id
+            for reference in remembered_faces
+        ))
+        cut_intersections = {
+            reference for reference in remembered_edges
+            if reference.feature_id == cutter.entity_id
+            and reference.role == "intersection"
+        }
+        self.assertTrue(
+            cut_intersections
+            or any(
+                reference.feature_id == cutter.entity_id
+                for reference in remembered_faces
+            )
+        )
+
+        bridge.parameters["length"] = "62"
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), remembered_faces)
+        self.assertEqual(set(edited_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), remembered_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "additive-bridge-chain.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_shape = loaded.build_active_shape()
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(self._subshape_count(loaded_shape, TopAbs_SOLID), 1)
+        self.assertEqual(set(loaded_registry.references), remembered_faces)
+        self.assertEqual(set(loaded_registry.edge_references), remembered_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), remembered_vertices
+        )
+
     def test_circular_protrusion_cut_keeps_curved_provenance(self) -> None:
         document = create_empty_part()
         base_container = document.create_container("Box", ContainerType.BOX)

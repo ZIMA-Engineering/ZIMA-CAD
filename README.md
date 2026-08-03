@@ -70,7 +70,8 @@ segment/arc/spline Extrusion and repeated center-arc Revolve cuts are supported.
 Three-level Extrusion and partial-Revolve nesting (outer loop, hole and island)
 is supported with deterministic cap fragments. General multi-island Boolean
 chains now preserve supported ancestry through repeated cuts; disconnected
-additive multi-body results and the remaining Assembly cases are not yet
+solids can also be joined by an additive bridge before a subsequent cut.
+Unjoined additive multi-body results and the remaining Assembly cases are not yet
 production-safe. A disconnected additive feature or non-intersecting cut
 preserves the last valid Part body and is reported as invalid.
 
