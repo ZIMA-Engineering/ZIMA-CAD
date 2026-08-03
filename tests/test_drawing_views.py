@@ -244,6 +244,21 @@ class DrawingViewConventionTests(unittest.TestCase):
             (False, False),
         )
 
+    def test_unresolved_assembly_mate_rows_are_retained(self) -> None:
+        unresolved = {
+            "source": "assembly-face-ref:source",
+            "target": "assembly-face-ref:target",
+            "type": "plane",
+        }
+        self.assertEqual(
+            AssemblyComponentPropertiesDialog._retained_mate_rows([
+                unresolved,
+                {"source": "incomplete"},
+                "invalid",
+            ]),
+            [unresolved],
+        )
+
     def test_shaded_projection_contains_model_surface_triangles(self) -> None:
         mesh = triangulate_shape(
             BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()

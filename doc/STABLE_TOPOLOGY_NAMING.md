@@ -12,6 +12,8 @@ The central implementation is active, not only a design proposal:
 - a saved planar mate between two instances of a Boolean Part resolves both
   faces after source dimension regeneration; suppressing the referenced source
   feature produces `MISSING` instead of rebinding to a runtime index;
+- Assembly mate rows with `MISSING` or `AMBIGUOUS` faces are retained, shown as
+  unresolved in the editor and excluded from solving until they resolve again;
 - Box and Wedge faces have semantic roles;
 - Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular

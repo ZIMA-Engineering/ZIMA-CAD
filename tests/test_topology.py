@@ -113,6 +113,11 @@ class StableTopologyTests(unittest.TestCase):
             resolve_assembly_face(second, registries).shape,
             "second-instance-face",
         )
+        second_registry.register_face(face, "ambiguous-second-face")
+        self.assertEqual(
+            resolve_assembly_face(second, registries).state,
+            TopologyResolutionState.AMBIGUOUS,
+        )
         self.assertEqual(
             resolve_assembly_face(
                 AssemblyFaceRef("missing-component", face), registries

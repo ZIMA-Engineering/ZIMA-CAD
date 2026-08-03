@@ -126,6 +126,7 @@ from zima_cad.model import (
 )
 from zima_cad.topology import (
     AssemblyFaceRef,
+    TopologyResolutionState,
     assembly_face_descriptor,
     decode_face_reference,
     encode_edge_reference,
@@ -4212,7 +4213,15 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
     matesSubmitted = Signal(list)
     activeReferenceChanged = Signal(str)
 
-    def __init__(self, solve_callback, component, source_choices, target_choices, parent=None):
+    def __init__(
+        self,
+        solve_callback,
+        component,
+        source_choices,
+        target_choices,
+        parent=None,
+        reference_state_callback=None,
+    ):
         super().__init__(
             solve_callback,
             parent,
@@ -4222,6 +4231,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.component = component
         self.source_choices = tuple(source_choices)
         self.target_choices = tuple(target_choices)
+        self.reference_state_callback = reference_state_callback
         available_height = self.screen().availableGeometry().height()
         dialog_height = min(780, max(640, available_height - 48))
         self.resize(820, dialog_height)
@@ -4247,18 +4257,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             stored = json.loads(str(component.parameters.get("assembly_mates", "[]")))
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
-        available_descriptors = {
-            descriptor
-            for _label, descriptor, _point, _normal
-            in (*source_choices, *target_choices)
-        }
-        stored = [
-            row
-            for row in stored
-            if isinstance(row, dict)
-            and row.get("source") in available_descriptors
-            and row.get("target") in available_descriptors
-        ]
+        stored = self._retained_mate_rows(stored)
         for row in range(3):
             remove_button = QPushButton("×")
             remove_button.setFixedSize(30, 30)
@@ -4314,8 +4313,16 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             labels = {descriptor: label for label, descriptor, _point, _normal in (*source_choices, *target_choices)}
             if values.get("source") in labels:
                 source_button.setText(labels[values["source"]])
+            elif values.get("source") is not None:
+                self._mark_unresolved_reference(
+                    source_button, str(values["source"])
+                )
             if values.get("target") in labels:
                 target_button.setText(labels[values["target"]])
+            elif values.get("target") is not None:
+                self._mark_unresolved_reference(
+                    target_button, str(values["target"])
+                )
             offset.setValue(float(values.get("offset", 0.0)))
             flip.setChecked(bool(values.get("flip", False)))
             stored_type = str(values.get("type", "plane"))
@@ -4366,7 +4373,32 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             lambda _rows: self._update_transform_editability()
         )
         self._update_transform_editability()
-        self._update_pick_highlight()
+
+    @staticmethod
+    def _retained_mate_rows(value) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        return [
+            dict(row)
+            for row in value[:3]
+            if isinstance(row, dict)
+            and isinstance(row.get("source"), str)
+            and isinstance(row.get("target"), str)
+        ]
+
+    def _mark_unresolved_reference(
+        self, button: QPushButton, descriptor: str
+    ) -> None:
+        state = (
+            str(self.reference_state_callback(descriptor)).upper()
+            if self.reference_state_callback is not None
+            else "MISSING"
+        )
+        button.setText(state)
+        button.setToolTip(descriptor)
+        button.setStyleSheet(
+            "QPushButton { color: #FFD08A; border: 1px solid #C47B20; }"
+        )
 
     def _mate_type_changed(
         self,
@@ -11361,6 +11393,20 @@ class MainWindow(QMainWindow):
             source_document
         ).runtime_index_for_reference(assembly_reference.face)
 
+    def _assembly_face_descriptor_state(self, descriptor: str) -> str:
+        reference = self._assembly_face_reference_from_descriptor(descriptor)
+        if reference is None or self.document is None:
+            return TopologyResolutionState.MISSING.value
+        component = self.document.find_entity(reference.instance_id)
+        if component is None or component.container_type != ContainerType.COMPONENT:
+            return TopologyResolutionState.MISSING.value
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return TopologyResolutionState.MISSING.value
+        return active_face_registry(source_document).resolve(
+            reference.face
+        ).state.value
+
     @staticmethod
     def _assembly_face_reference_from_descriptor(
         descriptor: str,
@@ -18065,6 +18111,7 @@ class MainWindow(QMainWindow):
             source_choices,
             target_choices,
             self,
+            reference_state_callback=self._assembly_face_descriptor_state,
         )
         frames = {
             descriptor: (point, normal)
