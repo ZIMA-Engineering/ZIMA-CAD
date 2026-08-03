@@ -22,8 +22,8 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Transform,
 )
-from OCC.Core.BRep import BRep_Builder
-from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+from OCC.Core.BRep import BRep_Builder, BRep_Tool
+from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
@@ -41,12 +41,17 @@ from OCC.Core.BRepPrimAPI import (
 from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopAbs import (
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_REVERSED,
+    TopAbs_VERTEX,
+)
 from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
-from zima_cad.topology import FaceRef, TopologyRegistry
+from zima_cad.topology import EdgeRef, FaceRef, TopologyRegistry, VertexRef
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -2309,7 +2314,22 @@ def protrusion_face_registry(
         else:
             reverse = 0.0
     start = -reverse
+    end = forward
+    point_positions: dict[str, dict[str, tuple[float, float, float]]] = {}
+    for point_id, point_2d in sketch_points.items():
+        base = transform_point(
+            world_transform,
+            transform_point(plane_transform, (*point_2d, 0.0)),
+        )
+        point_positions[point_id] = {
+            role: tuple(
+                base[index] + extrusion_direction[index] * distance
+                for index in range(3)
+            )
+            for role, distance in (("start", start), ("end", end))
+        }
     segment_sources = []
+    segment_point_ids: dict[str, tuple[str, str]] = {}
     for entity in sketch_entities:
         if not isinstance(entity, dict) or entity.get("type") != "segment":
             continue
@@ -2318,6 +2338,10 @@ def protrusion_face_registry(
             point_id not in sketch_points for point_id in point_ids
         ):
             continue
+        segment_point_ids[str(entity.get("id", ""))] = (
+            point_ids[0],
+            point_ids[1],
+        )
         first_2d, second_2d = (sketch_points[point_id] for point_id in point_ids)
         midpoint_2d = (
             (first_2d[0] + second_2d[0]) * 0.5,
@@ -2389,6 +2413,109 @@ def protrusion_face_registry(
                     runtime_index=runtime_index,
                 )
         explorer.Next()
+
+    def point_tuple(point) -> tuple[float, float, float]:
+        return (point.X(), point.Y(), point.Z())
+
+    def points_match(
+        first: tuple[float, float, float],
+        second: tuple[float, float, float],
+    ) -> bool:
+        return sum(
+            (first[index] - second[index]) ** 2 for index in range(3)
+        ) <= 1.0e-12
+
+    edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    runtime_edge_index = 0
+    seen_edges: list[Any] = []
+    while edge_explorer.More():
+        edge = edge_explorer.Current()
+        if any(edge.IsSame(existing) for existing in seen_edges):
+            edge_explorer.Next()
+            continue
+        seen_edges.append(edge)
+        runtime_edge_index += 1
+        try:
+            adaptor = BRepAdaptor_Curve(edge)
+            endpoints = (
+                point_tuple(adaptor.Value(adaptor.FirstParameter())),
+                point_tuple(adaptor.Value(adaptor.LastParameter())),
+            )
+        except (AttributeError, RuntimeError):
+            edge_explorer.Next()
+            continue
+        matched_reference = None
+        for segment_id, point_ids in segment_point_ids.items():
+            for role in ("start", "end"):
+                expected = tuple(
+                    point_positions[point_id][role] for point_id in point_ids
+                )
+                if (
+                    points_match(endpoints[0], expected[0])
+                    and points_match(endpoints[1], expected[1])
+                ) or (
+                    points_match(endpoints[0], expected[1])
+                    and points_match(endpoints[1], expected[0])
+                ):
+                    matched_reference = EdgeRef(
+                        feature.entity_id, role, segment_id
+                    )
+                    break
+            if matched_reference is not None:
+                break
+        if matched_reference is None:
+            for point_id, positions in point_positions.items():
+                expected = (positions["start"], positions["end"])
+                if (
+                    points_match(endpoints[0], expected[0])
+                    and points_match(endpoints[1], expected[1])
+                ) or (
+                    points_match(endpoints[0], expected[1])
+                    and points_match(endpoints[1], expected[0])
+                ):
+                    matched_reference = EdgeRef(
+                        feature.entity_id, "generated", point_id
+                    )
+                    break
+        if matched_reference is not None:
+            registry.register_edge(
+                matched_reference,
+                edge,
+                runtime_index=runtime_edge_index,
+            )
+        edge_explorer.Next()
+
+    vertex_explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+    runtime_vertex_index = 0
+    seen_vertices: list[Any] = []
+    while vertex_explorer.More():
+        vertex = vertex_explorer.Current()
+        if any(vertex.IsSame(existing) for existing in seen_vertices):
+            vertex_explorer.Next()
+            continue
+        seen_vertices.append(vertex)
+        runtime_vertex_index += 1
+        try:
+            position = point_tuple(BRep_Tool.Pnt(vertex))
+        except (TypeError, RuntimeError):
+            vertex_explorer.Next()
+            continue
+        matched_reference = next(
+            (
+                VertexRef(feature.entity_id, role, point_id)
+                for point_id, positions in point_positions.items()
+                for role in ("start", "end")
+                if points_match(position, positions[role])
+            ),
+            None,
+        )
+        if matched_reference is not None:
+            registry.register_vertex(
+                matched_reference,
+                vertex,
+                runtime_index=runtime_vertex_index,
+            )
+        vertex_explorer.Next()
     return registry
 
 

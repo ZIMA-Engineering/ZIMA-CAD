@@ -4786,6 +4786,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             else "V"
                         ),
                     )
+        # Repaint a hovered finite external point last.  A coincident sketch
+        # point, constraint marker or main axis may otherwise cover the
+        # reference marker even though hit testing selected it correctly.
+        hovered_reference_id = self._hovered_sketch_external_reference_id
+        if hovered_reference_id is not None:
+            hovered_reference = next(
+                (
+                    reference
+                    for reference in self._sketch_external_references
+                    if str(reference.get("id", ""))
+                    == hovered_reference_id
+                ),
+                None,
+            )
+            hovered_geometry = (
+                hovered_reference.get("geometry")
+                if isinstance(hovered_reference, dict)
+                else None
+            )
+            if (
+                isinstance(hovered_geometry, dict)
+                and hovered_geometry.get("type") in ("point", "axis_point")
+            ):
+                hovered_point = hovered_geometry.get("point", ())
+                if (
+                    isinstance(hovered_point, (list, tuple))
+                    and len(hovered_point) >= 2
+                ):
+                    screen = self._screen_point(
+                        self._camera_point(
+                            self._sketch_world_point((
+                                float(hovered_point[0]),
+                                float(hovered_point[1]),
+                            ))
+                        )
+                    )
+                    orange = QColor("#FF7A00")
+                    painter.setPen(QPen(orange, 2.5))
+                    painter.setBrush(QBrush(orange))
+                    painter.drawEllipse(screen, 6.0, 6.0)
         painter.end()
 
     def _sketch_entity_candidates(self, position: QPointF) -> tuple[str, ...]:
@@ -5657,6 +5697,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     ) -> tuple[str, tuple[float, float]] | None:
         tolerance = 12.0
         nearest: tuple[float, str, tuple[float, float]] | None = None
+        nearest_external_point: (
+            tuple[float, str, tuple[float, float]] | None
+        ) = None
 
         def consider_line(reference_id: str, raw_line) -> None:
             nonlocal nearest
@@ -5715,8 +5758,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             position.x() - origin_screen.x(),
             position.y() - origin_screen.y(),
         )
-        if origin_distance <= tolerance:
-            return ("sketch_origin", (0.0, 0.0))
         # External geometry is considered before the sketch axes.  The
         # nearest-candidate comparison intentionally keeps the first item on
         # an equal distance, so this order makes an external line selectable
@@ -5780,9 +5821,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
                 if (
                     distance <= tolerance
-                    and (nearest is None or distance < nearest[0])
+                    and (
+                        nearest_external_point is None
+                        or distance < nearest_external_point[0]
+                    )
                 ):
-                    nearest = (distance, reference_id, snapped)
+                    nearest_external_point = (
+                        distance,
+                        reference_id,
+                        snapped,
+                    )
+        # A finite external point is a more specific target than an infinite
+        # axis (or the sketch origin).  Once the cursor is inside its marker,
+        # keep it selectable even when both project to exactly the same place.
+        if nearest_external_point is not None:
+            return (
+                nearest_external_point[1],
+                nearest_external_point[2],
+            )
+        if origin_distance <= tolerance:
+            return ("sketch_origin", (0.0, 0.0))
         consider_line(
             "sketch_axis:x",
             {
@@ -6034,6 +6092,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         threshold = 9.0 * float(self.devicePixelRatioF())
         candidates: list[tuple[str, str, int]] = []
         for marker in mesh.points:
+            if (
+                marker.element_kind == "vertex"
+                and not self._sketch_reference_selection_mode
+            ):
+                continue
             screen = self._screen_point(self._camera_point(marker.position))
             if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
                 candidates.append(("point", marker.owner_id, marker.point_index))
@@ -6235,6 +6298,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for marker in mesh.points:
             key = (marker.owner_id, marker.point_index)
+            if (
+                marker.element_kind == "vertex"
+                and not self._sketch_reference_selection_mode
+                and key not in (self._hovered_point, self._selected_point)
+            ):
+                continue
             color = marker.base_color
             if key == self._hovered_point:
                 color = (1.0, 0.48, 0.0)
@@ -6294,6 +6363,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hits: list[tuple[float, str, int]] = []
         threshold = 9.0 * float(self.devicePixelRatioF())
         for marker in mesh.points:
+            if (
+                marker.element_kind == "vertex"
+                and not self._sketch_reference_selection_mode
+            ):
+                continue
             screen = self._screen_point(self._camera_point(marker.position))
             distance = hypot(
                 position.x() - screen.x(),

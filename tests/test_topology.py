@@ -19,13 +19,22 @@ from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
     AssemblyFaceRef,
+    EdgeRef,
     FaceRef,
     TopologyRegistry,
     TopologyResolutionState,
+    VertexRef,
+    decode_edge_reference,
     decode_face_reference,
+    decode_vertex_reference,
+    encode_edge_reference,
     encode_face_reference,
+    encode_vertex_reference,
+    parse_edge_reference,
     parse_face_reference,
+    parse_vertex_reference,
 )
+from zima_cad.viewer_mesh import triangulate_shape
 
 
 class StableTopologyTests(unittest.TestCase):
@@ -53,6 +62,36 @@ class StableTopologyTests(unittest.TestCase):
         second = AssemblyFaceRef("component-b", face)
         self.assertNotEqual(first, second)
         self.assertEqual(first.face, second.face)
+
+    def test_edge_and_vertex_reference_round_trip(self) -> None:
+        edge = EdgeRef("extrusion-1", "start", "sketch-edge-7", 2)
+        vertex = VertexRef("extrusion-1", "end", "sketch-point-3")
+        self.assertEqual(parse_edge_reference(edge.to_dict()), edge)
+        self.assertEqual(
+            decode_edge_reference(encode_edge_reference(edge)), edge
+        )
+        self.assertEqual(parse_vertex_reference(vertex.to_dict()), vertex)
+        self.assertEqual(
+            decode_vertex_reference(encode_vertex_reference(vertex)), vertex
+        )
+        self.assertIsNone(parse_edge_reference("3"))
+        self.assertIsNone(parse_vertex_reference("9"))
+
+    def test_registry_keeps_topology_kinds_separate(self) -> None:
+        face = FaceRef("extrusion-1", "end")
+        edge = EdgeRef("extrusion-1", "end", "sketch-edge-1")
+        vertex = VertexRef("extrusion-1", "end", "sketch-point-1")
+        registry = TopologyRegistry()
+        registry.register_face(face, "face", runtime_index=1)
+        registry.register_edge(edge, "edge", runtime_index=1)
+        registry.register_vertex(vertex, "vertex", runtime_index=1)
+        self.assertEqual(registry.reference_for_runtime_index(1), face)
+        self.assertEqual(registry.edge_reference_for_runtime_index(1), edge)
+        self.assertEqual(
+            registry.vertex_reference_for_runtime_index(1), vertex
+        )
+        self.assertEqual(registry.resolve_edge(edge).shape, "edge")
+        self.assertEqual(registry.resolve_vertex(vertex).shape, "vertex")
 
     def test_registry_never_silently_resolves_ambiguous_face(self) -> None:
         reference = FaceRef("extrusion-1", "generated", "edge-1")
@@ -162,14 +201,43 @@ class StableTopologyTests(unittest.TestCase):
                 for source_id in ("ab", "bc", "cd", "da")
             ),
         }
+        expected_edges = {
+            *(
+                EdgeRef(feature.entity_id, role, source_id)
+                for role in ("start", "end")
+                for source_id in ("ab", "bc", "cd", "da")
+            ),
+            *(
+                EdgeRef(feature.entity_id, "generated", source_id)
+                for source_id in ("a", "b", "c", "d")
+            ),
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, source_id)
+            for role in ("start", "end")
+            for source_id in ("a", "b", "c", "d")
+        }
 
         first_shape = make_protrusion_shape(document, container)
         first = protrusion_face_registry(document, container, first_shape)
+        mesh = triangulate_shape(first_shape, owner_id=document.root.entity_id)
+        self.assertEqual(
+            len([
+                point
+                for point in mesh.points
+                if point.element_kind == "vertex"
+            ]),
+            8,
+        )
         self.assertEqual(set(first.references), expected)
+        self.assertEqual(set(first.edge_references), expected_edges)
+        self.assertEqual(set(first.vertex_references), expected_vertices)
         feature.parameters["length_forward"] = "125"
         second_shape = make_protrusion_shape(document, container)
         second = protrusion_face_registry(document, container, second_shape)
         self.assertEqual(set(second.references), expected)
+        self.assertEqual(set(second.edge_references), expected_edges)
+        self.assertEqual(set(second.vertex_references), expected_vertices)
         for reference in expected:
             self.assertEqual(
                 second.resolve(reference).state,
@@ -191,6 +259,8 @@ class StableTopologyTests(unittest.TestCase):
         )
         reshaped = active_face_registry(document)
         self.assertEqual(set(reshaped.references), expected)
+        self.assertEqual(set(reshaped.edge_references), expected_edges)
+        self.assertEqual(set(reshaped.vertex_references), expected_vertices)
         for reference in expected:
             self.assertEqual(
                 reshaped.resolve(reference).state,
@@ -202,6 +272,12 @@ class StableTopologyTests(unittest.TestCase):
             loaded = load_part_document(path)
             loaded_registry = active_face_registry(loaded)
             self.assertEqual(set(loaded_registry.references), expected)
+            self.assertEqual(
+                set(loaded_registry.edge_references), expected_edges
+            )
+            self.assertEqual(
+                set(loaded_registry.vertex_references), expected_vertices
+            )
             for reference in expected:
                 self.assertEqual(
                     loaded_registry.resolve(reference).state,

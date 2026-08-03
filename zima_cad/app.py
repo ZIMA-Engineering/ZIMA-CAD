@@ -126,8 +126,12 @@ from zima_cad.model import (
 )
 from zima_cad.topology import (
     decode_face_reference,
+    encode_edge_reference,
     encode_face_reference,
+    encode_vertex_reference,
+    parse_edge_reference,
     parse_face_reference,
+    parse_vertex_reference,
 )
 from zima_cad.sketch_model import (
     GeometryType,
@@ -18990,19 +18994,29 @@ class MainWindow(QMainWindow):
             != "assembly_component"
         ):
             descriptor["reference_scope"] = "history_result"
-            if source_kind == "face":
+            if source_kind in ("face", "edge", "point"):
                 owner = self.document.find_owning_object(sketch.entity_id)
                 history_index = (
                     self.document.history_index(owner.entity_id)
                     if owner is not None
                     else None
                 )
-                reference = (
-                    face_registry_at(
-                        self.document,
-                        history_index,
-                    ).reference_for_runtime_index(element_index)
+                registry = (
+                    face_registry_at(self.document, history_index)
                     if history_index is not None
+                    else None
+                )
+                reference = (
+                    registry.reference_for_runtime_index(element_index)
+                    if registry is not None and source_kind == "face"
+                    else registry.edge_reference_for_runtime_index(
+                        element_index
+                    )
+                    if registry is not None and source_kind == "edge"
+                    else registry.vertex_reference_for_runtime_index(
+                        element_index
+                    )
+                    if registry is not None and source_kind == "point"
                     else None
                 )
                 if reference is None:
@@ -19010,10 +19024,16 @@ class MainWindow(QMainWindow):
                         tr("sketch.status.reference_unsupported")
                     )
                     return
-                descriptor["face_ref"] = reference.to_dict()
-                descriptor["id"] = (
-                    f"face-ref:{encode_face_reference(reference)}"
+                reference_key = f"{source_kind}_ref"
+                descriptor[reference_key] = reference.to_dict()
+                token = (
+                    encode_face_reference(reference)
+                    if source_kind == "face"
+                    else encode_edge_reference(reference)
+                    if source_kind == "edge"
+                    else encode_vertex_reference(reference)
                 )
+                descriptor["id"] = f"{source_kind}-ref:{token}"
         geometry = self._project_sketch_external_reference(
             sketch,
             descriptor,
@@ -19184,6 +19204,8 @@ class MainWindow(QMainWindow):
             str(reference.get("component_id", reference.get("owner_id", ""))),
             str(reference.get("source_kind", "")),
             str(reference.get("face_ref", ""))
+            or str(reference.get("edge_ref", ""))
+            or str(reference.get("point_ref", ""))
             or int(reference.get("element_index", 0)),
         )
 
@@ -19449,6 +19471,8 @@ class MainWindow(QMainWindow):
                 )
 
         stable_face = parse_face_reference(descriptor.get("face_ref"))
+        stable_edge = parse_edge_reference(descriptor.get("edge_ref"))
+        stable_vertex = parse_vertex_reference(descriptor.get("point_ref"))
         stable_shape = None
         if stable_face is not None and source_kind == "face":
             sketch_owner = self.document.find_owning_object(sketch.entity_id)
@@ -19462,6 +19486,34 @@ class MainWindow(QMainWindow):
                     self.document,
                     history_index,
                 ).resolve(stable_face).shape
+            if stable_shape is None:
+                return None
+        elif stable_vertex is not None and source_kind == "point":
+            sketch_owner = self.document.find_owning_object(sketch.entity_id)
+            history_index = (
+                self.document.history_index(sketch_owner.entity_id)
+                if sketch_owner is not None
+                else None
+            )
+            if history_index is not None:
+                stable_shape = face_registry_at(
+                    self.document,
+                    history_index,
+                ).resolve_vertex(stable_vertex).shape
+            if stable_shape is None:
+                return None
+        elif stable_edge is not None and source_kind == "edge":
+            sketch_owner = self.document.find_owning_object(sketch.entity_id)
+            history_index = (
+                self.document.history_index(sketch_owner.entity_id)
+                if sketch_owner is not None
+                else None
+            )
+            if history_index is not None:
+                stable_shape = face_registry_at(
+                    self.document,
+                    history_index,
+                ).resolve_edge(stable_edge).shape
             if stable_shape is None:
                 return None
         scene = self._native_viewer_scene
@@ -29223,11 +29275,16 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_tool == "spline" and len(self._sketch_pending_points) >= 2:
             self._commit_pending_sketch_entity()
-        # A successful Finish returns to normal modeling.  Reopening the
-        # owning container's properties here kept topology-reference picking
-        # active and made ordinary containers impossible to select.
-        self._sketch_return_properties_id = None
+        sketch_id = self._sketch_edit_entity_id
         self._leave_sketch_edit(restore=False)
+        if self._sketch_return_properties_id is not None:
+            # Return only after Sketcher has fully disabled topology picking,
+            # cleared its selection-cycle state and regenerated descendants.
+            # Reopening any earlier left the viewer stuck selecting Body.
+            QTimer.singleShot(
+                0,
+                lambda: self._reopen_sketch_properties(sketch_id),
+            )
 
     def _cancel_sketch_edit(self) -> None:
         if self._sketch_edit_entity_id is None:

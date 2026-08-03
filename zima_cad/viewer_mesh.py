@@ -9,7 +9,12 @@ from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepLib import BRepLib_ToolTriangulatedShape
 from OCC.Core.GCPnts import GCPnts_QuasiUniformDeflection
-from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopAbs import (
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_REVERSED,
+    TopAbs_VERTEX,
+)
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 
@@ -242,6 +247,32 @@ def triangulate_shape(
             all_points.extend(points)
         edge_explorer.Next()
 
+    vertices: list[PointMarker] = []
+    seen_vertices: list[Any] = []
+    vertex_index = 0
+    vertex_explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+    while vertex_explorer.More():
+        vertex = vertex_explorer.Current()
+        if any(vertex.IsSame(existing) for existing in seen_vertices):
+            vertex_explorer.Next()
+            continue
+        seen_vertices.append(vertex)
+        vertex_index += 1
+        try:
+            position = _point_tuple(BRep_Tool.Pnt(vertex))
+        except (TypeError, RuntimeError):
+            vertex_explorer.Next()
+            continue
+        vertices.append(
+            PointMarker(
+                point_index=vertex_index,
+                position=position,
+                owner_id=owner_id,
+                element_kind="vertex",
+            )
+        )
+        vertex_explorer.Next()
+
     if not all_points:
         return _empty_mesh()
     return ViewerMesh(
@@ -250,7 +281,7 @@ def triangulate_shape(
         triangle_face_indices=tuple(triangle_face_indices),
         triangle_owner_ids=tuple(triangle_owner_ids),
         edges=tuple(edges),
-        points=(),
+        points=tuple(vertices),
         planes=(),
         bounds_min=tuple(
             min(point[axis] for point in all_points)
