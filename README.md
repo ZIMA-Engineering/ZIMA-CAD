@@ -85,6 +85,8 @@ faces survive source Part regeneration and report `MISSING` when the source
 feature is suppressed. `MISSING` and `AMBIGUOUS` mates remain stored and visible
 in the editor instead of being deleted or silently rebound; a temporarily split
 face automatically resolves again when the splitting feature is suppressed.
+Canonical per-instance `AssemblyEdgeRef` serialization and resolution is also
+available as the stable basis for feature-edge concentric mates.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

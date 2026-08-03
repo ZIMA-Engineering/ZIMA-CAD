@@ -24,6 +24,8 @@ from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
     AssemblyFaceRef,
+    AssemblyEdgeRef,
+    assembly_edge_descriptor,
     assembly_face_descriptor,
     EdgeRef,
     FaceRef,
@@ -31,6 +33,7 @@ from zima_cad.topology import (
     TopologyResolutionState,
     VertexRef,
     decode_assembly_face_reference,
+    decode_assembly_edge_reference,
     decode_edge_reference,
     decode_face_reference,
     decode_vertex_reference,
@@ -38,12 +41,15 @@ from zima_cad.topology import (
     encode_face_reference,
     encode_vertex_reference,
     encode_assembly_face_reference,
+    encode_assembly_edge_reference,
     parse_edge_reference,
     parse_face_reference,
     parse_vertex_reference,
     parse_assembly_face_reference,
     parse_assembly_face_descriptor,
+    parse_assembly_edge_descriptor,
     resolve_assembly_face,
+    resolve_assembly_edge,
     semantic_provenance_id,
 )
 from zima_cad.viewer_mesh import triangulate_shape
@@ -138,6 +144,44 @@ class StableTopologyTests(unittest.TestCase):
         )
         self.assertIsNone(parse_edge_reference("3"))
         self.assertIsNone(parse_vertex_reference("9"))
+
+    def test_assembly_edge_reference_keeps_instance_separate(self) -> None:
+        edge = EdgeRef("extrusion-1", "start", "circle-1")
+        first = AssemblyEdgeRef("component-a", edge)
+        second = AssemblyEdgeRef("component-b", edge)
+        self.assertNotEqual(first, second)
+        self.assertEqual(
+            decode_assembly_edge_reference(
+                encode_assembly_edge_reference(first)
+            ),
+            first,
+        )
+        descriptor = assembly_edge_descriptor(first)
+        self.assertEqual(parse_assembly_edge_descriptor(descriptor), first)
+        self.assertIsNone(parse_assembly_edge_descriptor(
+            "component-a:edge:1"
+        ))
+        first_registry = TopologyRegistry()
+        second_registry = TopologyRegistry()
+        first_registry.register_edge(edge, "first-instance-edge")
+        second_registry.register_edge(edge, "second-instance-edge")
+        registries = {
+            first.instance_id: first_registry,
+            second.instance_id: second_registry,
+        }
+        self.assertEqual(
+            resolve_assembly_edge(first, registries).shape,
+            "first-instance-edge",
+        )
+        self.assertEqual(
+            resolve_assembly_edge(second, registries).shape,
+            "second-instance-edge",
+        )
+        second_registry.register_edge(edge, "ambiguous-edge")
+        self.assertEqual(
+            resolve_assembly_edge(second, registries).state,
+            TopologyResolutionState.AMBIGUOUS,
+        )
 
     def test_semantic_provenance_is_order_independent_and_kernel_free(self) -> None:
         first = FaceRef("base", "x_max")

@@ -81,6 +81,8 @@
   visible but inactive in the solver, and a temporary Boolean split recovers
   automatically when removed. Extend those identities into the remaining
   Assembly dependency workflows.
+  Canonical `AssemblyEdgeRef` is now available; connect it to circular-edge
+  selection and concentric mate frames next.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.

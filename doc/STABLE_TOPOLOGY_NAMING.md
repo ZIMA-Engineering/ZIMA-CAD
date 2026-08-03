@@ -6,6 +6,9 @@ The central implementation is active, not only a design proposal:
 
 - `FaceRef`, `EdgeRef`, `VertexRef`, `AssemblyFaceRef`, explicit resolution
   states and `TopologyRegistry` are implemented;
+- `AssemblyEdgeRef` has canonical instance-plus-edge descriptors and
+  per-instance `RESOLVED`/`MISSING`/`AMBIGUOUS` resolution; runtime edge indices
+  and legacy edge descriptors are rejected;
 - `AssemblyFaceRef` has canonical serialization and resolution through a
   per-instance registry map, so two occurrences of the same Part remain
   distinct; the UI stores only this format and rejects legacy descriptors;

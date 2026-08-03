@@ -217,6 +217,38 @@ class AssemblyFaceRef:
 
 
 @dataclass(frozen=True)
+class AssemblyEdgeRef:
+    instance_id: str
+    edge: EdgeRef
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"instance_id": self.instance_id, "edge": self.edge.to_dict()}
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> AssemblyEdgeRef:
+        edge = value.get("edge")
+        if not isinstance(edge, dict):
+            raise ValueError("AssemblyEdgeRef requires an edge object")
+        instance_id = str(value.get("instance_id", "")).strip()
+        if not instance_id:
+            raise ValueError("AssemblyEdgeRef requires instance_id")
+        return cls(instance_id=instance_id, edge=EdgeRef.from_dict(edge))
+
+    def serialize(self) -> str:
+        return json.dumps(
+            self.to_dict(), ensure_ascii=True, sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @classmethod
+    def deserialize(cls, value: str) -> AssemblyEdgeRef:
+        decoded = json.loads(value)
+        if not isinstance(decoded, dict):
+            raise ValueError("AssemblyEdgeRef payload must be an object")
+        return cls.from_dict(decoded)
+
+
+@dataclass(frozen=True)
 class TopologyResolution:
     state: TopologyResolutionState
     shape: Any | None = None
@@ -517,6 +549,47 @@ def resolve_assembly_face(
     if registry is None:
         return TopologyResolution(TopologyResolutionState.MISSING)
     return registry.resolve(reference.face)
+
+
+def encode_assembly_edge_reference(reference: AssemblyEdgeRef) -> str:
+    payload = reference.serialize().encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def decode_assembly_edge_reference(token: str) -> AssemblyEdgeRef | None:
+    try:
+        padding = "=" * (-len(token) % 4)
+        payload = base64.urlsafe_b64decode((token + padding).encode("ascii"))
+        return AssemblyEdgeRef.deserialize(payload.decode("utf-8"))
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+ASSEMBLY_EDGE_DESCRIPTOR_PREFIX = "assembly-edge-ref:"
+
+
+def assembly_edge_descriptor(reference: AssemblyEdgeRef) -> str:
+    return ASSEMBLY_EDGE_DESCRIPTOR_PREFIX + encode_assembly_edge_reference(
+        reference
+    )
+
+
+def parse_assembly_edge_descriptor(value: str) -> AssemblyEdgeRef | None:
+    if not value.startswith(ASSEMBLY_EDGE_DESCRIPTOR_PREFIX):
+        return None
+    return decode_assembly_edge_reference(
+        value[len(ASSEMBLY_EDGE_DESCRIPTOR_PREFIX):]
+    )
+
+
+def resolve_assembly_edge(
+    reference: AssemblyEdgeRef,
+    registries_by_instance: Mapping[str, TopologyRegistry],
+) -> TopologyResolution:
+    registry = registries_by_instance.get(reference.instance_id)
+    if registry is None:
+        return TopologyResolution(TopologyResolutionState.MISSING)
+    return registry.resolve_edge(reference.edge)
 
 
 def parse_edge_reference(value: Any) -> EdgeRef | None:
