@@ -59,7 +59,8 @@ planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
 types, editable in-view mate dimensions, expanded source-part trees,
 in-context part editing and assembly-only extruded or revolved cuts applied to
 selected components. Part geometry remains unchanged by assembly cuts. Stable
-semantic topology naming is implemented for Box/Wedge faces and for Extrusion
+semantic topology naming is implemented for Box/Wedge faces, primitive
+boundary edges/vertices and for Extrusion
 and segment-profile Revolve faces, edges and vertices. External Sketch
 references use those identities and survive supported parent recomputation;
 planar container orientation references use them as well. The initial Part

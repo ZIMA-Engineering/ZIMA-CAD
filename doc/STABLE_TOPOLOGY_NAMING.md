@@ -24,7 +24,9 @@ The central implementation is active, not only a design proposal:
 - a tested mate completes `RESOLVED → AMBIGUOUS → RESOLVED` across a temporary
   Boolean face split without changing its stored `AssemblyFaceRef` or selecting
   a generated fragment;
-- Box and Wedge faces have semantic roles;
+- Box and Wedge faces have semantic roles; their boundary edges and vertices
+  are derived from canonical sets of incident semantic faces rather than OCCT
+  traversal order;
 - Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
   Extrusion cylindrical faces and cap-circle edges use the persistent Sketch
@@ -55,8 +57,11 @@ full closed-spline Revolve and repeated full center-arc Revolve cuts are covered
 through dimension changes and save/reload. Three-level Extrusion nesting keeps
 outer/hole/island lateral provenance and deterministically fragments multiple
 cap faces. Partial Revolve now applies the same rule to its repeated start/end
-faces, edges and vertices. General multi-body Booleans, Fillet and Chamfer are
-not yet implemented, but repeated cuts across a two-solid source now have
+faces, edges and vertices. General multi-body Booleans and history/UI
+integration of Fillet and Chamfer are not yet implemented. A first model-level
+Fillet resolves its input through a stable edge reference, propagates existing
+ancestry and names its generated face from that edge. Repeated cuts across a
+two-solid source now have
 regression coverage for face, edge and vertex ancestry. An additive bridge can
 join that source into one solid while preserving supported source/bridge
 ancestry through a following cut. Crossing cylindrical Extrusion and toroidal
@@ -245,7 +250,8 @@ correct result.
 
 1. **Done:** introduce semantic reference types, resolution states and a central
    `TopologyRegistry`.
-2. **Done:** move semantic Box and Wedge face roles into the registry.
+2. **Done:** move semantic Box and Wedge face roles and face-adjacency-derived
+   boundary edge/vertex identities into the registry.
 3. **Done:** use stable Sketch entity IDs for Extrusion faces, edges and
    vertices.
 4. **Done for the supported subset:** store and resolve semantic faces for
@@ -259,7 +265,9 @@ correct result.
    Next expand curved-profile, repeated-intersection and general Boolean
    coverage.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
-9. Add Fillet and Chamfer only after split/merge behavior is covered by tests.
+9. **Started:** model-level Fillet consumes a stable edge identity, propagates
+   ancestry and names the generated face. Next integrate it into Part history
+   and UI, then apply the same contract to Chamfer.
 10. Consider legacy numerical-reference migration only if it becomes a product
     requirement; current development intentionally requires recreation.
 

@@ -13,6 +13,7 @@ from zima_cad.model import (
     create_empty_part,
     make_protrusion_shape,
     make_revolve_shape,
+    make_fillet_shape,
     protrusion_face_registry,
     revolve_face_registry,
     semantic_face_registry,
@@ -278,6 +279,77 @@ class StableTopologyTests(unittest.TestCase):
                     TopologyResolutionState.RESOLVED,
                 )
 
+    def test_box_edge_and_vertex_roles_survive_dimension_changes(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+        shape = document.build_standalone_shape(container)
+        first = semantic_face_registry(document, box, shape)
+        expected_edges = set(first.edge_references)
+        expected_vertices = set(first.vertex_references)
+        self.assertEqual(len(expected_edges), 12)
+        self.assertEqual(len(expected_vertices), 8)
+
+        box.parameters.update({"length": "240", "width": "35", "height": "81"})
+        shape = document.build_standalone_shape(container)
+        second = semantic_face_registry(document, box, shape)
+        self.assertEqual(set(second.edge_references), expected_edges)
+        self.assertEqual(set(second.vertex_references), expected_vertices)
+        for reference in expected_edges:
+            self.assertEqual(
+                second.resolve_edge(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        for reference in expected_vertices:
+            self.assertEqual(
+                second.resolve_vertex(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "box.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+            self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+            self.assertEqual(
+                set(loaded_registry.vertex_references), expected_vertices
+            )
+
+    def test_fillet_uses_stable_box_edge_after_dimension_change(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+
+        def build():
+            shape = document.build_standalone_shape(container)
+            registry = semantic_face_registry(document, box, shape)
+            edge = next(reference for reference in registry.edge_references)
+            return edge, make_fillet_shape(
+                shape, registry, edge, 4.0, "fillet-1"
+            )
+
+        edge, (first_shape, first_registry) = build()
+        generated = FaceRef(
+            "fillet-1", "generated", semantic_provenance_id(edge)
+        )
+        self.assertEqual(
+            first_registry.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertEqual(self._subshape_count(first_shape, TopAbs_SOLID), 1)
+
+        box.parameters.update({"length": "140", "width": "65", "height": "45"})
+        edited_edge, (edited_shape, edited_registry) = build()
+        self.assertEqual(edited_edge, edge)
+        self.assertEqual(
+            edited_registry.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertEqual(self._subshape_count(edited_shape, TopAbs_SOLID), 1)
+
     def test_disconnected_add_preserves_last_valid_body(self) -> None:
         document = create_empty_part()
         first_container = document.create_container("Box", ContainerType.BOX)
@@ -446,8 +518,20 @@ class StableTopologyTests(unittest.TestCase):
         }
 
         registry = active_face_registry(document)
-        self.assertEqual(set(registry.edge_references), expected_edges)
-        self.assertEqual(set(registry.vertex_references), expected_vertices)
+        self.assertEqual(
+            {
+                reference for reference in registry.edge_references
+                if reference.role == "intersection"
+            },
+            expected_edges,
+        )
+        self.assertEqual(
+            {
+                reference for reference in registry.vertex_references
+                if reference.role == "intersection"
+            },
+            expected_vertices,
+        )
         for reference in expected_edges:
             self.assertEqual(
                 registry.resolve_edge(reference).state,
@@ -462,16 +546,32 @@ class StableTopologyTests(unittest.TestCase):
         tool.parameters["length"] = "40"
         tool_container.coordinate_system.origin = (42.0, 0.0, 0.0)
         edited = active_face_registry(document)
-        self.assertEqual(set(edited.edge_references), expected_edges)
-        self.assertEqual(set(edited.vertex_references), expected_vertices)
+        self.assertEqual(
+            {ref for ref in edited.edge_references if ref.role == "intersection"},
+            expected_edges,
+        )
+        self.assertEqual(
+            {ref for ref in edited.vertex_references if ref.role == "intersection"},
+            expected_vertices,
+        )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "intersection.prtz"
             save_part_document(document, path)
             loaded = load_part_document(path)
             loaded_registry = active_face_registry(loaded)
-        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
         self.assertEqual(
-            set(loaded_registry.vertex_references), expected_vertices
+            {
+                ref for ref in loaded_registry.edge_references
+                if ref.role == "intersection"
+            },
+            expected_edges,
+        )
+        self.assertEqual(
+            {
+                ref for ref in loaded_registry.vertex_references
+                if ref.role == "intersection"
+            },
+            expected_vertices,
         )
 
         remembered_edge = next(iter(expected_edges))

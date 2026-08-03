@@ -15,6 +15,7 @@ from OCC.Core.BRepAlgoAPI import (
 )
 from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -2297,6 +2298,66 @@ def semantic_face_registry(
             runtime_index=runtime_index,
         )
         explorer.Next()
+    # Primitive edges and vertices are defined by the semantic faces meeting
+    # there.  This avoids inheriting OCCT's traversal order as persistent ID.
+    faces = _unique_subshapes(shape, TopAbs_FACE)
+    edges = _unique_subshapes(shape, TopAbs_EDGE)
+    vertices = _unique_subshapes(shape, TopAbs_VERTEX)
+    face_refs = {
+        index: reference
+        for index, face in enumerate(faces)
+        if (
+            reference := next((
+                candidate
+                for candidate, registered in registry.face_entries
+                if any(face.IsSame(item) for item in registered)
+            ), None)
+        ) is not None
+    }
+    adjacent_faces: dict[int, set[FaceRef]] = {}
+    incident_faces: dict[int, set[FaceRef]] = {}
+    for face_index, face in enumerate(faces):
+        reference = face_refs.get(face_index)
+        if reference is None:
+            continue
+        edge_explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        while edge_explorer.More():
+            edge = edge_explorer.Current()
+            for edge_index, candidate in enumerate(edges):
+                if edge.IsSame(candidate):
+                    adjacent_faces.setdefault(edge_index, set()).add(reference)
+                    break
+            edge_explorer.Next()
+        vertex_explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while vertex_explorer.More():
+            vertex = vertex_explorer.Current()
+            for vertex_index, candidate in enumerate(vertices):
+                if vertex.IsSame(candidate):
+                    incident_faces.setdefault(vertex_index, set()).add(reference)
+                    break
+            vertex_explorer.Next()
+    for edge_index, references in adjacent_faces.items():
+        if len(references) == 2:
+            registry.register_edge(
+                EdgeRef(
+                    solid.entity_id,
+                    "boundary",
+                    semantic_provenance_id(*references),
+                ),
+                edges[edge_index],
+                runtime_index=edge_index + 1,
+            )
+    for vertex_index, references in incident_faces.items():
+        if len(references) == 3:
+            registry.register_vertex(
+                VertexRef(
+                    solid.entity_id,
+                    "boundary",
+                    semantic_provenance_id(*references),
+                ),
+                vertices[vertex_index],
+                runtime_index=vertex_index + 1,
+            )
     return registry
 
 
@@ -3309,6 +3370,58 @@ def _propagate_boolean_registry(
                     # a merge must never silently pick one ancestry.
                     register(reference, shape)
     return result
+
+
+def make_fillet_shape(
+    shape,
+    registry: TopologyRegistry,
+    edge_reference: EdgeRef,
+    radius: float,
+    feature_id: str,
+) -> tuple[Any, TopologyRegistry]:
+    """Fillet one persistently named edge and propagate its topology."""
+
+    if shape is None:
+        raise ValueError("Fillet requires an input shape")
+    if radius <= 0.0 or not math.isfinite(radius):
+        raise ValueError("Fillet radius must be a positive finite number")
+    resolution = registry.resolve_edge(edge_reference)
+    if resolution.state.value != "resolved" or resolution.shape is None:
+        raise ValueError(
+            f"Fillet edge is {resolution.state.value}: "
+            f"{edge_reference.serialize()}"
+        )
+    builder = BRepFilletAPI_MakeFillet(shape)
+    builder.Add(float(radius), resolution.shape)
+    builder.Build()
+    if not builder.IsDone():
+        raise ValueError("Fillet could not be built with the requested radius")
+    result_shape = builder.Shape()
+    if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
+        raise ValueError("Fillet did not produce a solid")
+
+    result_registry = _propagate_boolean_registry(
+        builder, result_shape, registry, TopologyRegistry()
+    )
+    final_faces = _unique_subshapes(result_shape, TopAbs_FACE)
+    generated_indices = {
+        index
+        for generated in _boolean_history_shapes(builder, resolution.shape)
+        for index, candidate in enumerate(final_faces)
+        if generated.ShapeType() == TopAbs_FACE and generated.IsSame(candidate)
+    }
+    generated_reference = FaceRef(
+        feature_id,
+        "generated",
+        semantic_provenance_id(edge_reference),
+    )
+    _register_derived_references(
+        result_registry,
+        {generated_reference: list(generated_indices)},
+        final_faces,
+        result_registry.register_face,
+    )
+    return result_shape, result_registry
 
 
 def _resolved_face_refs_for_shape(
