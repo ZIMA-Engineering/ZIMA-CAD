@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Result body</title>
+  <path d="M4 7.5 12 3l8 4.5-8 4.6z" fill="#9BCB25"/>
+  <path d="M4 7.5v9L12 21v-8.9z" fill="#6F9918"/>
+  <path d="M20 7.5v9L12 21v-8.9z" fill="#80AA1A"/>
+  <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>

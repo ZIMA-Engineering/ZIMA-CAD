@@ -472,6 +472,7 @@ class HistoryTreeWidget(QTreeWidget):
     COMPONENT_INSTANCE_ROLE = int(Qt.ItemDataRole.UserRole) + 10
     COMPONENT_SOURCE_ENTITY_ROLE = int(Qt.ItemDataRole.UserRole) + 11
     DRAWING_SHEET_ROLE = int(Qt.ItemDataRole.UserRole) + 12
+    RESULT_BODY_ROLE = int(Qt.ItemDataRole.UserRole) + 13
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -495,7 +496,10 @@ class HistoryTreeWidget(QTreeWidget):
     def _set_rollback_hidden(self, hidden: bool) -> None:
         for index in range(self.topLevelItemCount()):
             item = self.topLevelItem(index)
-            if item.data(0, self.ROLLBACK_ROLE):
+            if (
+                item.data(0, self.ROLLBACK_ROLE)
+                or item.data(0, self.RESULT_BODY_ROLE)
+            ):
                 item.setHidden(hidden)
 
     def _update_insertion_line(self, position: QPoint) -> None:
@@ -11080,6 +11084,7 @@ class MainWindow(QMainWindow):
             cursor = self._definition_history_boundary()
             for index, obj in enumerate(history):
                 if not is_assembly and index == cursor:
+                    self.tree.addTopLevelItem(self._create_result_body_item())
                     self.tree.addTopLevelItem(self._create_rollback_item())
                 item = self._create_tree_item(obj)
                 if item is not None:
@@ -11092,6 +11097,7 @@ class MainWindow(QMainWindow):
                     )
                     self.tree.addTopLevelItem(item)
             if not is_assembly and cursor == len(history):
+                self.tree.addTopLevelItem(self._create_result_body_item())
                 self.tree.addTopLevelItem(self._create_rollback_item())
 
             self.tree.collapseAll()
@@ -11697,6 +11703,17 @@ class MainWindow(QMainWindow):
         insert_here_color = QBrush(QColor("#4DD811"))
         for column in range(item.columnCount()):
             item.setForeground(column, insert_here_color)
+        return item
+
+    def _create_result_body_item(self) -> QTreeWidgetItem:
+        item = QTreeWidgetItem([tr("tree.body")])
+        item.setIcon(0, resource_icon("result-body"))
+        item.setData(0, HistoryTreeWidget.RESULT_BODY_ROLE, True)
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+        )
+        item.setToolTip(0, tr("tree.result_body.tooltip"))
         return item
 
     def _on_history_cursor_moved(self, cursor: int) -> None:
@@ -14064,9 +14081,8 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_object_overlay(None)
         tree_object_id = owner_id
         if owner_id == self.document.root.entity_id:
-            bodies = self.document.root.body_children()
-            if bodies:
-                tree_object_id = bodies[-1].entity_id
+            self._select_result_body_tree_item()
+            return
         self.selected_face = None
         self.selected_face_object_id = None
         self._history_source_cycle_active = False
@@ -14535,7 +14551,30 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 tr("selection.status.selected_face", name=obj.name)
             )
+        if owner_id == self.document.root.entity_id:
+            self._select_result_body_tree_item()
+            return
         self._select_native_tree_object(owner_id)
+
+    def _select_result_body_tree_item(self) -> None:
+        body_item = next((
+            self.tree.topLevelItem(index)
+            for index in range(self.tree.topLevelItemCount())
+            if self.tree.topLevelItem(index).data(
+                0, HistoryTreeWidget.RESULT_BODY_ROLE
+            )
+        ), None)
+        self.tree.blockSignals(True)
+        if body_item is not None:
+            self.tree.setCurrentItem(body_item)
+        else:
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
+        self.selected_object_id = (
+            self.document.root.entity_id if self.document is not None else None
+        )
+        self._view_selection_confirmed = body_item is not None
 
     def _select_native_tree_object(self, entity_id: str) -> None:
         root = self.tree.invisibleRootItem()
@@ -14572,6 +14611,15 @@ class MainWindow(QMainWindow):
             self.selected_object_id = None
             self._view_selection_confirmed = False
         else:
+            if selected[0].data(0, HistoryTreeWidget.RESULT_BODY_ROLE):
+                self.selected_object_id = (
+                    self.document.root.entity_id
+                    if self.document is not None
+                    else None
+                )
+                self._view_selection_confirmed = self.document is not None
+                self._sync_native_tree_selection()
+                return
             sketch_entity_ids = {
                 str(entity_id)
                 for selected_item in selected
@@ -28815,7 +28863,8 @@ class MainWindow(QMainWindow):
             coordinate_owner = owner
         self._definition_edit_objects.append(coordinate_owner)
         if self._definition_dialog_depth == 1:
-            self.rebuild_view(fit=False, rebuild_geometry=False)
+            self._populate_tree()
+            self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _end_definition_edit(self) -> None:
         self._definition_dialog_depth = max(
@@ -28825,7 +28874,8 @@ class MainWindow(QMainWindow):
         if self._definition_edit_objects:
             self._definition_edit_objects.pop()
         if self._definition_dialog_depth == 0:
-            self.rebuild_view(fit=False, rebuild_geometry=False)
+            self._populate_tree()
+            self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _definition_origin_is_visible(self) -> bool:
         return self._definition_dialog_depth > 0 or (
@@ -28862,10 +28912,16 @@ class MainWindow(QMainWindow):
                     )
                 ):
                     return min(self.document.history_cursor(), index)
-        # Editing an existing definition is a live operation. Keep the full
-        # active history visible instead of rolling the model back before the
-        # edited object; otherwise the object disappears from the viewport
-        # while its Properties dialog is open.
+        edit_object = self._definition_edit_object()
+        if edit_object is not None:
+            owning_object = edit_object
+            if owning_object.kind != EntityKind.CONTAINER:
+                owning_object = self.document.find_owning_object(
+                    owning_object.entity_id
+                ) or owning_object
+            index = self.document.history_index(owning_object.entity_id)
+            if index is not None:
+                return min(self.document.history_cursor(), index)
         return self.document.history_cursor()
 
     def show_properties(self, obj: ZimaEntity) -> None:
@@ -31354,6 +31410,14 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_object_overlay(None)
             self._sync_constraint_reference_highlights()
             if self._sketch_edit_entity_id is not None:
+                return
+            if any(
+                item.data(0, HistoryTreeWidget.RESULT_BODY_ROLE)
+                for item in self.tree.selectedItems()
+            ):
+                self.native_viewer._set_selected_object(
+                    self.document.root.entity_id
+                )
                 return
             selected_objects: list[ZimaEntity] = []
             selected_ids: set[str] = set()
