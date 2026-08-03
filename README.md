@@ -78,6 +78,10 @@ Assembly cases are not yet
 production-safe. A disconnected additive feature or non-intersecting cut
 preserves the last valid Part body and is reported as invalid.
 
+Assembly face selections use a canonical `AssemblyFaceRef` containing both the
+component instance ID and the source Part `FaceRef`. Legacy index/string
+descriptors are intentionally unsupported.
+
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,
 first- and third-angle projected views in eight 45-degree placement directions,

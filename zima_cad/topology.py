@@ -4,7 +4,7 @@ import json
 import base64
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 
 class TopologyResolutionState(str, Enum):
@@ -199,6 +199,21 @@ class AssemblyFaceRef:
         if not instance_id:
             raise ValueError("AssemblyFaceRef requires instance_id")
         return cls(instance_id=instance_id, face=FaceRef.from_dict(face))
+
+    def serialize(self) -> str:
+        return json.dumps(
+            self.to_dict(),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @classmethod
+    def deserialize(cls, value: str) -> AssemblyFaceRef:
+        decoded = json.loads(value)
+        if not isinstance(decoded, dict):
+            raise ValueError("AssemblyFaceRef payload must be an object")
+        return cls.from_dict(decoded)
 
 
 @dataclass(frozen=True)
@@ -445,6 +460,46 @@ def decode_face_reference(token: str) -> FaceRef | None:
         return FaceRef.deserialize(payload.decode("utf-8"))
     except (ValueError, UnicodeError, json.JSONDecodeError):
         return None
+
+
+def parse_assembly_face_reference(value: Any) -> AssemblyFaceRef | None:
+    if isinstance(value, AssemblyFaceRef):
+        return value
+    if isinstance(value, dict):
+        try:
+            return AssemblyFaceRef.from_dict(value)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, str) or not value.lstrip().startswith("{"):
+        return None
+    try:
+        return AssemblyFaceRef.deserialize(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def encode_assembly_face_reference(reference: AssemblyFaceRef) -> str:
+    payload = reference.serialize().encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def decode_assembly_face_reference(token: str) -> AssemblyFaceRef | None:
+    try:
+        padding = "=" * (-len(token) % 4)
+        payload = base64.urlsafe_b64decode((token + padding).encode("ascii"))
+        return AssemblyFaceRef.deserialize(payload.decode("utf-8"))
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+def resolve_assembly_face(
+    reference: AssemblyFaceRef,
+    registries_by_instance: Mapping[str, TopologyRegistry],
+) -> TopologyResolution:
+    registry = registries_by_instance.get(reference.instance_id)
+    if registry is None:
+        return TopologyResolution(TopologyResolutionState.MISSING)
+    return registry.resolve(reference.face)
 
 
 def parse_edge_reference(value: Any) -> EdgeRef | None:

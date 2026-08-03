@@ -125,7 +125,10 @@ from zima_cad.model import (
     transform_point,
 )
 from zima_cad.topology import (
+    AssemblyFaceRef,
+    decode_assembly_face_reference,
     decode_face_reference,
+    encode_assembly_face_reference,
     encode_edge_reference,
     encode_face_reference,
     encode_vertex_reference,
@@ -11333,25 +11336,33 @@ class MainWindow(QMainWindow):
         if reference is None:
             return None
         return (
-            f"{component.entity_id}:face-ref:"
-            f"{encode_face_reference(reference)}",
+            "assembly-face-ref:"
+            + encode_assembly_face_reference(AssemblyFaceRef(
+                component.entity_id, reference
+            )),
             f"{component.name} / {reference.role}",
         )
 
     def _component_face_runtime_index(self, descriptor: str) -> int | None:
-        parts = descriptor.split(":")
-        if len(parts) != 3 or parts[1] != "face-ref":
+        assembly_reference = (
+            decode_assembly_face_reference(descriptor.split(":", 1)[1])
+            if descriptor.startswith("assembly-face-ref:")
+            else None
+        )
+        if assembly_reference is None:
             return None
-        component = self.document.find_entity(parts[0]) if self.document else None
+        component = (
+            self.document.find_entity(assembly_reference.instance_id)
+            if self.document else None
+        )
         if component is None or component.container_type != ContainerType.COMPONENT:
             return None
         source_document = self._component_source_document(component)
-        reference = decode_face_reference(parts[2])
-        if source_document is None or reference is None:
+        if source_document is None:
             return None
         return active_face_registry(
             source_document
-        ).runtime_index_for_reference(reference)
+        ).runtime_index_for_reference(assembly_reference.face)
 
     def _component_source_path(
         self,

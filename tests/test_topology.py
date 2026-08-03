@@ -29,15 +29,19 @@ from zima_cad.topology import (
     TopologyRegistry,
     TopologyResolutionState,
     VertexRef,
+    decode_assembly_face_reference,
     decode_edge_reference,
     decode_face_reference,
     decode_vertex_reference,
     encode_edge_reference,
     encode_face_reference,
     encode_vertex_reference,
+    encode_assembly_face_reference,
     parse_edge_reference,
     parse_face_reference,
     parse_vertex_reference,
+    parse_assembly_face_reference,
+    resolve_assembly_face,
     semantic_provenance_id,
 )
 from zima_cad.viewer_mesh import triangulate_shape
@@ -77,6 +81,37 @@ class StableTopologyTests(unittest.TestCase):
         second = AssemblyFaceRef("component-b", face)
         self.assertNotEqual(first, second)
         self.assertEqual(first.face, second.face)
+        self.assertEqual(
+            parse_assembly_face_reference(first.to_dict()), first
+        )
+        self.assertEqual(
+            decode_assembly_face_reference(
+                encode_assembly_face_reference(first)
+            ),
+            first,
+        )
+        first_registry = TopologyRegistry()
+        second_registry = TopologyRegistry()
+        first_registry.register_face(face, "first-instance-face")
+        second_registry.register_face(face, "second-instance-face")
+        registries = {
+            first.instance_id: first_registry,
+            second.instance_id: second_registry,
+        }
+        self.assertEqual(
+            resolve_assembly_face(first, registries).shape,
+            "first-instance-face",
+        )
+        self.assertEqual(
+            resolve_assembly_face(second, registries).shape,
+            "second-instance-face",
+        )
+        self.assertEqual(
+            resolve_assembly_face(
+                AssemblyFaceRef("missing-component", face), registries
+            ).state,
+            TopologyResolutionState.MISSING,
+        )
 
     def test_edge_and_vertex_reference_round_trip(self) -> None:
         edge = EdgeRef("extrusion-1", "start", "sketch-edge-7", 2)

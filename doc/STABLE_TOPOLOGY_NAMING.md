@@ -6,6 +6,9 @@ The central implementation is active, not only a design proposal:
 
 - `FaceRef`, `EdgeRef`, `VertexRef`, `AssemblyFaceRef`, explicit resolution
   states and `TopologyRegistry` are implemented;
+- `AssemblyFaceRef` has canonical serialization and resolution through a
+  per-instance registry map, so two occurrences of the same Part remain
+  distinct; the UI stores only this format and rejects legacy descriptors;
 - Box and Wedge faces have semantic roles;
 - Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
@@ -44,8 +47,8 @@ join that source into one solid while preserving supported source/bridge
 ancestry through a following cut. Crossing cylindrical Extrusion and toroidal
 center-arc Revolve cuts also preserve the first curved tool's ancestry in the
 second tool's intersection references. A closed-spline Extrusion used after the
-cylindrical cut has equivalent curved-to-spline coverage.
-implemented. Legacy numerical topology references are intentionally not
+cylindrical cut has equivalent curved-to-spline coverage. Legacy numerical
+topology references and Assembly descriptors are intentionally not
 migrated from an index alone; development files may be recreated.
 
 ## Problem
