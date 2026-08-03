@@ -24,6 +24,7 @@ from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
     AssemblyFaceRef,
+    assembly_face_descriptor,
     EdgeRef,
     FaceRef,
     TopologyRegistry,
@@ -41,6 +42,7 @@ from zima_cad.topology import (
     parse_face_reference,
     parse_vertex_reference,
     parse_assembly_face_reference,
+    parse_assembly_face_descriptor,
     resolve_assembly_face,
     semantic_provenance_id,
 )
@@ -90,6 +92,11 @@ class StableTopologyTests(unittest.TestCase):
             ),
             first,
         )
+        descriptor = assembly_face_descriptor(first)
+        self.assertEqual(parse_assembly_face_descriptor(descriptor), first)
+        self.assertIsNone(parse_assembly_face_descriptor(
+            f"{first.instance_id}:face-ref:17"
+        ))
         first_registry = TopologyRegistry()
         second_registry = TopologyRegistry()
         first_registry.register_face(face, "first-instance-face")

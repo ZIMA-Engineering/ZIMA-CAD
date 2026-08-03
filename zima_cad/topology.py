@@ -492,6 +492,23 @@ def decode_assembly_face_reference(token: str) -> AssemblyFaceRef | None:
         return None
 
 
+ASSEMBLY_FACE_DESCRIPTOR_PREFIX = "assembly-face-ref:"
+
+
+def assembly_face_descriptor(reference: AssemblyFaceRef) -> str:
+    return ASSEMBLY_FACE_DESCRIPTOR_PREFIX + encode_assembly_face_reference(
+        reference
+    )
+
+
+def parse_assembly_face_descriptor(value: str) -> AssemblyFaceRef | None:
+    if not value.startswith(ASSEMBLY_FACE_DESCRIPTOR_PREFIX):
+        return None
+    return decode_assembly_face_reference(
+        value[len(ASSEMBLY_FACE_DESCRIPTOR_PREFIX):]
+    )
+
+
 def resolve_assembly_face(
     reference: AssemblyFaceRef,
     registries_by_instance: Mapping[str, TopologyRegistry],

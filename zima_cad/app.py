@@ -126,13 +126,13 @@ from zima_cad.model import (
 )
 from zima_cad.topology import (
     AssemblyFaceRef,
-    decode_assembly_face_reference,
+    assembly_face_descriptor,
     decode_face_reference,
-    encode_assembly_face_reference,
     encode_edge_reference,
     encode_face_reference,
     encode_vertex_reference,
     parse_edge_reference,
+    parse_assembly_face_descriptor,
     parse_face_reference,
     parse_vertex_reference,
 )
@@ -11336,18 +11336,15 @@ class MainWindow(QMainWindow):
         if reference is None:
             return None
         return (
-            "assembly-face-ref:"
-            + encode_assembly_face_reference(AssemblyFaceRef(
+            assembly_face_descriptor(AssemblyFaceRef(
                 component.entity_id, reference
             )),
             f"{component.name} / {reference.role}",
         )
 
     def _component_face_runtime_index(self, descriptor: str) -> int | None:
-        assembly_reference = (
-            decode_assembly_face_reference(descriptor.split(":", 1)[1])
-            if descriptor.startswith("assembly-face-ref:")
-            else None
+        assembly_reference = self._assembly_face_reference_from_descriptor(
+            descriptor
         )
         if assembly_reference is None:
             return None
@@ -11363,6 +11360,12 @@ class MainWindow(QMainWindow):
         return active_face_registry(
             source_document
         ).runtime_index_for_reference(assembly_reference.face)
+
+    @staticmethod
+    def _assembly_face_reference_from_descriptor(
+        descriptor: str,
+    ) -> AssemblyFaceRef | None:
+        return parse_assembly_face_descriptor(descriptor)
 
     def _component_source_path(
         self,
@@ -18227,12 +18230,15 @@ class MainWindow(QMainWindow):
                         continue
                     descriptor_text = str(descriptor)
                     parts = descriptor_text.split(":")
-                    if len(parts) == 3 and parts[1] == "face-ref":
+                    assembly_face = self._assembly_face_reference_from_descriptor(
+                        descriptor_text
+                    )
+                    if assembly_face is not None:
                         face_index = self._component_face_runtime_index(
                             descriptor_text
                         )
                         if face_index is not None:
-                            faces.add((parts[0], face_index))
+                            faces.add((assembly_face.instance_id, face_index))
                         continue
                     if ":datum_axis:" in descriptor_text:
                         component_id, source_axis_id = descriptor_text.split(
@@ -18293,8 +18299,11 @@ class MainWindow(QMainWindow):
             if not dialog.selection_paused:
                 for _label, reference, _point, _normal in choices:
                     parts = reference.split(":")
-                    if len(parts) == 3 and parts[1] == "face-ref":
-                        allowed_owner_ids.add(parts[0])
+                    assembly_face = self._assembly_face_reference_from_descriptor(
+                        reference
+                    )
+                    if assembly_face is not None:
+                        allowed_owner_ids.add(assembly_face.instance_id)
                         continue
                     if ":datum_axis:" in reference:
                         component_id, source_axis_id = reference.split(
@@ -18345,11 +18354,16 @@ class MainWindow(QMainWindow):
                 if not descriptor:
                     return
                 parts = descriptor.split(":")
-                if len(parts) == 3 and parts[1] == "face-ref":
+                assembly_face = self._assembly_face_reference_from_descriptor(
+                    descriptor
+                )
+                if assembly_face is not None:
                     face_index = self._component_face_runtime_index(descriptor)
                     if face_index is None:
                         return
-                    self.native_viewer._set_selected_face((parts[0], face_index))
+                    self.native_viewer._set_selected_face((
+                        assembly_face.instance_id, face_index
+                    ))
                     return
                 if ":datum_axis:" in descriptor:
                     component_id, source_axis_id = descriptor.split(
