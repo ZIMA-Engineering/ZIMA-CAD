@@ -128,12 +128,20 @@ class AssemblyDocumentTests(unittest.TestCase):
                     if edge.owner_id == component_origin.entity_id
                     and edge.element_kind == "axis"
                 ]),
-                3,
+                0,
             )
             orientation_scene = build_document_viewer_scene_data(
                 loaded,
                 show_object_planes=True,
                 show_component_origins=True,
+            )
+            self.assertEqual(
+                len([
+                    edge for edge in orientation_scene.mesh.edges
+                    if edge.owner_id == component_origin.entity_id
+                    and edge.element_kind == "axis"
+                ]),
+                3,
             )
             self.assertEqual(
                 {

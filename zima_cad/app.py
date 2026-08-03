@@ -16239,13 +16239,22 @@ class MainWindow(QMainWindow):
             )
             return
         if self.native_viewer._interaction_mode == "object":
+            is_assembly = (
+                self.document.document_settings.get("type") == "assembly"
+            )
             selected = self._selected_object()
-            if self._view_selection_confirmed and selected is not None:
+            if (
+                not is_assembly
+                and self._view_selection_confirmed
+                and selected is not None
+            ):
                 self._show_selected_view_context_menu(
                     selected,
                     self.native_viewer.mapToGlobal(position),
                 )
                 return
+            if is_assembly and self._dimension_overlays:
+                self._clear_dimension_overlays()
             candidates = list(
                 self.native_viewer.selection_candidates_at(
                     QPointF(position)
@@ -16253,9 +16262,6 @@ class MainWindow(QMainWindow):
             )
             source_meshes: dict[str, ViewerMesh] = {}
             assembly_cycle_meshes: dict[tuple[str, str], ViewerMesh] = {}
-            is_assembly = (
-                self.document.document_settings.get("type") == "assembly"
-            )
             root_candidate = (
                 "object",
                 self.document.root.entity_id,
@@ -16330,39 +16336,51 @@ class MainWindow(QMainWindow):
                         if component.entity_id in target_ids:
                             affected = True
                             break
-                    states = [(
-                        "assembly-result",
+                    result_shape = (
                         self.document.build_assembly_component_shape(
                             component,
                             history_objects,
-                        ),
-                    )]
-                    if affected:
-                        states.append((
-                            "assembly-source",
-                            self.document.build_standalone_shape(component),
-                        ))
-                    for state_kind, state_shape in states:
-                        if state_shape is None:
-                            continue
-                        state_mesh = triangulate_shape(
-                            state_shape,
-                            owner_id=component.entity_id,
                         )
-                        if self.native_viewer.mesh_is_under_cursor(
-                            state_mesh,
-                            QPointF(position),
-                        ):
+                    )
+                    if result_shape is None:
+                        continue
+                    result_mesh = triangulate_shape(
+                        result_shape,
+                        owner_id=component.entity_id,
+                    )
+                    if not self.native_viewer.mesh_is_under_cursor(
+                        result_mesh,
+                        QPointF(position),
+                    ):
+                        continue
+                    assembly_cycle_meshes[(
+                        "assembly-result",
+                        component.entity_id,
+                    )] = result_mesh
+                    if affected:
+                        source_shape = self.document.build_standalone_shape(
+                            component
+                        )
+                        if source_shape is not None:
+                            source_mesh = triangulate_shape(
+                                source_shape,
+                                owner_id=component.entity_id,
+                            )
                             paired_candidates.append((
-                                state_kind,
+                                "assembly-source",
                                 component.entity_id,
                                 0,
                             ))
                             assembly_cycle_meshes[(
-                                state_kind,
+                                "assembly-source",
                                 component.entity_id,
-                            )] = state_mesh
-                candidates = paired_candidates + candidates
+                            )] = source_mesh
+                    paired_candidates.append((
+                        "assembly-result",
+                        component.entity_id,
+                        0,
+                    ))
+                candidates = paired_candidates or candidates
             for source in ([] if is_assembly else history_objects):
                 source_shape = self.document.build_standalone_shape(source)
                 if source_shape is None:
@@ -16491,9 +16509,14 @@ class MainWindow(QMainWindow):
                         selected_owner_id
                     )
                 else:
+                    overlay_anchor = (
+                        None
+                        if kind.startswith("assembly-")
+                        else self._native_object_origin(selected_object)
+                    )
                     self.native_viewer.set_object_overlay(
                         selected_mesh,
-                        anchor=self._native_object_origin(selected_object),
+                        anchor=overlay_anchor,
                     )
             else:
                 self._select_native_tree_object(selected_owner_id)
