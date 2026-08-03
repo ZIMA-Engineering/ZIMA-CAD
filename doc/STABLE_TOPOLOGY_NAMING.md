@@ -7,8 +7,9 @@ The central implementation is active, not only a design proposal:
 - `FaceRef`, `EdgeRef`, `VertexRef`, `AssemblyFaceRef`, explicit resolution
   states and `TopologyRegistry` are implemented;
 - Box and Wedge faces have semantic roles;
-- Extrusion cap/lateral faces, cap/generated edges and start/end vertices are
-  named from persistent Sketch entity IDs;
+- Extrusion and Revolve cap/lateral faces, cap/generated edges and start/end
+  vertices are named from persistent Sketch entity IDs; complete 360-degree
+  Revolves expose only generated topology because they have no seam caps;
 - supported external Sketch references persist semantic dictionaries instead
   of OCCT enumeration indices;
 - point, edge and face references survive tested parent dimension/profile
@@ -16,8 +17,8 @@ The central implementation is active, not only a design proposal:
 - unresolved or ambiguous registry entries do not silently select another
   runtime shape.
 
-The next supported operation is Revolve. Identity propagation through additive
-and subtractive results, general Booleans, Fillet and Chamfer is not yet
+The next supported operation is identity propagation through additive and
+subtractive results. General Booleans, Fillet and Chamfer are not yet
 implemented. Legacy numerical topology references are intentionally not
 migrated at this stage; development files may be recreated.
 
@@ -206,7 +207,7 @@ correct result.
 4. **Done for the supported subset:** store and resolve semantic faces for
    Assembly selection and semantic faces/edges/vertices for external Sketch
    references.
-5. **Next:** implement equivalent face, edge and vertex mapping for Revolve.
+5. **Done:** implement equivalent face, edge and vertex mapping for Revolve.
 6. Add complete missing/ambiguous diagnostics, UI indication and manual repair.
 7. Extend history propagation to additive/subtractive results and general
    Boolean operations.
@@ -224,8 +225,8 @@ correct result.
 - Reordering unrelated features does not change references.
 - Two instances of one `.prtz` resolve the same Part `FaceRef` independently.
 - Split and ambiguous results never bind silently to a different face.
-- Saving and reopening `.prtz` preserves tested Extrusion semantic references;
-  Assembly coverage must expand with Boolean propagation.
+- Saving and reopening `.prtz` preserves tested Extrusion and Revolve semantic
+  references; Assembly coverage must expand with Boolean propagation.
 - A legacy numerical reference is rejected rather than silently rebound.
 
 ## Scope and expectation

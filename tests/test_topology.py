@@ -11,7 +11,9 @@ from zima_cad.model import (
     active_face_registry,
     create_empty_part,
     make_protrusion_shape,
+    make_revolve_shape,
     protrusion_face_registry,
+    revolve_face_registry,
     semantic_face_registry,
     ZimaEntity,
 )
@@ -283,6 +285,115 @@ class StableTopologyTests(unittest.TestCase):
                     loaded_registry.resolve(reference).state,
                     TopologyResolutionState.RESOLVED,
                 )
+
+    def test_revolve_topology_survives_angle_and_profile_changes(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "Revolve001",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 30.0},
+            {"id": "axis", "type": "construction", "point_ids": ["axis-a", "axis-b"]},
+            {"id": "a", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 12.0},
+            {"id": "d", "type": "point", "x": 10.0, "y": 12.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        sketch = ZimaEntity(
+            "Sketch001",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(SketchModel.from_editor_data(entities).to_dict()),
+            },
+        )
+        feature = ZimaEntity(
+            "Revolve",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "120",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            *(FaceRef(feature.entity_id, "generated", source_id)
+              for source_id in ("ab", "bc", "cd", "da")),
+        }
+        expected_edges = {
+            *(EdgeRef(feature.entity_id, role, source_id)
+              for role in ("start", "end")
+              for source_id in ("ab", "bc", "cd", "da")),
+            *(EdgeRef(feature.entity_id, "generated", point_id)
+              for point_id in ("a", "b", "c", "d")),
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, point_id)
+            for role in ("start", "end")
+            for point_id in ("a", "b", "c", "d")
+        }
+
+        for angle in (120, 210):
+            feature.parameters["angle"] = str(angle)
+            shape = make_revolve_shape(document, container)
+            registry = revolve_face_registry(document, container, shape)
+            self.assertEqual(set(registry.references), expected_faces)
+            self.assertEqual(set(registry.edge_references), expected_edges)
+            self.assertEqual(set(registry.vertex_references), expected_vertices)
+
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") in {"b", "c"}:
+                entity["x"] = 24.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "revolve.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+            self.assertEqual(set(loaded_registry.references), expected_faces)
+            self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+            self.assertEqual(set(loaded_registry.vertex_references), expected_vertices)
+
+        feature.parameters["angle"] = "360"
+        full_registry = active_face_registry(document)
+        self.assertEqual(
+            set(full_registry.references),
+            {
+                FaceRef(feature.entity_id, "generated", source_id)
+                for source_id in ("ab", "bc", "cd", "da")
+            },
+        )
+        self.assertEqual(
+            set(full_registry.edge_references),
+            {
+                EdgeRef(feature.entity_id, "generated", point_id)
+                for point_id in ("a", "b", "c", "d")
+            },
+        )
+        self.assertEqual(full_registry.vertex_references, ())
 
 
 if __name__ == "__main__":

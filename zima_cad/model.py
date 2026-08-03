@@ -14,6 +14,7 @@ from OCC.Core.BRepAlgoAPI import (
     BRepAlgoAPI_Fuse,
 )
 from OCC.Core.BRepGProp import brepgprop
+from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -2519,6 +2520,228 @@ def protrusion_face_registry(
     return registry
 
 
+def revolve_face_registry(
+    document: PartDocument,
+    container: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    """Name Revolve topology from persistent Sketch entity provenance."""
+
+    registry = TopologyRegistry()
+    if container.container_type != ContainerType.REVOLVE or shape is None:
+        return registry
+    feature = next(
+        (
+            child for child in container.children
+            if child.kind == EntityKind.REVOLVE and not child.locked
+        ),
+        None,
+    )
+    if feature is None:
+        return registry
+    sketch = document.find_entity(str(feature.parameters.get("sketch_id", "")))
+    if sketch is None or sketch.kind != EntityKind.SKETCH:
+        return registry
+    try:
+        sketch_model = SketchModel.from_dict(
+            json.loads(str(sketch.parameters.get("sketch_data", "{}")))
+        )
+        entities, _dimensions = sketch_model.to_editor_data()
+    except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+        return registry
+    points = {
+        str(entity.get("id", "")): (
+            float(entity.get("x", 0.0)), float(entity.get("y", 0.0))
+        )
+        for entity in entities
+        if isinstance(entity, dict) and entity.get("type") == "point"
+    }
+    axis_geometry = next(
+        (
+            entity for entity in entities
+            if isinstance(entity, dict)
+            and entity.get("type") == "construction"
+            and len(entity.get("point_ids", ())) == 2
+        ),
+        None,
+    )
+    if axis_geometry is None:
+        return registry
+    axis_ids = tuple(map(str, axis_geometry.get("point_ids", ())))
+    if len(axis_ids) != 2 or any(point_id not in points for point_id in axis_ids):
+        return registry
+    plane_transform = sketch_plane_transform(str(sketch.parameters.get("plane", "xz")))
+    axis_start = transform_point(plane_transform, (*points[axis_ids[0]], 0.0))
+    axis_end = transform_point(plane_transform, (*points[axis_ids[1]], 0.0))
+    axis_direction = normalized(tuple(axis_end[i] - axis_start[i] for i in range(3)))
+    world_transform = entity_world_transform(document, container.entity_id)
+    if axis_direction is None or world_transform is None:
+        return registry
+
+    angle = max(1.0e-6, min(360.0, float(feature.parameters.get("angle", 360.0))))
+    reverse_angle = max(1.0e-6, min(360.0, float(feature.parameters.get("angle_reverse", angle))))
+    extent_mode = str(feature.parameters.get("extent_mode", "one_side"))
+    if extent_mode == "symmetric":
+        half = min(angle, 180.0)
+        start_angle, end_angle = -half, half
+    elif extent_mode == "two_sides":
+        reverse_angle = min(reverse_angle, max(0.0, 360.0 - angle))
+        start_angle, end_angle = -reverse_angle, angle
+    elif str(feature.parameters.get("direction", "forward")) == "reverse":
+        start_angle, end_angle = -angle, 0.0
+    else:
+        start_angle, end_angle = 0.0, angle
+    is_full = end_angle - start_angle >= 360.0 - 1.0e-7
+
+    def rotate(point, degrees: float) -> tuple[float, float, float]:
+        vector = tuple(point[i] - axis_start[i] for i in range(3))
+        radians = math.radians(degrees)
+        cosine, sine = math.cos(radians), math.sin(radians)
+        cross = (
+            axis_direction[1] * vector[2] - axis_direction[2] * vector[1],
+            axis_direction[2] * vector[0] - axis_direction[0] * vector[2],
+            axis_direction[0] * vector[1] - axis_direction[1] * vector[0],
+        )
+        projection = vector_dot(axis_direction, vector)
+        local = tuple(
+            axis_start[i] + vector[i] * cosine + cross[i] * sine
+            + axis_direction[i] * projection * (1.0 - cosine)
+            for i in range(3)
+        )
+        return transform_point(world_transform, local)
+
+    local_points = {
+        point_id: transform_point(plane_transform, (*point, 0.0))
+        for point_id, point in points.items()
+    }
+    positions = {
+        point_id: {
+            "start": rotate(point, start_angle),
+            "end": rotate(point, end_angle),
+        }
+        for point_id, point in local_points.items()
+    }
+    segments: dict[str, tuple[str, str]] = {}
+    generated_samples: dict[str, tuple[float, float, float]] = {}
+    middle_angle = (start_angle + end_angle) * 0.5
+    for entity in entities:
+        if not isinstance(entity, dict) or entity.get("type") != "segment":
+            continue
+        point_ids = tuple(map(str, entity.get("point_ids", ())))
+        if len(point_ids) != 2 or any(point_id not in local_points for point_id in point_ids):
+            continue
+        source_id = str(entity.get("id", ""))
+        segments[source_id] = (point_ids[0], point_ids[1])
+        midpoint = tuple(
+            (local_points[point_ids[0]][i] + local_points[point_ids[1]][i]) * 0.5
+            for i in range(3)
+        )
+        generated_samples[source_id] = rotate(midpoint, middle_angle)
+
+    def point_tuple(point) -> tuple[float, float, float]:
+        return (point.X(), point.Y(), point.Z())
+
+    def points_match(first, second) -> bool:
+        return sum((first[i] - second[i]) ** 2 for i in range(3)) <= 1.0e-12
+
+    face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    face_index = 0
+    while face_explorer.More():
+        face_index += 1
+        face = face_explorer.Current()
+        face_vertices = []
+        vertex_explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while vertex_explorer.More():
+            position = point_tuple(BRep_Tool.Pnt(vertex_explorer.Current()))
+            if not any(points_match(position, existing) for existing in face_vertices):
+                face_vertices.append(position)
+            vertex_explorer.Next()
+        matched = None
+        if not is_full:
+            for role in ("start", "end"):
+                expected = [positions[point_id][role] for point_id in local_points]
+                if len(face_vertices) >= 3 and all(
+                    any(points_match(position, candidate) for candidate in expected)
+                    for position in face_vertices
+                ):
+                    matched = FaceRef(feature.entity_id, role)
+                    break
+        if matched is None:
+            candidates = []
+            for source_id, sample in generated_samples.items():
+                distance = BRepExtrema_DistShapeShape(
+                    BRepBuilderAPI_MakeVertex(gp_Pnt(*sample)).Vertex(), face
+                )
+                distance.Perform()
+                if distance.IsDone() and distance.Value() <= 1.0e-6:
+                    candidates.append(source_id)
+            if len(candidates) == 1:
+                matched = FaceRef(feature.entity_id, "generated", candidates[0])
+        if matched is not None:
+            registry.register_face(matched, face, runtime_index=face_index)
+        face_explorer.Next()
+
+    edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    edge_index = 0
+    seen_edges: list[Any] = []
+    while edge_explorer.More():
+        edge = edge_explorer.Current()
+        if any(edge.IsSame(existing) for existing in seen_edges):
+            edge_explorer.Next()
+            continue
+        seen_edges.append(edge)
+        edge_index += 1
+        adaptor = BRepAdaptor_Curve(edge)
+        endpoints = (
+            point_tuple(adaptor.Value(adaptor.FirstParameter())),
+            point_tuple(adaptor.Value(adaptor.LastParameter())),
+        )
+        matched = None
+        if not is_full:
+            for source_id, point_ids in segments.items():
+                for role in ("start", "end"):
+                    expected = tuple(positions[point_id][role] for point_id in point_ids)
+                    if ((points_match(endpoints[0], expected[0]) and points_match(endpoints[1], expected[1])) or
+                            (points_match(endpoints[0], expected[1]) and points_match(endpoints[1], expected[0]))):
+                        matched = EdgeRef(feature.entity_id, role, source_id)
+                        break
+                if matched is not None:
+                    break
+        if matched is None:
+            for point_id, point_positions in positions.items():
+                expected = (point_positions["start"], point_positions["end"])
+                if ((points_match(endpoints[0], expected[0]) and points_match(endpoints[1], expected[1])) or
+                        (points_match(endpoints[0], expected[1]) and points_match(endpoints[1], expected[0]))):
+                    matched = EdgeRef(feature.entity_id, "generated", point_id)
+                    break
+        if matched is not None:
+            registry.register_edge(matched, edge, runtime_index=edge_index)
+        edge_explorer.Next()
+
+    if not is_full:
+        vertex_explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+        vertex_index = 0
+        seen_vertices: list[Any] = []
+        while vertex_explorer.More():
+            vertex = vertex_explorer.Current()
+            if any(vertex.IsSame(existing) for existing in seen_vertices):
+                vertex_explorer.Next()
+                continue
+            seen_vertices.append(vertex)
+            vertex_index += 1
+            position = point_tuple(BRep_Tool.Pnt(vertex))
+            matched = next((
+                VertexRef(feature.entity_id, role, point_id)
+                for point_id, point_positions in positions.items()
+                for role in ("start", "end")
+                if points_match(position, point_positions[role])
+            ), None)
+            if matched is not None:
+                registry.register_vertex(matched, vertex, runtime_index=vertex_index)
+            vertex_explorer.Next()
+    return registry
+
+
 def face_registry_at(
     document: PartDocument,
     cursor: int,
@@ -2532,6 +2755,8 @@ def face_registry_at(
     shape = document.build_shape_at(cursor)
     if container.container_type == ContainerType.PROTRUSION:
         return protrusion_face_registry(document, container, shape)
+    if container.container_type == ContainerType.REVOLVE:
+        return revolve_face_registry(document, container, shape)
     solid = next(
         (
             child

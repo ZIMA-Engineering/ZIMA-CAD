@@ -52,10 +52,11 @@
     references.
 - Continue the central stable-topology implementation described in
   `doc/STABLE_TOPOLOGY_NAMING.md`. Box/Wedge faces and Extrusion faces, edges
-  and vertices now have semantic identities; supported external Sketch
+  and vertices now have semantic identities; Revolve faces, edges and vertices
+  have equivalent provenance-based identities. Supported external Sketch
   references survive parent edits, save/reload and automatic descendant
-  regeneration. Implement equivalent Revolve identities next, then propagate
-  identities through additive/subtractive and general Boolean results. Missing
+  regeneration. Propagate identities through additive/subtractive and general
+  Boolean results next. Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
 - Add grounding/un-grounding of components and visualize remaining component
@@ -78,8 +79,8 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable Extrusion external references to Revolve arcs,
-  cylindrical results and topology propagated through Boolean operations.
+- Extend the now-stable Extrusion and segment-profile Revolve references to
+  Revolve arcs and topology propagated through Boolean operations.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the
