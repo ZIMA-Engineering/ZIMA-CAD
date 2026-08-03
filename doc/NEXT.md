@@ -60,9 +60,10 @@
   references survive parent edits, save/reload and automatic descendant
   regeneration. Existing supported ancestry now propagates through the initial
   additive/subtractive Part subset with explicit split/merge ambiguity. New
-  section edges and vertices have ZIMA-owned adjacency provenance, including a
-  circular Extrusion cut. Expand this coverage to Revolve arcs, repeated
-  intersections and general Boolean results next. Missing
+  section edges and vertices have ZIMA-owned adjacency provenance, including
+  circular Extrusion and repeated full center-arc Revolve cuts. Expand this
+  coverage to splines, mixed nested loops and general Boolean results next.
+  Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
 - Add grounding/un-grounding of components and visualize remaining component
@@ -88,8 +89,8 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable Extrusion and segment-profile Revolve references to
-  Revolve arcs and topology propagated through Boolean operations.
+- Extend the now-stable Extrusion and segment/center-arc Revolve references to
+  splines, mixed nested loops and wider Boolean chains.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

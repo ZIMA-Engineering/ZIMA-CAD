@@ -2720,21 +2720,49 @@ def revolve_face_registry(
         }
         for point_id, point in local_points.items()
     }
-    segments: dict[str, tuple[str, str]] = {}
+    curve_endpoints: dict[str, tuple[str, str]] = {}
+    curve_midpoints: dict[str, tuple[float, float, float]] = {}
     generated_samples: dict[str, tuple[float, float, float]] = {}
     middle_angle = (start_angle + end_angle) * 0.5
     for entity in entities:
-        if not isinstance(entity, dict) or entity.get("type") != "segment":
+        if not isinstance(entity, dict) or entity.get("type") not in (
+            "segment", "arc"
+        ):
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
-        if len(point_ids) != 2 or any(point_id not in local_points for point_id in point_ids):
+        if any(point_id not in local_points for point_id in point_ids):
             continue
         source_id = str(entity.get("id", ""))
-        segments[source_id] = (point_ids[0], point_ids[1])
-        midpoint = tuple(
-            (local_points[point_ids[0]][i] + local_points[point_ids[1]][i]) * 0.5
-            for i in range(3)
+        if entity.get("type") == "segment" and len(point_ids) == 2:
+            endpoint_ids = (point_ids[0], point_ids[1])
+            midpoint_2d = tuple(
+                (points[endpoint_ids[0]][i] + points[endpoint_ids[1]][i])
+                * 0.5
+                for i in range(2)
+            )
+        elif entity.get("type") == "arc" and len(point_ids) >= 3:
+            if entity.get("arc_mode") == "center":
+                endpoint_ids = (point_ids[1], point_ids[2])
+                sampled = center_arc_points(
+                    points[point_ids[0]],
+                    points[point_ids[1]],
+                    points[point_ids[2]],
+                    segments=32,
+                    clockwise=bool(entity.get("clockwise", False)),
+                )
+                if not sampled:
+                    continue
+                midpoint_2d = sampled[len(sampled) // 2]
+            else:
+                endpoint_ids = (point_ids[0], point_ids[-1])
+                midpoint_2d = points[point_ids[len(point_ids) // 2]]
+        else:
+            continue
+        curve_endpoints[source_id] = endpoint_ids
+        midpoint = transform_point(
+            plane_transform, (*midpoint_2d, 0.0)
         )
+        curve_midpoints[source_id] = midpoint
         generated_samples[source_id] = rotate(midpoint, middle_angle)
 
     def point_tuple(point) -> tuple[float, float, float]:
@@ -2759,7 +2787,7 @@ def revolve_face_registry(
         if not is_full:
             for role in ("start", "end"):
                 expected = [positions[point_id][role] for point_id in local_points]
-                if len(face_vertices) >= 3 and all(
+                if len(face_vertices) >= 2 and all(
                     any(points_match(position, candidate) for candidate in expected)
                     for position in face_vertices
                 ):
@@ -2797,13 +2825,27 @@ def revolve_face_registry(
         )
         matched = None
         if not is_full:
-            for source_id, point_ids in segments.items():
+            for source_id, point_ids in curve_endpoints.items():
                 for role in ("start", "end"):
                     expected = tuple(positions[point_id][role] for point_id in point_ids)
                     if ((points_match(endpoints[0], expected[0]) and points_match(endpoints[1], expected[1])) or
                             (points_match(endpoints[0], expected[1]) and points_match(endpoints[1], expected[0]))):
-                        matched = EdgeRef(feature.entity_id, role, source_id)
-                        break
+                        sample = rotate(
+                            curve_midpoints[source_id],
+                            start_angle if role == "start" else end_angle,
+                        )
+                        distance = BRepExtrema_DistShapeShape(
+                            BRepBuilderAPI_MakeVertex(
+                                gp_Pnt(*sample)
+                            ).Vertex(),
+                            edge,
+                        )
+                        distance.Perform()
+                        if distance.IsDone() and distance.Value() <= 1.0e-6:
+                            matched = EdgeRef(
+                                feature.entity_id, role, source_id
+                            )
+                            break
                 if matched is not None:
                     break
         if matched is None:

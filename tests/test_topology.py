@@ -819,6 +819,220 @@ class StableTopologyTests(unittest.TestCase):
         )
         self.assertEqual(full_registry.vertex_references, ())
 
+    def test_revolve_arc_provenance_survives_edit_and_reload(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "ArcRevolve",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 20.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "center", "type": "point", "x": 15.0, "y": 5.0},
+            {"id": "start", "type": "point", "x": 15.0, "y": 0.0},
+            {"id": "end", "type": "point", "x": 15.0, "y": 10.0},
+            {
+                "id": "arc",
+                "type": "arc",
+                "arc_mode": "center",
+                "clockwise": False,
+                "point_ids": ["center", "start", "end"],
+            },
+            {
+                "id": "closure",
+                "type": "segment",
+                "point_ids": ["end", "start"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "ArcSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "ArcRevolveFeature",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "120",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            FaceRef(feature.entity_id, "generated", "arc"),
+            FaceRef(feature.entity_id, "generated", "closure"),
+        }
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, source_id)
+            for role in ("start", "end")
+            for source_id in ("arc", "closure")
+        } | {
+            EdgeRef(feature.entity_id, "generated", point_id)
+            for point_id in ("start", "end")
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, point_id)
+            for role in ("start", "end")
+            for point_id in ("start", "end")
+        }
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "center":
+                entity["x"] = 18.0
+            elif entity.get("id") in ("start", "end"):
+                entity["x"] = 18.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), expected_faces)
+        self.assertEqual(set(edited_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), expected_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arc-revolve.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(set(loaded_registry.references), expected_faces)
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), expected_vertices
+        )
+
+    def test_full_arc_revolve_cut_names_repeated_curved_intersections(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Box", ContainerType.BOX)
+        base = document.create_primitive(
+            base_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+        container = ZimaEntity(
+            "TorusCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 10.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "center", "type": "point", "x": 48.0, "y": 0.0},
+            {"id": "start", "type": "point", "x": 48.0, "y": -5.0},
+            {"id": "end", "type": "point", "x": 48.0, "y": 5.0},
+            {
+                "id": "arc",
+                "type": "arc",
+                "arc_mode": "center",
+                "clockwise": False,
+                "point_ids": ["center", "start", "end"],
+            },
+            {
+                "id": "closure",
+                "type": "segment",
+                "point_ids": ["end", "start"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "TorusSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "TorusRevolve",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "360",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        document.set_history_cursor(len(document.history_objects()))
+
+        registry = active_face_registry(document)
+        curved_intersections = {
+            reference for reference in registry.edge_references
+            if reference.feature_id == feature.entity_id
+            and reference.role == "intersection"
+        }
+        self.assertTrue(curved_intersections)
+        self.assertTrue(any(
+            reference.fragment is not None
+            for reference in curved_intersections
+        ))
+        for reference in curved_intersections:
+            if reference.fragment is not None:
+                self.assertEqual(
+                    registry.resolve_edge(reference).state,
+                    TopologyResolutionState.RESOLVED,
+                )
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") in ("center", "start", "end"):
+                entity["x"] = 47.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(
+            set(edited_registry.edge_references),
+            set(registry.edge_references),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "torus-cut.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(
+            set(loaded_registry.edge_references),
+            set(edited_registry.edge_references),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
