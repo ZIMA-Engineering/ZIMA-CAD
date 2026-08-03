@@ -83,7 +83,8 @@ component instance ID and the source Part `FaceRef`. Legacy index/string
 descriptors are intentionally unsupported. Planar mates on Boolean-generated
 faces survive source Part regeneration and report `MISSING` when the source
 feature is suppressed. `MISSING` and `AMBIGUOUS` mates remain stored and visible
-in the editor instead of being deleted or silently rebound.
+in the editor instead of being deleted or silently rebound; a temporarily split
+face automatically resolves again when the splitting feature is suppressed.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

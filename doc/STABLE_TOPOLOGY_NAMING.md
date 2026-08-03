@@ -14,6 +14,9 @@ The central implementation is active, not only a design proposal:
   feature produces `MISSING` instead of rebinding to a runtime index;
 - Assembly mate rows with `MISSING` or `AMBIGUOUS` faces are retained, shown as
   unresolved in the editor and excluded from solving until they resolve again;
+- a tested mate completes `RESOLVED → AMBIGUOUS → RESOLVED` across a temporary
+  Boolean face split without changing its stored `AssemblyFaceRef` or selecting
+  a generated fragment;
 - Box and Wedge faces have semantic roles;
 - Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular

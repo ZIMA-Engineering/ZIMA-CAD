@@ -326,6 +326,98 @@ class AssemblyDocumentTests(unittest.TestCase):
                 TopologyResolutionState.MISSING,
             )
 
+    def test_mate_face_recovers_after_temporary_boolean_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "split-source.prtz"
+            assembly_path = root / "split-assembly.asmz"
+            part = create_empty_part()
+            base_container = part.create_container("Base", ContainerType.BOX)
+            base = part.create_primitive(
+                base_container.entity_id, EntityKind.BOX
+            )
+            self.assertIsNotNone(base)
+            face = FaceRef(base.entity_id, "y_max")
+            self.assertEqual(
+                active_face_registry(part).resolve(face).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            save_part_document(part, part_path)
+
+            assembly = create_empty_assembly()
+            assembly.source_file_path = assembly_path
+            components = []
+            for index in range(2):
+                component = assembly.create_container(
+                    f"split-source-{index}", ContainerType.COMPONENT
+                )
+                component.parameters["source_path"] = part_path.name
+                components.append(component)
+            source_reference = AssemblyFaceRef(
+                components[0].entity_id, face
+            )
+            target_reference = AssemblyFaceRef(
+                components[1].entity_id, face
+            )
+            components[1].parameters["assembly_mates"] = json.dumps([{
+                "source": assembly_face_descriptor(source_reference),
+                "target": assembly_face_descriptor(target_reference),
+                "type": "planar",
+            }])
+            save_part_document(assembly, assembly_path)
+
+            splitter_container = part.create_container(
+                "Splitter", ContainerType.BOX
+            )
+            splitter = part.create_primitive(
+                splitter_container.entity_id, EntityKind.BOX
+            )
+            self.assertIsNotNone(splitter)
+            splitter.combine_mode = CombineMode.ADD
+            splitter_container.coordinate_system.origin = (20.0, 0.0, 0.0)
+            save_part_document(part, part_path)
+
+            loaded_part = load_part_document(part_path)
+            loaded_assembly = load_part_document(assembly_path)
+            loaded_components = loaded_assembly.history_objects()
+            ambiguous_registry = active_face_registry(loaded_part)
+            registries = {
+                component.entity_id: ambiguous_registry
+                for component in loaded_components
+            }
+            self.assertEqual(
+                resolve_assembly_face(source_reference, registries).state,
+                TopologyResolutionState.AMBIGUOUS,
+            )
+            self.assertEqual(
+                resolve_assembly_face(target_reference, registries).state,
+                TopologyResolutionState.AMBIGUOUS,
+            )
+            mate_before_recovery = str(
+                loaded_components[1].parameters["assembly_mates"]
+            )
+
+            loaded_splitter = loaded_part.find_entity(splitter.entity_id)
+            self.assertIsNotNone(loaded_splitter)
+            loaded_splitter.locked = True
+            recovered_registry = active_face_registry(loaded_part)
+            recovered_registries = {
+                component.entity_id: recovered_registry
+                for component in loaded_components
+            }
+            self.assertEqual(
+                resolve_assembly_face(source_reference, recovered_registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                resolve_assembly_face(target_reference, recovered_registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                str(loaded_components[1].parameters["assembly_mates"]),
+                mate_before_recovery,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
