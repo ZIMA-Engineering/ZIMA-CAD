@@ -22119,6 +22119,15 @@ class MainWindow(QMainWindow):
         self._sketch_pending_points.append(snapped)
         self._sketch_pending_point_ids.append(point_id)
         if (
+            self._sketch_tool == "spline"
+            and len(self._sketch_pending_point_ids) >= 4
+            and self._sketch_pending_point_ids[-1]
+            == self._sketch_pending_point_ids[0]
+            and len(set(self._sketch_pending_point_ids[:-1])) >= 3
+        ):
+            self._commit_pending_sketch_entity()
+            return
+        if (
             automatic_constraint in ("horizontal", "vertical")
             and self._sketch_tool in ("segment", "construction")
             and len(self._sketch_pending_points) >= 2
@@ -28067,7 +28076,19 @@ class MainWindow(QMainWindow):
             list(self._sketch_pending_point_ids),
             self._sketch_pending_new_point_ids,
         )
-        if len(point_ids) < 2 or len(set(point_ids)) != len(point_ids):
+        closed_spline = (
+            self._sketch_tool == "spline"
+            and len(point_ids) >= 4
+            and point_ids[0] == point_ids[-1]
+            and len(set(point_ids[:-1])) == len(point_ids) - 1
+        )
+        if (
+            len(point_ids) < 2
+            or (
+                len(set(point_ids)) != len(point_ids)
+                and not closed_spline
+            )
+        ):
             self._store_sketch_entities(sketch, entities)
             self._sketch_pending_points.clear()
             self._sketch_pending_point_ids.clear()

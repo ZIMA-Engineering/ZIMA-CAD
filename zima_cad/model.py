@@ -1550,7 +1550,7 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                 chain_points.append(
                     end_id if start_id == chain_points[-1] else start_id
                 )
-            if len(chain_points) < 3 or chain_points[-1] != chain_points[0]:
+            if len(chain_points) < 2 or chain_points[-1] != chain_points[0]:
                 continue
             wire_builder = BRepBuilderAPI_MakeWire()
             valid = True
@@ -1616,6 +1616,12 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                         ordered_ids = point_ids
                         if start_id != point_ids[0]:
                             ordered_ids = tuple(reversed(ordered_ids))
+                        periodic = (
+                            len(ordered_ids) >= 4
+                            and ordered_ids[0] == ordered_ids[-1]
+                        )
+                        if periodic:
+                            ordered_ids = ordered_ids[:-1]
                         poles = TColgp_HArray1OfPnt(1, len(ordered_ids))
                         for pole_index, point_id in enumerate(
                             ordered_ids,
@@ -1627,7 +1633,7 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                             )
                         interpolation = GeomAPI_Interpolate(
                             poles,
-                            False,
+                            periodic,
                             1.0e-7,
                         )
                         interpolation.Perform()
@@ -2388,34 +2394,60 @@ def protrusion_face_registry(
             )
             for role, distance in (("start", start), ("end", end))
         }
-    segment_sources = []
-    segment_point_ids: dict[str, tuple[str, str]] = {}
+    curve_sources: list[tuple[str, tuple[float, float, float]]] = []
+    curve_point_ids: dict[str, tuple[str, str]] = {}
+    curve_midpoints: dict[str, tuple[float, float, float]] = {}
     for entity in sketch_entities:
-        if not isinstance(entity, dict) or entity.get("type") != "segment":
+        if not isinstance(entity, dict) or entity.get("type") not in (
+            "segment", "spline"
+        ):
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
-        if len(point_ids) != 2 or any(
+        if len(point_ids) < 2 or any(
             point_id not in sketch_points for point_id in point_ids
         ):
             continue
-        segment_point_ids[str(entity.get("id", ""))] = (
-            point_ids[0],
-            point_ids[1],
-        )
-        first_2d, second_2d = (sketch_points[point_id] for point_id in point_ids)
-        midpoint_2d = (
-            (first_2d[0] + second_2d[0]) * 0.5,
-            (first_2d[1] + second_2d[1]) * 0.5,
-        )
+        source_id = str(entity.get("id", ""))
+        curve_point_ids[source_id] = (point_ids[0], point_ids[-1])
+        if entity.get("type") == "segment":
+            first_2d, second_2d = (
+                sketch_points[point_id] for point_id in point_ids
+            )
+            midpoint_2d = (
+                (first_2d[0] + second_2d[0]) * 0.5,
+                (first_2d[1] + second_2d[1]) * 0.5,
+            )
+        else:
+            interpolation_ids = point_ids[:-1] if (
+                len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
+            ) else point_ids
+            poles = TColgp_HArray1OfPnt(1, len(interpolation_ids))
+            for pole_index, point_id in enumerate(interpolation_ids, 1):
+                poles.SetValue(
+                    pole_index, gp_Pnt(*sketch_points[point_id], 0.0)
+                )
+            interpolation = GeomAPI_Interpolate(
+                poles, len(interpolation_ids) != len(point_ids), 1.0e-7
+            )
+            interpolation.Perform()
+            if not interpolation.IsDone():
+                continue
+            curve = interpolation.Curve()
+            point = curve.Value(
+                (curve.FirstParameter() + curve.LastParameter()) * 0.5
+            )
+            midpoint_2d = (point.X(), point.Y())
         midpoint = transform_point(
             world_transform,
             transform_point(plane_transform, (*midpoint_2d, 0.0)),
         )
-        midpoint = tuple(
-            midpoint[index] + extrusion_direction[index] * start
+        curve_midpoints[source_id] = midpoint
+        generated_midpoint = tuple(
+            midpoint[index]
+            + extrusion_direction[index] * ((start + end) * 0.5)
             for index in range(3)
         )
-        segment_sources.append((str(entity.get("id", "")), midpoint))
+        curve_sources.append((source_id, generated_midpoint))
 
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     runtime_index = 0
@@ -2432,6 +2464,26 @@ def protrusion_face_registry(
                     feature.entity_id,
                     "generated",
                     circular_source_id,
+                ),
+                face,
+                runtime_index=runtime_index,
+            )
+            explorer.Next()
+            continue
+        matching_curves = []
+        for source_id, midpoint in curve_sources:
+            distance = BRepExtrema_DistShapeShape(
+                BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(), face
+            )
+            distance.Perform()
+            if distance.IsDone() and distance.Value() <= 1.0e-6:
+                matching_curves.append(source_id)
+        if len(matching_curves) == 1:
+            registry.register_face(
+                FaceRef(
+                    feature_id=feature.entity_id,
+                    role="generated",
+                    source_id=matching_curves[0],
                 ),
                 face,
                 runtime_index=runtime_index,
@@ -2468,7 +2520,7 @@ def protrusion_face_registry(
             plane_point = (location.X(), location.Y(), location.Z())
             matching_sources = [
                 source_id
-                for source_id, midpoint in segment_sources
+                for source_id, midpoint in curve_sources
                 if abs(vector_dot(
                     normal,
                     tuple(
@@ -2543,7 +2595,7 @@ def protrusion_face_registry(
                 matched_reference = EdgeRef(
                     feature.entity_id, role, circular_source_id
                 )
-        for segment_id, point_ids in segment_point_ids.items():
+        for curve_id, point_ids in curve_point_ids.items():
             if matched_reference is not None:
                 break
             for role in ("start", "end"):
@@ -2557,10 +2609,22 @@ def protrusion_face_registry(
                     points_match(endpoints[0], expected[1])
                     and points_match(endpoints[1], expected[0])
                 ):
-                    matched_reference = EdgeRef(
-                        feature.entity_id, role, segment_id
+                    sample = tuple(
+                        curve_midpoints[curve_id][index]
+                        + extrusion_direction[index]
+                        * (start if role == "start" else end)
+                        for index in range(3)
                     )
-                    break
+                    distance = BRepExtrema_DistShapeShape(
+                        BRepBuilderAPI_MakeVertex(gp_Pnt(*sample)).Vertex(),
+                        edge,
+                    )
+                    distance.Perform()
+                    if distance.IsDone() and distance.Value() <= 1.0e-6:
+                        matched_reference = EdgeRef(
+                            feature.entity_id, role, curve_id
+                        )
+                        break
             if matched_reference is not None:
                 break
         if matched_reference is None:
@@ -2726,7 +2790,7 @@ def revolve_face_registry(
     middle_angle = (start_angle + end_angle) * 0.5
     for entity in entities:
         if not isinstance(entity, dict) or entity.get("type") not in (
-            "segment", "arc"
+            "segment", "arc", "spline"
         ):
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
@@ -2756,6 +2820,27 @@ def revolve_face_registry(
             else:
                 endpoint_ids = (point_ids[0], point_ids[-1])
                 midpoint_2d = points[point_ids[len(point_ids) // 2]]
+        elif entity.get("type") == "spline" and len(point_ids) >= 2:
+            endpoint_ids = (point_ids[0], point_ids[-1])
+            interpolation_ids = point_ids[:-1] if (
+                len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
+            ) else point_ids
+            poles = TColgp_HArray1OfPnt(1, len(interpolation_ids))
+            for pole_index, point_id in enumerate(interpolation_ids, 1):
+                poles.SetValue(
+                    pole_index, gp_Pnt(*points[point_id], 0.0)
+                )
+            interpolation = GeomAPI_Interpolate(
+                poles, len(interpolation_ids) != len(point_ids), 1.0e-7
+            )
+            interpolation.Perform()
+            if not interpolation.IsDone():
+                continue
+            curve = interpolation.Curve()
+            point = curve.Value(
+                (curve.FirstParameter() + curve.LastParameter()) * 0.5
+            )
+            midpoint_2d = (point.X(), point.Y())
         else:
             continue
         curve_endpoints[source_id] = endpoint_ids
@@ -3620,8 +3705,12 @@ def make_sketch_shape(
                         gp_Pnt(float(points[2][0]), float(points[2][1]), 0.0),
                     ).Value()
                 elif entity.get("type") == "spline" and len(points) >= 2:
-                    poles = TColgp_HArray1OfPnt(1, len(points))
-                    for point_index, point in enumerate(points, 1):
+                    periodic = len(points) >= 4 and points[0] == points[-1]
+                    interpolation_points = points[:-1] if periodic else points
+                    poles = TColgp_HArray1OfPnt(1, len(interpolation_points))
+                    for point_index, point in enumerate(
+                        interpolation_points, 1
+                    ):
                         poles.SetValue(
                             point_index,
                             gp_Pnt(
@@ -3632,7 +3721,7 @@ def make_sketch_shape(
                         )
                     interpolation = GeomAPI_Interpolate(
                         poles,
-                        False,
+                        periodic,
                         1.0e-7,
                     )
                     interpolation.Perform()

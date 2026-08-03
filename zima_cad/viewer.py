@@ -64,20 +64,24 @@ def _interpolated_spline_points(
     if len(points) < 2:
         return tuple(points)
     try:
-        poles = TColgp_HArray1OfPnt(1, len(points))
-        for index, point in enumerate(points, 1):
+        periodic = len(points) >= 4 and points[0] == points[-1]
+        interpolation_points = points[:-1] if periodic else points
+        poles = TColgp_HArray1OfPnt(1, len(interpolation_points))
+        for index, point in enumerate(interpolation_points, 1):
             poles.SetValue(
                 index,
                 gp_Pnt(float(point[0]), float(point[1]), 0.0),
             )
-        interpolation = GeomAPI_Interpolate(poles, False, 1.0e-7)
+        interpolation = GeomAPI_Interpolate(poles, periodic, 1.0e-7)
         interpolation.Perform()
         if not interpolation.IsDone():
             return tuple(points)
         curve = interpolation.Curve()
         first_parameter = curve.FirstParameter()
         parameter_span = curve.LastParameter() - first_parameter
-        sample_count = max(32, min(256, (len(points) - 1) * 32))
+        sample_count = max(
+            32, min(256, len(interpolation_points) * 32)
+        )
         sampled: list[tuple[float, float]] = []
         for sample_index in range(sample_count + 1):
             parameter = first_parameter + parameter_span * (

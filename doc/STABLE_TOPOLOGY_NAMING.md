@@ -7,7 +7,7 @@ The central implementation is active, not only a design proposal:
 - `FaceRef`, `EdgeRef`, `VertexRef`, `AssemblyFaceRef`, explicit resolution
   states and `TopologyRegistry` are implemented;
 - Box and Wedge faces have semantic roles;
-- Segment- and center-arc-profile Revolve cap/generated faces, edges and
+- Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
   Extrusion cylindrical faces and cap-circle edges use the persistent Sketch
   ID. Complete 360-degree Revolves expose only generated topology because they
@@ -32,9 +32,9 @@ The central implementation is active, not only a design proposal:
 Existing supported ancestry and newly created section edges/vertices now have
 ZIMA-owned provenance through the initial additive/subtractive Part subset.
 The next supported operation is wider curved-profile and multi-intersection
-coverage. Circular Extrusion and repeated full center-arc Revolve cuts are
-covered through dimension changes and save/reload. General multi-body Booleans,
-Fillet and Chamfer are not yet
+coverage. Circular and closed-spline Extrusion, full closed-spline Revolve and
+repeated full center-arc Revolve cuts are covered through dimension changes and
+save/reload. General multi-body Booleans, Fillet and Chamfer are not yet
 implemented. Legacy numerical topology references are intentionally not
 migrated from an index alone; development files may be recreated.
 

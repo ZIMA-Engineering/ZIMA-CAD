@@ -926,6 +926,75 @@ class StableTopologyTests(unittest.TestCase):
             set(loaded_registry.vertex_references), expected_vertices
         )
 
+    def test_closed_spline_extrusion_provenance_survives_edit_and_reload(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "SplineExtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 20.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 20.0},
+            {
+                "id": "spline",
+                "type": "spline",
+                "point_ids": ["a", "b", "c", "d", "a"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "SplineSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "SplineFeature",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "15"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            FaceRef(feature.entity_id, "generated", "spline"),
+        }
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, "spline")
+            for role in ("start", "end")
+        } | {EdgeRef(feature.entity_id, "generated", "a")}
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "c":
+                entity["x"] = 24.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), expected_faces)
+        self.assertEqual(set(edited_registry.edge_references), expected_edges)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "closed-spline.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(set(loaded_registry.references), expected_faces)
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+
     def test_full_arc_revolve_cut_names_repeated_curved_intersections(self) -> None:
         document = create_empty_part()
         base_container = document.create_container("Box", ContainerType.BOX)
@@ -1031,6 +1100,61 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(
             set(loaded_registry.edge_references),
             set(edited_registry.edge_references),
+        )
+
+    def test_closed_spline_full_revolve_keeps_generated_provenance(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "SplineRevolve",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -20.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 20.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "a", "type": "point", "x": 10.0, "y": -5.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": -5.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 5.0},
+            {"id": "d", "type": "point", "x": 10.0, "y": 5.0},
+            {
+                "id": "spline",
+                "type": "spline",
+                "point_ids": ["a", "b", "c", "d", "a"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "SplineRevolveSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "SplineRevolveFeature",
+            EntityKind.REVOLVE,
+            parameters={"sketch_id": sketch.entity_id, "angle": "360"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        registry = active_face_registry(document)
+        self.assertEqual(
+            set(registry.references),
+            {FaceRef(feature.entity_id, "generated", "spline")},
+        )
+        self.assertIn(
+            EdgeRef(feature.entity_id, "generated", "a"),
+            registry.edge_references,
         )
 
 

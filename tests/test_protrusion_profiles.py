@@ -87,6 +87,19 @@ class ProtrusionProfileTests(unittest.TestCase):
             {"id": "left", "type": "segment", "point_ids": ["lt", "a"]},
         ]))
 
+    def test_single_spline_can_close_on_its_first_point(self):
+        self.assertHasVolume(self._build_profile([
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 20.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 20.0},
+            {
+                "id": "closed-spline",
+                "type": "spline",
+                "point_ids": ["a", "b", "c", "d", "a"],
+            },
+        ]))
+
     def test_front_xz_profile_extrudes_in_positive_y(self):
         shape = self._build_profile([
             {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
