@@ -87,6 +87,8 @@ in the editor instead of being deleted or silently rebound; a temporarily split
 face automatically resolves again when the splitting feature is suppressed.
 Canonical per-instance `AssemblyEdgeRef` serialization and resolution is also
 used by circular feature-edge selection, highlighting and concentric mates.
+Those mates survive source diameter regeneration and recover after temporary
+feature suppression.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

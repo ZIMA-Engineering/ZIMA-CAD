@@ -16,13 +16,19 @@ from zima_cad.model import (
     create_empty_part,
 )
 from zima_cad.storage import load_part_document, save_part_document
+from zima_cad.sketch_model import SketchModel
 from zima_cad.topology import (
+    AssemblyEdgeRef,
     AssemblyFaceRef,
+    EdgeRef,
     FaceRef,
     TopologyResolutionState,
     assembly_face_descriptor,
+    assembly_edge_descriptor,
     parse_assembly_face_descriptor,
+    parse_assembly_edge_descriptor,
     resolve_assembly_face,
+    resolve_assembly_edge,
 )
 from zima_cad.viewer_scene import build_document_viewer_scene_data
 
@@ -416,6 +422,137 @@ class AssemblyDocumentTests(unittest.TestCase):
             self.assertEqual(
                 str(loaded_components[1].parameters["assembly_mates"]),
                 mate_before_recovery,
+            )
+
+    def test_concentric_mate_edge_survives_source_regeneration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "shaft.prtz"
+            assembly_path = root / "shafts.asmz"
+            part = create_empty_part()
+            container = ZimaEntity(
+                "Shaft",
+                EntityKind.CONTAINER,
+                parameters={"container_type": ContainerType.PROTRUSION.value},
+            )
+            sketch = ZimaEntity(
+                "ShaftSketch",
+                EntityKind.SKETCH,
+                parameters={
+                    "plane": "xz",
+                    "profile": "circle",
+                    "diameter": "20",
+                    "sketch_data": json.dumps(SketchModel().to_dict()),
+                },
+            )
+            feature = ZimaEntity(
+                "ShaftFeature",
+                EntityKind.PROTRUSION,
+                parameters={
+                    "sketch_id": sketch.entity_id,
+                    "length_forward": "50",
+                },
+            )
+            container.add_child(sketch)
+            container.add_child(feature)
+            part.root.add_child(container)
+            edge = EdgeRef(feature.entity_id, "start", sketch.entity_id)
+            self.assertEqual(
+                active_face_registry(part).resolve_edge(edge).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            save_part_document(part, part_path)
+
+            assembly = create_empty_assembly()
+            assembly.source_file_path = assembly_path
+            components = []
+            for index, x in enumerate((0.0, 80.0)):
+                component = assembly.create_container(
+                    f"shaft-{index}", ContainerType.COMPONENT
+                )
+                component.parameters["source_path"] = part_path.name
+                component.coordinate_system.origin = (x, 0.0, 0.0)
+                components.append(component)
+            source_reference = AssemblyEdgeRef(
+                components[0].entity_id, edge
+            )
+            target_reference = AssemblyEdgeRef(
+                components[1].entity_id, edge
+            )
+            components[1].parameters["assembly_mates"] = json.dumps([{
+                "source": assembly_edge_descriptor(source_reference),
+                "target": assembly_edge_descriptor(target_reference),
+                "type": "axis",
+                "offset": 0.0,
+            }])
+            save_part_document(assembly, assembly_path)
+
+            sketch.parameters["diameter"] = "28"
+            save_part_document(part, part_path)
+            loaded_part = load_part_document(part_path)
+            loaded_assembly = load_part_document(assembly_path)
+            loaded_components = loaded_assembly.history_objects()
+            loaded_registry = active_face_registry(loaded_part)
+            registries = {
+                component.entity_id: loaded_registry
+                for component in loaded_components
+            }
+            mate = json.loads(str(
+                loaded_components[1].parameters["assembly_mates"]
+            ))[0]
+            loaded_source = parse_assembly_edge_descriptor(mate["source"])
+            loaded_target = parse_assembly_edge_descriptor(mate["target"])
+            self.assertEqual(loaded_source, source_reference)
+            self.assertEqual(loaded_target, target_reference)
+            self.assertEqual(
+                resolve_assembly_edge(loaded_source, registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                resolve_assembly_edge(loaded_target, registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            original_placement = tuple(
+                loaded_components[1].coordinate_system.origin
+            )
+            mate_payload = str(
+                loaded_components[1].parameters["assembly_mates"]
+            )
+
+            loaded_feature = loaded_part.find_entity(feature.entity_id)
+            self.assertIsNotNone(loaded_feature)
+            loaded_feature.locked = True
+            missing_registry = active_face_registry(loaded_part)
+            missing_registries = {
+                component.entity_id: missing_registry
+                for component in loaded_components
+            }
+            self.assertEqual(
+                resolve_assembly_edge(
+                    loaded_target, missing_registries
+                ).state,
+                TopologyResolutionState.MISSING,
+            )
+
+            loaded_feature.locked = False
+            recovered_registry = active_face_registry(loaded_part)
+            recovered_registries = {
+                component.entity_id: recovered_registry
+                for component in loaded_components
+            }
+            self.assertEqual(
+                resolve_assembly_edge(
+                    loaded_target, recovered_registries
+                ).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                str(loaded_components[1].parameters["assembly_mates"]),
+                mate_payload,
+            )
+            self.assertEqual(
+                tuple(loaded_components[1].coordinate_system.origin),
+                original_placement,
             )
 
 

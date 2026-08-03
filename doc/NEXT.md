@@ -82,8 +82,8 @@
   automatically when removed. Extend those identities into the remaining
   Assembly dependency workflows.
   Canonical `AssemblyEdgeRef` now drives circular-edge selection, concentric
-  mate frames and highlighting; add regeneration/recovery integration coverage
-  equivalent to planar mates next.
+  mate frames and highlighting; diameter regeneration and suppression/recovery
+  now have integration coverage equivalent to planar mates.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
