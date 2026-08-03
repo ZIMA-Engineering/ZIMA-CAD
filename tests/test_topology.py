@@ -38,6 +38,7 @@ from zima_cad.topology import (
     parse_edge_reference,
     parse_face_reference,
     parse_vertex_reference,
+    semantic_provenance_id,
 )
 from zima_cad.viewer_mesh import triangulate_shape
 
@@ -90,6 +91,26 @@ class StableTopologyTests(unittest.TestCase):
         )
         self.assertIsNone(parse_edge_reference("3"))
         self.assertIsNone(parse_vertex_reference("9"))
+
+    def test_semantic_provenance_is_order_independent_and_kernel_free(self) -> None:
+        first = FaceRef("base", "x_max")
+        second = FaceRef("cut", "generated", "sketch-edge")
+        provenance = semantic_provenance_id(first, second)
+        self.assertEqual(
+            provenance, semantic_provenance_id(second, first)
+        )
+        self.assertEqual(
+            json.loads(provenance),
+            [
+                {"feature_id": "base", "kind": "face", "role": "x_max"},
+                {
+                    "feature_id": "cut",
+                    "kind": "face",
+                    "role": "generated",
+                    "source_id": "sketch-edge",
+                },
+            ],
+        )
 
     def test_registry_keeps_topology_kinds_separate(self) -> None:
         face = FaceRef("extrusion-1", "end")
@@ -287,6 +308,80 @@ class StableTopologyTests(unittest.TestCase):
             TopologyResolutionState.AMBIGUOUS,
         )
         self.assertTrue(fragments.issubset(set(loaded_registry.references)))
+
+    def test_boolean_intersections_have_zima_owned_edge_and_vertex_ids(self) -> None:
+        document = create_empty_part()
+        outer_container = document.create_container("Box", ContainerType.BOX)
+        outer = document.create_primitive(
+            outer_container.entity_id, EntityKind.BOX
+        )
+        tool_container = document.create_container("Box", ContainerType.BOX)
+        tool = document.create_primitive(
+            tool_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(outer)
+        self.assertIsNotNone(tool)
+        outer.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+        tool.parameters.update({
+            "length": "30", "width": "20", "height": "20"
+        })
+        tool.combine_mode = CombineMode.SUBTRACT
+        tool_container.coordinate_system.origin = (45.0, 0.0, 0.0)
+        outer_face = FaceRef(outer.entity_id, "x_max")
+        expected_edges = {
+            EdgeRef(
+                tool.entity_id,
+                "intersection",
+                semantic_provenance_id(
+                    outer_face, FaceRef(tool.entity_id, role)
+                ),
+            )
+            for role in ("y_min", "y_max", "z_min", "z_max")
+        }
+        expected_vertices = {
+            VertexRef(
+                tool.entity_id,
+                "intersection",
+                semantic_provenance_id(
+                    outer_face,
+                    FaceRef(tool.entity_id, y_role),
+                    FaceRef(tool.entity_id, z_role),
+                ),
+            )
+            for y_role in ("y_min", "y_max")
+            for z_role in ("z_min", "z_max")
+        }
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
+        for reference in expected_edges:
+            self.assertEqual(
+                registry.resolve_edge(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        for reference in expected_vertices:
+            self.assertEqual(
+                registry.resolve_vertex(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+
+        tool.parameters["length"] = "40"
+        tool_container.coordinate_system.origin = (42.0, 0.0, 0.0)
+        edited = active_face_registry(document)
+        self.assertEqual(set(edited.edge_references), expected_edges)
+        self.assertEqual(set(edited.vertex_references), expected_vertices)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "intersection.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), expected_vertices
+        )
 
     def test_history_orientation_mapping_tracks_runtime_part_id(self) -> None:
         document = create_empty_part()

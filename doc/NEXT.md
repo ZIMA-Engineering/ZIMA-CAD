@@ -59,9 +59,10 @@
   have equivalent provenance-based identities. Supported external Sketch
   references survive parent edits, save/reload and automatic descendant
   regeneration. Existing supported ancestry now propagates through the initial
-  additive/subtractive Part subset with explicit split/merge ambiguity. Add
-  ZIMA-owned identities for new Boolean intersection edges and vertices next,
-  then expand to general Boolean results. Missing
+  additive/subtractive Part subset with explicit split/merge ambiguity. New
+  section edges and vertices have ZIMA-owned adjacency provenance. Expand this
+  coverage to curved profiles, repeated intersections and general Boolean
+  results next. Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
 - Add grounding/un-grounding of components and visualize remaining component

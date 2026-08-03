@@ -505,3 +505,28 @@ def decode_vertex_reference(token: str) -> VertexRef | None:
         return VertexRef.deserialize(payload.decode("utf-8"))
     except (ValueError, UnicodeError, json.JSONDecodeError):
         return None
+
+
+def semantic_provenance_id(*references: FaceRef | EdgeRef | VertexRef) -> str:
+    """Canonical, kernel-independent identity of a derived topology source."""
+
+    payload = [
+        {
+            "kind": (
+                "face" if isinstance(reference, FaceRef)
+                else "edge" if isinstance(reference, EdgeRef)
+                else "vertex"
+            ),
+            **reference.to_dict(),
+        }
+        for reference in references
+    ]
+    payload.sort(key=lambda item: json.dumps(
+        item, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ))
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )

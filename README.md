@@ -64,9 +64,10 @@ and segment-profile Revolve faces, edges and vertices. External Sketch
 references use those identities and survive supported parent recomputation;
 planar container orientation references use them as well. The initial Part
 `Fuse`/`Cut` subset propagates supported ancestry and reports splits/merges
-explicitly; new Boolean intersection edges/vertices, Revolve arcs and the
-remaining general Assembly cases are not yet production-safe. A disconnected
-additive feature preserves the last valid Part body and is reported as invalid.
+explicitly. New section edges/vertices use ZIMA-owned adjacency identities;
+repeated/curved Boolean intersections, Revolve arcs and the remaining general
+Assembly cases are not yet production-safe. A disconnected additive feature
+preserves the last valid Part body and is reported as invalid.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

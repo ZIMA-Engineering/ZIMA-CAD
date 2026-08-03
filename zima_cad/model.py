@@ -53,7 +53,13 @@ from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
-from zima_cad.topology import EdgeRef, FaceRef, TopologyRegistry, VertexRef
+from zima_cad.topology import (
+    EdgeRef,
+    FaceRef,
+    TopologyRegistry,
+    VertexRef,
+    semantic_provenance_id,
+)
 
 
 ORIGIN_WIDGET_SIZE = 320.0
@@ -2817,6 +2823,19 @@ def _container_boolean_operation(container: ZimaEntity) -> CombineMode:
     return solid.combine_mode if solid is not None else CombineMode.NONE
 
 
+def _container_boolean_feature_id(container: ZimaEntity) -> str:
+    feature = next((
+        child for child in container.children
+        if child.kind in (
+            EntityKind.PROTRUSION,
+            EntityKind.REVOLVE,
+            *SOLID_KINDS,
+        )
+        and not child.locked
+    ), None)
+    return feature.entity_id if feature is not None else container.entity_id
+
+
 def _unique_subshapes(shape, shape_type: int) -> list[Any]:
     explorer = TopExp_Explorer(shape, shape_type)
     result = []
@@ -2967,6 +2986,163 @@ def _propagate_boolean_registry(
     return result
 
 
+def _resolved_face_refs_for_shape(
+    registry: TopologyRegistry,
+    face,
+) -> tuple[FaceRef, ...]:
+    references = []
+    for reference, shapes in registry.face_entries:
+        resolution = registry.resolve(reference)
+        if resolution.state.value != "resolved":
+            continue
+        if any(face.IsSame(candidate) for candidate in shapes):
+            references.append(reference)
+    return tuple(references)
+
+
+def _register_derived_references(
+    registry: TopologyRegistry,
+    references_by_index: dict[Any, list[int]],
+    final_shapes: list[Any],
+    register,
+) -> None:
+    for reference, raw_indices in references_by_index.items():
+        indices = sorted(
+            set(raw_indices),
+            key=lambda index: _topology_fragment_key(
+                final_shapes[index], final_shapes[index].ShapeType()
+            ),
+        )
+        if len(indices) == 1:
+            index = indices[0]
+            register(reference, final_shapes[index], runtime_index=index + 1)
+            continue
+        for index in indices:
+            register(reference, final_shapes[index])
+        for fragment, index in enumerate(indices, 1):
+            register(
+                _reference_with_fragment(reference, fragment),
+                final_shapes[index],
+                runtime_index=index + 1,
+            )
+
+
+def _register_boolean_intersections(
+    builder,
+    result_shape,
+    registry: TopologyRegistry,
+    feature_id: str,
+) -> None:
+    """Assign ZIMA-owned identities to new Boolean section topology."""
+
+    try:
+        section_edges = list(builder.SectionEdges())
+    except (AttributeError, RuntimeError, TypeError):
+        return
+    if not section_edges:
+        return
+    final_faces = _unique_subshapes(result_shape, TopAbs_FACE)
+    final_edges = _unique_subshapes(result_shape, TopAbs_EDGE)
+    final_vertices = _unique_subshapes(result_shape, TopAbs_VERTEX)
+
+    face_refs: dict[int, FaceRef] = {}
+    for face_index, face in enumerate(final_faces):
+        references = _resolved_face_refs_for_shape(registry, face)
+        if len(references) == 1:
+            face_refs[face_index] = references[0]
+
+    adjacent_faces_by_edge: dict[int, list[int]] = {}
+    incident_faces_by_vertex: dict[int, list[int]] = {}
+    for face_index, face in enumerate(final_faces):
+        edge_explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        while edge_explorer.More():
+            edge = edge_explorer.Current()
+            edge_index = next((
+                index for index, candidate in enumerate(final_edges)
+                if edge.IsSame(candidate)
+            ), None)
+            if edge_index is not None:
+                adjacent_faces_by_edge.setdefault(edge_index, []).append(
+                    face_index
+                )
+            edge_explorer.Next()
+        vertex_explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while vertex_explorer.More():
+            vertex = vertex_explorer.Current()
+            vertex_index = next((
+                index for index, candidate in enumerate(final_vertices)
+                if vertex.IsSame(candidate)
+            ), None)
+            if vertex_index is not None:
+                incident_faces_by_vertex.setdefault(vertex_index, []).append(
+                    face_index
+                )
+            vertex_explorer.Next()
+
+    section_indices = {
+        index
+        for section in section_edges
+        for index, edge in enumerate(final_edges)
+        if section.IsSame(edge)
+    }
+    edge_references: dict[EdgeRef, list[int]] = {}
+    section_vertex_indices: set[int] = set()
+    for edge_index in section_indices:
+        if registry.edge_reference_for_runtime_index(edge_index + 1) is not None:
+            continue
+        references = {
+            face_refs[face_index]
+            for face_index in adjacent_faces_by_edge.get(edge_index, ())
+            if face_index in face_refs
+        }
+        if len(references) != 2:
+            continue
+        reference = EdgeRef(
+            feature_id,
+            "intersection",
+            semantic_provenance_id(*references),
+        )
+        edge_references.setdefault(reference, []).append(edge_index)
+        vertex_explorer = TopExp_Explorer(
+            final_edges[edge_index], TopAbs_VERTEX
+        )
+        while vertex_explorer.More():
+            vertex = vertex_explorer.Current()
+            section_vertex_indices.update(
+                index
+                for index, candidate in enumerate(final_vertices)
+                if vertex.IsSame(candidate)
+            )
+            vertex_explorer.Next()
+    _register_derived_references(
+        registry, edge_references, final_edges, registry.register_edge
+    )
+
+    vertex_references: dict[VertexRef, list[int]] = {}
+    for vertex_index in section_vertex_indices:
+        if registry.vertex_reference_for_runtime_index(vertex_index + 1) is not None:
+            continue
+        references = {
+            face_refs[face_index]
+            for face_index in incident_faces_by_vertex.get(vertex_index, ())
+            if face_index in face_refs
+        }
+        if len(references) < 3:
+            continue
+        reference = VertexRef(
+            feature_id,
+            "intersection",
+            semantic_provenance_id(*references),
+        )
+        vertex_references.setdefault(reference, []).append(vertex_index)
+    _register_derived_references(
+        registry,
+        vertex_references,
+        final_vertices,
+        registry.register_vertex,
+    )
+
+
 def boolean_topology_registry_at(
     document: PartDocument,
     cursor: int,
@@ -3003,6 +3179,12 @@ def boolean_topology_registry_at(
             continue
         result_registry = _propagate_boolean_registry(
             builder, combined, result_registry, tool_registry
+        )
+        _register_boolean_intersections(
+            builder,
+            combined,
+            result_registry,
+            _container_boolean_feature_id(container),
         )
         result_shape = combined
     return result_registry

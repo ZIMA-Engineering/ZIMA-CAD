@@ -19,17 +19,20 @@ The central implementation is active, not only a design proposal:
   and vertex ancestry; splits expose deterministic fragment references while
   the pre-split reference remains explicitly ambiguous, and merges never bind
   silently to one ancestry;
+- new Boolean section edges and their vertices receive kernel-independent
+  ZIMA identities from canonical sets of adjacent/incident semantic `FaceRef`
+  values; OCCT section history only locates the transient runtime shapes;
 - point, edge and face references survive tested parent dimension/profile
   edits, save/reload and automatic descendant regeneration;
 - unresolved or ambiguous registry entries do not silently select another
   runtime shape.
 
-The next supported operation is assigning ZIMA-owned provenance to entirely
-new Boolean intersection edges and vertices. Existing supported ancestry is
-already propagated through the initial additive/subtractive Part subset.
-General multi-body Booleans, Fillet and Chamfer are not yet implemented. Legacy
-numerical topology references are intentionally not migrated from an index
-alone; development files may be recreated.
+Existing supported ancestry and newly created section edges/vertices now have
+ZIMA-owned provenance through the initial additive/subtractive Part subset.
+The next supported operation is wider curved-profile and multi-intersection
+coverage. General multi-body Booleans, Fillet and Chamfer are not yet
+implemented. Legacy numerical topology references are intentionally not
+migrated from an index alone; development files may be recreated.
 
 ## Problem
 
@@ -220,8 +223,9 @@ correct result.
 6. Add complete missing/ambiguous diagnostics, UI indication and manual repair.
 7. **Initial supported subset done:** propagate existing semantic ancestry
    through additive/subtractive Part results, including explicit split and
-   merge ambiguity. Next assign ZIMA-owned intersection-edge/vertex identities
-   before expanding to general Boolean operations.
+   merge ambiguity, and assign ZIMA-owned intersection-edge/vertex identities.
+   Next expand curved-profile, repeated-intersection and general Boolean
+   coverage.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
 9. Add Fillet and Chamfer only after split/merge behavior is covered by tests.
 10. Consider legacy numerical-reference migration only if it becomes a product
