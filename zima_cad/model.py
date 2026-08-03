@@ -26,7 +26,7 @@ from OCC.Core.BRepBuilderAPI import (
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.GeomAbs import GeomAbs_Plane
+from OCC.Core.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Plane
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
@@ -1333,6 +1333,7 @@ def apply_object_to_shape(
             else obj.combine_mode
         )
         status_owner = solid_feature or obj
+        record_build_status = not accept_first_shape
 
         def solid_count(candidate) -> int:
             explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
@@ -1346,9 +1347,10 @@ def apply_object_to_shape(
 
         shape_solids = solid_count(shape)
         if operation in (CombineMode.ADD, CombineMode.SUBTRACT) and not shape_solids:
-            status_owner.parameters["build_status"] = "not_solid"
+            if record_build_status:
+                status_owner.parameters["build_status"] = "not_solid"
             shape = None
-        else:
+        elif record_build_status:
             status_owner.parameters.pop("build_status", None)
         if shape is not None and (operation == CombineMode.ADD or (
             accept_first_shape and result_shape is None
@@ -1362,18 +1364,26 @@ def apply_object_to_shape(
                 # looks deceptively like a successful or even surface result.
                 if solid_count(fused) == 1:
                     result_shape = fused
-                else:
+                elif record_build_status:
                     status_owner.parameters["build_status"] = "disconnected"
         elif (
             shape is not None
             and operation == CombineMode.SUBTRACT
             and result_shape is not None
         ):
-            cut = BRepAlgoAPI_Cut(result_shape, shape).Shape()
-            if solid_count(cut) >= 1:
-                result_shape = cut
+            common = BRepAlgoAPI_Common(result_shape, shape).Shape()
+            common_properties = GProp_GProps()
+            brepgprop.VolumeProperties(common, common_properties)
+            common_volume = abs(float(common_properties.Mass()))
+            if common_volume <= 1.0e-9:
+                if record_build_status:
+                    status_owner.parameters["build_status"] = "no_intersection"
             else:
-                status_owner.parameters["build_status"] = "empty_result"
+                cut = BRepAlgoAPI_Cut(result_shape, shape).Shape()
+                if solid_count(cut) >= 1:
+                    result_shape = cut
+                elif record_build_status:
+                    status_owner.parameters["build_status"] = "empty_result"
 
     for child in obj.children:
         if child.locked or child.kind == EntityKind.SKETCH:
@@ -2327,6 +2337,11 @@ def protrusion_face_registry(
         sketch_entities, _dimensions = sketch_model.to_editor_data()
     except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
         sketch_entities = []
+    circular_source_id = (
+        sketch.entity_id
+        if sketch.parameters.get("profile") == "circle"
+        else None
+    )
     sketch_points = {
         str(entity.get("id", "")): (
             float(entity.get("x", 0.0)),
@@ -2357,6 +2372,10 @@ def protrusion_face_registry(
     start = -reverse
     end = forward
     point_positions: dict[str, dict[str, tuple[float, float, float]]] = {}
+    profile_origin = transform_point(
+        world_transform,
+        transform_point(plane_transform, (0.0, 0.0, 0.0)),
+    )
     for point_id, point_2d in sketch_points.items():
         base = transform_point(
             world_transform,
@@ -2404,6 +2423,21 @@ def protrusion_face_registry(
         runtime_index += 1
         face = explorer.Current()
         adaptor = BRepAdaptor_Surface(face)
+        if (
+            adaptor.GetType() == GeomAbs_Cylinder
+            and circular_source_id is not None
+        ):
+            registry.register_face(
+                FaceRef(
+                    feature.entity_id,
+                    "generated",
+                    circular_source_id,
+                ),
+                face,
+                runtime_index=runtime_index,
+            )
+            explorer.Next()
+            continue
         if adaptor.GetType() != GeomAbs_Plane:
             explorer.Next()
             continue
@@ -2486,7 +2520,32 @@ def protrusion_face_registry(
             edge_explorer.Next()
             continue
         matched_reference = None
+        if (
+            adaptor.GetType() == GeomAbs_Circle
+            and circular_source_id is not None
+        ):
+            circle = adaptor.Circle()
+            center = circle.Location()
+            center_position = point_tuple(center)
+            axial_distance = vector_dot(
+                extrusion_direction,
+                tuple(
+                    center_position[index] - profile_origin[index]
+                    for index in range(3)
+                ),
+            )
+            role = (
+                "start" if abs(axial_distance - start) <= 1.0e-6
+                else "end" if abs(axial_distance - end) <= 1.0e-6
+                else None
+            )
+            if role is not None:
+                matched_reference = EdgeRef(
+                    feature.entity_id, role, circular_source_id
+                )
         for segment_id, point_ids in segment_point_ids.items():
+            if matched_reference is not None:
+                break
             for role in ("start", "end"):
                 expected = tuple(
                     point_positions[point_id][role] for point_id in point_ids

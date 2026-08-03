@@ -383,6 +383,161 @@ class StableTopologyTests(unittest.TestCase):
             set(loaded_registry.vertex_references), expected_vertices
         )
 
+        remembered_edge = next(iter(expected_edges))
+        tool_container.coordinate_system.origin = (200.0, 0.0, 0.0)
+        document.build_active_shape()
+        missing_registry = active_face_registry(document)
+        self.assertEqual(
+            missing_registry.resolve_edge(remembered_edge).state,
+            TopologyResolutionState.MISSING,
+        )
+        self.assertEqual(
+            tool.parameters.get("build_status"), "no_intersection"
+        )
+        tool_container.coordinate_system.origin = (42.0, 0.0, 0.0)
+        document.build_active_shape()
+        restored_registry = active_face_registry(document)
+        self.assertEqual(
+            restored_registry.resolve_edge(remembered_edge).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertNotIn("build_status", tool.parameters)
+
+    def test_boolean_intersections_survive_three_feature_chain(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Box", ContainerType.BOX)
+        base = document.create_primitive(
+            base_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+        for origin, dimensions in (
+            ((45.0, 0.0, 0.0), (30.0, 20.0, 20.0)),
+            ((0.0, 45.0, 0.0), (20.0, 30.0, 20.0)),
+        ):
+            container = document.create_container("Cut", ContainerType.BOX)
+            tool = document.create_primitive(container.entity_id, EntityKind.BOX)
+            self.assertIsNotNone(tool)
+            tool.parameters.update({
+                "length": str(dimensions[0]),
+                "width": str(dimensions[1]),
+                "height": str(dimensions[2]),
+            })
+            tool.combine_mode = CombineMode.SUBTRACT
+            container.coordinate_system.origin = origin
+
+        registry = active_face_registry(document)
+        intersection_edges = {
+            reference for reference in registry.edge_references
+            if reference.role == "intersection"
+        }
+        intersection_vertices = {
+            reference for reference in registry.vertex_references
+            if reference.role == "intersection"
+        }
+        self.assertEqual(len(intersection_edges), 8)
+        self.assertEqual(len(intersection_vertices), 8)
+        for reference in intersection_edges:
+            self.assertEqual(
+                registry.resolve_edge(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        for reference in intersection_vertices:
+            self.assertEqual(
+                registry.resolve_vertex(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+
+    def test_circular_protrusion_cut_keeps_curved_provenance(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Box", ContainerType.BOX)
+        base = document.create_primitive(
+            base_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100"
+        })
+        container = ZimaEntity(
+            "CircularCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        container.coordinate_system.origin = (45.0, 0.0, 0.0)
+        sketch = ZimaEntity(
+            "CircleSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "yz",
+                "profile": "circle",
+                "diameter": "20",
+                "sketch_data": json.dumps(SketchModel().to_dict()),
+            },
+        )
+        feature = ZimaEntity(
+            "CircularProtrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "30",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        document.set_history_cursor(len(document.history_objects()))
+        generated_face = FaceRef(
+            feature.entity_id, "generated", sketch.entity_id
+        )
+        intersection = EdgeRef(
+            feature.entity_id,
+            "intersection",
+            semantic_provenance_id(
+                FaceRef(base.entity_id, "x_max"), generated_face
+            ),
+        )
+
+        registry = active_face_registry(document)
+        self.assertEqual(
+            registry.resolve(generated_face).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertEqual(
+            registry.resolve_edge(intersection).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertIn(
+            EdgeRef(feature.entity_id, "start", sketch.entity_id),
+            registry.edge_references,
+        )
+        self.assertEqual(
+            {
+                reference for reference in registry.vertex_references
+                if reference.role == "intersection"
+            },
+            set(),
+        )
+        sketch.parameters["diameter"] = "28"
+        edited = active_face_registry(document)
+        self.assertEqual(
+            edited.resolve_edge(intersection).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "circular-cut.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(
+            loaded_registry.resolve_edge(intersection).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
     def test_history_orientation_mapping_tracks_runtime_part_id(self) -> None:
         document = create_empty_part()
         container = document.create_container("Box", ContainerType.BOX)
