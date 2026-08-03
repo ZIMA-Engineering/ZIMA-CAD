@@ -59,8 +59,10 @@ planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
 types, editable in-view mate dimensions, expanded source-part trees,
 in-context part editing and assembly-only extruded or revolved cuts applied to
 selected components. Part geometry remains unchanged by assembly cuts. Stable
-semantic topology naming is still required before assembly references are
-production-safe.
+semantic topology naming is implemented for Box/Wedge faces and for Extrusion
+faces, edges and vertices. External Sketch references use those identities and
+survive supported parent recomputation; Revolve, Boolean/cut propagation and
+the remaining general Assembly cases are not yet production-safe.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

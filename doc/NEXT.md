@@ -50,11 +50,14 @@
   - robust recovery after a referenced entity disappears;
   - wider coverage of axis-to-plane angular combinations and non-origin datum
     references.
-- TODO: Replace persisted `Face N` indices with stable semantic face references
-  before assembly constraints are considered production-safe. References must
-  survive model recomputation and topology/order changes; missing or ambiguous
-  faces must be reported instead of silently binding a mate to a different face.
-  Follow the staged design in `doc/STABLE_TOPOLOGY_NAMING.md`.
+- Continue the central stable-topology implementation described in
+  `doc/STABLE_TOPOLOGY_NAMING.md`. Box/Wedge faces and Extrusion faces, edges
+  and vertices now have semantic identities; supported external Sketch
+  references survive parent edits, save/reload and automatic descendant
+  regeneration. Implement equivalent Revolve identities next, then propagate
+  identities through additive/subtractive and general Boolean results. Missing
+  or ambiguous topology must remain unresolved instead of falling back to a
+  current numerical index.
 - Add grounding/un-grounding of components and visualize remaining component
   degrees of freedom independently of the mate editor.
 - Keep instance placement in the assembly document. In-context feature edits
@@ -75,8 +78,8 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Continue stabilizing external references to model edges, faces, arcs,
-  cylinders and axes across model regeneration.
+- Extend the now-stable Extrusion external references to Revolve arcs,
+  cylindrical results and topology propagated through Boolean operations.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

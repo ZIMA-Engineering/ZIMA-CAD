@@ -203,9 +203,11 @@ Kóty zobrazené dvojklikem na díl zahrnují také nulové rovinné a souosé v
 Úhel a rovinné posunutí lze přepsat přímo v kótě a potvrdit Enterem; souosost je
 zobrazená jako zamčená informační vazba.
 
-Sestavové vazby jsou v současnosti prototyp. Identita ploch je dočasně založená
-na jejich pořadí, a proto se po významné změně geometrie zdrojového dílu může
-vazba ztratit nebo ukazovat na jinou plochu.
+Sestavové vazby jsou v současnosti prototyp. Plochy jednoduchých těles Box a
+Wedge a plochy Extrusion mají stabilní sémantickou identitu; nepodporovaná
+plocha se nesmí tiše nahradit plochou se stejným pořadovým číslem. Stabilní
+pojmenování zatím není dokončené pro Revolve ani pro plochy změněné
+booleovskými operacemi a sestavovými řezy.
 
 ### Aktivace dílu v sestavě
 
@@ -222,6 +224,13 @@ Je-li stejný díl otevřený také v samostatném tabu, aplikace používá spo
 aktuální dokumentový stav. Externí reference vytvořená v sestavě uchovává
 identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
 označí jako ztracená reference místo použití nesprávné geometrie.
+
+Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
+ukládají podle původu ve zdrojové skice, nikoliv podle aktuálního pořadí
+topologie. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící
+na hlavní ose skici zůstává samostatně vybratelný a lze jej odstranit stejně
+jako ostatní externí reference. Příkaz **Dokončit skicu** se při vstupu z
+vlastností kontejneru vrátí zpět do těchto vlastností.
 
 ### Sestavové řezy
 

@@ -1,21 +1,41 @@
 # Stable Topology Naming
 
+## Current implementation status (August 2026)
+
+The central implementation is active, not only a design proposal:
+
+- `FaceRef`, `EdgeRef`, `VertexRef`, `AssemblyFaceRef`, explicit resolution
+  states and `TopologyRegistry` are implemented;
+- Box and Wedge faces have semantic roles;
+- Extrusion cap/lateral faces, cap/generated edges and start/end vertices are
+  named from persistent Sketch entity IDs;
+- supported external Sketch references persist semantic dictionaries instead
+  of OCCT enumeration indices;
+- point, edge and face references survive tested parent dimension/profile
+  edits, save/reload and automatic descendant regeneration;
+- unresolved or ambiguous registry entries do not silently select another
+  runtime shape.
+
+The next supported operation is Revolve. Identity propagation through additive
+and subtractive results, general Booleans, Fillet and Chamfer is not yet
+implemented. Legacy numerical topology references are intentionally not
+migrated at this stage; development files may be recreated.
+
 ## Problem
 
-ZIMA-CAD currently persists general face references as an entity or instance ID
-combined with a temporary OpenCascade face index (`Face N`). The owner ID is
-stable, but the face index is not. Recomputing a feature or changing a boolean
-operation may reorder or replace `TopoDS_Face` instances, causing a reference to
-resolve to the wrong face.
+Unsupported ZIMA-CAD operations may still expose a general reference as an
+entity or instance ID combined with a temporary OpenCascade topology index.
+The owner ID is stable, but the numerical index is not. Recomputing a feature
+or changing a Boolean operation may reorder or replace OCCT subshapes.
 
-Box and Wedge already provide a limited semantic precedent (`x_min`, `x_max`,
-`slope`, and similar roles), but there is no continuous naming system covering
-general Part features and Assembly mates.
+Box, Wedge and Extrusion now provide the first continuous semantic subset, but
+the system does not yet cover general Part history, Revolve, Boolean results or
+all Assembly references.
 
-The essential rule is:
+The implemented rule is:
 
-> A persistent face identity is determined by its modeling origin and semantic
-> role, not by its position in an OpenCascade face enumeration.
+> A persistent topology identity is determined by its modeling origin and
+> semantic role, not by its position in an OpenCascade enumeration.
 
 ## Ownership of identity
 
@@ -29,18 +49,20 @@ Inputs must have stable IDs before an operation is evaluated:
 - Sketch and sketch-entity IDs, including individual edges;
 - stable references to input topology where required.
 
-After OpenCascade evaluates an operation, ZIMA-CAD assigns semantic identities
-to the resulting faces from their role and provenance. For example:
+After OpenCascade evaluates a supported operation, ZIMA-CAD assigns semantic
+identities to the result from role and provenance. For example:
 
 ```text
 Extrusion_1 / start
 Extrusion_1 / end
 Extrusion_1 / generated / SketchEdge_B
+Extrusion_1 / generated-edge / SketchPoint_C
+Extrusion_1 / end-vertex / SketchPoint_C
 ```
 
 ## Persistent reference model
 
-A logical face reference should contain data equivalent to:
+A logical topology reference contains data equivalent to:
 
 ```python
 @dataclass(frozen=True)
@@ -92,15 +114,18 @@ class EvaluatedShape:
 @dataclass
 class TopologyRegistry:
     faces_by_ref: dict[FaceRef, TopoDS_Face]
+    edges_by_ref: dict[EdgeRef, TopoDS_Edge]
+    vertices_by_ref: dict[VertexRef, TopoDS_Vertex]
     refs_by_face: dict[RuntimeShapeKey, FaceRef]
 ```
 
 The two directions support different workflows:
 
-- `FaceRef -> TopoDS_Face` resolves persisted Part, Assembly, attachment and
-  Drawing references after recomputation;
-- `TopoDS_Face -> FaceRef` converts a face selected in the viewer into a
-  persistent reference.
+- semantic reference to OCCT subshape resolves persisted Part, Assembly,
+  attachment and Drawing references after recomputation;
+- runtime index to semantic reference converts topology selected in the viewer
+  into a persistent identity. Face, edge and vertex maps are separate so the
+  same runtime index cannot collide across topology kinds.
 
 Runtime shape keys and `TopoDS_Face` instances are never persisted as stable
 identity.
@@ -108,10 +133,11 @@ identity.
 ## Operation contract
 
 Geometry builders should eventually return `EvaluatedShape`, not only a naked
-`TopoDS_Shape`. Each builder is responsible for describing the provenance of
-the topology it creates.
+`TopoDS_Shape`. The current implementation builds a registry alongside the
+supported history snapshot; each builder remains responsible for provenance.
 
-For Extrusion and Revolve, the first supported roles should be:
+Extrusion implements these initial face roles, and Revolve should follow the
+same provenance rule where applicable:
 
 - `start`;
 - `end`;
@@ -172,35 +198,35 @@ correct result.
 
 ## Implementation stages
 
-1. Introduce `FaceRef`, `AssemblyFaceRef`, resolution states and a central
-   `TopologyRegistry` without changing persisted behavior.
-2. Move the existing semantic Box and Wedge roles into the registry.
-3. Ensure Sketch edges have stable persistent IDs and implement semantic output
-   faces for Extrusion.
-4. Implement the equivalent mapping for Revolve.
-5. Change Assembly mates from `instance/entity ID + Face N` to
-   `instance ID + FaceRef`.
-6. Add missing/ambiguous-reference diagnostics, UI indication and manual repair.
-7. Migrate legacy `Face N` references when possible, retaining a clear broken
-   state when migration is uncertain.
-8. Extend history propagation to cuts and Boolean operations.
+1. **Done:** introduce semantic reference types, resolution states and a central
+   `TopologyRegistry`.
+2. **Done:** move semantic Box and Wedge face roles into the registry.
+3. **Done:** use stable Sketch entity IDs for Extrusion faces, edges and
+   vertices.
+4. **Done for the supported subset:** store and resolve semantic faces for
+   Assembly selection and semantic faces/edges/vertices for external Sketch
+   references.
+5. **Next:** implement equivalent face, edge and vertex mapping for Revolve.
+6. Add complete missing/ambiguous diagnostics, UI indication and manual repair.
+7. Extend history propagation to additive/subtractive results and general
+   Boolean operations.
+8. Reuse the registry for remaining Part attachments and Drawing associations.
 9. Add Fillet and Chamfer only after split/merge behavior is covered by tests.
-10. Reuse the same registry for Part attachments, external Sketch references and
-    Drawing associations instead of creating separate identity systems.
+10. Consider legacy numerical-reference migration only if it becomes a product
+    requirement; current development intentionally requires recreation.
 
 ## Required regression scenarios
 
-- Changing Extrusion length preserves references to its start, end and lateral
-  faces.
-- Editing a Sketch without deleting the referenced edge preserves the lateral
-  face reference.
+- Changing Extrusion length preserves its semantic faces, edges and vertices.
+- Editing a Sketch without deleting referenced entities preserves external
+  point, edge and face references.
 - Deleting the source edge marks the reference missing.
 - Reordering unrelated features does not change references.
 - Two instances of one `.prtz` resolve the same Part `FaceRef` independently.
 - Split and ambiguous results never bind silently to a different face.
-- Saving and reopening `.prtz` and `.asmz` preserves semantic references.
-- Legacy `Face N` documents either migrate deterministically or show a repairable
-  broken reference.
+- Saving and reopening `.prtz` preserves tested Extrusion semantic references;
+  Assembly coverage must expand with Boolean propagation.
+- A legacy numerical reference is rejected rather than silently rebound.
 
 ## Scope and expectation
 
