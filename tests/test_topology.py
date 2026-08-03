@@ -1157,6 +1157,29 @@ class StableTopologyTests(unittest.TestCase):
             for source_ids in loop_sources.values()
             for source_id in source_ids
         }
+        source_ids = tuple(
+            source_id
+            for loop in loop_sources.values()
+            for source_id in loop
+        )
+        profile_point_ids = tuple(
+            f"{prefix}-p{index}"
+            for prefix in ("outer", "hole", "island")
+            for index in range(4)
+        )
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, source_id)
+            for role in ("start", "end")
+            for source_id in source_ids
+        } | {
+            EdgeRef(feature.entity_id, "generated", point_id)
+            for point_id in profile_point_ids
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, point_id)
+            for role in ("start", "end")
+            for point_id in profile_point_ids
+        }
         shape = make_protrusion_shape(document, container)
         self.assertEqual(self._subshape_count(shape, TopAbs_SOLID), 2)
         registry = active_face_registry(document)
@@ -1164,6 +1187,8 @@ class StableTopologyTests(unittest.TestCase):
             set(registry.references),
             cap_references | generated_references,
         )
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
         for reference in cap_references:
             self.assertEqual(
                 registry.resolve(reference).state,
@@ -1178,9 +1203,13 @@ class StableTopologyTests(unittest.TestCase):
         sketch.parameters["sketch_data"] = json.dumps(
             SketchModel.from_editor_data(edited, dimensions).to_dict()
         )
+        edited_registry = active_face_registry(document)
         self.assertEqual(
-            set(active_face_registry(document).references),
-            cap_references | generated_references,
+            set(edited_registry.references), cap_references | generated_references
+        )
+        self.assertEqual(set(edited_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), expected_vertices
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "three-level-island.prtz"
@@ -1189,6 +1218,10 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(
             set(loaded_registry.references),
             cap_references | generated_references,
+        )
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), expected_vertices
         )
 
     def test_full_arc_revolve_cut_names_repeated_curved_intersections(self) -> None:
@@ -1351,6 +1384,142 @@ class StableTopologyTests(unittest.TestCase):
         self.assertIn(
             EdgeRef(feature.entity_id, "generated", "a"),
             registry.edge_references,
+        )
+
+    def test_three_level_partial_revolve_keeps_cap_fragments(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "NestedRevolve",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -40.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 40.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+        ]
+        loop_sources: dict[str, tuple[str, ...]] = {}
+        for prefix, coordinates in (
+            ("outer", ((10, -25), (60, -25), (60, 25), (10, 25))),
+            ("hole", ((20, -15), (50, -15), (50, 15), (20, 15))),
+            ("island", ((30, -7), (40, -7), (40, 7), (30, 7))),
+        ):
+            point_ids = tuple(f"{prefix}-p{index}" for index in range(4))
+            source_ids = tuple(f"{prefix}-e{index}" for index in range(4))
+            loop_sources[prefix] = source_ids
+            entities.extend(
+                {"id": point_id, "type": "point", "x": x, "y": y}
+                for point_id, (x, y) in zip(point_ids, coordinates)
+            )
+            entities.extend(
+                {
+                    "id": source_ids[index],
+                    "type": "segment",
+                    "point_ids": [
+                        point_ids[index], point_ids[(index + 1) % 4]
+                    ],
+                }
+                for index in range(4)
+            )
+        sketch = ZimaEntity(
+            "NestedRevolveSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "NestedRevolveFeature",
+            EntityKind.REVOLVE,
+            parameters={"sketch_id": sketch.entity_id, "angle": "120"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        cap_references = {
+            FaceRef(feature.entity_id, role, fragment=fragment)
+            for role in ("start", "end")
+            for fragment in (1, 2)
+        }
+        generated_references = {
+            FaceRef(feature.entity_id, "generated", source_id)
+            for source_ids in loop_sources.values()
+            for source_id in source_ids
+        }
+
+        source_ids = tuple(
+            source_id
+            for loop in loop_sources.values()
+            for source_id in loop
+        )
+        profile_point_ids = tuple(
+            f"{prefix}-p{index}"
+            for prefix in ("outer", "hole", "island")
+            for index in range(4)
+        )
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, source_id)
+            for role in ("start", "end")
+            for source_id in source_ids
+        } | {
+            EdgeRef(feature.entity_id, "generated", point_id)
+            for point_id in profile_point_ids
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, point_id)
+            for role in ("start", "end")
+            for point_id in profile_point_ids
+        }
+        shape = make_revolve_shape(document, container)
+        self.assertEqual(self._subshape_count(shape, TopAbs_SOLID), 2)
+        registry = active_face_registry(document)
+        self.assertEqual(
+            set(registry.references),
+            cap_references | generated_references,
+        )
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
+        for reference in cap_references:
+            self.assertEqual(
+                registry.resolve(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if str(entity.get("id", "")).startswith("island-p"):
+                entity["x"] = float(entity["x"]) + 1.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(
+            set(edited_registry.references), cap_references | generated_references
+        )
+        self.assertEqual(set(edited_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(edited_registry.vertex_references), expected_vertices
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "three-level-revolve.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(
+            set(loaded_registry.references),
+            cap_references | generated_references,
+        )
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+        self.assertEqual(
+            set(loaded_registry.vertex_references), expected_vertices
         )
 
 

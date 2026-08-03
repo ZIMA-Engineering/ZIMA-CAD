@@ -66,7 +66,9 @@
   first point; closed-spline Extrusion/full Revolve and an Extrusion with a
   mixed segment/arc outer loop plus a closed-spline hole now keep semantic
   topology references. Three-level Extrusion nesting also keeps the island
-  provenance and gives repeated cap roles deterministic fragments.
+  provenance and gives repeated cap roles deterministic fragments. Partial
+  Revolve now has equivalent outer/hole/island coverage for faces, edges and
+  vertices.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
@@ -93,8 +95,8 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable multi-level Extrusion and segment/center-arc/spline
-  Revolve references to nested Revolve profiles and wider Boolean chains.
+- Extend the now-stable multi-level Extrusion/Revolve references to wider
+  Boolean chains and multi-body ancestry.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

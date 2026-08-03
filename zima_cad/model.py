@@ -2969,6 +2969,7 @@ def revolve_face_registry(
 
     face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
     face_index = 0
+    cap_faces: dict[str, list[tuple[Any, int]]] = {"start": [], "end": []}
     while face_explorer.More():
         face_index += 1
         face = face_explorer.Current()
@@ -2980,6 +2981,7 @@ def revolve_face_registry(
                 face_vertices.append(position)
             vertex_explorer.Next()
         matched = None
+        cap_role = None
         if not is_full:
             for role in ("start", "end"):
                 expected = [positions[point_id][role] for point_id in local_points]
@@ -2987,9 +2989,9 @@ def revolve_face_registry(
                     any(points_match(position, candidate) for candidate in expected)
                     for position in face_vertices
                 ):
-                    matched = FaceRef(feature.entity_id, role)
+                    cap_role = role
                     break
-        if matched is None:
+        if cap_role is None:
             candidates = []
             for source_id, sample in generated_samples.items():
                 distance = BRepExtrema_DistShapeShape(
@@ -3002,7 +3004,33 @@ def revolve_face_registry(
                 matched = FaceRef(feature.entity_id, "generated", candidates[0])
         if matched is not None:
             registry.register_face(matched, face, runtime_index=face_index)
+        elif cap_role is not None:
+            cap_faces[cap_role].append((face, face_index))
         face_explorer.Next()
+
+    for role, candidates in cap_faces.items():
+        if len(candidates) == 1:
+            face, runtime_index = candidates[0]
+            registry.register_face(
+                FaceRef(feature.entity_id, role),
+                face,
+                runtime_index=runtime_index,
+            )
+            continue
+        for fragment, (face, runtime_index) in enumerate(
+            sorted(
+                candidates,
+                key=lambda candidate: _topology_fragment_key(
+                    candidate[0], TopAbs_FACE
+                ),
+            ),
+            1,
+        ):
+            registry.register_face(
+                FaceRef(feature.entity_id, role, fragment=fragment),
+                face,
+                runtime_index=runtime_index,
+            )
 
     edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
     edge_index = 0
