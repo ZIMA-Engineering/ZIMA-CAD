@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import configparser
 import json
-from math import acos, atan2, cos, degrees, hypot, radians, sin, sqrt, tan
+import numpy as np
+from fractions import Fraction
+from math import acos, atan2, ceil, cos, degrees, floor, hypot, radians, sin, sqrt, tan
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -21,12 +23,15 @@ from PySide6.QtCore import (
     QPoint,
     QPointF,
     QRectF,
+    QTimer,
     Qt,
     QVariantAnimation,
     Signal,
 )
 from PySide6.QtGui import (
     QColor,
+    QFont,
+    QImage,
     QMouseEvent,
     QPainter,
     QPen,
@@ -70,6 +75,27 @@ def cosmetic_pen(
     pen = QPen(color, 1.0, style)
     pen.setCosmetic(True)
     return pen
+
+
+def drawing_scale_text(scale: float) -> str:
+    ratio = Fraction(max(float(scale), 1.0e-9)).limit_denominator(1000)
+    return f"M{ratio.numerator}:{ratio.denominator}"
+
+
+class UpwardComboBox(QComboBox):
+    """Combo box whose popup is anchored above the field."""
+
+    def showPopup(self) -> None:
+        super().showPopup()
+
+        def position_above() -> None:
+            popup = self.view().window()
+            anchor = self.mapToGlobal(QPoint(0, 0))
+            popup.move(anchor.x(), anchor.y() - popup.height())
+
+        # Qt determines the popup size during showPopup(), so reposition it
+        # once that geometry has been applied.
+        QTimer.singleShot(0, position_above)
 
 
 def default_sheet(index: int = 1) -> dict:
@@ -170,37 +196,44 @@ def projected_view_orientation(
 
     horizontal, vertical, depth = projection_axes(parent_orientation)
     direction = str(placement_direction)
+    direction_components = {
+        "right": (1.0, 0.0),
+        "top_right": (sqrt(0.5), sqrt(0.5)),
+        "top": (0.0, 1.0),
+        "top_left": (-sqrt(0.5), sqrt(0.5)),
+        "left": (-1.0, 0.0),
+        "bottom_left": (-sqrt(0.5), -sqrt(0.5)),
+        "bottom": (0.0, -1.0),
+        "bottom_right": (sqrt(0.5), -sqrt(0.5)),
+    }
+    right_component, top_component = direction_components.get(
+        direction, direction_components["right"]
+    )
     if projection_method != "third_angle":
-        direction = {
-            "left": "right",
-            "right": "left",
-            "top": "bottom",
-            "bottom": "top",
-        }.get(direction, direction)
-    if direction == "right":
-        axes = (
-            tuple(-value for value in depth),
-            vertical,
-            horizontal,
-        )
-    elif direction == "left":
-        axes = (
-            depth,
-            vertical,
-            tuple(-value for value in horizontal),
-        )
-    elif direction == "top":
-        axes = (
-            horizontal,
-            tuple(-value for value in depth),
-            vertical,
-        )
-    else:
-        axes = (
-            horizontal,
-            depth,
-            tuple(-value for value in vertical),
-        )
+        right_component = -right_component
+        top_component = -top_component
+    tangent = tuple(
+        -top_component * horizontal[axis]
+        + right_component * vertical[axis]
+        for axis in range(3)
+    )
+    axes = (
+        tuple(
+            -right_component * depth[axis]
+            - top_component * tangent[axis]
+            for axis in range(3)
+        ),
+        tuple(
+            -top_component * depth[axis]
+            + right_component * tangent[axis]
+            for axis in range(3)
+        ),
+        tuple(
+            right_component * horizontal[axis]
+            + top_component * vertical[axis]
+            for axis in range(3)
+        ),
+    )
 
     pitch = degrees(acos(max(-1.0, min(1.0, axes[2][2]))))
     if abs(sin(radians(pitch))) <= 1.0e-9:
@@ -214,6 +247,21 @@ def projected_view_orientation(
         "pitch_degrees": pitch,
         "roll_degrees": roll,
     }
+
+
+def projection_placement_vector(direction: str) -> tuple[float, float]:
+    """Return a unit sheet-space ray for an eight-way projected view."""
+    diagonal = sqrt(0.5)
+    return {
+        "right": (-1.0, 0.0),
+        "top_right": (-diagonal, diagonal),
+        "top": (0.0, 1.0),
+        "top_left": (diagonal, diagonal),
+        "left": (1.0, 0.0),
+        "bottom_left": (diagonal, -diagonal),
+        "bottom": (0.0, -1.0),
+        "bottom_right": (-diagonal, -diagonal),
+    }.get(str(direction), (-1.0, 0.0))
 
 
 def _center_projected_groups(
@@ -468,6 +516,43 @@ def renderer_projection(
         for edge in mesh.edges
         if edge.topology_role in {"tangent", "periodic_tangent"}
     ], orientation)
+    # A silhouette and a real topology edge can project onto the same line
+    # while receiving opposite visibility classifications.  A hidden copy
+    # must never be dashed underneath the visible edge.
+    projected_tolerance = max(diagonal * 2.0e-5, 1.0e-7)
+    visible_segments = [
+        (line[index], line[index + 1])
+        for line in visible_lines
+        for index in range(len(line) - 1)
+    ]
+
+    def covered_by_visible(point: list[float]) -> bool:
+        for first, second in visible_segments:
+            dx = second[0] - first[0]
+            dy = second[1] - first[1]
+            length_squared = dx * dx + dy * dy
+            if length_squared <= 1.0e-20:
+                continue
+            fraction = max(0.0, min(1.0, (
+                (point[0] - first[0]) * dx + (point[1] - first[1]) * dy
+            ) / length_squared))
+            nearest_x = first[0] + fraction * dx
+            nearest_y = first[1] + fraction * dy
+            if hypot(point[0] - nearest_x, point[1] - nearest_y) <= projected_tolerance:
+                return True
+        return False
+
+    hidden_lines = [
+        line for line in hidden_lines
+        if not all(covered_by_visible(point) for point in (
+            line[0],
+            [
+                (line[0][0] + line[-1][0]) * 0.5,
+                (line[0][1] + line[-1][1]) * 0.5,
+            ],
+            line[-1],
+        ))
+    ]
     visible_lines = _merge_projected_segments(visible_lines)
     hidden_lines = _merge_projected_segments(hidden_lines)
     visible_lines, hidden_lines, wireframe, auxiliary = _center_projected_groups(
@@ -482,20 +567,23 @@ def renderer_projection(
 
 
 def shaded_projection(
-    meshes: list[tuple[ViewerMesh, str]],
+    meshes: list[tuple[ViewerMesh, str | dict[str, str]]],
     orientation: str | dict,
 ) -> list[dict[str, Any]]:
     """Project model triangles for shaded technical drawing views."""
     horizontal, vertical, depth_axis = projection_axes(orientation)
+    light = (0.25, -0.35, 0.902)
+    light_length = sqrt(sum(component * component for component in light))
+    light = tuple(component / light_length for component in light)
     records: list[dict[str, Any]] = []
     all_points: list[list[float]] = []
-    for mesh, color in meshes:
+    for mesh, colors in meshes:
         positions = mesh.triangle_positions
         normals = mesh.triangle_normals
-        for offset in range(0, len(positions), 9):
+        for triangle_index, offset in enumerate(range(0, len(positions), 9)):
             polygon: list[list[float]] = []
             depths: list[float] = []
-            normal = [0.0, 0.0, 0.0]
+            vertex_brightness: list[float] = []
             for vertex in range(3):
                 point = tuple(positions[offset + vertex * 3 + axis] for axis in range(3))
                 polygon.append([
@@ -503,14 +591,36 @@ def shaded_projection(
                     sum(vertical[axis] * point[axis] for axis in range(3)),
                 ])
                 depths.append(sum(depth_axis[axis] * point[axis] for axis in range(3)))
-                for axis in range(3):
-                    normal[axis] += normals[offset + vertex * 3 + axis] / 3.0
-            facing = abs(sum(normal[axis] * depth_axis[axis] for axis in range(3)))
+                normal = tuple(
+                    normals[offset + vertex * 3 + axis] for axis in range(3)
+                )
+                camera_normal = (
+                    sum(horizontal[axis] * normal[axis] for axis in range(3)),
+                    sum(vertical[axis] * normal[axis] for axis in range(3)),
+                    sum(depth_axis[axis] * normal[axis] for axis in range(3)),
+                )
+                normal_length = sqrt(sum(value * value for value in camera_normal))
+                if normal_length > 1.0e-12:
+                    camera_normal = tuple(
+                        value / normal_length for value in camera_normal
+                    )
+                diffuse = max(0.0, sum(
+                    camera_normal[axis] * light[axis] for axis in range(3)
+                ))
+                vertex_brightness.append(0.42 + 0.58 * diffuse)
             records.append({
                 "points": polygon,
                 "depth": sum(depths) / 3.0,
-                "color": color,
-                "brightness": 0.58 + 0.42 * min(1.0, facing),
+                "vertex_depths": depths,
+                "color": (
+                    colors.get(
+                        mesh.triangle_owner_ids[triangle_index], "#B9C2CC"
+                    )
+                    if isinstance(colors, dict)
+                    else colors
+                ),
+                "brightness": sum(vertex_brightness) / 3.0,
+                "vertex_brightness": vertex_brightness,
             })
             all_points.extend(polygon)
     if not all_points:
@@ -584,18 +694,50 @@ def model_visible_projection(
 
 def update_view_bounds(view: dict) -> dict:
     """Cache the axis-aligned geometry bounds in sheet coordinates."""
+    border_margin = 1.0
     scale = float(view.get("scale", 1.0))
     center_x = float(view.get("x", 0.0))
     center_y = float(view.get("y", 0.0))
-    points = [point for line in view.get("polylines", []) for point in line]
-    if not points:
-        bounds = {"left": center_x, "right": center_x, "bottom": center_y, "top": center_y}
+    extent = view.get("model_extent")
+    if isinstance(extent, (list, tuple)) and len(extent) == 2:
+        half_width = max(0.0, float(extent[0])) * scale * 0.5 + border_margin
+        half_height = max(0.0, float(extent[1])) * scale * 0.5 + border_margin
+        bounds = {
+            "left": center_x - half_width,
+            "right": center_x + half_width,
+            "bottom": center_y - half_height,
+            "top": center_y + half_height,
+        }
     else:
-        xs = [center_x - float(point[0]) * scale for point in points]
-        ys = [center_y + float(point[1]) * scale for point in points]
-        bounds = {"left": min(xs), "right": max(xs), "bottom": min(ys), "top": max(ys)}
+        bounds = {"left": center_x, "right": center_x, "bottom": center_y, "top": center_y}
     view["bounds"] = bounds
     return bounds
+
+
+def mesh_projection_extent(
+    mesh: ViewerMesh,
+    orientation: str | dict,
+) -> list[float]:
+    horizontal, vertical, _depth = projection_axes(orientation)
+    points = [
+        tuple(mesh.triangle_positions[offset + axis] for axis in range(3))
+        for offset in range(0, len(mesh.triangle_positions), 3)
+    ]
+    if not points:
+        points = [point for edge in mesh.edges for point in edge.points]
+    if not points:
+        return [0.0, 0.0]
+    projected = [
+        (
+            sum(horizontal[axis] * point[axis] for axis in range(3)),
+            sum(vertical[axis] * point[axis] for axis in range(3)),
+        )
+        for point in points
+    ]
+    return [
+        max(point[0] for point in projected) - min(point[0] for point in projected),
+        max(point[1] for point in projected) - min(point[1] for point in projected),
+    ]
 
 
 def delete_drawing_view(sheet: dict, view_id: str) -> set[str]:
@@ -653,7 +795,11 @@ def move_drawing_view(
     parent = by_id.get(str(view.get("parent_view_id", "")))
     if parent is not None:
         direction = str(view.get("projection_direction", ""))
-        if direction not in {"left", "right", "top", "bottom"}:
+        valid_directions = {
+            "right", "top_right", "top", "top_left",
+            "left", "bottom_left", "bottom", "bottom_right",
+        }
+        if direction not in valid_directions:
             dx = float(view.get("x", 0.0)) - float(parent.get("x", 0.0))
             dy = float(view.get("y", 0.0)) - float(parent.get("y", 0.0))
             direction = (
@@ -663,10 +809,15 @@ def move_drawing_view(
                 else "bottom"
             )
             view["projection_direction"] = direction
-        if direction in {"left", "right"}:
-            target_y = float(parent.get("y", 0.0))
-        else:
-            target_x = float(parent.get("x", 0.0))
+        ray_x, ray_y = projection_placement_vector(direction)
+        parent_x = float(parent.get("x", 0.0))
+        parent_y = float(parent.get("y", 0.0))
+        distance = (
+            (target_x - parent_x) * ray_x
+            + (target_y - parent_y) * ray_y
+        )
+        target_x = parent_x + distance * ray_x
+        target_y = parent_y + distance * ray_y
 
     delta_x = target_x - float(view.get("x", 0.0))
     delta_y = target_y - float(view.get("y", 0.0))
@@ -688,6 +839,13 @@ def move_drawing_view(
             continue
         moved["x"] = float(moved.get("x", 0.0)) + delta_x
         moved["y"] = float(moved.get("y", 0.0)) + delta_y
+        caption_position = moved.get("caption_position")
+        if (
+            isinstance(caption_position, list)
+            and len(caption_position) == 2
+        ):
+            caption_position[0] = float(caption_position[0]) + delta_x
+            caption_position[1] = float(caption_position[1]) + delta_y
         update_view_bounds(moved)
 
     for dimension in sheet.get("dimensions", []):
@@ -787,6 +945,105 @@ class DrawingCanvas(QWidget):
         self._dragged_view_id: str | None = None
         self._drag_start_sheet: tuple[float, float] | None = None
         self._drag_view_start: tuple[float, float] | None = None
+        self._caption_screen_bounds: dict[str, QRectF] = {}
+        self._selected_caption_view_id: str | None = None
+        self._dragged_caption_view_id: str | None = None
+        self._drag_caption_start_sheet: tuple[float, float] | None = None
+        self._drag_caption_position_start: tuple[float, float] | None = None
+        self._view_render_data: dict[str, tuple[ViewerMesh, dict[str, str]]] = {}
+        self._runtime_view_geometry: dict[str, dict[str, Any]] = {}
+        self._shaded_image_cache: dict[str, tuple[tuple[float, float], QImage, QPointF]] = {}
+
+    def set_view_render_data(
+        self,
+        view_id: str,
+        mesh: ViewerMesh,
+        colors: dict[str, str] | None = None,
+    ) -> None:
+        view_id = str(view_id)
+        self._view_render_data[view_id] = (mesh, dict(colors or {}))
+        view = self._view_by_id(view_id)
+        if view is None and self._pending_view is not None:
+            if str(self._pending_view.get("id", "")) == view_id:
+                view = self._pending_view
+        if view is not None:
+            self._prepare_view_geometry(view_id, view, mesh, dict(colors or {}))
+        self.update()
+
+    def _prepare_view_geometry(
+        self,
+        view_id: str,
+        view: dict,
+        mesh: ViewerMesh,
+        colors: dict[str, str] | None = None,
+    ) -> None:
+        orientation = view.get("orientation", "isometric")
+        view["model_extent"] = mesh_projection_extent(mesh, orientation)
+        update_view_bounds(view)
+        geometry = renderer_projection([mesh], orientation)
+        geometry["shaded_triangles"] = shaded_projection(
+            [(mesh, dict(colors or {}))], orientation
+        )
+        self._runtime_view_geometry[str(view_id)] = geometry
+        self._shaded_image_cache.pop(str(view_id), None)
+
+    def copy_view_render_data(self, source_id: str, target_id: str) -> None:
+        data = self._view_render_data.get(str(source_id))
+        if data is not None:
+            self.set_view_render_data(str(target_id), data[0], data[1])
+
+    def clear_view_render_data(self) -> None:
+        self._view_render_data.clear()
+        self._runtime_view_geometry.clear()
+        self._shaded_image_cache.clear()
+        self.update()
+
+    def topology_at(
+        self,
+        position: QPointF,
+    ) -> dict | None:
+        """Pick real source-model topology through a drawing-view camera."""
+        view = self._view_at(position)
+        if view is None:
+            return None
+        view_id = str(view.get("id", ""))
+        data = self._view_render_data.get(view_id)
+        if data is None:
+            return None
+        mesh, _colors = data
+        horizontal, vertical, _depth = projection_axes(
+            view.get("orientation", "isometric")
+        )
+        scale = float(view.get("scale", 1.0))
+        center_x = float(view.get("x", 0.0))
+        center_y = float(view.get("y", 0.0))
+        best: tuple[float, Any] | None = None
+        for edge in mesh.edges:
+            if edge.element_kind != "edge":
+                continue
+            projected = []
+            for point in edge.points:
+                u = sum(horizontal[axis] * point[axis] for axis in range(3))
+                v = sum(vertical[axis] * point[axis] for axis in range(3))
+                projected.append(self._screen_point(
+                    center_x - u * scale,
+                    center_y + v * scale,
+                ))
+            for index in range(len(projected) - 1):
+                distance = self._point_segment_distance(
+                    position, projected[index], projected[index + 1]
+                )
+                if distance <= 8.0 and (best is None or distance < best[0]):
+                    best = distance, edge
+        if best is None:
+            return None
+        edge = best[1]
+        return {
+            "view_id": view_id,
+            "topology_kind": "edge",
+            "owner_id": edge.owner_id,
+            "edge_index": edge.edge_index,
+        }
 
     def set_dimension_tool(self, active: bool) -> None:
         self._dimension_tool_active = bool(active)
@@ -841,6 +1098,16 @@ class DrawingCanvas(QWidget):
         self._pan = QPointF()
         self.update()
 
+    @staticmethod
+    def _renderer_display_mode(view: dict) -> str:
+        return {
+            "wireframe": "wire",
+            "hidden_line": "hidden_edges",
+            "no_hidden": "no_hidden",
+            "shaded_edges": "shaded_with_edges",
+            "shaded": "shaded",
+        }.get(str(view.get("display_style", "no_hidden")), "no_hidden")
+
     def animate_fit_sheet(self, duration_ms: int = 650) -> None:
         width, height = self.sheet_size()
         margin = 36.0
@@ -880,6 +1147,12 @@ class DrawingCanvas(QWidget):
 
     def begin_placement(self, view: dict) -> None:
         self._pending_view = view
+        view_id = str(view.get("id", ""))
+        render_data = self._view_render_data.get(view_id)
+        if render_data is not None:
+            self._prepare_view_geometry(
+                view_id, view, render_data[0], render_data[1]
+            )
         self.setFocus()
         self.update()
 
@@ -933,9 +1206,37 @@ class DrawingCanvas(QWidget):
                 else QColor("#FF8C00") if view_id == self._hovered_view_id
                 else QColor("#FFFFFF")
             )
-            self._draw_view(painter, view, color)
-            if view_id in {self._selected_view_id, self._hovered_view_id}:
-                self._draw_view_bounds(painter, view, color)
+            geometry = self._runtime_view_geometry.get(view_id)
+            if geometry is not None:
+                rendered_view = dict(view)
+                rendered_view.update(geometry)
+                self._draw_view(painter, rendered_view, color)
+        self._paint_annotations(painter)
+        if self._pending_view is not None and self._cursor_sheet_position is not None:
+            preview = dict(self._pending_view)
+            preview["x"], preview["y"] = self._cursor_sheet_position
+            geometry = self._runtime_view_geometry.get(
+                str(self._pending_view.get("id", ""))
+            )
+            if geometry is not None:
+                preview.update(geometry)
+                self._draw_view(painter, preview, QColor("#FFFFFF"))
+            self._draw_view_bounds(painter, preview, QColor("#4DD811"))
+
+    def _paint_annotations(self, painter: QPainter) -> None:
+        self._caption_screen_bounds.clear()
+        for view in self._sheet.get("views", []):
+            if bool(view.get("show_caption", False)):
+                self._draw_view_caption(painter, view)
+        for view in self._sheet.get("views", []):
+            view_id = str(view.get("id", ""))
+            if view_id not in {self._selected_view_id, self._hovered_view_id}:
+                continue
+            color = (
+                QColor("#00D1FF") if view_id == self._selected_view_id
+                else QColor("#FF8C00")
+            )
+            self._draw_view_bounds(painter, view, color)
         for dimension in self._sheet.get("dimensions", []):
             self._draw_dimension(painter, dimension)
         self._draw_dimension_selection(painter)
@@ -951,10 +1252,60 @@ class DrawingCanvas(QWidget):
                     "placement": list(self._dimension_cursor_sheet),
                 },
             )
-        if self._pending_view is not None and self._cursor_sheet_position is not None:
-            preview = dict(self._pending_view)
-            preview["x"], preview["y"] = self._cursor_sheet_position
-            self._draw_view(painter, preview, QColor("#4DD811"))
+
+    def _draw_view_caption(self, painter: QPainter, view: dict) -> None:
+        bounds = update_view_bounds(view)
+        center_x = (bounds["left"] + bounds["right"]) * 0.5
+        stored_position = view.get("caption_position")
+        position = (
+            (float(stored_position[0]), float(stored_position[1]))
+            if isinstance(stored_position, (list, tuple))
+            and len(stored_position) == 2
+            else (center_x, bounds["top"] + 1.0)
+        )
+        anchor = self._screen_point(*position)
+        font = QFont(painter.font())
+        font.setPixelSize(max(1, round(5.0 * self._pixels_per_mm)))
+        font.setBold(True)
+        painter.setFont(font)
+        view_id = str(view.get("id", ""))
+        painter.setPen(cosmetic_pen(QColor(
+            "#00D1FF"
+            if view_id == self._selected_caption_view_id
+            else "#FFFFFF"
+        )))
+        name = str(view.get("name", "")).strip()
+        text = "\n".join(filter(None, (
+            name,
+            drawing_scale_text(float(view.get("scale", 1.0))),
+        )))
+        metrics = painter.fontMetrics()
+        lines = text.splitlines()
+        text_width = max(
+            (metrics.horizontalAdvance(line) for line in lines),
+            default=1,
+        )
+        text_height = metrics.lineSpacing() * max(1, len(lines))
+        text_rect = QRectF(
+            anchor.x() - text_width * 0.5 - 2.0,
+            anchor.y() - text_height - 2.0,
+            text_width + 4.0,
+            text_height + 2.0,
+        )
+        self._caption_screen_bounds[view_id] = text_rect.adjusted(-3, -3, 3, 3)
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            text,
+        )
+
+    def _caption_at(self, position: QPointF) -> str | None:
+        return next((
+            view_id for view_id, bounds in reversed(
+                tuple(self._caption_screen_bounds.items())
+            )
+            if bounds.contains(position)
+        ), None)
 
     def _format_point(self, x_from_left: float, y_from_bottom: float) -> QPointF:
         width, _height = self.sheet_size()
@@ -1055,6 +1406,128 @@ class DrawingCanvas(QWidget):
         painter.setBrush(QColor("#FF8C00"))
         painter.drawEllipse(origin, 2.5, 2.5)
 
+    def _draw_depth_shaded_surface(
+        self,
+        painter: QPainter,
+        view: dict,
+    ) -> None:
+        """Rasterize a drawing view with interpolated lighting and a Z-buffer."""
+        view_id = str(view.get("id", ""))
+        scale = float(view.get("scale", 1.0))
+        pixel_scale = scale * self._pixels_per_mm
+        cache_key = (pixel_scale, float(len(view.get("shaded_triangles", []))))
+        cached = self._shaded_image_cache.get(view_id)
+        if cached is None or cached[0] != cache_key:
+            triangles = view.get("shaded_triangles", [])
+            projected: list[tuple[list[tuple[float, float]], list[float], list[float], QColor]] = []
+            all_points: list[tuple[float, float]] = []
+            for triangle in triangles:
+                source_points = triangle.get("points", [])
+                if len(source_points) != 3:
+                    continue
+                points = [
+                    (float(point[0]) * pixel_scale, -float(point[1]) * pixel_scale)
+                    for point in source_points
+                ]
+                brightnesses = triangle.get("vertex_brightness", [])
+                if not isinstance(brightnesses, list) or len(brightnesses) != 3:
+                    brightnesses = [float(triangle.get("brightness", 1.0))] * 3
+                depths = triangle.get("vertex_depths", [])
+                if not isinstance(depths, list) or len(depths) != 3:
+                    depths = [float(triangle.get("depth", 0.0))] * 3
+                projected.append((
+                    points,
+                    [float(value) for value in brightnesses],
+                    [float(value) for value in depths],
+                    QColor(str(triangle.get("color", "#B9C2CC"))),
+                ))
+                all_points.extend(points)
+            if not all_points:
+                return
+            minimum_x = floor(min(point[0] for point in all_points)) - 2
+            minimum_y = floor(min(point[1] for point in all_points)) - 2
+            maximum_x = ceil(max(point[0] for point in all_points)) + 2
+            maximum_y = ceil(max(point[1] for point in all_points)) + 2
+            width = max(1, maximum_x - minimum_x + 1)
+            height = max(1, maximum_y - minimum_y + 1)
+            pixels = np.zeros((height, width, 4), dtype=np.uint8)
+            depth_buffer = np.full(
+                (height, width), -np.inf, dtype=np.float32
+            )
+            for points, brightnesses, depths, base in projected:
+                local = [
+                    (point[0] - minimum_x, point[1] - minimum_y)
+                    for point in points
+                ]
+                ax, ay = local[0]
+                bx, by = local[1]
+                cx, cy = local[2]
+                denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+                if abs(denominator) <= 1.0e-12:
+                    continue
+                left = max(0, floor(min(ax, bx, cx)))
+                right = min(width - 1, ceil(max(ax, bx, cx)))
+                top = max(0, floor(min(ay, by, cy)))
+                bottom = min(height - 1, ceil(max(ay, by, cy)))
+                sample_y, sample_x = np.mgrid[
+                    top:bottom + 1, left:right + 1
+                ]
+                sample_x = sample_x.astype(np.float32) + 0.5
+                sample_y = sample_y.astype(np.float32) + 0.5
+                first = (
+                    (by - cy) * (sample_x - cx)
+                    + (cx - bx) * (sample_y - cy)
+                ) / denominator
+                second = (
+                    (cy - ay) * (sample_x - cx)
+                    + (ax - cx) * (sample_y - cy)
+                ) / denominator
+                third = 1.0 - first - second
+                depth = (
+                    first * depths[0]
+                    + second * depths[1]
+                    + third * depths[2]
+                )
+                depth_region = depth_buffer[top:bottom + 1, left:right + 1]
+                mask = (
+                    (first >= -1.0e-7)
+                    & (second >= -1.0e-7)
+                    & (third >= -1.0e-7)
+                    & (depth >= depth_region)
+                )
+                if not np.any(mask):
+                    continue
+                depth_region[mask] = depth[mask]
+                brightness = (
+                    first * brightnesses[0]
+                    + second * brightnesses[1]
+                    + third * brightnesses[2]
+                )
+                pixel_region = pixels[top:bottom + 1, left:right + 1]
+                for channel, component in enumerate((
+                    base.red(), base.green(), base.blue()
+                )):
+                    values = np.clip(
+                        np.rint(component * brightness), 0, 255
+                    ).astype(np.uint8)
+                    pixel_region[..., channel][mask] = values[mask]
+                pixel_region[..., 3][mask] = 255
+            image = QImage(
+                pixels.data,
+                width,
+                height,
+                int(pixels.strides[0]),
+                QImage.Format.Format_RGBA8888,
+            ).copy()
+            offset = QPointF(float(minimum_x), float(minimum_y))
+            cached = (cache_key, image, offset)
+            self._shaded_image_cache[view_id] = cached
+        center = self._screen_point(
+            float(view.get("x", 0.0)),
+            float(view.get("y", 0.0)),
+        )
+        painter.drawImage(center + cached[2], cached[1])
+
     def _draw_view(self, painter: QPainter, view: dict, color: QColor) -> None:
         scale = float(view.get("scale", 1.0))
         center_x = float(view.get("x", 0.0))
@@ -1075,29 +1548,7 @@ class DrawingCanvas(QWidget):
 
         display_style = str(view.get("display_style", "no_hidden"))
         if display_style in {"shaded", "shaded_edges"}:
-            # Antialiasing adjacent filled triangles creates hairline cracks.
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-            painter.setPen(Qt.PenStyle.NoPen)
-            for triangle in view.get("shaded_triangles", []):
-                base = QColor(str(triangle.get("color", "#B9C2CC")))
-                brightness = float(triangle.get("brightness", 1.0))
-                fill = QColor(
-                    min(255, round(base.red() * brightness)),
-                    min(255, round(base.green() * brightness)),
-                    min(255, round(base.blue() * brightness)),
-                )
-                points = [
-                    self._screen_point(
-                        center_x - float(point[0]) * scale,
-                        center_y + float(point[1]) * scale,
-                    )
-                    for point in triangle.get("points", [])
-                ]
-                if len(points) == 3:
-                    painter.setBrush(fill)
-                    painter.drawPolygon(QPolygonF(points))
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            self._draw_depth_shaded_surface(painter, view)
             if display_style == "shaded":
                 if str(view.get("auxiliary_edges", "hidden")) == "visible":
                     draw_polylines(
@@ -1126,22 +1577,30 @@ class DrawingCanvas(QWidget):
                 )
             return
 
+        if display_style == "hidden_line":
+            hidden_style = str(view.get("hidden_lines", "dimmed"))
+            if hidden_style != "none":
+                hidden_pen = cosmetic_pen(QColor("#808080"))
+                if hidden_style == "dimmed":
+                    hidden_pen.setStyle(Qt.PenStyle.DashLine)
+                # Hidden geometry is the underlay.  Drawing visible edges
+                # afterwards guarantees that coincident rear edges cannot
+                # shine through the visible outline as dashes.
+                draw_polylines(view.get("hidden_polylines", []), hidden_pen)
+            draw_polylines(view.get("polylines", []), cosmetic_pen(color))
+            if str(view.get("auxiliary_edges", "hidden")) == "visible":
+                draw_polylines(
+                    view.get("auxiliary_polylines", []),
+                    cosmetic_pen(color),
+                )
+            return
+
         draw_polylines(view.get("polylines", []), cosmetic_pen(color))
         if str(view.get("auxiliary_edges", "hidden")) == "visible":
             draw_polylines(
                 view.get("auxiliary_polylines", []),
                 cosmetic_pen(color),
             )
-        if display_style != "hidden_line":
-            return
-        hidden_style = str(view.get("hidden_lines", "dimmed"))
-        if hidden_style == "none":
-            return
-        hidden_color = QColor("#808080")
-        hidden_pen = cosmetic_pen(hidden_color)
-        if hidden_style == "dimmed":
-            hidden_pen.setStyle(Qt.PenStyle.DashLine)
-        draw_polylines(view.get("hidden_polylines", []), hidden_pen)
 
     def _draw_view_bounds(self, painter: QPainter, view: dict, color: QColor) -> None:
         bounds = update_view_bounds(view)
@@ -1162,41 +1621,51 @@ class DrawingCanvas(QWidget):
             None,
         )
 
-    @staticmethod
-    def _view_line_source(view: dict) -> str:
-        return (
-            "wireframe_polylines"
-            if str(view.get("display_style", "no_hidden")) == "wireframe"
-            else "polylines"
-        )
-
-    @staticmethod
-    def _sheet_geometry_point(view: dict, point: list) -> tuple[float, float]:
-        scale = float(view.get("scale", 1.0))
-        return (
-            float(view.get("x", 0.0)) - float(point[0]) * scale,
-            float(view.get("y", 0.0)) + float(point[1]) * scale,
-        )
-
     def _resolve_dimension_segment(
         self, reference: dict
     ) -> tuple[tuple[float, float], tuple[float, float]] | None:
         view = self._view_by_id(str(reference.get("view_id", "")))
         if view is None:
             return None
-        source = str(reference.get("source", "polylines"))
-        polylines = view.get(source, [])
-        polyline_index = int(reference.get("polyline", -1))
-        segment_index = int(reference.get("segment", -1))
-        if not 0 <= polyline_index < len(polylines):
-            return None
-        polyline = polylines[polyline_index]
-        if not 0 <= segment_index < len(polyline) - 1:
-            return None
-        return (
-            self._sheet_geometry_point(view, polyline[segment_index]),
-            self._sheet_geometry_point(view, polyline[segment_index + 1]),
+        if str(reference.get("topology_kind", "")) == "edge":
+            data = self._view_render_data.get(str(reference.get("view_id", "")))
+            if data is None:
+                return None
+            mesh, _colors = data
+            edge = next((
+                edge for edge in mesh.edges
+                if edge.owner_id == str(reference.get("owner_id", ""))
+                and edge.edge_index == int(reference.get("edge_index", -1))
+            ), None)
+            segment_index = int(reference.get("segment", -1))
+            if edge is None or not 0 <= segment_index < len(edge.points) - 1:
+                return None
+            projected = self._edge_sheet_points(view, edge)
+            return (
+                projected[segment_index],
+                projected[segment_index + 1],
+            )
+        return None
+
+    @staticmethod
+    def _edge_sheet_points(view: dict, edge: Any) -> list[tuple[float, float]]:
+        horizontal, vertical, _depth = projection_axes(
+            view.get("orientation", "isometric")
         )
+        scale = float(view.get("scale", 1.0))
+        center_x = float(view.get("x", 0.0))
+        center_y = float(view.get("y", 0.0))
+        return [
+            (
+                center_x - sum(
+                    horizontal[axis] * point[axis] for axis in range(3)
+                ) * scale,
+                center_y + sum(
+                    vertical[axis] * point[axis] for axis in range(3)
+                ) * scale,
+            )
+            for point in edge.points
+        ]
 
     @staticmethod
     def _point_segment_distance(
@@ -1213,29 +1682,38 @@ class DrawingCanvas(QWidget):
         return hypot(point.x() - nearest.x(), point.y() - nearest.y())
 
     def _dimension_segment_at(self, position: QPointF) -> dict | None:
-        best: tuple[float, dict] | None = None
-        for view in self._sheet.get("views", []):
-            source = self._view_line_source(view)
-            for polyline_index, polyline in enumerate(view.get(source, [])):
-                for segment_index in range(len(polyline) - 1):
-                    first = self._screen_point(*self._sheet_geometry_point(
-                        view, polyline[segment_index]
-                    ))
-                    second = self._screen_point(*self._sheet_geometry_point(
-                        view, polyline[segment_index + 1]
-                    ))
-                    distance = self._point_segment_distance(
-                        position, first, second
-                    )
-                    reference = {
-                        "view_id": str(view.get("id", "")),
-                        "source": source,
-                        "polyline": polyline_index,
-                        "segment": segment_index,
+        view = self._view_at(position)
+        if view is not None:
+            view_id = str(view.get("id", ""))
+            data = self._view_render_data.get(view_id)
+            if data is not None:
+                mesh, _colors = data
+                best: tuple[float, Any, int] | None = None
+                for edge in mesh.edges:
+                    if edge.element_kind != "edge":
+                        continue
+                    projected = [
+                        self._screen_point(*point)
+                        for point in self._edge_sheet_points(view, edge)
+                    ]
+                    for index in range(len(projected) - 1):
+                        distance = self._point_segment_distance(
+                            position, projected[index], projected[index + 1]
+                        )
+                        if distance <= 8.0 and (
+                            best is None or distance < best[0]
+                        ):
+                            best = distance, edge, index
+                if best is not None:
+                    edge = best[1]
+                    return {
+                        "view_id": view_id,
+                        "topology_kind": "edge",
+                        "owner_id": edge.owner_id,
+                        "edge_index": edge.edge_index,
+                        "segment": best[2],
                     }
-                    if distance <= 8.0 and (best is None or distance < best[0]):
-                        best = distance, reference
-        return best[1] if best is not None else None
+        return None
 
     def _draw_dimension_selection(self, painter: QPainter) -> None:
         pen = cosmetic_pen(QColor("#FFD400"))
@@ -1416,6 +1894,32 @@ class DrawingCanvas(QWidget):
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            caption_view_id = self._caption_at(event.position())
+            self._selected_caption_view_id = caption_view_id
+            if caption_view_id is not None:
+                view = self._view_by_id(caption_view_id)
+                if view is not None:
+                    bounds = update_view_bounds(view)
+                    stored = view.get("caption_position")
+                    start_position = (
+                        (float(stored[0]), float(stored[1]))
+                        if isinstance(stored, (list, tuple)) and len(stored) == 2
+                        else (
+                            (bounds["left"] + bounds["right"]) * 0.5,
+                            bounds["top"] + 1.0,
+                        )
+                    )
+                    self._dragged_caption_view_id = caption_view_id
+                    self._drag_caption_start_sheet = self._sheet_point(
+                        event.position()
+                    )
+                    self._drag_caption_position_start = start_position
+                    self._selected_view_id = None
+                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                    self.viewSelected.emit(caption_view_id)
+                    self.update()
+                    event.accept()
+                    return
             view = self._view_at(event.position())
             self._selected_view_id = str(view.get("id", "")) if view else None
             if view is not None:
@@ -1450,6 +1954,22 @@ class DrawingCanvas(QWidget):
             self._last_mouse = current
             self.update()
         elif (
+            self._dragged_caption_view_id is not None
+            and self._drag_caption_start_sheet is not None
+            and self._drag_caption_position_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            current = self._sheet_point(event.position())
+            view = self._view_by_id(self._dragged_caption_view_id)
+            if view is not None:
+                view["caption_position"] = [
+                    self._drag_caption_position_start[0]
+                    + current[0] - self._drag_caption_start_sheet[0],
+                    self._drag_caption_position_start[1]
+                    + current[1] - self._drag_caption_start_sheet[1],
+                ]
+                self.update()
+        elif (
             self._dragged_view_id is not None
             and self._drag_start_sheet is not None
             and self._drag_view_start is not None
@@ -1483,6 +2003,17 @@ class DrawingCanvas(QWidget):
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
             self.unsetCursor()
+            event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._dragged_caption_view_id is not None
+        ):
+            self._dragged_caption_view_id = None
+            self._drag_caption_start_sheet = None
+            self._drag_caption_position_start = None
+            self.unsetCursor()
+            self.viewMoveFinished.emit()
             event.accept()
             return
         if (
@@ -1543,25 +2074,34 @@ class DrawingCanvas(QWidget):
             return
         dx = self._cursor_sheet_position[0] - float(parent[0])
         dy = self._cursor_sheet_position[1] - float(parent[1])
-        direction = (
-            "right" if abs(dx) >= abs(dy) and dx < 0.0
-            else "left" if abs(dx) >= abs(dy)
-            else "top" if dy > 0.0
-            else "bottom"
+        directions = (
+            "right", "top_right", "top", "top_left",
+            "left", "bottom_left", "bottom", "bottom_right",
         )
+        angle = atan2(dy, -dx)
+        direction = directions[round(angle / (3.141592653589793 / 4.0)) % 8]
         variant = variants.get(direction)
         if isinstance(variant, dict):
+            previous_direction = str(
+                self._pending_view.get("projection_direction", "")
+            )
             self._pending_view.update(variant)
-        if direction in {"left", "right"}:
-            self._cursor_sheet_position = (
-                self._cursor_sheet_position[0],
-                float(parent[1]),
-            )
-        else:
-            self._cursor_sheet_position = (
-                float(parent[0]),
-                self._cursor_sheet_position[1],
-            )
+            if direction != previous_direction:
+                view_id = str(self._pending_view.get("id", ""))
+                render_data = self._view_render_data.get(view_id)
+                if render_data is not None:
+                    self._prepare_view_geometry(
+                        view_id,
+                        self._pending_view,
+                        render_data[0],
+                        render_data[1],
+                    )
+        ray_x, ray_y = projection_placement_vector(direction)
+        distance = dx * ray_x + dy * ray_y
+        self._cursor_sheet_position = (
+            float(parent[0]) + distance * ray_x,
+            float(parent[1]) + distance * ray_y,
+        )
 
 
 class DrawingWorkspace(QWidget):
@@ -1612,7 +2152,7 @@ class DrawingWorkspace(QWidget):
         self.projection_method_combo.currentIndexChanged.connect(
             self._change_projection_method
         )
-        self.family_instance_combo = QComboBox()
+        self.family_instance_combo = UpwardComboBox()
         self.family_instance_combo.currentIndexChanged.connect(
             self._change_family_instance
         )
@@ -1658,6 +2198,7 @@ class DrawingWorkspace(QWidget):
 
     def set_document(self, document: PartDocument | None) -> None:
         self.document = document
+        self.canvas.clear_view_render_data()
         self.sheets = drawing_sheets(document) if document is not None else []
         self.active_sheet_index = min(
             int(document.document_settings.get("active_sheet", "0"))
@@ -1665,6 +2206,17 @@ class DrawingWorkspace(QWidget):
             max(0, len(self.sheets) - 1),
         )
         self._refresh_controls(fit=True)
+
+    def set_view_render_data(
+        self,
+        view_id: str,
+        mesh: ViewerMesh,
+        colors: dict[str, str] | None = None,
+    ) -> None:
+        self.canvas.set_view_render_data(view_id, mesh, colors)
+
+    def copy_view_render_data(self, source_id: str, target_id: str) -> None:
+        self.canvas.copy_view_render_data(source_id, target_id)
 
     def active_sheet(self) -> dict | None:
         if 0 <= self.active_sheet_index < len(self.sheets):
@@ -1889,10 +2441,12 @@ class DrawingWorkspace(QWidget):
         view.pop("projection_variants", None)
         view.pop("parent_position", None)
         if isinstance(parent_position, (list, tuple)) and len(parent_position) == 2:
-            if projection_direction in {"left", "right"}:
-                y = float(parent_position[1])
-            elif projection_direction in {"top", "bottom"}:
-                x = float(parent_position[0])
+            parent_x = float(parent_position[0])
+            parent_y = float(parent_position[1])
+            ray_x, ray_y = projection_placement_vector(projection_direction)
+            distance = (x - parent_x) * ray_x + (y - parent_y) * ray_y
+            x = parent_x + distance * ray_x
+            y = parent_y + distance * ray_y
         view["x"] = x
         view["y"] = y
         update_view_bounds(view)

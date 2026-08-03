@@ -55,12 +55,23 @@ as the document model, geometric kernel integration and user workflows evolve.
     the 3D view
   - point-on-arc and point-on-circle relations, coincident endpoints and
     tangent line/circle and line/arc workflows
-  - sketch references from model faces with selectable, deletable dashed
-    representation
+  - sketch references from model edges, faces, arcs, cylinders and datum or
+    generated axes, with selectable and deletable in-view representation
+  - Ctrl multi-selection in the tree and sketch view, rectangle selection and
+    mirrored geometry with persistent point-pair symmetry constraints
 - remaining work:
-  - finish the basic geometry set with ellipse support and further stabilize
-    arc and spline editing; Trim is deliberately deferred
-  - complete coverage and stabilization of the parametric constraint solver
+  - intelligent entity input with inference, snapping and predictable
+    continuation between consecutively created entities
+  - finish the basic geometry set with polygons and ellipse support, and
+    further stabilize arc and spline editing; Trim is deliberately deferred
+  - improve coverage, numerical stability, diagnostics and recovery of the
+    parametric constraint solver
+  - make every constraint independently selectable in the tree and view;
+    selecting it must reveal all participating geometry and dependencies, and
+    Delete must remove the relation without damaging unrelated geometry
+  - complete consistent constraint-symbol placement, hover, selection and
+    dependency highlighting for coincident, tangent, equal, midpoint,
+    symmetry and future relation types
   - consolidate constraints into independently identified records and solve
     constraints and driving dimensions as one equation/residual system
   - preserve the solution nearest to the previous valid sketch state to avoid
@@ -192,23 +203,34 @@ as the document model, geometric kernel integration and user workflows evolve.
   X to the left and positive Y upward
 - black 2D workspace with a white paper-format outline and white geometry
 - wheel zoom, middle-button pan, disabled rotation and animated Fit Sheet
-- insertion and cursor placement of front, top, right and isometric projected
-  edge views at an explicit scale
-- selectable drawing views with left-button dragging and Delete removal,
-  including dependent projected-view cleanup
-- wireframe, hidden-line, shaded-with-edges and shaded display modes shared
-  with the model-view rendering conventions
+- insertion and cursor placement of model and projected views, including eight
+  45-degree projection directions under first- or third-angle projection rules
+- selectable drawing views with left-button dragging, persistent projected
+  alignment and Delete removal including dependent projected-view cleanup
+- per-view Wireframe, Hidden Line, No Hidden, Shaded with Edges and Shaded
+  modes; global model display buttons are disabled and unselected in Drawing
 - optional auxiliary/smooth-edge display and grey hidden-line presentation
+- native renderer-owned topology projection with curved silhouettes, visible
+  edge precedence and component/model colors; shaded views use interpolated
+  normals, a software Z-buffer and cached rasterization
+- embedded View Properties panel with name, scale source, local scale and an
+  optional movable 5 mm white caption showing name and `M1:1`-style scale
+- basic Family Table instance selector in the drawing workspace
 - first ISO-style yellow linear drawing dimensions with associative placement
-- cached view geometry for missing-source resilience and regeneration from the
-  live linked model when the drawing tab is activated
+- runtime regeneration from the live linked model when the drawing tab is
+  activated; obsolete persisted 2D projection caches are intentionally not
+  supported
 - remaining work:
-  - stabilize projected geometry, curved silhouettes and hidden-line
-    classification for multi-body parts and assemblies
-  - projected child views, persistent alignment and editable view properties
+  - complete hover and selection of real model points, edges and faces through
+    drawing views and reuse it consistently in every drawing command
+  - continue stabilizing curved silhouettes, coincident geometry and hidden
+    line classification for multi-body parts and assemblies
   - sections and detail views
-  - complete drawing dimensions, tolerances and technical symbols
-  - title blocks and drawing templates
+  - complete ISO dimensions, tolerances, datums, surface/feature symbols,
+    position annotations, leaders, labels and editable annotation placement
+  - implement ISO technical lettering/font support and paper-space text styles
+  - finish sheet frames, zones, configurable title blocks/stamps and drawing
+    format templates, including parameter-driven fields
   - assembly drawings and bills of materials
   - sheet-metal flat-pattern drawings
   - PDF and DXF export

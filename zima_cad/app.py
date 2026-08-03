@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHeaderView,
     QInputDialog,
     QLabel,
@@ -165,9 +166,8 @@ from zima_cad.drawing import (
     DrawingWorkspace,
     drawing_sheets,
     store_drawing_sheets,
-    shaded_projection,
+    mesh_projection_extent,
     projected_view_orientation,
-    renderer_projection,
     update_view_bounds,
 )
 from zima_cad.storage import (
@@ -1122,6 +1122,8 @@ class PointConstraintDialog(QDialog):
         }
         self._middle_click_origin: QPointF | None = None
         self._middle_click_moved = False
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
         self._middle_click_chord = False
         self._title_drag_origin: QPointF | None = None
         self._title_drag_window_origin: QPoint | None = None
@@ -3594,7 +3596,44 @@ class DrawingViewPropertiesDialog(QDialog):
         self.setWindowTitle(tr("drawing.view.properties.title"))
         self.setModal(False)
         self.setMinimumWidth(460)
-        layout = QFormLayout(self)
+        main_layout = QVBoxLayout(self)
+        if self.windowFlags() & Qt.WindowType.SubWindow:
+            main_layout.setContentsMargins(8, 6, 8, 8)
+            self._internal_title_bar = QWidget(self)
+            self._internal_title_bar.setObjectName("propertiesTitleBar")
+            self._internal_title_bar.setFixedHeight(34)
+            self._internal_title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+            self._internal_title_bar.setStyleSheet(
+                "QWidget#propertiesTitleBar {"
+                " background: palette(midlight);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 4px;"
+                "}"
+            )
+            title_layout = QHBoxLayout(self._internal_title_bar)
+            title_layout.setContentsMargins(10, 2, 4, 2)
+            title_label = QLabel(self.windowTitle())
+            title_font = title_label.font()
+            title_font.setBold(True)
+            title_label.setFont(title_font)
+            title_layout.addWidget(title_label, 1)
+            close_button = QPushButton("×")
+            close_button.setFixedSize(27, 26)
+            close_button.setToolTip(tr("button.cancel"))
+            close_button.setStyleSheet(
+                "QPushButton { border: none; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; }"
+                "QPushButton:hover { background: #b83232; color: white; }"
+            )
+            close_button.clicked.connect(self.reject)
+            title_layout.addWidget(close_button)
+            self._internal_title_bar.installEventFilter(self)
+            main_layout.addWidget(self._internal_title_bar)
+        layout = QFormLayout()
+        main_layout.addLayout(layout)
+        self.name_edit = QLineEdit(str(
+            view.get("name", tr("drawing.view.default_name"))
+        ))
         self.orientation_mode_combo = QComboBox()
         self.orientation_mode_combo.addItem(tr("drawing.orientation.from_model"), "model")
         self.orientation_mode_combo.addItem(tr("drawing.orientation.manual"), "manual")
@@ -3632,6 +3671,17 @@ class DrawingViewPropertiesDialog(QDialog):
         self.scale_spin.setRange(0.001, 1000.0)
         self.scale_spin.setDecimals(3)
         self.scale_spin.setValue(float(view.get("scale", 1.0)))
+        self.caption_group = QGroupBox(tr("drawing.view.caption.visible"))
+        self.caption_group.setCheckable(True)
+        self.caption_group.setChecked(
+            bool(view.get("show_caption", False))
+        )
+        caption_layout = QFormLayout(self.caption_group)
+        caption_layout.addRow(tr("dialog.properties.name"), self.name_edit)
+        caption_layout.addRow(
+            tr("drawing.scale.mode"), self.scale_mode_combo
+        )
+        caption_layout.addRow(tr("drawing.insert_view.scale"), self.scale_spin)
         self.projection_combo = QComboBox()
         self.projection_combo.addItem(tr("drawing.projection.from_sheet"), "sheet")
         self.projection_combo.addItem(tr("drawing.projection.first_angle"), "first_angle")
@@ -3663,12 +3713,11 @@ class DrawingViewPropertiesDialog(QDialog):
                 str(view.get("auxiliary_edges", "hidden"))
             ),
         ))
+        layout.addRow(self.caption_group)
         layout.addRow(tr("drawing.orientation.mode"), self.orientation_mode_combo)
         layout.addRow(tr("drawing.insert_view.orientation"), self.orientation_combo)
         layout.addRow(tr("drawing.view_type"), self.view_type_combo)
         layout.addRow(tr("drawing.visible_area"), self.visible_area_combo)
-        layout.addRow(tr("drawing.scale.mode"), self.scale_mode_combo)
-        layout.addRow(tr("drawing.insert_view.scale"), self.scale_spin)
         layout.addRow(tr("drawing.projection_method"), self.projection_combo)
         layout.addRow(tr("drawing.sections"), self.section_combo)
         layout.addRow(tr("drawing.display_style"), self.display_style_combo)
@@ -3679,6 +3728,7 @@ class DrawingViewPropertiesDialog(QDialog):
             self._display_style_changed
         )
         self.scale_spin.valueChanged.connect(self._preview)
+        self.caption_group.toggled.connect(self._preview)
         self.orientation_mode_combo.currentIndexChanged.connect(self._orientation_mode_changed)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Apply
@@ -3712,6 +3762,8 @@ class DrawingViewPropertiesDialog(QDialog):
 
     def values(self) -> dict:
         return {
+            "name": self.name_edit.text().strip(),
+            "show_caption": self.caption_group.isChecked(),
             "orientation_mode": str(self.orientation_mode_combo.currentData()),
             "orientation": (
                 copy.deepcopy(
@@ -3740,6 +3792,33 @@ class DrawingViewPropertiesDialog(QDialog):
         super().accept()
 
     def eventFilter(self, watched, event) -> bool:
+        if watched is getattr(self, "_internal_title_bar", None):
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                self.move(
+                    self._title_drag_window_origin
+                    + QPoint(round(delta.x()), round(delta.y()))
+                )
+                return True
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                return True
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
             self._middle_click_origin = event.globalPosition()
             self._middle_click_moved = False
@@ -11804,18 +11883,16 @@ class MainWindow(QMainWindow):
         is_drawing = self._document_type(self.document) == "drawing"
         self.native_viewer.setVisible(not is_drawing)
         self.drawing_workspace.setVisible(is_drawing)
-        if is_drawing:
-            self._refresh_drawing_geometry(self.document, self.current_file_path)
         self.drawing_workspace.set_document(self.document if is_drawing else None)
         if is_drawing:
+            self._refresh_drawing_geometry(self.document, self.current_file_path)
             self._refresh_drawing_family_instances()
         self.standard_view_combo.setEnabled(not is_drawing)
         self._refresh_standard_view_combo()
         self.normal_view_action.setEnabled(not is_drawing)
         self.view_selection_action.setEnabled(not is_drawing)
         self.selection_filter_combo.setEnabled(not is_drawing)
-        for action in self.display_mode_actions.actions():
-            action.setEnabled(not is_drawing)
+        self._sync_display_mode_actions(is_drawing)
 
         self._sync_application_actions()
         self._rebuild_application_toolbar()
@@ -11823,7 +11900,10 @@ class MainWindow(QMainWindow):
         if self.selected_object_id is not None:
             self._select_tree_object(self.selected_object_id)
         self._ensure_viewer_initialized()
-        self.rebuild_view(fit=True)
+        # Drawing geometry was registered above.  Rebuilding it again here
+        # doubles the tab-switch cost and clears the freshly prepared shaded
+        # image caches.  Model/assembly tabs still need their normal rebuild.
+        self.rebuild_view(fit=True, rebuild_geometry=not is_drawing)
         self._update_window_title()
         self._refresh_window_menu()
 
@@ -13069,9 +13149,20 @@ class MainWindow(QMainWindow):
             return
         sheets = drawing_sheets(drawing)
         source_cache: dict[Path, PartDocument] = {}
+        render_cache: dict[Path, tuple[ViewerMesh, dict[str, str]]] = {}
         changed = False
         for sheet in sheets:
             for view in sheet.get("views", []):
+                for legacy_key in (
+                    "polylines",
+                    "hidden_polylines",
+                    "wireframe_polylines",
+                    "auxiliary_polylines",
+                    "shaded_triangles",
+                ):
+                    if legacy_key in view:
+                        view.pop(legacy_key)
+                        changed = True
                 raw_source = str(view.get("source_path", "")).strip()
                 if not raw_source:
                     raw_source = str(
@@ -13103,64 +13194,102 @@ class MainWindow(QMainWindow):
                         source_document,
                         view.get("orientation", "front"),
                     )
+                    render_data = render_cache.get(source_path)
+                    if render_data is None:
+                        mesh, colors, _shaded = self._drawing_renderer_data(
+                            source_document
+                        )
+                        render_data = (mesh, colors)
+                        render_cache[source_path] = render_data
+                    self.drawing_workspace.set_view_render_data(
+                        str(view.get("id", "")),
+                        render_data[0],
+                        render_data[1],
+                    )
                 except Exception:
                     continue
                 if any(view.get(key) != value for key, value in refreshed.items()):
                     view.update(refreshed)
                     update_view_bounds(view)
+                    workspace_view = self.drawing_workspace.find_view(
+                        str(view.get("id", ""))
+                    )
+                    if workspace_view is not None:
+                        for legacy_key in (
+                            "polylines",
+                            "hidden_polylines",
+                            "wireframe_polylines",
+                            "auxiliary_polylines",
+                            "shaded_triangles",
+                        ):
+                            workspace_view.pop(legacy_key, None)
+                        workspace_view.update(refreshed)
+                        update_view_bounds(workspace_view)
                     changed = True
         if changed:
             store_drawing_sheets(drawing, sheets)
 
-    @staticmethod
+    def _drawing_renderer_data(
+        self,
+        source_document: PartDocument,
+    ) -> tuple[ViewerMesh, dict[str, str], list[tuple[ViewerMesh, str]]]:
+        component_documents: dict[str, PartDocument] | None = None
+        if source_document.document_settings.get("type") == "assembly":
+            component_documents = {}
+            assembly_path = source_document.source_file_path
+            for component in source_document.history_objects_at(
+                source_document.history_cursor()
+            ):
+                if component.container_type != ContainerType.COMPONENT:
+                    continue
+                raw_path = str(component.parameters.get("source_path", "")).strip()
+                if not raw_path:
+                    continue
+                component_path = Path(raw_path)
+                if not component_path.is_absolute():
+                    if assembly_path is None:
+                        continue
+                    component_path = assembly_path.parent / component_path
+                component_path = canonical_document_path(component_path)
+                component_document = next((
+                    session.document for session in self.document_sessions
+                    if session.file_path is not None
+                    and canonical_document_path(session.file_path)
+                    == component_path
+                ), None)
+                if component_document is None:
+                    component_document = self._assembly_part_documents.get(
+                        component_path
+                    )
+                if component_document is None:
+                    try:
+                        component_document = load_part_document(component_path)
+                        self._assembly_part_documents[component_path] = (
+                            component_document
+                        )
+                    except Exception:
+                        continue
+                component_documents[component.entity_id] = component_document
+        scene = build_document_viewer_scene_data(
+            source_document,
+            show_sketches=False,
+            component_documents=component_documents,
+        )
+        return (
+            scene.mesh,
+            dict(scene.surface_colors_by_owner_id),
+            [(scene.mesh, "#B9C2CC")],
+        )
+
     def _drawing_projection_geometry(
+        self,
         source_document: PartDocument,
         orientation: object,
-    ) -> dict[str, list[list[list[float]]]]:
-        shaded_meshes: list[tuple[ViewerMesh, str]] = []
-        if source_document.document_settings.get("type") == "assembly":
-            objects = source_document.history_objects_at(
-                source_document.history_cursor()
-            )
-            for component in objects:
-                if (
-                    component.container_type != ContainerType.COMPONENT
-                    or not source_document.is_effectively_visible(
-                        component.entity_id
-                    )
-                ):
-                    continue
-                shape = source_document.build_assembly_component_shape(
-                    component,
-                    objects,
-                )
-                if shape is None:
-                    continue
-                mesh = triangulate_shape(
-                    shape,
-                    owner_id=component.entity_id,
-                    edge_color=(1.0, 1.0, 1.0),
-                )
-                shaded_meshes.append((
-                    mesh,
-                    str(component.parameters.get("body_color", "#B9C2CC")),
-                ))
-        else:
-            shape = source_document.build_active_shape()
-            if shape is not None:
-                mesh = triangulate_shape(
-                    shape,
-                    edge_color=(1.0, 1.0, 1.0),
-                )
-                shaded_meshes.append((mesh, "#B9C2CC"))
-        projection = renderer_projection(
-            [mesh for mesh, _color in shaded_meshes], orientation
+    ) -> dict[str, Any]:
+        mesh, _colors, _shaded_meshes = self._drawing_renderer_data(
+            source_document
         )
-        projection["shaded_triangles"] = shaded_projection(
-            shaded_meshes,
-            orientation,
-        )
-        return projection
+        return {"model_extent": mesh_projection_extent(mesh, orientation)}
 
     def open_or_create_drawing(self) -> None:
         if self.document is None or self._document_type(self.document) not in ("part", "assembly"):
@@ -13232,7 +13361,8 @@ class MainWindow(QMainWindow):
         projection_geometry = self._drawing_projection_geometry(
             source_document, "isometric"
         )
-        if not projection_geometry["wireframe_polylines"]:
+        mesh, colors, _shaded = self._drawing_renderer_data(source_document)
+        if mesh.is_empty:
             QMessageBox.critical(
                 self, tr("message.open_failed"), tr("drawing.source.empty")
             )
@@ -13256,6 +13386,7 @@ class MainWindow(QMainWindow):
             "auxiliary_edges": "hidden",
             **projection_geometry,
         }
+        self.drawing_workspace.set_view_render_data(view_id, mesh, colors)
 
         def placed(placed_id: str) -> None:
             if placed_id != view_id:
@@ -13329,6 +13460,8 @@ class MainWindow(QMainWindow):
                 if sheet is not None:
                     values["scale"] = float(sheet.get("default_scale_numerator", 1.0)) / max(float(sheet.get("default_scale", 1.0)), 0.001)
             self.drawing_workspace.update_view(view_id, values)
+            mesh, colors, _shaded = self._drawing_renderer_data(source_document)
+            self.drawing_workspace.set_view_render_data(view_id, mesh, colors)
 
         def finished(result: int) -> None:
             if result != QDialog.DialogCode.Accepted:
@@ -13373,11 +13506,15 @@ class MainWindow(QMainWindow):
         if method == "sheet":
             method = str(sheet.get("projection_method", "first_angle"))
         parent_orientation = parent_view.get("orientation", "front")
+        projection_directions = (
+            "right", "top_right", "top", "top_left",
+            "left", "bottom_left", "bottom", "bottom_right",
+        )
         orientations = {
             direction: projected_view_orientation(
                 parent_orientation, direction, method
             )
-            for direction in ("top", "bottom", "left", "right")
+            for direction in projection_directions
         }
         variants = {
             direction: {
@@ -13406,11 +13543,7 @@ class MainWindow(QMainWindow):
             "display_style": str(parent_view.get("display_style", "no_hidden")),
             "hidden_lines": str(parent_view.get("hidden_lines", "none")),
             "auxiliary_edges": str(parent_view.get("auxiliary_edges", "hidden")),
-            "polylines": initial["polylines"],
-            "hidden_polylines": initial["hidden_polylines"],
-            "wireframe_polylines": initial["wireframe_polylines"],
-            "auxiliary_polylines": initial.get("auxiliary_polylines", []),
-            "shaded_triangles": initial.get("shaded_triangles", []),
+            "model_extent": initial["model_extent"],
             "projection_direction": "right",
             "projection_variants": variants,
             "parent_position": [
@@ -13426,13 +13559,28 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
         self.drawing_workspace.viewPlaced.connect(placed)
+        self.drawing_workspace.copy_view_render_data(parent_view_id, view_id)
         self.drawing_workspace.begin_view_placement(projected)
         self.statusBar().showMessage(tr("drawing.insert_projection.place"))
 
     def set_view_display_mode(self, display_mode: ViewDisplayMode) -> None:
         self.view_display_mode = display_mode
+        self._sync_display_mode_actions(
+            self._document_type(self.document) == "drawing"
+        )
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _sync_display_mode_actions(self, is_drawing: bool) -> None:
+        actions = self.display_mode_actions.actions()
+        self.display_mode_actions.setExclusive(False)
+        for action in actions:
+            action.setEnabled(not is_drawing)
+            action.setChecked(
+                not is_drawing
+                and str(action.data()) == self.view_display_mode.value
+            )
+        self.display_mode_actions.setExclusive(True)
 
     def _ensure_viewer_initialized(self) -> None:
         if hasattr(self, "_viewer_initialized"):
@@ -30878,16 +31026,16 @@ class MainWindow(QMainWindow):
         if self.document is not None and self._document_type(self.document) == "drawing":
             self.native_viewer.hide()
             self.drawing_workspace.show()
-            if rebuild_geometry:
-                self._refresh_drawing_geometry(
-                    self.document,
-                    self.current_file_path,
-                )
             if (
                 self.drawing_workspace.document is not self.document
                 or rebuild_geometry
             ):
                 self.drawing_workspace.set_document(self.document)
+                if rebuild_geometry:
+                    self._refresh_drawing_geometry(
+                        self.document,
+                        self.current_file_path,
+                    )
                 self._refresh_drawing_family_instances()
             if fit:
                 self.drawing_workspace.fit_sheet()

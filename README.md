@@ -62,13 +62,16 @@ selected components. Part geometry remains unchanged by assembly cuts. Stable
 semantic topology naming is still required before assembly references are
 production-safe.
 
-The initial Drawing workspace supports `.drwz` documents linked to either a
-part or an assembly, multiple independently sized sheets, A4 through A0 paper
-outlines, standard projected views, persistent view placement, mouse dragging,
-Delete removal, model-consistent display modes and initial associative linear
-dimensions. A4 is fixed to portrait orientation; A3 through A0 are fixed to
-landscape. Drawing space uses a bottom-right origin with positive X to the left
-and positive Y upward.
+The Drawing workspace supports `.drwz` documents linked to either a part or an
+assembly, multiple independently sized sheets, A4 through A0 paper outlines,
+first- and third-angle projected views in eight 45-degree placement directions,
+persistent parent/child alignment, movable view captions, per-view display
+styles, model/component colors and initial associative linear dimensions.
+Shaded drawing views use interpolated model normals and a cached software
+Z-buffer; line views share topology, silhouette and hidden-edge classification
+with the native model renderer. A4 is fixed to portrait orientation; A3 through
+A0 are fixed to landscape. Drawing space uses a bottom-right origin with
+positive X to the left and positive Y upward.
 
 ## Container Model
 

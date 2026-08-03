@@ -122,9 +122,16 @@ pojmenováním plochy.
   směřuje doleva a kladné Y nahoru, aby změna formátu zachovala polohu razítka.
 - Pracovní prostor má černé pozadí bez výplně papíru; hranici listu představuje
   bílý obdélník.
-- Výkres ukládá relativní cestu a ID zdrojového dílu nebo sestavy. Promítnuté
-  čáry jsou zároveň uloženy jako cache a při aktivaci tabu se obnoví ze zdroje.
-- Pohledy jsou vybíratelné, přesouvatelné a odstranitelné; používají společné
-  režimy zobrazení a klasifikaci hran s 3D modelem.
-- Je implementovaný první asociativní lineární rozměr ve výkresu. Rámeček,
-  razítko, úplná sada kót, řezy, detaily a kusovník zatím nejsou dokončené.
+- Výkres ukládá relativní cestu a ID zdrojového dílu nebo sestavy. Geometrie
+  pohledů se za běhu odvozuje ze skutečné topologie nativního rendereru;
+  zastaralá uložená 2D cache promítnutých čar se záměrně nepodporuje.
+- Pohledy jsou vybíratelné, přesouvatelné a odstranitelné. Odvozené pohledy
+  zachovávají vazbu na rodiče a lze je vytvářet v osmi směrech po 45 stupních
+  podle evropské nebo americké projekční metody.
+- Každý pohled má vlastní režim zobrazení. Čárové režimy používají společnou
+  klasifikaci hran a siluet s 3D modelem; stínované režimy přebírají barvy a
+  vyhlazené normály modelu a používají softwarový Z-buffer.
+- Pohled může zobrazit samostatně přesouvatelný popisek s názvem a měřítkem.
+- Je implementovaný první asociativní lineární rozměr ve výkresu. Zbývá
+  dokončit ISO kóty, tolerance, pozice, popisky, technické symboly a ISO font,
+  rámečky a zóny listu, parametrická razítka, řezy, detaily a kusovník.

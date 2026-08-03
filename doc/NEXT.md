@@ -1,22 +1,32 @@
 # Next Work
 
-## Current Priority: Stabilize Technical Drawing Projection
+## Current Priority: Complete the Technical Drawing Foundation
 
 - Exercise `.drwz` creation from both `.prtz` and `.asmz` documents on real
   projects and verify source-link recovery after move and rename operations.
-- Exercise the implemented selection, drag placement and Delete removal of
-  drawing views on larger real parts and assemblies.
+- Exercise standard and eight-way 45-degree projected views, first-/third-angle
+  rules, parent/child movement, view captions and Delete cleanup on larger real
+  parts and assemblies.
 - Stabilize the shared model/drawing edge classification, especially curved
-  silhouettes, boundary arcs and occlusion between multiple bodies.
+  silhouettes, exact tangent views, coincident geometry and occlusion between
+  multiple bodies.
 - Finish hidden-line classification so every curved boundary is consistently
-  visible, hidden or suppressed in all four display modes.
+  visible, hidden or suppressed in all five display modes.
+- Complete hover and selection of actual model points, edges and faces through
+  a drawing view before building further annotation commands on top of it.
 - Extend the first associative yellow linear drawing dimension to the complete
-  ISO dimension set, tolerances and symbols.
-- Add aligned projected child views before sections and details.
+  ISO dimension set, including angular, radial, diameter, ordinate and position
+  dimensions, tolerances, leaders, datums and technical symbols.
+- Add movable/selectable drawing annotations with consistent hover, selection,
+  Delete and property editing.
+- Implement ISO technical fonts and 5 mm paper-space text conventions.
+- Finish configurable sheet frames, zones, title blocks/stamps and
+  parameter-driven format fields.
+- Add sections and details after selection and annotation ownership are stable.
 - Keep paper-space geometry in millimetres with the bottom-right sheet origin;
   A4 remains portrait and A3 through A0 remain landscape.
-- Preserve cached projected geometry when the linked source is unavailable,
-  while clearly marking the drawing view as out of date.
+- Keep runtime drawing geometry derived from renderer-owned model topology;
+  persisted legacy 2D projection caches are intentionally unsupported.
 
 ## Container Orientation and Reference Geometry
 
@@ -51,8 +61,19 @@
 
 ## Basic Sketcher Completion
 
-- Add ellipse geometry.
+- Add intelligent entity input: inference, snapping, continuation and clear
+  previews while creating connected geometry.
+- Add polygon input and ellipse geometry.
 - Continue stabilization of centre arcs and spline editing.
+- Improve the solver's numerical stability, branch preservation, diagnostics
+  and recovery for redundant, conflicting and under-constrained systems.
+- Make constraint records selectable in both tree and view. Selection must
+  highlight every participating entity and dependency; Delete must remove the
+  selected relation cleanly.
+- Complete constraint symbols and their hover/selection/dependency display for
+  every implemented relation, including symmetry and tangent relations.
+- Continue stabilizing external references to model edges, faces, arcs,
+  cylinders and axes across model regeneration.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

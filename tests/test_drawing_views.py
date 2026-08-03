@@ -20,6 +20,7 @@ from zima_cad.app import (
 from zima_cad.drawing import (
     DrawingCanvas,
     cosmetic_pen,
+    drawing_scale_text,
     delete_drawing_view,
     drawing_sheets,
     parallel_dimension_geometry,
@@ -49,8 +50,10 @@ from zima_cad.viewer import (
 )
 from zima_cad.viewer_mesh import (
     EdgePolyline,
+    SilhouetteEdge,
     edge_visible_in_display,
     silhouette_segments,
+    silhouette_segments_from_edges,
     triangulate_shape,
 )
 
@@ -64,6 +67,21 @@ class DrawingViewConventionTests(unittest.TestCase):
             _surface_pass_for_display_mode("shaded_with_edges"), "color"
         )
         self.assertEqual(_surface_pass_for_display_mode("shaded"), "color")
+
+    def test_drawing_styles_map_to_shared_renderer_modes(self) -> None:
+        mode_for = DrawingCanvas._renderer_display_mode
+        self.assertEqual(mode_for({"display_style": "wireframe"}), "wire")
+        self.assertEqual(
+            mode_for({"display_style": "hidden_line"}), "hidden_edges"
+        )
+        self.assertEqual(
+            mode_for({"display_style": "no_hidden"}), "no_hidden"
+        )
+        self.assertEqual(
+            mode_for({"display_style": "shaded_edges"}),
+            "shaded_with_edges",
+        )
+        self.assertEqual(mode_for({"display_style": "shaded"}), "shaded")
 
     def test_family_table_data_keeps_instances_and_optional_columns(self) -> None:
         document = create_empty_part()
@@ -226,16 +244,6 @@ class DrawingViewConventionTests(unittest.TestCase):
             (False, False),
         )
 
-    def test_drawing_line_styles_use_their_matching_geometry(self) -> None:
-        self.assertEqual(
-            DrawingCanvas._view_line_source({"display_style": "wireframe"}),
-            "wireframe_polylines",
-        )
-        self.assertEqual(
-            DrawingCanvas._view_line_source({"display_style": "no_hidden"}),
-            "polylines",
-        )
-
     def test_shaded_projection_contains_model_surface_triangles(self) -> None:
         mesh = triangulate_shape(
             BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape()
@@ -249,6 +257,23 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(len(triangles), mesh.triangle_count)
         self.assertTrue(all(len(item["points"]) == 3 for item in triangles))
         self.assertTrue(all(item["color"] == "#B9C2CC" for item in triangles))
+        self.assertTrue(all(
+            len(item["vertex_brightness"]) == 3 for item in triangles
+        ))
+        self.assertTrue(all(
+            len(item["vertex_depths"]) == 3 for item in triangles
+        ))
+        self.assertTrue(all(
+            0.42 <= brightness <= 1.0
+            for item in triangles
+            for brightness in item["vertex_brightness"]
+        ))
+
+        colored = shaded_projection(
+            [(mesh, {"": "#C04020"})],
+            "isometric",
+        )
+        self.assertTrue(all(item["color"] == "#C04020" for item in colored))
 
     def test_model_edges_are_classified_by_topology(self) -> None:
         box = BRepPrimAPI_MakeBox(10.0, 20.0, 30.0).Shape()
@@ -292,6 +317,17 @@ class DrawingViewConventionTests(unittest.TestCase):
             edge_visible_in_display(edge("sharp"), "shaded_with_edges")
         )
         self.assertFalse(edge_visible_in_display(edge("sharp"), "shaded"))
+
+    def test_exact_tangent_facet_remains_a_silhouette(self) -> None:
+        tangent = SilhouetteEdge(
+            first=(0.0, 0.0, 0.0),
+            second=(1.0, 0.0, 0.0),
+            adjacent_normals=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        )
+        self.assertEqual(
+            silhouette_segments_from_edges((tangent,), (0.0, 1.0, 0.0)),
+            ((tangent.first, tangent.second),),
+        )
 
     def test_curved_surface_produces_view_dependent_silhouette(self) -> None:
         cylinder = triangulate_shape(
@@ -413,7 +449,8 @@ class DrawingViewConventionTests(unittest.TestCase):
                 "x": 10.0,
                 "y": 20.0,
                 "scale": 2.0,
-                "polylines": [[[-1.0, -2.0], [1.0, 2.0]]],
+                "model_extent": [2.0, 4.0],
+                "caption_position": [12.0, 30.0],
             }],
             "dimensions": [{
                 "first": {"view_id": "view"},
@@ -428,8 +465,9 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual((view["x"], view["y"]), (50.0, 60.0))
         self.assertEqual(
             view["bounds"],
-            {"left": 48.0, "right": 52.0, "bottom": 56.0, "top": 64.0},
+            {"left": 47.0, "right": 53.0, "bottom": 55.0, "top": 65.0},
         )
+        self.assertEqual(view["caption_position"], [52.0, 70.0])
         self.assertEqual(
             sheet["dimensions"][0]["placement"], [55.0, 65.0]
         )
@@ -500,6 +538,26 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(positions["child"], (70.0, 20.0))
         self.assertEqual(positions["grandchild"], (70.0, 50.0))
 
+    def test_moving_diagonal_projection_stays_on_its_45_degree_ray(self) -> None:
+        sheet = {
+            "views": [
+                {"id": "parent", "x": 50.0, "y": 50.0},
+                {
+                    "id": "child",
+                    "parent_view_id": "parent",
+                    "projection_direction": "top_right",
+                    "x": 30.0,
+                    "y": 70.0,
+                },
+            ],
+            "dimensions": [],
+        }
+
+        self.assertTrue(move_drawing_view(sheet, "child", 10.0, 80.0))
+
+        child = sheet["views"][1]
+        self.assertAlmostEqual(50.0 - child["x"], child["y"] - 50.0)
+
     @staticmethod
     def projected_axis(
         orientation: str, endpoint: tuple[float, float, float]
@@ -565,6 +623,28 @@ class DrawingViewConventionTests(unittest.TestCase):
             for value, expected_value in zip(actual_axis, expected_axis):
                 self.assertAlmostEqual(value, expected_value, places=6)
 
+    def test_diagonal_projected_view_folds_parent_by_ninety_degrees(self) -> None:
+        parent = projection_axes("front")
+        actual = projection_axes(projected_view_orientation(
+            "front", "top_right", "third_angle"
+        ))
+        diagonal = 2.0 ** -0.5
+        expected_depth = tuple(
+            diagonal * parent[0][axis] + diagonal * parent[1][axis]
+            for axis in range(3)
+        )
+        for value, expected in zip(actual[2], expected_depth):
+            self.assertAlmostEqual(value, expected, places=6)
+        for axis in actual:
+            self.assertAlmostEqual(
+                sum(value * value for value in axis), 1.0, places=6
+            )
+        self.assertAlmostEqual(
+            sum(actual[0][i] * actual[1][i] for i in range(3)),
+            0.0,
+            places=6,
+        )
+
     def test_orbit_camera_remains_continuous_when_upside_down(self) -> None:
         camera = CameraState(
             yaw_degrees=25.0,
@@ -621,12 +701,17 @@ class DrawingViewConventionTests(unittest.TestCase):
             "x": 100.0,
             "y": 80.0,
             "scale": 2.0,
-            "polylines": [[[-5.0, -3.0], [5.0, 3.0]]],
+            "model_extent": [10.0, 6.0],
         }
         self.assertEqual(
             update_view_bounds(view),
-            {"left": 90.0, "right": 110.0, "bottom": 74.0, "top": 86.0},
+            {"left": 89.0, "right": 111.0, "bottom": 73.0, "top": 87.0},
         )
+
+    def test_drawing_scale_caption_uses_ratio_notation(self) -> None:
+        self.assertEqual(drawing_scale_text(1.0), "M1:1")
+        self.assertEqual(drawing_scale_text(0.5), "M1:2")
+        self.assertEqual(drawing_scale_text(2.0), "M2:1")
 
     def test_named_camera_orientation_projects_with_roll(self) -> None:
         projected = project_polylines(
@@ -651,7 +736,9 @@ class DrawingViewConventionTests(unittest.TestCase):
             projection["polylines"][0][-1],
         ):
             self.assertAlmostEqual(first, last)
-        self.assertTrue(projection["hidden_polylines"])
+        # Rear box edges coincide exactly with the visible front outline and
+        # must not leave a dashed copy underneath it.
+        self.assertFalse(projection["hidden_polylines"])
 
     def test_drawing_wireframe_uses_filtered_cylinder_edges_and_outlines(
         self,

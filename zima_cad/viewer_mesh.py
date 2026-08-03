@@ -5,11 +5,10 @@ from math import sqrt
 from typing import Any
 
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepLib import BRepLib_ToolTriangulatedShape
 from OCC.Core.GCPnts import GCPnts_QuasiUniformDeflection
-from OCC.Core.GeomAbs import GeomAbs_Cylinder, GeomAbs_Sphere
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
@@ -210,15 +209,6 @@ def triangulate_shape(
             if int(BRep_Tool.Continuity(
                 edge, adjacent_faces[0], adjacent_faces[1]
             )) >= 1:
-                surface_types = {
-                    BRepAdaptor_Surface(face).GetType()
-                    for face in adjacent_faces[:2]
-                }
-                if surface_types.intersection({
-                    GeomAbs_Cylinder,
-                    GeomAbs_Sphere,
-                }):
-                    return "periodic_tangent"
                 return "tangent"
         except (RuntimeError, TypeError, ValueError):
             pass
@@ -415,7 +405,17 @@ def silhouette_segments_from_edges(
             sum(normal[axis] * view_direction[axis] for axis in range(3))
             for normal in edge.adjacent_normals
         )
-        if min(facings) < -1e-9 and max(facings) > 1e-9:
+        minimum = min(facings)
+        maximum = max(facings)
+        epsilon = 1.0e-9
+        # At exact orthographic/45-degree views the silhouette can coincide
+        # with a tessellation facet whose facing is numerically zero.  Treat
+        # that limiting tangent as a silhouette too, but do not expose edges
+        # where both adjacent facets are merely edge-on.
+        crosses_view_plane = minimum < -epsilon and maximum > epsilon
+        touches_from_back = minimum < -epsilon and maximum >= -epsilon
+        touches_from_front = maximum > epsilon and minimum <= epsilon
+        if crosses_view_plane or touches_from_back or touches_from_front:
             result.append((edge.first, edge.second))
     return tuple(result)
 

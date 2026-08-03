@@ -279,6 +279,7 @@ znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
 | Prostřední tlačítko + pohyb | Posun výkresové plochy |
 | Obnovit pohled | Animovaně zobrazit celý aktivní list |
 | Levé tlačítko + pohyb na pohledu | Přesunutí vloženého pohledu |
+| Levé tlačítko + pohyb na popisku | Přesunutí názvu a měřítka pohledu |
 | Delete | Odstranění vybraného pohledu |
 | Esc | Zrušit právě umisťovaný pohled |
 
@@ -286,18 +287,28 @@ Výkresová plocha je čistě 2D a nepodporuje rotaci.
 
 ### Vložení pohledu
 
-V pravém panelu aplikace Výkres je příkaz **Vložit pohled**. Uživatel vybere
-přední, horní, pravý nebo izometrický pohled a zadá měřítko. Náhled se připojí
-ke kurzoru a levým kliknutím se umístí na aktivní list.
+V pravém panelu aplikace Výkres je příkaz **Vložit pohled**. První pohled je
+standardně izometrický; náhled se připojí ke kurzoru a levým kliknutím se
+umístí na aktivní list. Příkaz **Vytvoř projekci** v kontextové nabídce pohledu
+vytváří navázaný pohled podle evropské nebo americké projekční metody. Směr se
+přichytává v osmi polohách po 45 stupních. Přesun rodiče přenese jeho odvozené
+pohledy, zatímco samostatný přesun potomka zůstává na jeho projekčním paprsku.
 
-Pohled uchovává odkaz na zdrojový model i cache promítnutých čar. Při aktivaci
-tabu výkresu se geometrie obnoví z aktuálního modelu. Cache umožňuje zachovat
-poslední známé zobrazení, pokud zdrojový soubor není právě dostupný.
+Pohled uchovává odkaz na zdrojový model. Při aktivaci tabu se jeho geometrie
+obnoví ze skutečné topologie nativního rendereru; stará uložená 2D cache
+promítnutých čar se nepoužívá.
 
-Vlastnosti pohledu nabízejí drátové zobrazení, skryté hrany, stínované
-zobrazení s hranami a čisté stínované zobrazení. Skryté hrany jsou kreslené
-šedě; pomocné hladké hrany lze samostatně zapnout. První lineární výkresová
-kóta se vytváří výběrem dvou referencí a umístěním žluté kóty v listu.
+Vlastnosti pohledu nabízejí drátové zobrazení, skryté hrany, zobrazení bez
+skrytých hran, stínované zobrazení s hranami a čisté stínované zobrazení.
+Globální tlačítka režimu modelu jsou ve výkresu vypnutá, protože styl patří
+každému pohledu samostatně. Stínování zachovává barvy modelu a komponent.
+Zaškrtávací skupina **Zobrazit popisek pohledu** obsahuje název, zdroj měřítka
+a měřítko. Nad obrysem pohledu zobrazí bílý popisek o velikosti 5 mm ve tvaru
+`Název` a `M1:1`; popisek lze samostatně vybrat a přesunout.
 
-Rámečky, razítka, řezy, detaily, úplná sada ISO kót, kusovníky a export PDF/DXF
-jsou další etapy vývoje a v této verzi zatím nejsou dokončené.
+První lineární výkresová kóta se vytváří výběrem dvou skutečných hran modelu
+a umístěním žluté kóty v listu.
+
+Rámečky a zóny, razítka, ISO font, řezy, detaily, úplná sada ISO kót, tolerance,
+pozice, popisky, technické symboly, kusovníky a export PDF/DXF jsou další etapy
+vývoje a v této verzi zatím nejsou dokončené.

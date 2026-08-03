@@ -449,6 +449,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_bottom = QColor("#171B21")
         self._surface_color = QColor("#B9C2CC")
         self._surface_colors_by_owner_id: dict[str, QColor] = {}
+        self._edge_color_override: QColor | None = None
         self._last_mouse_position: QPoint | None = None
         self._middle_press_position: QPoint | None = None
         self._middle_dragged = False
@@ -571,6 +572,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             for owner_id, value in colors.items()
             if (color := QColor(value)).isValid()
         }
+        self.update()
+
+    def set_edge_color_override(self, color: QColor | str | None) -> None:
+        selected = QColor(color) if color is not None else QColor()
+        self._edge_color_override = selected if selected.isValid() else None
         self.update()
 
     def set_sketch_overlay(
@@ -917,6 +923,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     @property
     def display_mode(self) -> str:
         return self._display_mode
+
+    @property
+    def scene_radius(self) -> float:
+        return self._scene_radius
+
+    @property
+    def mesh(self) -> ViewerMesh | None:
+        return self._mesh
+
+    def world_to_screen(self, point: Point3) -> QPointF:
+        return self._screen_point(self._camera_point(point))
+
+    def edge_at(self, position: QPointF) -> TopologyKey | None:
+        return self._pick_edge(position)
+
+    def face_at(self, position: QPointF) -> TopologyKey | None:
+        return self._pick_face(position)
+
+    def point_at(self, position: QPointF) -> TopologyKey | None:
+        return self._pick_point(position)
 
     def set_mesh(self, mesh: ViewerMesh | None, *, fit: bool = True) -> None:
         self._mesh = mesh
@@ -2654,7 +2680,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
                 "edgeColor",
-                QVector3D(*edge.base_color),
+                QVector3D(*(
+                    (
+                        self._edge_color_override.redF(),
+                        self._edge_color_override.greenF(),
+                        self._edge_color_override.blueF(),
+                    )
+                    if self._edge_color_override is not None
+                    and edge.element_kind == "edge"
+                    else edge.base_color
+                )),
             )
             gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
             if edge.element_kind in {"axis", "sketch", "dimension"}:
@@ -2755,7 +2790,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             gl.glDepthFunc(GL_LEQUAL)
         program.setUniformValue(
             "edgeColor",
-            QVector3D(0.086, 0.098, 0.118),
+            QVector3D(*(
+                (
+                    self._edge_color_override.redF(),
+                    self._edge_color_override.greenF(),
+                    self._edge_color_override.blueF(),
+                )
+                if self._edge_color_override is not None
+                else (0.086, 0.098, 0.118)
+            )),
         )
         gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         gl.glDrawArrays(GL_LINES, 0, len(values) // 3)
