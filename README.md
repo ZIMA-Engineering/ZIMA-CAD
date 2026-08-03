@@ -80,7 +80,9 @@ preserves the last valid Part body and is reported as invalid.
 
 Assembly face selections use a canonical `AssemblyFaceRef` containing both the
 component instance ID and the source Part `FaceRef`. Legacy index/string
-descriptors are intentionally unsupported.
+descriptors are intentionally unsupported. Planar mates on Boolean-generated
+faces survive source Part regeneration and report `MISSING` when the source
+feature is suppressed.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

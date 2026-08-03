@@ -7,13 +7,23 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 
 from zima_cad.model import (
+    CombineMode,
     ContainerType,
     EntityKind,
     ZimaEntity,
+    active_face_registry,
     create_empty_assembly,
     create_empty_part,
 )
 from zima_cad.storage import load_part_document, save_part_document
+from zima_cad.topology import (
+    AssemblyFaceRef,
+    FaceRef,
+    TopologyResolutionState,
+    assembly_face_descriptor,
+    parse_assembly_face_descriptor,
+    resolve_assembly_face,
+)
 from zima_cad.viewer_scene import build_document_viewer_scene_data
 
 
@@ -214,6 +224,106 @@ class AssemblyDocumentTests(unittest.TestCase):
                 ),
                 self._volume(original_first),
                 places=5,
+            )
+
+    def test_mate_faces_survive_source_boolean_regeneration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "boolean-part.prtz"
+            assembly_path = root / "boolean-assembly.asmz"
+            part = create_empty_part()
+            base_container = part.create_container("Base", ContainerType.BOX)
+            base = part.create_primitive(
+                base_container.entity_id, EntityKind.BOX
+            )
+            tool_container = part.create_container("Cut", ContainerType.BOX)
+            tool = part.create_primitive(
+                tool_container.entity_id, EntityKind.BOX
+            )
+            self.assertIsNotNone(base)
+            self.assertIsNotNone(tool)
+            base.parameters.update({
+                "length": "100", "width": "100", "height": "100"
+            })
+            tool.parameters.update({
+                "length": "30", "width": "20", "height": "20"
+            })
+            tool.combine_mode = CombineMode.SUBTRACT
+            tool_container.coordinate_system.origin = (45.0, 0.0, 0.0)
+            face = FaceRef(tool.entity_id, "y_max")
+            self.assertEqual(
+                active_face_registry(part).resolve(face).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            save_part_document(part, part_path)
+
+            assembly = create_empty_assembly()
+            assembly.source_file_path = assembly_path
+            components = []
+            for index, x in enumerate((0.0, 140.0)):
+                component = assembly.create_container(
+                    f"boolean-part-{index}", ContainerType.COMPONENT
+                )
+                component.parameters["source_path"] = part_path.name
+                component.coordinate_system.origin = (x, 0.0, 0.0)
+                components.append(component)
+            source_reference = AssemblyFaceRef(
+                components[0].entity_id, face
+            )
+            target_reference = AssemblyFaceRef(
+                components[1].entity_id, face
+            )
+            components[1].parameters["assembly_mates"] = json.dumps([{
+                "source": assembly_face_descriptor(source_reference),
+                "target": assembly_face_descriptor(target_reference),
+                "type": "planar",
+                "offset": 0.0,
+            }])
+            save_part_document(assembly, assembly_path)
+
+            tool.parameters["width"] = "25"
+            save_part_document(part, part_path)
+            loaded_part = load_part_document(part_path)
+            loaded_assembly = load_part_document(assembly_path)
+            loaded_components = loaded_assembly.history_objects()
+            loaded_registry = active_face_registry(loaded_part)
+            registries = {
+                component.entity_id: loaded_registry
+                for component in loaded_components
+            }
+            mate = json.loads(str(
+                loaded_components[1].parameters["assembly_mates"]
+            ))[0]
+            loaded_source = parse_assembly_face_descriptor(mate["source"])
+            loaded_target = parse_assembly_face_descriptor(mate["target"])
+            self.assertEqual(loaded_source, source_reference)
+            self.assertEqual(loaded_target, target_reference)
+            self.assertEqual(
+                resolve_assembly_face(loaded_source, registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                resolve_assembly_face(loaded_target, registries).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertEqual(
+                loaded_components[1].coordinate_system.origin,
+                components[1].coordinate_system.origin,
+            )
+
+            loaded_tool = loaded_part.find_entity(tool.entity_id)
+            self.assertIsNotNone(loaded_tool)
+            loaded_tool.locked = True
+            missing_registry = active_face_registry(loaded_part)
+            missing_registries = {
+                component.entity_id: missing_registry
+                for component in loaded_components
+            }
+            self.assertEqual(
+                resolve_assembly_face(
+                    loaded_target, missing_registries
+                ).state,
+                TopologyResolutionState.MISSING,
             )
 
 

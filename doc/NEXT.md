@@ -76,8 +76,9 @@
   through simultaneous radius edits and save/reload. A following closed-spline
   cut also retains the cylindrical ancestry through control-point edits.
   Assembly face selections now use canonical instance-plus-face payloads;
-  extend those identities beyond planar mating faces into the remaining
-  Assembly dependency workflows.
+  planar mates on Boolean faces survive source regeneration and report a
+  suppressed feature as `MISSING`. Extend those identities into the remaining
+  Assembly dependency workflows and explicit ambiguous-reference UI.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.

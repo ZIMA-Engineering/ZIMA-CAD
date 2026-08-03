@@ -9,6 +9,9 @@ The central implementation is active, not only a design proposal:
 - `AssemblyFaceRef` has canonical serialization and resolution through a
   per-instance registry map, so two occurrences of the same Part remain
   distinct; the UI stores only this format and rejects legacy descriptors;
+- a saved planar mate between two instances of a Boolean Part resolves both
+  faces after source dimension regeneration; suppressing the referenced source
+  feature produces `MISSING` instead of rebinding to a runtime index;
 - Box and Wedge faces have semantic roles;
 - Segment-, center-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
