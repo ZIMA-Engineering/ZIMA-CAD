@@ -3131,6 +3131,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         float, float, str, str, str
     )
     editSketchRequested = Signal(str)
+    directionChanged = Signal(str)
 
     def __init__(
         self,
@@ -3333,6 +3334,9 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self.extent_mode_combo.currentIndexChanged.connect(
             self._update_extent_controls
         )
+        self.protrusion_direction_combo.currentIndexChanged.connect(
+            self._direction_changed
+        )
         self.forward_length_spin.valueChanged.connect(
             lambda value: self._synchronize_symmetric_length(
                 self.reverse_length_spin,
@@ -3351,6 +3355,12 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
                 dialog_layout.indexOf(buttons), self.own_sketch_button
             )
         self._apply_compact_reference_layout()
+
+    def _direction_changed(self, _index: int = -1) -> None:
+        direction = str(self.protrusion_direction_combo.currentData() or "")
+        if direction:
+            self.directionChanged.emit(direction)
+        self.definitionChanged.emit()
 
     def _set_protrusion_operation(self, operation: CombineMode) -> None:
         self.add_operation_button.setChecked(operation == CombineMode.ADD)
@@ -8276,6 +8286,9 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(
             lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
         )
+        self._connect_feature_direction_preview(
+            dialog, obj, EntityKind.REVOLVE
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
@@ -8324,10 +8337,56 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(
             lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
         )
+        self._connect_feature_direction_preview(
+            dialog, obj, EntityKind.PROTRUSION
+        )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _connect_feature_direction_preview(
+        self,
+        dialog: ProtrusionConstraintDialog,
+        obj: ZimaEntity,
+        feature_kind: EntityKind,
+    ) -> None:
+        """Regenerate an edited extrusion/revolve as direction is switched."""
+
+        feature = next((
+            child for child in obj.children
+            if child.kind == feature_kind and not child.locked
+        ), None)
+        if feature is None:
+            return
+        baseline = {
+            "direction": str(feature.parameters.get("direction", "forward"))
+        }
+
+        def preview(direction: str) -> None:
+            if str(feature.parameters.get("direction", "forward")) == direction:
+                return
+            feature.parameters["direction"] = direction
+            self._mark_model_for_regeneration()
+            self.regenerate_model()
+
+        def accept_baseline() -> None:
+            baseline["direction"] = str(
+                feature.parameters.get("direction", "forward")
+            )
+
+        def restore_baseline() -> None:
+            direction = baseline["direction"]
+            if str(feature.parameters.get("direction", "forward")) == direction:
+                return
+            feature.parameters["direction"] = direction
+            self._mark_model_for_regeneration()
+            self.regenerate_model()
+
+        dialog.directionChanged.connect(preview)
+        dialog.applied.connect(accept_baseline)
+        dialog.accepted.connect(accept_baseline)
+        dialog.rejected.connect(restore_baseline)
 
     def _apply_new_protrusion(
         self, dialog, references, fallback, name, show_internal,
