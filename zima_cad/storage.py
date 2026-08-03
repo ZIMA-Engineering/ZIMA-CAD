@@ -197,6 +197,7 @@ def reconnect_history_result_references(document: PartDocument) -> None:
         if not isinstance(references, list):
             continue
         changed = False
+        key_remap: dict[str, str] = {}
         for reference in references:
             if (
                 not isinstance(reference, dict)
@@ -205,11 +206,27 @@ def reconnect_history_result_references(document: PartDocument) -> None:
                 continue
             reference_type = str(reference.get("type", ""))
             topology_key = str(reference.get("topology_key", "0"))
+            old_key = str(reference.get("key", ""))
             reference["entity_id"] = document.root.entity_id
             reference["key"] = (
                 f"{reference_type}:{document.root.entity_id}:{topology_key}"
             )
+            if old_key:
+                key_remap[old_key] = str(reference["key"])
             changed = True
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            mappings = reference.get("mappings")
+            if not isinstance(mappings, list):
+                continue
+            for mapping in mappings:
+                if not isinstance(mapping, dict):
+                    continue
+                old_key = str(mapping.get("reference_key", ""))
+                if old_key in key_remap:
+                    mapping["reference_key"] = key_remap[old_key]
+                    changed = True
         if changed:
             obj.parameters["constraint_refs"] = json.dumps(
                 references,

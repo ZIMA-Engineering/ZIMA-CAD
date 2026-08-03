@@ -62,8 +62,10 @@ selected components. Part geometry remains unchanged by assembly cuts. Stable
 semantic topology naming is implemented for Box/Wedge faces and for Extrusion
 and segment-profile Revolve faces, edges and vertices. External Sketch
 references use those identities and survive supported parent recomputation;
-Revolve arcs, Boolean/cut propagation and the remaining general Assembly cases
-are not yet production-safe.
+planar container orientation references use them as well. Revolve arcs,
+Boolean/cut topology propagation and the remaining general Assembly cases are
+not yet production-safe. A disconnected additive feature preserves the last
+valid Part body and is reported as an invalid feature.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,

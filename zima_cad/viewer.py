@@ -3168,11 +3168,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if first_vector is None or second_vector is None:
                 return invalid_angular_geometry()
             projection = dot(first_vector, second_vector)
-            plane_second = normalized(
-                tuple(
-                    second_vector[index]
-                    - projection * first_vector[index]
-                    for index in range(3)
+            plane_normal = normalized(dimension.plane_normal or ())
+            # A supplied modeling plane is the stable authority for sweep
+            # orientation.  Deriving the second basis vector from the end ray
+            # flips it after 180 degrees and degenerates exactly at 180/360.
+            plane_second = (
+                normalized((
+                    plane_normal[1] * first_vector[2]
+                    - plane_normal[2] * first_vector[1],
+                    plane_normal[2] * first_vector[0]
+                    - plane_normal[0] * first_vector[2],
+                    plane_normal[0] * first_vector[1]
+                    - plane_normal[1] * first_vector[0],
+                ))
+                if plane_normal is not None
+                else normalized(
+                    tuple(
+                        second_vector[index]
+                        - projection * first_vector[index]
+                        for index in range(3)
+                    )
                 )
             )
             if plane_second is None:
@@ -3180,7 +3195,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 # 180°) dimension.  Preserve the physical rotation plane
                 # supplied by the constraint solver instead of deriving a
                 # semantic direction from the current camera.
-                plane_normal = normalized(dimension.plane_normal or ())
                 plane_second = (
                     normalized((
                         plane_normal[1] * first_vector[2]

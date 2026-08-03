@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from zima_cad.model import (
+    CombineMode,
     ContainerType,
     EntityKind,
     active_face_registry,
@@ -17,6 +18,8 @@ from zima_cad.model import (
     semantic_face_registry,
     ZimaEntity,
 )
+from OCC.Core.TopAbs import TopAbs_SOLID
+from OCC.Core.TopExp import TopExp_Explorer
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
@@ -40,6 +43,15 @@ from zima_cad.viewer_mesh import triangulate_shape
 
 
 class StableTopologyTests(unittest.TestCase):
+    @staticmethod
+    def _subshape_count(shape, shape_type) -> int:
+        explorer = TopExp_Explorer(shape, shape_type)
+        count = 0
+        while explorer.More():
+            count += 1
+            explorer.Next()
+        return count
+
     def test_face_reference_round_trip(self) -> None:
         reference = FaceRef(
             feature_id="extrusion-1",
@@ -153,6 +165,69 @@ class StableTopologyTests(unittest.TestCase):
                     loaded_registry.resolve(reference).state,
                     TopologyResolutionState.RESOLVED,
                 )
+
+    def test_disconnected_add_preserves_last_valid_body(self) -> None:
+        document = create_empty_part()
+        first_container = document.create_container("Box", ContainerType.BOX)
+        first = document.create_primitive(first_container.entity_id, EntityKind.BOX)
+        second_container = document.create_container("Box", ContainerType.BOX)
+        second = document.create_primitive(second_container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        first.combine_mode = CombineMode.ADD
+        second.combine_mode = CombineMode.ADD
+        second_container.coordinate_system.origin = (1000.0, 0.0, 0.0)
+
+        disconnected = document.build_active_shape()
+        self.assertEqual(
+            self._subshape_count(disconnected, TopAbs_SOLID), 1
+        )
+        self.assertEqual(second.parameters.get("build_status"), "disconnected")
+
+        second_container.coordinate_system.origin = (20.0, 0.0, 0.0)
+        connected = document.build_active_shape()
+        self.assertEqual(self._subshape_count(connected, TopAbs_SOLID), 1)
+        self.assertNotIn("build_status", second.parameters)
+
+    def test_history_orientation_mapping_tracks_runtime_part_id(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        document.create_primitive(container.entity_id, EntityKind.BOX)
+        old_root_id = document.root.entity_id
+        face_key = f"face:{old_root_id}:1"
+        container.parameters["constraint_refs"] = json.dumps([
+            {
+                "type": "face",
+                "entity_id": old_root_id,
+                "key": face_key,
+                "topology_key": "1",
+                "reference_scope": "history_result",
+                "history_cursor": 1,
+                "equations": [[1.0, 0.0, 0.0, 20.0]],
+            },
+            {
+                "type": "container_orientation",
+                "mappings": [{
+                    "slot": "front",
+                    "flip": False,
+                    "reference_key": face_key,
+                }],
+            },
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mapping.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+        loaded_container = loaded.history_objects()[0]
+        references = json.loads(
+            str(loaded_container.parameters["constraint_refs"])
+        )
+        expected_key = f"face:{loaded.root.entity_id}:1"
+        self.assertEqual(references[0]["key"], expected_key)
+        self.assertEqual(
+            references[1]["mappings"][0]["reference_key"],
+            expected_key,
+        )
 
     def test_protrusion_caps_survive_length_change(self) -> None:
         document = create_empty_part()

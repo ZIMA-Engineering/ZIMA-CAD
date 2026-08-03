@@ -46,6 +46,7 @@ from OCC.Core.TopAbs import (
     TopAbs_EDGE,
     TopAbs_FACE,
     TopAbs_REVERSED,
+    TopAbs_SOLID,
     TopAbs_VERTEX,
 )
 from OCC.Core.TopExp import TopExp_Explorer
@@ -1325,15 +1326,48 @@ def apply_object_to_shape(
             if is_protrusion or is_revolve
             else obj.combine_mode
         )
-        if operation == CombineMode.ADD or (
+        status_owner = solid_feature or obj
+
+        def solid_count(candidate) -> int:
+            explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
+            solids = []
+            while explorer.More():
+                solid = explorer.Current()
+                if not any(solid.IsSame(existing) for existing in solids):
+                    solids.append(solid)
+                explorer.Next()
+            return len(solids)
+
+        shape_solids = solid_count(shape)
+        if operation in (CombineMode.ADD, CombineMode.SUBTRACT) and not shape_solids:
+            status_owner.parameters["build_status"] = "not_solid"
+            shape = None
+        else:
+            status_owner.parameters.pop("build_status", None)
+        if shape is not None and (operation == CombineMode.ADD or (
             accept_first_shape and result_shape is None
-        ):
+        )):
             if result_shape is None:
                 result_shape = shape
             else:
-                result_shape = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
-        elif operation == CombineMode.SUBTRACT and result_shape is not None:
-            result_shape = BRepAlgoAPI_Cut(result_shape, shape).Shape()
+                fused = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
+                # An additive Part feature must join the existing body. OCCT
+                # otherwise returns a compound of disconnected solids, which
+                # looks deceptively like a successful or even surface result.
+                if solid_count(fused) == 1:
+                    result_shape = fused
+                else:
+                    status_owner.parameters["build_status"] = "disconnected"
+        elif (
+            shape is not None
+            and operation == CombineMode.SUBTRACT
+            and result_shape is not None
+        ):
+            cut = BRepAlgoAPI_Cut(result_shape, shape).Shape()
+            if solid_count(cut) >= 1:
+                result_shape = cut
+            else:
+                status_owner.parameters["build_status"] = "empty_result"
 
     for child in obj.children:
         if child.locked or child.kind == EntityKind.SKETCH:

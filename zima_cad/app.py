@@ -9339,6 +9339,85 @@ class MainWindow(QMainWindow):
         )
         if reference is None:
             return None
+        stable_subshape = None
+        if (
+            shape_reference_type == "face"
+            and descriptor.get("reference_scope") == "history_result"
+        ):
+            try:
+                boundary = int(descriptor.get("history_cursor", 0))
+            except (TypeError, ValueError):
+                boundary = 0
+            registry = face_registry_at(self.document, boundary)
+            stable_reference = parse_face_reference(
+                descriptor.get("face_ref")
+            )
+            if stable_reference is not None:
+                stable_subshape = registry.resolve(stable_reference).shape
+            elif registry.references:
+                # Upgrade a current development file only when its stored
+                # plane equation identifies exactly one semantic face.  Never
+                # migrate from the volatile numerical topology index alone.
+                equations = descriptor.get("equations", ())
+                stored = (
+                    tuple(float(value) for value in equations[0][:4])
+                    if isinstance(equations, list)
+                    and equations
+                    and isinstance(equations[0], (list, tuple))
+                    and len(equations[0]) >= 4
+                    else None
+                )
+                matches = []
+                if stored is not None:
+                    stored_length = math.sqrt(sum(
+                        stored[index] ** 2 for index in range(3)
+                    ))
+                    if stored_length > 1.0e-12:
+                        stored_normal = tuple(
+                            stored[index] / stored_length
+                            for index in range(3)
+                        )
+                        stored_distance = stored[3] / stored_length
+                        for candidate in registry.references:
+                            face = registry.resolve(candidate).shape
+                            if face is None:
+                                continue
+                            adaptor = BRepAdaptor_Surface(face)
+                            if adaptor.GetType() != GeomAbs_Plane:
+                                continue
+                            plane = adaptor.Plane()
+                            normal = plane.Axis().Direction()
+                            sign = (
+                                -1.0
+                                if face.Orientation() == TopAbs_REVERSED
+                                else 1.0
+                            )
+                            candidate_normal = (
+                                sign * normal.X(),
+                                sign * normal.Y(),
+                                sign * normal.Z(),
+                            )
+                            location = plane.Location()
+                            candidate_distance = sum((
+                                candidate_normal[0] * location.X(),
+                                candidate_normal[1] * location.Y(),
+                                candidate_normal[2] * location.Z(),
+                            ))
+                            agreement = sum(
+                                stored_normal[index]
+                                * candidate_normal[index]
+                                for index in range(3)
+                            )
+                            if (
+                                agreement > 1.0 - 1.0e-7
+                                and abs(
+                                    stored_distance - candidate_distance
+                                ) <= 1.0e-6
+                            ):
+                                matches.append((candidate, face))
+                if len(matches) == 1:
+                    stable_reference, stable_subshape = matches[0]
+                    descriptor["face_ref"] = stable_reference.to_dict()
         model_shape = self._shape_for_reference_descriptor(
             descriptor,
             reference,
@@ -9356,10 +9435,8 @@ class MainWindow(QMainWindow):
                 if shape_reference_type == "face"
                 else TopAbs_EDGE
             )
-            subshape = self._subshape_from_shape(
-                model_shape,
-                shape_type,
-                topology_index,
+            subshape = stable_subshape or self._subshape_from_shape(
+                model_shape, shape_type, topology_index
             )
             if subshape is None:
                 return None
@@ -13896,6 +13973,22 @@ class MainWindow(QMainWindow):
                     names=", ".join(missing_references),
                 ),
             )
+        feature_status = next((
+            str(child.parameters.get("build_status", ""))
+            for child in obj.children
+            if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+            and child.parameters.get("build_status")
+        ), "")
+        if feature_status and not effectively_suppressed:
+            warning_brush = QBrush(QColor("#8b2424"))
+            text_brush = QBrush(QColor("#ffffff"))
+            for column in range(item.columnCount()):
+                item.setBackground(column, warning_brush)
+                item.setForeground(column, text_brush)
+            item.setToolTip(
+                0,
+                tr(f"tree.state.build_{feature_status}"),
+            )
         for child in obj.children:
             child_item = self._create_tree_item(
                 child,
@@ -15106,6 +15199,18 @@ class MainWindow(QMainWindow):
                     + normal.Z() * location.Z()
                 ),
             ]
+            stable_metadata = dict(reference_metadata)
+            if (
+                obj.kind == EntityKind.PART
+                and stable_metadata.get("reference_scope")
+                == "history_result"
+            ):
+                boundary = int(stable_metadata.get("history_cursor", 0))
+                reference = face_registry_at(
+                    self.document, boundary
+                ).reference_for_runtime_index(topology_index)
+                if reference is not None:
+                    stable_metadata["face_ref"] = reference.to_dict()
             dialog.add_shape_reference(
                 obj.entity_id,
                 self._topology_reference_label(
@@ -15116,7 +15221,7 @@ class MainWindow(QMainWindow):
                 "face",
                 [equation],
                 str(topology_index),
-                reference_metadata,
+                stable_metadata,
             )
             return
         if shape_type == TopAbs_EDGE:
@@ -31230,7 +31335,46 @@ class MainWindow(QMainWindow):
             if axis_length <= 1.0e-9:
                 return ()
             radius = max(10.0, axis_length * 0.45)
-            radial_2d = (-dy / axis_length * radius, dx / axis_length * radius)
+            # Anchor the zero-angle ray on the profile side of the axis.  A
+            # perpendicular derived only from construction-line direction can
+            # flip when the axis endpoints are regenerated and often places
+            # the dimension on the empty side of the feature.
+            profile_points = [
+                point
+                for item_id, point in points.items()
+                if item_id not in ids
+            ]
+            profile_center = (
+                (
+                    sum(point[0] for point in profile_points)
+                    / len(profile_points),
+                    sum(point[1] for point in profile_points)
+                    / len(profile_points),
+                )
+                if profile_points
+                else (vertex_2d[0] - dy, vertex_2d[1] + dx)
+            )
+            axis_unit = (dx / axis_length, dy / axis_length)
+            center_vector = (
+                profile_center[0] - vertex_2d[0],
+                profile_center[1] - vertex_2d[1],
+            )
+            axial = (
+                center_vector[0] * axis_unit[0]
+                + center_vector[1] * axis_unit[1]
+            )
+            radial_direction = (
+                center_vector[0] - axial * axis_unit[0],
+                center_vector[1] - axial * axis_unit[1],
+            )
+            radial_length = math.hypot(*radial_direction)
+            if radial_length <= 1.0e-9:
+                radial_direction = (-axis_unit[1], axis_unit[0])
+                radial_length = 1.0
+            radial_2d = tuple(
+                value / radial_length * radius
+                for value in radial_direction
+            )
             plane_transform = sketch_plane_transform(
                 str(sketch.parameters.get("plane", "xz"))
             )
@@ -31291,6 +31435,10 @@ class MainWindow(QMainWindow):
                     second_direction_point=world(rotated(sweep)),
                     arc_point=world(rotated(sweep / 2.0)),
                     sweep_degrees=sweep,
+                    plane_normal=tuple(
+                        world(axis_end)[index] - world(vertex)[index]
+                        for index in range(3)
+                    ),
                 )
                 for key, sweep in sweeps
                 if abs(sweep) > 1.0e-6
@@ -31713,6 +31861,12 @@ class MainWindow(QMainWindow):
                     base_rotation[index] + offsets[index]
                     for index in range(3)
                 )
+            # Resolution may safely upgrade a uniquely identified legacy
+            # history face to a semantic FaceRef. Keep that upgrade in the
+            # live document so the next save makes it persistent.
+            entity.parameters["constraint_refs"] = json.dumps(
+                references, ensure_ascii=False
+            )
             regenerated_entities += 1
 
         self.document.resolve_attachments()
@@ -31752,6 +31906,17 @@ class MainWindow(QMainWindow):
             regenerated_entities += 1
 
         self.document.regeneration_required = False
+        # Evaluate once before reporting/tree refresh so feature build errors
+        # produced by the model kernel are visible immediately.
+        self.document.build_active_shape()
+        invalid_features = [
+            child
+            for obj in self.document.active_history_objects()
+            for child in obj.children
+            if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+            and child.parameters.get("build_status")
+        ]
+        unresolved_entities += len(invalid_features)
         selected_id = self.selected_object_id
         self._populate_tree()
         if selected_id is not None:

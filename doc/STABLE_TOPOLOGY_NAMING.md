@@ -12,6 +12,9 @@ The central implementation is active, not only a design proposal:
   Revolves expose only generated topology because they have no seam caps;
 - supported external Sketch references persist semantic dictionaries instead
   of OCCT enumeration indices;
+- newly selected container face/orientation constraints persist semantic
+  `FaceRef` dictionaries; current development files with one uniquely matching
+  stored plane equation are upgraded without trusting their numerical index;
 - point, edge and face references survive tested parent dimension/profile
   edits, save/reload and automatic descendant regeneration;
 - unresolved or ambiguous registry entries do not silently select another

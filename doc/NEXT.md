@@ -32,6 +32,9 @@
 
 - Exercise the new six-DOF properties workflow for Point, Axis, Plane, Sketch,
   Protrusion and Revolve on real feature chains.
+- Continue extending semantic topology references from the now-supported
+  container planar-face/orientation constraints to edge, vertex and curved-face
+  container constraints.
 - Keep positional references independent from explicit rotational references;
   report the remaining X/Y/Z/RX/RY/RZ degrees of freedom clearly.
 - Stabilize the two-row mapping of container planes to Front, Back, Top,
@@ -65,6 +68,9 @@
   intentionally modify the referenced `.prtz`, while assembly cuts never do.
 - Exercise in-context component activation, cross-component sketch references,
   assembly cuts and per-instance colors on larger real projects.
+- Additive features that do not touch the existing Part body and operations
+  that fail to produce a solid now preserve the last valid body and report a
+  red feature error instead of exposing a disconnected compound.
 
 ## Basic Sketcher Completion
 
