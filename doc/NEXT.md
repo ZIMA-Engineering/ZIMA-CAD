@@ -101,6 +101,8 @@
 
 - Add intelligent entity input: inference, snapping, continuation and clear
   previews while creating connected geometry.
+- External Sketch point references stay hidden until the cursor enters their
+  snap radius; keep this hover-only behavior for future dense reference types.
 - Add polygon input and ellipse geometry.
 - Continue stabilization of centre arcs and spline editing.
 - Improve the solver's numerical stability, branch preservation, diagnostics

@@ -651,6 +651,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._sketch_cycle_index = -1
         self.update()
 
+    @staticmethod
+    def _external_point_marker_visible(
+        reference: dict[str, Any],
+        hovered_reference_id: str | None,
+        hide_idle_points: bool,
+    ) -> bool:
+        if not hide_idle_points:
+            return True
+        reference_id = str(reference.get("id", ""))
+        return bool(
+            reference.get("selected")
+            or (reference_id and reference_id == hovered_reference_id)
+        )
+
     def center_on_world_point(self, point: Point3) -> None:
         camera_point = self._camera_point(point)
         scale = (
@@ -3793,6 +3807,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setBrush(QBrush(reference_color))
             geometry_type = geometry.get("type")
             if geometry_type == "axis_point":
+                if not self._external_point_marker_visible(
+                    reference,
+                    self._hovered_sketch_external_reference_id,
+                    self._sketch_reference_snapping
+                    or self._sketch_reference_selection_mode,
+                ):
+                    continue
                 point = geometry.get("point", ())
                 if isinstance(point, (list, tuple)) and len(point) >= 2:
                     center = self._screen_point(
@@ -3942,6 +3963,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         )
                         infinite_line(first, second)
             elif geometry_type == "point":
+                if not self._external_point_marker_visible(
+                    reference,
+                    self._hovered_sketch_external_reference_id,
+                    self._sketch_reference_snapping
+                    or self._sketch_reference_selection_mode,
+                ):
+                    continue
                 point = geometry.get("point", (0.0, 0.0))
                 if isinstance(point, (list, tuple)) and len(point) >= 2:
                     screen = self._screen_point(

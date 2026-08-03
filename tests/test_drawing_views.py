@@ -42,6 +42,7 @@ from zima_cad.model import (
 from zima_cad.sketch_model import SketchModel
 from zima_cad.viewer import (
     CameraState,
+    ZimaOpenGLViewer,
     STANDARD_VIEW_ORIENTATIONS,
     _camera_rotation_matrix,
     _surface_pass_for_display_mode,
@@ -59,6 +60,14 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_external_sketch_points_only_appear_on_hover_or_selection(self) -> None:
+        reference = {"id": "external-point"}
+        visible = ZimaOpenGLViewer._external_point_marker_visible
+        self.assertFalse(visible(reference, None, True))
+        self.assertTrue(visible(reference, "external-point", True))
+        self.assertTrue(visible({**reference, "selected": True}, None, True))
+        self.assertTrue(visible(reference, None, False))
+
     def test_model_display_modes_use_distinct_surface_passes(self) -> None:
         self.assertEqual(_surface_pass_for_display_mode("wire"), "none")
         self.assertEqual(_surface_pass_for_display_mode("hidden_edges"), "depth")

@@ -226,11 +226,14 @@ identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj
 označí jako ztracená reference místo použití nesprávné geometrie.
 
 Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
-ukládají podle původu ve zdrojové skice, nikoliv podle aktuálního pořadí
+ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
 topologie. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící
 na hlavní ose skici zůstává samostatně vybratelný a lze jej odstranit stejně
-jako ostatní externí reference. Příkaz **Dokončit skicu** se při vstupu z
-vlastností kontejneru vrátí zpět do těchto vlastností.
+jako ostatní externí reference. Bodové externí reference se při výběru
+nezobrazují všechny současně: nejbližší bod se zvýrazní až po přiblížení
+kurzoru a kliknutím se potvrdí. Již vybraný bod zůstává viditelný. Příkaz
+**Dokončit skicu** se při vstupu z vlastností kontejneru vrátí zpět do těchto
+vlastností.
 
 ### Sestavové řezy
 
