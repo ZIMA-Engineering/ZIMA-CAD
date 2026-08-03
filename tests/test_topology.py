@@ -995,6 +995,107 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(set(loaded_registry.references), expected_faces)
         self.assertEqual(set(loaded_registry.edge_references), expected_edges)
 
+    def test_nested_mixed_extrusion_keeps_inner_wall_provenance(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "NestedExtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "outer-center", "type": "point", "x": 0.0, "y": 20.0},
+            {"id": "oa", "type": "point", "x": 0.0, "y": 40.0},
+            {"id": "ob", "type": "point", "x": 50.0, "y": 0.0},
+            {"id": "oc", "type": "point", "x": 50.0, "y": 40.0},
+            {"id": "od", "type": "point", "x": 0.0, "y": 0.0},
+            {
+                "id": "outer-arc",
+                "type": "arc",
+                "arc_mode": "center",
+                "clockwise": False,
+                "point_ids": ["outer-center", "oa", "od"],
+            },
+            {"id": "outer-a", "type": "segment", "point_ids": ["od", "ob"]},
+            {"id": "outer-b", "type": "segment", "point_ids": ["ob", "oc"]},
+            {"id": "outer-c", "type": "segment", "point_ids": ["oc", "oa"]},
+            {"id": "ia", "type": "point", "x": 15.0, "y": 12.0},
+            {"id": "ib", "type": "point", "x": 35.0, "y": 12.0},
+            {"id": "ic", "type": "point", "x": 35.0, "y": 28.0},
+            {"id": "id", "type": "point", "x": 15.0, "y": 28.0},
+            {
+                "id": "inner-spline",
+                "type": "spline",
+                "point_ids": ["ia", "ib", "ic", "id", "ia"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "NestedSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "NestedFeature",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "20"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            *(FaceRef(feature.entity_id, "generated", source_id) for source_id in (
+                "outer-arc", "outer-a", "outer-b", "outer-c", "inner-spline"
+            )),
+        }
+        source_ids = (
+            "outer-arc", "outer-a", "outer-b", "outer-c", "inner-spline"
+        )
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, source_id)
+            for role in ("start", "end")
+            for source_id in source_ids
+        } | {
+            EdgeRef(feature.entity_id, "generated", point_id)
+            for point_id in ("oa", "ob", "oc", "od", "ia")
+        }
+
+        shape = make_protrusion_shape(document, container)
+        self.assertEqual(self._subshape_count(shape, TopAbs_SOLID), 1)
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(
+            registry.resolve(
+                FaceRef(feature.entity_id, "generated", "inner-spline")
+            ).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "ic":
+                entity["y"] = 30.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_registry = active_face_registry(document)
+        self.assertEqual(set(edited_registry.references), expected_faces)
+        self.assertEqual(set(edited_registry.edge_references), expected_edges)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "nested-mixed.prtz"
+            save_part_document(document, path)
+            loaded_registry = active_face_registry(load_part_document(path))
+        self.assertEqual(set(loaded_registry.references), expected_faces)
+        self.assertEqual(set(loaded_registry.edge_references), expected_edges)
+
     def test_full_arc_revolve_cut_names_repeated_curved_intersections(self) -> None:
         document = create_empty_part()
         base_container = document.create_container("Box", ContainerType.BOX)

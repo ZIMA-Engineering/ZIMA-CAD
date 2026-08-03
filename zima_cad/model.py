@@ -2399,7 +2399,7 @@ def protrusion_face_registry(
     curve_midpoints: dict[str, tuple[float, float, float]] = {}
     for entity in sketch_entities:
         if not isinstance(entity, dict) or entity.get("type") not in (
-            "segment", "spline"
+            "segment", "arc", "spline"
         ):
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
@@ -2408,8 +2408,7 @@ def protrusion_face_registry(
         ):
             continue
         source_id = str(entity.get("id", ""))
-        curve_point_ids[source_id] = (point_ids[0], point_ids[-1])
-        if entity.get("type") == "segment":
+        if entity.get("type") == "segment" and len(point_ids) == 2:
             first_2d, second_2d = (
                 sketch_points[point_id] for point_id in point_ids
             )
@@ -2417,7 +2416,25 @@ def protrusion_face_registry(
                 (first_2d[0] + second_2d[0]) * 0.5,
                 (first_2d[1] + second_2d[1]) * 0.5,
             )
-        else:
+            endpoint_ids = (point_ids[0], point_ids[1])
+        elif entity.get("type") == "arc" and len(point_ids) >= 3:
+            if entity.get("arc_mode") == "center":
+                endpoint_ids = (point_ids[1], point_ids[2])
+                sampled = center_arc_points(
+                    sketch_points[point_ids[0]],
+                    sketch_points[point_ids[1]],
+                    sketch_points[point_ids[2]],
+                    segments=32,
+                    clockwise=bool(entity.get("clockwise", False)),
+                )
+                if not sampled:
+                    continue
+                midpoint_2d = sampled[len(sampled) // 2]
+            else:
+                endpoint_ids = (point_ids[0], point_ids[-1])
+                midpoint_2d = sketch_points[point_ids[len(point_ids) // 2]]
+        elif entity.get("type") == "spline":
+            endpoint_ids = (point_ids[0], point_ids[-1])
             interpolation_ids = point_ids[:-1] if (
                 len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
             ) else point_ids
@@ -2437,6 +2454,9 @@ def protrusion_face_registry(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
             midpoint_2d = (point.X(), point.Y())
+        else:
+            continue
+        curve_point_ids[source_id] = endpoint_ids
         midpoint = transform_point(
             world_transform,
             transform_point(plane_transform, (*midpoint_2d, 0.0)),

@@ -62,9 +62,10 @@
   additive/subtractive Part subset with explicit split/merge ambiguity. New
   section edges and vertices have ZIMA-owned adjacency provenance, including
   circular Extrusion and repeated full center-arc Revolve cuts. Expand this
-  coverage to mixed nested loops and general Boolean results next. A spline can
-  close by reusing its first point; closed-spline Extrusion and full Revolve
-  now keep semantic topology references.
+  coverage to general Boolean results next. A spline can close by reusing its
+  first point; closed-spline Extrusion/full Revolve and an Extrusion with a
+  mixed segment/arc outer loop plus a closed-spline hole now keep semantic
+  topology references.
   Missing
   or ambiguous topology must remain unresolved instead of falling back to a
   current numerical index.
@@ -91,8 +92,8 @@
   selected relation cleanly.
 - Complete constraint symbols and their hover/selection/dependency display for
   every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable Extrusion and segment/center-arc/spline Revolve
-  references to mixed nested loops and wider Boolean chains.
+- Extend the now-stable mixed-loop Extrusion and segment/center-arc/spline
+  Revolve references to multi-island nesting and wider Boolean chains.
 - Keep Trim deferred until topology-changing operations have central ID
   remapping and reference recovery.
 - After the geometry and interaction rules are settled, evaluate replacing the

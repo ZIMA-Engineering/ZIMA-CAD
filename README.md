@@ -65,9 +65,9 @@ references use those identities and survive supported parent recomputation;
 planar container orientation references use them as well. The initial Part
 `Fuse`/`Cut` subset propagates supported ancestry and reports splits/merges
 explicitly. New section edges/vertices use ZIMA-owned adjacency identities;
-circular Extrusion, closed-spline Extrusion/full Revolve and repeated center-arc
-Revolve cuts are supported. Mixed nested loops and the remaining general
-Assembly cases are not yet
+circular Extrusion, closed-spline Extrusion/full Revolve, mixed nested
+segment/arc/spline Extrusion and repeated center-arc Revolve cuts are supported.
+General multi-island nesting and the remaining Assembly cases are not yet
 production-safe. A disconnected additive feature or non-intersecting cut
 preserves the last valid Part body and is reported as invalid.
 
