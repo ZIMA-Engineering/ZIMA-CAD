@@ -185,6 +185,7 @@ from zima_cad.viewer import (
     LinearDimension,
     RadialDimension,
     ZimaOpenGLViewer,
+    camera_angles_for_view_direction,
 )
 from zima_cad.viewer_scene import (
     DocumentViewerScene,
@@ -17727,12 +17728,6 @@ class MainWindow(QMainWindow):
             reverse_role = str(primary_row.get("role", "front")) in {"back", "bottom", "right"}
             if bool(primary_row.get("flip", False)) != reverse_role:
                 normal = tuple(-value for value in normal)
-            nx, ny, nz = self._normalized_vector(
-                tuple(-value for value in normal)
-            )
-            horizontal = math.hypot(nx, ny)
-            yaw = math.atan2(nx, ny) if horizontal > 1e-12 else 0.0
-            pitch = -math.atan2(horizontal, nz)
             roll_degrees = 0.0
             secondary = next(
                 (
@@ -17747,16 +17742,16 @@ class MainWindow(QMainWindow):
                 sx, sy, sz = secondary_frame[1]
                 if bool(secondary_row.get("flip", False)):
                     sx, sy, sz = -sx, -sy, -sz
-                yaw_x = math.cos(yaw) * sx - math.sin(yaw) * sy
-                yaw_y = math.sin(yaw) * sx + math.cos(yaw) * sy
-                screen_y = math.cos(pitch) * yaw_y - math.sin(pitch) * sz
-                if math.hypot(yaw_x, screen_y) > 1e-9:
-                    current_angle = math.atan2(screen_y, yaw_x)
-                    target_angle = {
-                        "right": 0.0, "top": math.pi / 2.0,
-                        "left": math.pi, "bottom": -math.pi / 2.0,
-                    }[str(secondary_row["role"])]
-                    roll_degrees = math.degrees(target_angle - current_angle)
+                roll_degrees = self._camera_roll_for_direction(
+                    tuple(-value for value in normal),
+                    (sx, sy, sz),
+                    {
+                        "right": 0.0,
+                        "top": 90.0,
+                        "left": 180.0,
+                        "bottom": -90.0,
+                    }[str(secondary_row["role"])],
+                )
             self._set_view_normal(
                 normal, primary_frame[0], roll_degrees=roll_degrees
             )
@@ -22097,14 +22092,69 @@ class MainWindow(QMainWindow):
         frame = self._sketch_frame(sketch)
         if frame is None:
             return
-        frame_normal = self._normalized_vector(
-            self._cross_product(frame[1], frame[2])
-        )
+        view_direction, roll_degrees = self._sketch_view_orientation(frame)
         # The camera looks towards the plane from its positive-normal side.
         # With the agreed convention this opens XZ as Front (+X left, +Z up),
         # while an opposite orientation naturally opens Back.
+        self.native_viewer.animate_view_normal(
+            view_direction,
+            frame[0],
+            roll_degrees=roll_degrees,
+        )
+
+    @classmethod
+    def _sketch_view_orientation(
+        cls,
+        frame: tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ],
+    ) -> tuple[tuple[float, float, float], float]:
+        """Return camera direction and roll for the complete sketch frame."""
+        frame_normal = cls._normalized_vector(
+            cls._cross_product(frame[1], frame[2])
+        )
         view_direction = tuple(-value for value in frame_normal)
-        self.native_viewer.animate_view_normal(view_direction, frame[0])
+        roll_degrees = cls._camera_roll_for_direction(
+            view_direction,
+            frame[1],
+            0.0,
+        )
+        return view_direction, roll_degrees
+
+    @classmethod
+    def _camera_roll_for_direction(
+        cls,
+        view_direction: tuple[float, float, float],
+        world_direction: tuple[float, float, float],
+        target_angle_degrees: float,
+    ) -> float:
+        """Align a world direction to a requested screen-space angle."""
+        yaw_degrees, pitch_degrees = camera_angles_for_view_direction(
+            view_direction
+        )
+        yaw = math.radians(yaw_degrees)
+        pitch = math.radians(pitch_degrees)
+        direction = cls._normalized_vector(world_direction)
+        yaw_x = (
+            math.cos(yaw) * direction[0]
+            - math.sin(yaw) * direction[1]
+        )
+        yaw_y = (
+            math.sin(yaw) * direction[0]
+            + math.cos(yaw) * direction[1]
+        )
+        screen_y = (
+            math.cos(pitch) * yaw_y
+            - math.sin(pitch) * direction[2]
+        )
+        return (
+            target_angle_degrees
+            - math.degrees(math.atan2(screen_y, yaw_x))
+            if math.hypot(yaw_x, screen_y) > 1e-9
+            else 0.0
+        )
 
     def _set_sketch_tool(self, tool: str) -> None:
         if self._sketch_edit_entity_id is None:

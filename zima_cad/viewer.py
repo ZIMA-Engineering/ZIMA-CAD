@@ -230,6 +230,19 @@ STANDARD_VIEW_ORIENTATIONS: dict[str, tuple[float, float]] = {
 }
 
 
+def camera_angles_for_view_direction(normal: Point3) -> tuple[float, float]:
+    """Map a world viewing direction onto the camera's negative depth axis."""
+    nx, ny, nz = normal
+    length = sqrt(nx * nx + ny * ny + nz * nz)
+    if length <= 1e-12:
+        return (0.0, 0.0)
+    nx, ny, nz = nx / length, ny / length, nz / length
+    horizontal = hypot(nx, ny)
+    yaw = degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
+    pitch = degrees(atan2(-horizontal, -nz))
+    return yaw, pitch
+
+
 def _surface_pass_for_display_mode(display_mode: str) -> str:
     if display_mode == "wire":
         return "none"
@@ -804,12 +817,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         length = sqrt(nx * nx + ny * ny + nz * nz)
         if length <= 1e-12:
             return
-        nx, ny, nz = nx / length, ny / length, nz / length
-        horizontal = hypot(nx, ny)
-        self.camera.yaw_degrees = (
-            degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
+        self.camera.yaw_degrees, self.camera.pitch_degrees = (
+            camera_angles_for_view_direction(normal)
         )
-        self.camera.pitch_degrees = -degrees(atan2(horizontal, nz))
         self.camera.roll_degrees = 0.0
         self.camera.pan_x = 0.0
         self.camera.pan_y = 0.0
@@ -829,12 +839,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         length = sqrt(nx * nx + ny * ny + nz * nz)
         if length <= 1e-12:
             return
-        nx, ny, nz = nx / length, ny / length, nz / length
-        horizontal = hypot(nx, ny)
-        target_yaw = (
-            degrees(atan2(nx, ny)) if horizontal > 1e-12 else 0.0
-        )
-        target_pitch = -degrees(atan2(horizontal, nz))
+        target_yaw, target_pitch = camera_angles_for_view_direction(normal)
         target_zoom = 1.0
 
         target_center = (

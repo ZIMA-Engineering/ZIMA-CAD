@@ -109,6 +109,9 @@ plochy, která určuje orientaci skici.
 Po vstupu se pohled nastaví kolmo ke skice. Lokální osy X/Y jsou zobrazené
 hnědou tenkou čárkovanou čarou přes celé view. Profilová geometrie je modrá,
 body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
+Také u skici na šikmé rovině kamera respektuje celý lokální rámec: normálu
+roviny i natočení její osy X. Stejný převod kamery používá příkaz
+**Nastavit orientaci**.
 Po dokončení nebo opuštění skici se kamera plynule vrátí do polohy, kterou
 měla před vstupem do skicáře.
 

@@ -49,6 +49,7 @@ from zima_cad.viewer import (
     _surface_pass_for_display_mode,
     _multiply_rotation_matrices,
     orbit_camera_state,
+    camera_angles_for_view_direction,
 )
 from zima_cad.viewer_mesh import (
     EdgePolyline,
@@ -360,6 +361,48 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
 
         self.assertEqual(direction, (1.0, 0.0, 0.0))
+
+    def test_inclined_sketch_view_uses_complete_local_frame(self) -> None:
+        root_half = 2.0 ** -0.5
+        base_x = (root_half, root_half, 0.0)
+        base_y = (-0.5, 0.5, root_half)
+        twist = radians(30.0)
+        x_axis = tuple(
+            cos(twist) * base_x[index]
+            + sin(twist) * base_y[index]
+            for index in range(3)
+        )
+        y_axis = tuple(
+            -sin(twist) * base_x[index]
+            + cos(twist) * base_y[index]
+            for index in range(3)
+        )
+        direction, roll = MainWindow._sketch_view_orientation((
+            (10.0, 20.0, 30.0),
+            x_axis,
+            y_axis,
+        ))
+
+        expected_normal = MainWindow._normalized_vector(
+            MainWindow._cross_product(x_axis, y_axis)
+        )
+        for actual, expected in zip(direction, expected_normal):
+            self.assertAlmostEqual(actual, -expected)
+        self.assertNotAlmostEqual(roll, 0.0)
+
+    def test_inclined_view_direction_maps_to_camera_depth(self) -> None:
+        direction = MainWindow._normalized_vector((1.0, -2.0, 3.0))
+        yaw, pitch = camera_angles_for_view_direction(direction)
+        rotation = _camera_rotation_matrix(yaw, pitch, 0.0)
+        camera_direction = tuple(
+            sum(rotation[row][column] * direction[column]
+                for column in range(3))
+            for row in range(3)
+        )
+
+        self.assertAlmostEqual(camera_direction[0], 0.0)
+        self.assertAlmostEqual(camera_direction[1], 0.0)
+        self.assertAlmostEqual(camera_direction[2], -1.0)
 
     def test_three_independent_assembly_mates_lock_full_transform(self) -> None:
         rows = [
