@@ -2,6 +2,7 @@ import json
 import unittest
 
 from zima_cad.model import (
+    CoordinateSystem,
     ContainerType,
     EntityKind,
     SketchRole,
@@ -14,6 +15,36 @@ from zima_cad.viewer_scene import build_document_viewer_scene_data
 
 
 class GeneratedAxisTests(unittest.TestCase):
+    def test_uncommitted_container_coordinate_system_is_previewed(self):
+        document = create_empty_part()
+
+        scene = build_document_viewer_scene_data(
+            document,
+            preview_coordinate_system=CoordinateSystem(
+                origin=(10.0, 20.0, 30.0),
+                rotation=(0.0, 0.0, 90.0),
+            ),
+            preview_origin_label="Point001",
+        )
+
+        owner_id = "__container_preview_origin__"
+        preview_edges = [
+            edge for edge in scene.mesh.edges
+            if edge.owner_id == owner_id
+        ]
+        preview_planes = [
+            plane for plane in scene.mesh.planes
+            if plane.owner_id == owner_id
+        ]
+        preview_points = [
+            point for point in scene.mesh.points
+            if point.owner_id == owner_id
+        ]
+        self.assertEqual(len(preview_edges), 3)
+        self.assertEqual(len(preview_planes), 3)
+        self.assertEqual(preview_edges[0].points[0], (10.0, 20.0, 30.0))
+        self.assertEqual(preview_points[0].label, "Point001 · Origin")
+
     def test_edited_container_origin_is_visible_without_global_toggle(self):
         document = create_empty_part()
         container = document.create_container("Point001", ContainerType.POINT)

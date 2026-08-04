@@ -101,6 +101,7 @@ from PySide6.QtWidgets import (
 
 from zima_cad.model import (
     CombineMode,
+    CoordinateSystem,
     ContainerType,
     EntityKind,
     OriginScope,
@@ -30090,6 +30091,33 @@ class MainWindow(QMainWindow):
             return self._definition_edit_objects[-1]
         return None
 
+    def _definition_preview_coordinate_system(
+        self,
+    ) -> CoordinateSystem | None:
+        """Return the live coordinate system for an uncommitted container."""
+        dialog = self.point_constraint_dialog
+        if dialog is None or dialog.point_object is not None:
+            return None
+        solution = dialog.solution
+        if solution is None:
+            return None
+        rotation_edits = getattr(dialog, "rotation_edits", None)
+        rotation_offset = (
+            tuple(float(edit.value()) for edit in rotation_edits)
+            if rotation_edits
+            else tuple(float(value) for value in dialog.point_rotation())
+        )
+        reference_rotation = self._plane_reference_rotation(
+            dialog.references
+        )
+        return CoordinateSystem(
+            origin=tuple(float(value) for value in solution),
+            rotation=tuple(
+                reference_rotation[index] + rotation_offset[index]
+                for index in range(3)
+            ),
+        )
+
     def _definition_history_boundary(self) -> int:
         if self.document is None:
             return 0
@@ -32599,6 +32627,16 @@ class MainWindow(QMainWindow):
                 editing_object.entity_id
                 if editing_object is not None
                 else None
+            ),
+            preview_coordinate_system=(
+                self._definition_preview_coordinate_system()
+                if editing_object is None
+                else None
+            ),
+            preview_origin_label=(
+                self.point_constraint_dialog.name_edit.text().strip()
+                if self.point_constraint_dialog is not None
+                else "Preview"
             ),
             uncut_component_id=self._active_component_entity_id,
             uncut_component_shape=(

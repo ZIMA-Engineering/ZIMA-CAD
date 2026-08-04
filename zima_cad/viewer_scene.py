@@ -5,6 +5,7 @@ from math import sqrt
 from typing import Any
 
 from zima_cad.model import (
+    CoordinateSystem,
     ContainerType,
     EntityKind,
     PartDocument,
@@ -81,6 +82,8 @@ def build_document_viewer_scene_data(
     show_user_axes: bool = False,
     show_user_planes: bool = False,
     editing_object_id: str | None = None,
+    preview_coordinate_system: CoordinateSystem | None = None,
+    preview_origin_label: str = "Preview",
     uncut_component_id: str | None = None,
     uncut_component_shape: Any | None = None,
     component_documents: dict[str, PartDocument] | None = None,
@@ -210,6 +213,39 @@ def build_document_viewer_scene_data(
             editing_object_id,
             reference_scene_size,
         )
+
+    if preview_coordinate_system is not None:
+        preview_owner_id = "__container_preview_origin__"
+        preview_transform = coordinate_system_transform(
+            preview_coordinate_system
+        )
+        layers.append(
+            transform_viewer_mesh(
+                origin_axes_mesh(
+                    owner_id=preview_owner_id,
+                    length=max(reference_scene_size * 0.075, 2.5),
+                    point_label=f"{preview_origin_label} · Origin",
+                ),
+                preview_transform,
+            )
+        )
+        for plane_index, plane_name in enumerate(
+            ("xy", "yz", "xz"),
+            start=1,
+        ):
+            layers.append(
+                transform_viewer_mesh(
+                    datum_plane_mesh(
+                        owner_id=preview_owner_id,
+                        plane_index=plane_index,
+                        size=max(reference_scene_size * 0.12, 4.0),
+                        plane=plane_name,
+                        label=plane_name.upper(),
+                        screen_constant=True,
+                    ),
+                    preview_transform,
+                )
+            )
 
     if show_document_origin:
         origin_id = _document_origin_id(document)

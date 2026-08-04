@@ -60,6 +60,10 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 
 ## Živé úpravy ve Vlastnostech
 
+- Při vytváření nového kontejneru se ve 3D pohledu ihned zobrazí jeho
+  lokální počátek, barevné osy X/Y/Z a roviny XY/YZ/XZ. Náhled se živě
+  posouvá a otáčí podle zvolených referencí a hodnot `X/Y/Z + RX/RY/RZ`.
+  Po prvním potvrzení jej nahradí skutečný počátek vytvořeného kontejneru.
 - Změna číselné hodnoty, včetně použití šipek `+` a `−`, se okamžitě projeví
   ve 3D pohledu.
 - `Enter` v číselném poli dokončí zadání hodnoty, ale okno nezavře.
