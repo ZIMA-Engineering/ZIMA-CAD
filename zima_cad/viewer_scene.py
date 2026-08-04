@@ -85,6 +85,9 @@ def build_document_viewer_scene_data(
     editing_object_id: str | None = None,
     preview_coordinate_system: CoordinateSystem | None = None,
     preview_origin_label: str = "Preview",
+    preview_plane: str | None = None,
+    preview_plane_size: float | None = None,
+    preview_plane_offset: float = 0.0,
     uncut_component_id: str | None = None,
     uncut_component_shape: Any | None = None,
     component_documents: dict[str, PartDocument] | None = None,
@@ -230,19 +233,39 @@ def build_document_viewer_scene_data(
                 preview_transform,
             )
         )
-        for plane_index, plane_name in enumerate(
-            ("xy", "yz", "xz"),
-            start=1,
-        ):
+        preview_planes = (
+            ()
+            if preview_plane == ""
+            else (preview_plane,)
+            if preview_plane in ("xy", "yz", "xz")
+            else ("xy", "yz", "xz")
+        )
+        plane_indices = {"xy": 1, "yz": 2, "xz": 3}
+        for plane_name in preview_planes:
+            local_plane_offset = {
+                "xy": (0.0, 0.0, preview_plane_offset),
+                "yz": (preview_plane_offset, 0.0, 0.0),
+                "xz": (0.0, preview_plane_offset, 0.0),
+            }[plane_name]
             layers.append(
                 transform_viewer_mesh(
-                    datum_plane_mesh(
-                        owner_id=preview_owner_id,
-                        plane_index=plane_index,
-                        size=max(reference_scene_size * 0.12, 4.0),
-                        plane=plane_name,
-                        label=plane_name.upper(),
-                        screen_constant=True,
+                    transform_viewer_mesh(
+                        datum_plane_mesh(
+                            owner_id=preview_owner_id,
+                            plane_index=plane_indices[plane_name],
+                            size=(
+                                max(float(preview_plane_size), 0.001)
+                                if preview_plane_size is not None
+                                and len(preview_planes) == 1
+                                else max(reference_scene_size * 0.12, 4.0)
+                            ),
+                            plane=plane_name,
+                            label=plane_name.upper(),
+                            screen_constant=preview_plane_size is None,
+                        ),
+                        coordinate_system_transform(
+                            CoordinateSystem(origin=local_plane_offset)
+                        ),
                     ),
                     preview_transform,
                 )

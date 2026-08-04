@@ -6,6 +6,7 @@ from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
 
+from zima_cad.app import MainWindow
 from zima_cad.model import (
     CoordinateSystem,
     EntityKind,
@@ -13,13 +14,14 @@ from zima_cad.model import (
     create_empty_part,
     make_protrusion_shape,
     make_revolve_shape,
+    make_sketch_shape,
 )
 from zima_cad.sketch_model import SketchModel
 
 
 class ProtrusionProfileTests(unittest.TestCase):
     @staticmethod
-    def _build_profile(entities):
+    def _build_profile(entities, profile_offset=0.0):
         document = create_empty_part()
         container = ZimaEntity("Protrusion001", EntityKind.CONTAINER)
         sketch = ZimaEntity(
@@ -41,6 +43,7 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "length_forward": "10",
                 "extent_mode": "one_side",
                 "direction": "forward",
+                "profile_offset": f"{profile_offset:.12g}",
             },
         )
         container.add_child(sketch)
@@ -53,6 +56,35 @@ class ProtrusionProfileTests(unittest.TestCase):
         properties = GProp_GProps()
         brepgprop.VolumeProperties(shape, properties)
         self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
+
+    def test_sketch_profile_offset_is_local_to_its_plane(self):
+        parent = ZimaEntity(
+            "SketchContainer",
+            EntityKind.CONTAINER,
+            coordinate_system=CoordinateSystem(origin=(100.0, 200.0, 300.0)),
+        )
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "profile_offset": "7",
+                "sketch_data": json.dumps(SketchModel.from_editor_data([
+                    {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                    {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+                    {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+                ]).to_dict()),
+            },
+        )
+        parent.add_child(sketch)
+
+        shape = make_sketch_shape(parent, sketch)
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        _xmin, ymin, _zmin, _xmax, ymax, _zmax = bounds.Get()
+        self.assertAlmostEqual(ymin, 207.0, places=6)
+        self.assertAlmostEqual(ymax, 207.0, places=6)
 
     def test_closed_profile_can_include_center_arc(self):
         self.assertHasVolume(self._build_profile([
@@ -101,7 +133,7 @@ class ProtrusionProfileTests(unittest.TestCase):
             },
         ]))
 
-    def test_front_xz_profile_extrudes_in_positive_y(self):
+    def test_front_xz_profile_extrudes_from_profile_offset(self):
         shape = self._build_profile([
             {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
             {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
@@ -111,16 +143,62 @@ class ProtrusionProfileTests(unittest.TestCase):
             {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
             {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
             {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
-        ])
+        ], profile_offset=25.0)
         bounds = Bnd_Box()
         brepbndlib.Add(shape, bounds)
         xmin, ymin, zmin, xmax, ymax, zmax = bounds.Get()
         self.assertAlmostEqual(xmin, 0.0, places=6)
         self.assertAlmostEqual(xmax, 10.0, places=6)
-        self.assertAlmostEqual(ymin, 0.0, places=6)
-        self.assertAlmostEqual(ymax, 10.0, places=6)
+        self.assertAlmostEqual(ymin, 25.0, places=6)
+        self.assertAlmostEqual(ymax, 35.0, places=6)
         self.assertAlmostEqual(zmin, 0.0, places=6)
         self.assertAlmostEqual(zmax, 20.0, places=6)
+
+    def test_protrusion_dimension_starts_on_offset_profile_plane(self):
+        document = create_empty_part()
+        container = ZimaEntity(
+            "Protrusion001",
+            EntityKind.CONTAINER,
+            coordinate_system=CoordinateSystem(origin=(100.0, 200.0, 300.0)),
+        )
+        sketch = ZimaEntity(
+            "Sketch001",
+            EntityKind.SKETCH,
+            parameters={"plane": "xz"},
+        )
+        feature = ZimaEntity(
+            "Protrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "10",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "profile_offset": "25",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        class DimensionContext:
+            _protrusion_dimension_axes = staticmethod(
+                MainWindow._protrusion_dimension_axes
+            )
+
+            def __init__(self, active_document):
+                self.document = active_document
+
+        dimensions = MainWindow._primitive_dimensions(
+            DimensionContext(document),
+            feature,
+        )
+
+        self.assertEqual(len(dimensions), 1)
+        dimension = dimensions[0]
+        self.assertEqual(dimension.key, "length_forward")
+        self.assertEqual(dimension.first_point, (100.0, 225.0, 300.0))
+        self.assertEqual(dimension.second_point, (100.0, 235.0, 300.0))
 
     def test_external_sketch_lends_geometry_not_placement(self):
         entities = [
@@ -229,6 +307,7 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "sketch_id": sketch.entity_id,
                 "angle": "360",
                 "direction": "forward",
+                "profile_offset": "15",
             },
         )
         container.add_child(sketch)
@@ -244,6 +323,10 @@ class ProtrusionProfileTests(unittest.TestCase):
             3000.0 * 3.141592653589793,
             places=5,
         )
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        _xmin, ymin, _zmin, _xmax, ymax, _zmax = bounds.Get()
+        self.assertAlmostEqual((ymin + ymax) * 0.5, 15.0, places=6)
 
         feature.parameters.update({
             "angle": "180",

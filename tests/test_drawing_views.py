@@ -72,12 +72,12 @@ class DrawingViewConventionTests(unittest.TestCase):
         secondary = {"type": "edge", "key": "edge", "label": "Edge"}
         expanded = MainWindow._expanded_container_frame_references([{
             "type": "container_orientation",
+            "work_plane_offset": 12.5,
             "mappings": [
                 {
                     "slot": "primary",
                     "reference": primary,
                     "role": "back",
-                    "offset": 12.5,
                 },
                 {
                     "slot": "secondary",
@@ -88,10 +88,178 @@ class DrawingViewConventionTests(unittest.TestCase):
         }])
 
         self.assertEqual(expanded[0]["orientation_role"], "opposite_normal")
-        self.assertEqual(expanded[0]["offset"], -12.5)
-        self.assertNotIn("position_role", expanded[0])
+        self.assertEqual(expanded[0]["position_role"], "orientation_only")
         self.assertEqual(expanded[1]["orientation_role"], "right")
         self.assertEqual(expanded[1]["position_role"], "orientation_only")
+        self.assertEqual(MainWindow._container_plane_offset([{
+            "type": "container_orientation",
+            "work_plane_offset": 12.5,
+        }]), 12.5)
+
+    def test_container_frame_marks_slots_without_copying_position_references(self):
+        position = {
+            "type": "entity",
+            "key": "position",
+            "orientation_role": "up",
+            "orientation_drives_rotation": True,
+        }
+        front = {"type": "face", "key": "front"}
+        expanded = MainWindow._expanded_container_frame_references([
+            position,
+            {
+                "type": "container_orientation",
+                "mappings": [{
+                    "slot": "primary",
+                    "reference": front,
+                    "role": "front",
+                }],
+            },
+        ])
+
+        self.assertEqual(expanded[0]["orientation_role"], "up")
+        self.assertTrue(expanded[0]["orientation_drives_rotation"])
+        self.assertEqual(
+            expanded[1]["container_orientation_slot"], "primary"
+        )
+        self.assertEqual(expanded[1]["orientation_role"], "normal")
+
+    def test_explicit_frame_drives_rotation_instead_of_position_roles(self):
+        class RotationHarness:
+            _normalized_vector = staticmethod(MainWindow._normalized_vector)
+            _cross_product = staticmethod(MainWindow._cross_product)
+
+            @staticmethod
+            def _orientation_reference_vector(
+                descriptor,
+                *,
+                allow_frame_fallback,
+            ):
+                return tuple(descriptor["direction"])
+
+        rotation = MainWindow._plane_reference_rotation(
+            RotationHarness(),
+            [
+                {
+                    "type": "fixed_direction",
+                    "direction": (1.0, 0.0, 0.0),
+                    "orientation_role": "up",
+                },
+                {
+                    "type": "fixed_direction",
+                    "direction": (0.0, 1.0, 0.0),
+                    "orientation_role": "normal",
+                    "container_orientation_slot": "primary",
+                },
+            ],
+        )
+
+        for value in rotation:
+            self.assertAlmostEqual(value, 0.0)
+
+    def test_datum_plane_is_parallel_to_explicit_front_reference(self):
+        class DatumHarness:
+            _normalized_vector = staticmethod(MainWindow._normalized_vector)
+            _cross_product = staticmethod(MainWindow._cross_product)
+            _local_plane_for_normal = staticmethod(
+                MainWindow._local_plane_for_normal
+            )
+            _datum_frame_references = staticmethod(
+                MainWindow._datum_frame_references
+            )
+            _plane_reference_rotation = MainWindow._plane_reference_rotation
+
+            @staticmethod
+            def _orientation_reference_vector(
+                descriptor,
+                *,
+                allow_frame_fallback,
+            ):
+                return tuple(descriptor["direction"])
+
+        source_normal = (0.2, 0.4, 0.8944271909999159)
+        plane, rotation = MainWindow._datum_plane_frame(
+            DatumHarness(),
+            [{
+                "type": "fixed_direction",
+                "direction": source_normal,
+                "orientation_role": "normal",
+                "container_orientation_slot": "primary",
+            }],
+            "xy",
+        )
+        local_normal = {
+            "xy": (0.0, 0.0, 1.0),
+            "yz": (1.0, 0.0, 0.0),
+            "xz": (0.0, 1.0, 0.0),
+        }[plane]
+        transform = coordinate_system_transform(
+            CoordinateSystem(rotation=rotation)
+        )
+        world_normal = tuple(
+            sum(transform[row][column] * local_normal[column]
+                for column in range(3))
+            for row in range(3)
+        )
+        agreement = abs(sum(
+            world_normal[index] * source_normal[index]
+            for index in range(3)
+        ))
+        self.assertAlmostEqual(agreement, 1.0, places=7)
+
+    def test_front_offset_does_not_override_locked_container_origin(self):
+        class ConstraintHarness:
+            document = None
+
+            @staticmethod
+            def _resolved_shape_reference_equations(_descriptor):
+                return None
+
+        origin = {
+            "type": "vertex",
+            "equations": [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+        }
+        front = {
+            "type": "face",
+            "equations": [[0.0, 0.0, 1.0, 0.0]],
+        }
+        solution, dof, _status, _constrained = (
+            MainWindow._solve_point_constraints(
+                ConstraintHarness(),
+                [
+                    origin,
+                    {
+                        "type": "container_orientation",
+                        "work_plane_offset": 25.0,
+                        "mappings": [{
+                            "slot": "primary",
+                            "reference": front,
+                            "role": "front",
+                        }],
+                    },
+                ],
+            )
+        )
+
+        self.assertEqual(solution, (0.0, 0.0, 0.0))
+        self.assertEqual(dof, 0)
+
+    def test_plane_offset_is_stored_along_its_local_normal(self):
+        self.assertEqual(
+            MainWindow._plane_local_offset("xy", 6.0),
+            (0.0, 0.0, 6.0),
+        )
+        self.assertEqual(
+            MainWindow._plane_local_offset("yz", 6.0),
+            (6.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            MainWindow._plane_local_offset("xz", 6.0),
+            (0.0, 6.0, 0.0),
+        )
 
     def test_rotation_offsets_are_composed_in_local_container_frame(self):
         base = (25.0, -35.0, 40.0)

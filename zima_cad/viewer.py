@@ -4281,10 +4281,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         for index in range(97)
                     )
                 ])
-                circle_pen = QPen(
-                    cyan if selected else
-                    QColor("#FF7A00") if previewed else yellow,
-                    3.0 if selected or previewed else 2.0,
+                auxiliary_circle = (
+                    entity.get("role") == "construction"
+                )
+                circle_pen = (
+                    highlighted_auxiliary(cyan)
+                    if auxiliary_circle and selected
+                    else highlighted_auxiliary(QColor("#FF7A00"))
+                    if auxiliary_circle and previewed
+                    else auxiliary_line
+                    if auxiliary_circle
+                    else QPen(
+                        cyan
+                        if selected
+                        else QColor("#FF7A00")
+                        if previewed
+                        else yellow,
+                        3.0 if selected or previewed else 2.0,
+                    )
                 )
                 painter.setPen(circle_pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)

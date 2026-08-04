@@ -1777,7 +1777,11 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     # An external sketch lends its 2D geometry, not its placement.  The
     # Protrusion container's plane/reference frame owns the resulting feature.
     plane = str(sketch.parameters.get("plane", "xz"))
-    plane_transform = sketch_plane_transform(plane)
+    profile_offset = float(parameters.get("profile_offset", 0.0))
+    plane_transform = multiply_transforms(
+        sketch_plane_offset_transform(plane, profile_offset),
+        sketch_plane_transform(plane),
+    )
     extrusion_direction = {
         "xy": (0.0, 0.0, 1.0),
         "xz": (0.0, 1.0, 0.0),
@@ -1902,8 +1906,11 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
         signed_angles = (
             (-angle,) if rotation_direction == "reverse" else (angle,)
         )
-    plane_transform = sketch_plane_transform(
-        str(sketch.parameters.get("plane", "xz"))
+    plane = str(sketch.parameters.get("plane", "xz"))
+    profile_offset = float(parameters.get("profile_offset", 0.0))
+    plane_transform = multiply_transforms(
+        sketch_plane_offset_transform(plane, profile_offset),
+        sketch_plane_transform(plane),
     )
     axis_point = transform_point(
         plane_transform,
@@ -2091,6 +2098,18 @@ def sketch_plane_transform(
             (0.0, 1.0, 0.0, 0.0),
         ),
     }.get(plane, identity_transform())
+
+
+def sketch_plane_offset_transform(
+    plane: str,
+    offset: float,
+) -> tuple[tuple[float, float, float, float], ...]:
+    origin = {
+        "xy": (0.0, 0.0, offset),
+        "yz": (offset, 0.0, 0.0),
+        "xz": (0.0, offset, 0.0),
+    }.get(plane, (0.0, 0.0, offset))
+    return coordinate_system_transform(CoordinateSystem(origin=origin))
 
 
 def coordinate_system_transform(
@@ -2462,8 +2481,13 @@ def protrusion_face_registry(
         for entity in sketch_entities
         if isinstance(entity, dict) and entity.get("type") == "point"
     }
-    plane_transform = sketch_plane_transform(
-        str(sketch.parameters.get("plane", "xz"))
+    plane = str(sketch.parameters.get("plane", "xz"))
+    plane_transform = multiply_transforms(
+        sketch_plane_offset_transform(
+            plane,
+            float(feature.parameters.get("profile_offset", 0.0)),
+        ),
+        sketch_plane_transform(plane),
     )
     forward = max(
         0.0,
@@ -2950,7 +2974,14 @@ def revolve_face_registry(
     axis_ids = tuple(map(str, axis_geometry.get("point_ids", ())))
     if len(axis_ids) != 2 or any(point_id not in points for point_id in axis_ids):
         return registry
-    plane_transform = sketch_plane_transform(str(sketch.parameters.get("plane", "xz")))
+    plane = str(sketch.parameters.get("plane", "xz"))
+    plane_transform = multiply_transforms(
+        sketch_plane_offset_transform(
+            plane,
+            float(feature.parameters.get("profile_offset", 0.0)),
+        ),
+        sketch_plane_transform(plane),
+    )
     axis_start = transform_point(plane_transform, (*points[axis_ids[0]], 0.0))
     axis_end = transform_point(plane_transform, (*points[axis_ids[1]], 0.0))
     axis_direction = normalized(tuple(axis_end[i] - axis_start[i] for i in range(3)))
@@ -3897,6 +3928,7 @@ def make_sketch_shape(
     parent: ZimaEntity,
     sketch: ZimaEntity,
     parent_transform: tuple[tuple[float, float, float, float], ...] | None = None,
+    plane_offset: float | None = None,
 ):
     if sketch.kind != EntityKind.SKETCH:
         return None
@@ -4124,8 +4156,15 @@ def make_sketch_shape(
             parent_transform
             or coordinate_system_transform(parent.coordinate_system)
         )
-        plane_transform = sketch_plane_transform(
-            str(sketch.parameters.get("plane", "xy"))
+        plane = str(sketch.parameters.get("plane", "xy"))
+        effective_offset = float(
+            sketch.parameters.get("profile_offset", 0.0)
+            if plane_offset is None
+            else plane_offset
+        )
+        plane_transform = multiply_transforms(
+            sketch_plane_offset_transform(plane, effective_offset),
+            sketch_plane_transform(plane),
         )
         return transform_shape(
             compound,
@@ -4144,7 +4183,16 @@ def make_sketch_shape(
 
     circle = gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), normal), diameter / 2.0)
     shape = BRepBuilderAPI_MakeEdge(circle).Edge()
-    transform = parent_transform or coordinate_system_transform(parent.coordinate_system)
+    effective_offset = float(
+        sketch.parameters.get("profile_offset", 0.0)
+        if plane_offset is None
+        else plane_offset
+    )
+    transform = multiply_transforms(
+        parent_transform
+        or coordinate_system_transform(parent.coordinate_system),
+        sketch_plane_offset_transform(plane, effective_offset),
+    )
     return transform_shape(shape, transform)
 
 

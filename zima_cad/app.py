@@ -59,7 +59,6 @@ from PySide6.QtCore import (
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QAbstractItemView,
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
@@ -472,6 +471,18 @@ def position_dialog_top_right(dialog: QDialog) -> None:
 
 
 def position_dialog_top_right_after_show(dialog: QDialog) -> None:
+    if (
+        dialog.windowFlags() & Qt.WindowType.SubWindow
+        and not bool(dialog.property("compactPropertiesWidthApplied"))
+    ):
+        dialog.setProperty("compactPropertiesWidthApplied", True)
+        compact_width = max(320, int(round(dialog.width() * 0.8)))
+        compact_minimum = max(
+            320,
+            int(round(dialog.minimumWidth() * 0.8)),
+        )
+        dialog.setMinimumWidth(compact_minimum)
+        dialog.resize(max(compact_width, compact_minimum), dialog.height())
     # Some window managers replace the requested geometry while mapping the
     # window. Reapply it after both the first and the settled event cycle.
     position_dialog_top_right(dialog)
@@ -1256,6 +1267,13 @@ class PointConstraintDialog(QDialog):
         )
         self.reference_status_label.setWordWrap(True)
         layout.addWidget(self.reference_status_label)
+        placement_heading = QLabel(
+            tr("dialog.container_properties.placement_section")
+        )
+        placement_heading_font = placement_heading.font()
+        placement_heading_font.setBold(True)
+        placement_heading.setFont(placement_heading_font)
+        layout.addWidget(placement_heading)
         self._normalize_reference_orientation_roles()
         self.reference_list = QTableWidget(0, 3)
         reference_row_height = 34
@@ -1422,6 +1440,23 @@ class PointConstraintDialog(QDialog):
         self.adjustSize()
 
     def eventFilter(self, watched, event) -> bool:
+        if (
+            isinstance(watched, QWidget)
+            and bool(watched.property("positionReferenceOffset"))
+            and event.type()
+            in (QEvent.Type.MouseButtonPress, QEvent.Type.FocusIn)
+        ):
+            activate_position = getattr(
+                self,
+                "_activate_position_reference_selection",
+                None,
+            )
+            if callable(activate_position):
+                activate_position(
+                    highlighted_key=str(
+                        watched.property("positionReferenceKey") or ""
+                    )
+                )
         if watched is getattr(self, "_internal_title_bar", None):
             if (
                 event.type() == QEvent.Type.MouseButtonPress
@@ -1594,6 +1629,16 @@ class PointConstraintDialog(QDialog):
         offset.valueChanged.connect(
             lambda value, descriptor=reference:
                 self._set_reference_offset(descriptor, value)
+        )
+        offset.installEventFilter(self)
+        offset.lineEdit().installEventFilter(self)
+        offset.setProperty("positionReferenceOffset", True)
+        offset.lineEdit().setProperty("positionReferenceOffset", True)
+        reference_key = str(reference.get("key", ""))
+        offset.setProperty("positionReferenceKey", reference_key)
+        offset.lineEdit().setProperty(
+            "positionReferenceKey",
+            reference_key,
         )
         self.reference_list.setCellWidget(row, 2, offset)
 
@@ -2023,6 +2068,13 @@ class PointConstraintDialog(QDialog):
     def _reference_cell_clicked(self, row: int, column: int) -> None:
         if column != 1 or not 0 <= row < len(self.references):
             return
+        activate_position = getattr(
+            self,
+            "_activate_position_reference_selection",
+            None,
+        )
+        if callable(activate_position):
+            activate_position(highlight_references=False)
         key = str(self.references[row].get("key", ""))
         if key in self.highlighted_reference_keys:
             self.highlighted_reference_keys.remove(key)
@@ -2045,6 +2097,13 @@ class PointConstraintDialog(QDialog):
     def _remove_reference_at(self, row: int) -> None:
         if not 0 <= row < len(self.references):
             return
+        activate_position = getattr(
+            self,
+            "_activate_position_reference_selection",
+            None,
+        )
+        if callable(activate_position):
+            activate_position()
         removed_key = str(self.references[row].get("key", ""))
         self._references_being_removed.add(removed_key)
         self.highlighted_reference_keys.discard(removed_key)
@@ -2223,7 +2282,43 @@ class PointConstraintDialog(QDialog):
 
     def _apply(self) -> None:
         if self._submit():
+            self._clear_confirmed_reference_selection()
             self.applied.emit()
+
+    def _clear_confirmed_reference_selection(self) -> None:
+        """Finish either reference-picking table after Apply/middle click."""
+        orientation_was_active = bool(
+            getattr(self, "_active_container_orientation_row", None)
+            is not None
+            or getattr(self, "_pending_container_orientation_row", None)
+            is not None
+        )
+        self.highlighted_reference_keys.clear()
+        self.reference_list.clearSelection()
+        self.reference_list.setCurrentCell(-1, -1)
+        if hasattr(self, "_orientation_highlighted_reference_keys"):
+            self._orientation_highlighted_reference_keys.clear()
+        if hasattr(self, "_active_container_orientation_row"):
+            self._active_container_orientation_row = None
+        if hasattr(self, "_pending_container_orientation_row"):
+            self._pending_container_orientation_row = None
+        refresh_orientation = getattr(
+            self,
+            "_refresh_container_orientation_controls",
+            None,
+        )
+        if callable(refresh_orientation):
+            refresh_orientation()
+        self._refresh_reference_item_warnings()
+        parent = self.parent()
+        if orientation_was_active and hasattr(
+            parent,
+            "_container_orientation_selection_changed",
+        ):
+            parent._container_orientation_selection_changed(False)
+        if hasattr(parent, "_reference_selection_confirmed"):
+            parent._reference_selection_confirmed()
+        self.definitionChanged.emit()
 
 
 class AxisConstraintDialog(PointConstraintDialog):
@@ -2528,23 +2623,70 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         self._update_window_title()
 
     def _install_container_orientation_controls(self) -> None:
-        self.container_orientation_buttons: list[QPushButton] = []
         self.container_orientation_roles: list[QComboBox] = []
         self._container_orientation_references: list[
             dict[str, Any] | None
         ] = [None, None]
+        self._orientation_highlighted_reference_keys: set[str] = set()
         self._active_container_orientation_row: int | None = None
-        orientation_layout = QVBoxLayout()
+        self._pending_container_orientation_row: int | None = None
+        self.container_orientation_table = QTableWidget(2, 3)
+        self.container_orientation_table.setHorizontalHeaderLabels(
+            [
+                "",
+                tr("dialog.point_constraints.reference"),
+                "FRONT / TOP",
+            ]
+        )
+        self.container_orientation_table.horizontalHeader().setSectionResizeMode(
+            0,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+        self.container_orientation_table.horizontalHeader().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        self.container_orientation_table.horizontalHeader().setSectionResizeMode(
+            2,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+        self.container_orientation_table.verticalHeader().setVisible(False)
+        self.container_orientation_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.container_orientation_table.setStyleSheet(
+            "QTableWidget { gridline-color: palette(mid); }"
+        )
+        row_height = 34
+        self.container_orientation_table.verticalHeader().setDefaultSectionSize(
+            row_height
+        )
+        self.container_orientation_table.verticalHeader().setMinimumSectionSize(
+            row_height
+        )
         for index in range(2):
-            reference_button = QPushButton("—")
-            reference_button.setCheckable(True)
-            reference_button.setStyleSheet(
-                "QPushButton { text-align: left; padding: 5px 8px; }"
-                "QPushButton:checked { border: 2px solid #00d1ff; }"
+            remove_button = QPushButton("×")
+            remove_button.setToolTip(
+                tr("dialog.point_constraints.delete_reference")
             )
-            reference_button.clicked.connect(
+            remove_button.setFixedSize(30, 30)
+            remove_button.setStyleSheet(
+                "QPushButton { color: #ffffff; background: #8b2424;"
+                " border: 1px solid #b94a4a; border-radius: 4px;"
+                " font-size: 18px; font-weight: 700; padding: 0; }"
+                "QPushButton:hover { background: #b83232;"
+                " border-color: #ed7777; }"
+                "QPushButton:pressed { background: #6f1d1d; }"
+            )
+            remove_button.clicked.connect(
                 lambda _checked=False, row=index:
-                    self._activate_container_orientation_row(row)
+                    self._clear_container_orientation_reference(row)
+            )
+            self.container_orientation_table.setCellWidget(
+                index, 0, remove_button
+            )
+            self.container_orientation_table.setItem(
+                index, 1, QTableWidgetItem("—")
             )
             role_combo = QComboBox()
             roles = (
@@ -2562,32 +2704,52 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             role_combo.currentIndexChanged.connect(
                 self._container_orientation_changed
             )
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(reference_button, 1)
-            row_layout.addWidget(role_combo)
-            if index == 0:
-                self.container_orientation_offset = QDoubleSpinBox()
-                self.container_orientation_offset.setRange(
-                    -1_000_000_000.0, 1_000_000_000.0
-                )
-                self.container_orientation_offset.setDecimals(
-                    self.decimal_places
-                )
-                self.container_orientation_offset.setSuffix(" mm")
-                self.container_orientation_offset.valueChanged.connect(
-                    self._container_orientation_changed
-                )
-                row_layout.addWidget(self.container_orientation_offset)
-            orientation_layout.addWidget(row_widget)
-            self.container_orientation_buttons.append(reference_button)
+            self.container_orientation_table.setCellWidget(
+                index, 2, role_combo
+            )
             self.container_orientation_roles.append(role_combo)
+        self.container_orientation_table.cellClicked.connect(
+            self._container_orientation_cell_clicked
+        )
+        table_height = (
+            self.container_orientation_table.horizontalHeader().sizeHint().height()
+            + row_height * 2
+            + self.container_orientation_table.frameWidth() * 2
+        )
+        self.container_orientation_table.setFixedHeight(table_height)
+        self.container_plane_offset = QDoubleSpinBox()
+        self.container_plane_offset.setRange(
+            -1_000_000_000.0, 1_000_000_000.0
+        )
+        self.container_plane_offset.setDecimals(self.decimal_places)
+        self.container_plane_offset.setSuffix(" mm")
+        self.container_plane_offset.valueChanged.connect(
+            self._container_orientation_changed
+        )
+        plane_offset_layout = QFormLayout()
+        plane_offset_layout.addRow(
+            tr("dialog.container_properties.work_plane_offset"),
+            self.container_plane_offset,
+        )
         dialog_layout = self.layout()
         if isinstance(dialog_layout, QVBoxLayout):
+            orientation_heading = QLabel(
+                tr("dialog.container_properties.orientation_section")
+            )
+            orientation_heading_font = orientation_heading.font()
+            orientation_heading_font.setBold(True)
+            orientation_heading.setFont(orientation_heading_font)
+            dialog_layout.insertWidget(
+                dialog_layout.count() - 1,
+                orientation_heading,
+            )
+            dialog_layout.insertWidget(
+                dialog_layout.count() - 1,
+                self.container_orientation_table,
+            )
             dialog_layout.insertLayout(
                 dialog_layout.count() - 1,
-                orientation_layout,
+                plane_offset_layout,
             )
         stored = self._stored_container_orientation or {}
         mappings = stored.get("mappings", ())
@@ -2608,10 +2770,18 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                     self.container_orientation_roles[index].setCurrentIndex(
                         role_index
                     )
-                if index == 0:
-                    self.container_orientation_offset.setValue(
-                        float(mapping.get("offset", 0.0))
-                    )
+        self.container_plane_offset.setValue(
+            float(stored.get("work_plane_offset", 0.0))
+        )
+        if self.edit_mode:
+            # Reopening properties starts neutral. Stored references remain
+            # visible, but no table owns the viewport selection until the
+            # user explicitly clicks one of its rows.
+            self.highlighted_reference_keys.clear()
+            self._orientation_highlighted_reference_keys.clear()
+            self.reference_list.clearSelection()
+            self.reference_list.setCurrentCell(-1, -1)
+            self._refresh_reference_item_warnings()
         self._refresh_container_orientation_controls()
 
     def _references_with_container_orientation(self) -> list[dict[str, Any]]:
@@ -2619,6 +2789,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             *self.references,
             {
                 "type": "container_orientation",
+                "work_plane_offset": self.container_plane_offset.value(),
                 "mappings": [
                     {
                         "slot": slot,
@@ -2626,10 +2797,6 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                             index
                         ],
                         "role": str(role.currentData()),
-                        **(
-                            {"offset": self.container_orientation_offset.value()}
-                            if index == 0 else {}
-                        ),
                     }
                     for index, (slot, role) in enumerate(
                         zip(("primary", "secondary"), self.container_orientation_roles)
@@ -2639,22 +2806,106 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         ]
 
     def _refresh_container_orientation_controls(self, _value: int = -1) -> None:
-        if not hasattr(self, "container_orientation_buttons"):
+        if not hasattr(self, "container_orientation_table"):
             return
         for index in range(2):
             reference = self._container_orientation_references[index]
-            self.container_orientation_buttons[index].setText(
+            item = self.container_orientation_table.item(index, 1)
+            if item is None:
+                continue
+            item.setText(
                 str(reference.get("label", "—"))
-                if reference is not None else "—"
+                if reference is not None
+                else "—"
+            )
+            active = index in (
+                self._active_container_orientation_row,
+                self._pending_container_orientation_row,
+            )
+            item.setBackground(
+                QBrush(QColor("#00d1ff")) if active else QBrush()
+            )
+            item.setForeground(
+                QBrush(QColor("#102027")) if active else QBrush()
             )
 
+    def _container_orientation_cell_clicked(
+        self,
+        row: int,
+        column: int,
+    ) -> None:
+        if column == 1 and row in (0, 1):
+            self._activate_container_orientation_row(row)
+
+    def _clear_container_orientation_reference(self, row: int) -> None:
+        if row not in (0, 1):
+            return
+        self._container_orientation_references[row] = None
+        self._activate_container_orientation_row(row)
+        self._refresh_container_orientation_controls()
+        self._update_solution()
+
     def _activate_container_orientation_row(self, row: int) -> None:
+        # Arm the viewport on the next event-loop turn.  The click which
+        # activates this button must never be reused as a geometry pick.
+        self._active_container_orientation_row = None
+        self._pending_container_orientation_row = row
+        self.reference_list.clearSelection()
+        self.reference_list.setCurrentCell(-1, -1)
+        self.highlighted_reference_keys = set()
+        self._orientation_highlighted_reference_keys = {
+            str(reference.get("key", ""))
+            for reference in self._container_orientation_references
+            if reference is not None
+        }
+        self._refresh_reference_item_warnings()
+        self._refresh_container_orientation_controls()
+        self.definitionChanged.emit()
+        QTimer.singleShot(
+            0,
+            lambda selected_row=row:
+                self._arm_container_orientation_row(selected_row),
+        )
+
+    def _arm_container_orientation_row(self, row: int) -> None:
+        if self._pending_container_orientation_row != row:
+            return
+        self._pending_container_orientation_row = None
         self._active_container_orientation_row = row
-        for index, button in enumerate(self.container_orientation_buttons):
-            button.setChecked(index == row)
         parent = self.parent()
         if hasattr(parent, "_container_orientation_selection_changed"):
             parent._container_orientation_selection_changed(True)
+
+    def _activate_position_reference_selection(
+        self,
+        *,
+        highlight_references: bool = True,
+        highlighted_key: str = "",
+    ) -> None:
+        """Leave frame picking and make construction references active."""
+        was_active = self._active_container_orientation_row is not None
+        self._active_container_orientation_row = None
+        self._pending_container_orientation_row = None
+        self.highlighted_reference_keys = (
+            {highlighted_key}
+            if highlighted_key
+            else {
+                str(reference.get("key", ""))
+                for reference in self.references
+            }
+            if highlight_references
+            else set()
+        )
+        self._orientation_highlighted_reference_keys = set()
+        self._refresh_container_orientation_controls()
+        self._refresh_reference_item_warnings()
+        parent = self.parent()
+        if was_active and hasattr(
+            parent,
+            "_container_orientation_selection_changed",
+        ):
+            parent._container_orientation_selection_changed(False)
+        self.definitionChanged.emit()
 
     def _assign_container_orientation_reference(
         self, reference: dict[str, Any]
@@ -2684,15 +2935,19 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             if callable(checker) and not checker([other], reference):
                 return False
         self._container_orientation_references[row] = dict(reference)
-        self.highlighted_reference_keys.add(str(reference.get("key", "")))
-        self._active_container_orientation_row = None
-        for button in self.container_orientation_buttons:
-            button.setChecked(False)
+        self._orientation_highlighted_reference_keys = {
+            str(item.get("key", ""))
+            for item in self._container_orientation_references
+            if item is not None
+        }
         self._refresh_container_orientation_controls()
-        parent = self.parent()
-        if hasattr(parent, "_container_orientation_selection_changed"):
-            parent._container_orientation_selection_changed(False)
         self._update_solution()
+        self.definitionChanged.emit()
+        parent = self.parent()
+        if hasattr(parent, "_container_orientation_reference_assigned"):
+            parent._container_orientation_reference_assigned(self, row)
+        if row == 0:
+            self._activate_container_orientation_row(1)
         return True
 
     def container_orientation_selection_active(self) -> bool:
@@ -2737,6 +2992,8 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self._refresh_reference_orientation_combos()
 
     def _add_reference(self, reference: dict[str, Any]) -> None:
+        if self._pending_container_orientation_row is not None:
+            return
         if self._active_container_orientation_row is not None:
             self._assign_container_orientation_reference(reference)
             return
@@ -2762,6 +3019,35 @@ class PlaneConstraintDialog(AxisConstraintDialog):
 
     def add_reference(self, reference: ZimaEntity) -> None:
         if reference.kind == EntityKind.ORIGIN:
+            if self._pending_container_orientation_row is not None:
+                return
+            if self._active_container_orientation_row is not None:
+                role = str(
+                    self.container_orientation_roles[
+                        self._active_container_orientation_row
+                    ].currentData()
+                )
+                plane_name = {
+                    "front": "xz",
+                    "back": "xz",
+                    "top": "xy",
+                    "bottom": "xy",
+                    "left": "yz",
+                    "right": "yz",
+                }.get(role)
+                origin_plane = next(
+                    (
+                        child
+                        for child in reference.children
+                        if child.kind == EntityKind.PLANE
+                        and str(child.parameters.get("plane", ""))
+                        == plane_name
+                    ),
+                    None,
+                )
+                if origin_plane is not None:
+                    super().add_reference(origin_plane)
+                return
             # Expand Origin into its datum planes for complete placement.
             super().add_reference(reference)
             return
@@ -3179,6 +3465,15 @@ class SketchConstraintDialog(PlaneConstraintDialog):
         self._update_window_title()
 
     def add_reference(self, reference: ZimaEntity) -> None:
+        if (
+            reference.kind == EntityKind.ORIGIN
+            and (
+                self._active_container_orientation_row is not None
+                or self._pending_container_orientation_row is not None
+            )
+        ):
+            super().add_reference(reference)
+            return
         if reference.kind != EntityKind.ORIGIN:
             super().add_reference(reference)
             return
@@ -8595,6 +8890,7 @@ class MainWindow(QMainWindow):
         )
         if solution is None:
             return False
+        profile_offset = self._container_plane_offset(references)
         if source_mode == "internal":
             internal = next(
                 (
@@ -8617,6 +8913,7 @@ class MainWindow(QMainWindow):
                 str(internal.parameters.get("plane", "xz")),
             )
             internal.parameters["plane"] = sketch_plane
+            internal.parameters["profile_offset"] = f"{profile_offset:.12g}"
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -8656,6 +8953,7 @@ class MainWindow(QMainWindow):
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "operation": operation,
+                "profile_offset": f"{profile_offset:.12g}",
             }
         )
         self.document.sync_generated_axes_for_object(obj)
@@ -8730,6 +9028,7 @@ class MainWindow(QMainWindow):
         )
         if solution is None:
             return False
+        profile_offset = self._container_plane_offset(references)
         if source_mode == "internal":
             internal = next(
                 (
@@ -8752,6 +9051,7 @@ class MainWindow(QMainWindow):
                 str(internal.parameters.get("plane", "xz")),
             )
             internal.parameters["plane"] = sketch_plane
+            internal.parameters["profile_offset"] = f"{profile_offset:.12g}"
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -8791,6 +9091,7 @@ class MainWindow(QMainWindow):
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "operation": operation,
+                "profile_offset": f"{profile_offset:.12g}",
             }
         )
         obj.parameters.update(
@@ -9524,21 +9825,15 @@ class MainWindow(QMainWindow):
                 if not isinstance(source, dict):
                     continue
                 oriented = dict(source)
+                oriented["container_orientation_slot"] = str(
+                    mapping.get("slot", "")
+                )
                 oriented["orientation_role"] = role_map.get(
                     str(mapping.get("role", "")),
                     "none",
                 )
                 oriented["orientation_drives_rotation"] = True
-                if str(mapping.get("slot", "")) == "primary":
-                    offset = float(mapping.get("offset", 0.0))
-                    oriented["offset"] = (
-                        -offset
-                        if str(mapping.get("role", "")) == "back"
-                        else offset
-                    )
-                    oriented.pop("position_role", None)
-                else:
-                    oriented["position_role"] = "orientation_only"
+                oriented["position_role"] = "orientation_only"
                 expanded.append(oriented)
         return expanded
 
@@ -9555,9 +9850,21 @@ class MainWindow(QMainWindow):
         references = MainWindow._expanded_container_frame_references(
             references
         )
+        primary_frame = next(
+            (
+                descriptor
+                for descriptor in references
+                if descriptor.get("container_orientation_slot") == "primary"
+            ),
+            None,
+        )
         equations: list[list[float]] = []
         for descriptor in references:
             if descriptor.get("position_role") == "orientation_only":
+                continue
+            if descriptor is primary_frame:
+                # FRONT controls the internal datum plane, not the container
+                # origin. The upper table remains the sole position solver.
                 continue
             if descriptor.get("type") != "entity":
                 resolved = self._resolved_shape_reference_equations(descriptor)
@@ -10033,7 +10340,12 @@ class MainWindow(QMainWindow):
             else None
         )
         transform = self._world_transform_for_object(owner)
-        return transform_point(transform, (0.0, 0.0, 0.0))
+        local_origin = (
+            reference.coordinate_system.origin
+            if owner is not reference
+            else (0.0, 0.0, 0.0)
+        )
+        return transform_point(transform, local_origin)
 
     def _reference_direction(
         self,
@@ -10408,6 +10720,7 @@ class MainWindow(QMainWindow):
         solution,
     ) -> None:
         plane, base_rotation = self._datum_plane_frame(references, plane)
+        plane_offset = self._container_plane_offset(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = self._rotation_with_local_offset(
@@ -10416,6 +10729,10 @@ class MainWindow(QMainWindow):
         obj.show_internal_entities = show_internal
         obj.show_auxiliary_geometry = show_auxiliary
         entity.name = name
+        entity.coordinate_system.origin = self._plane_local_offset(
+            plane,
+            plane_offset,
+        )
         entity.tree_exposure = TreeExposure.INTERNAL
         entity.parameters.update(
             {
@@ -10432,6 +10749,35 @@ class MainWindow(QMainWindow):
                 "rotation_offset_y": f"{rotation[1]:.12g}",
                 "rotation_offset_z": f"{rotation[2]:.12g}",
             }
+        )
+
+    @staticmethod
+    def _plane_local_offset(
+        plane: str,
+        offset: float,
+    ) -> tuple[float, float, float]:
+        return {
+            "xy": (0.0, 0.0, offset),
+            "yz": (offset, 0.0, 0.0),
+            "xz": (0.0, offset, 0.0),
+        }.get(plane, (0.0, 0.0, offset))
+
+    @staticmethod
+    def _container_plane_offset(
+        references: list[dict[str, Any]],
+    ) -> float:
+        frame = next(
+            (
+                descriptor
+                for descriptor in references
+                if descriptor.get("type") == "container_orientation"
+            ),
+            None,
+        )
+        return (
+            float(frame.get("work_plane_offset", 0.0))
+            if frame is not None
+            else 0.0
         )
 
     @staticmethod
@@ -10457,9 +10803,14 @@ class MainWindow(QMainWindow):
         references = MainWindow._expanded_container_frame_references(
             references
         )
-        oriented = [
+        frame_references = [
             descriptor
             for descriptor in references
+            if descriptor.get("container_orientation_slot")
+        ]
+        oriented = [
+            descriptor
+            for descriptor in (frame_references or references)
             if str(descriptor.get("orientation_role", "none")) != "none"
         ]
         if not oriented:
@@ -10528,6 +10879,11 @@ class MainWindow(QMainWindow):
             for index, descriptor in enumerate(frame_references):
                 if index == primary_index:
                     continue
+                if (
+                    primary.get("container_orientation_slot")
+                    and not descriptor.get("container_orientation_slot")
+                ):
+                    continue
                 assignment = role_axis.get(
                     str(descriptor.get("orientation_role", "none"))
                 )
@@ -10546,6 +10902,12 @@ class MainWindow(QMainWindow):
         references = MainWindow._expanded_container_frame_references(
             references
         )
+        explicit_frame = [
+            descriptor
+            for descriptor in references
+            if descriptor.get("container_orientation_slot")
+        ]
+        orientation_references = explicit_frame or references
         role_axes = {
             "left": (0, 1.0),
             "right": (0, -1.0),
@@ -10555,7 +10917,7 @@ class MainWindow(QMainWindow):
             "down": (2, -1.0),
         }
         axes: dict[int, tuple[float, float, float]] = {}
-        for descriptor in references:
+        for descriptor in orientation_references:
             role = str(descriptor.get("orientation_role", "none"))
             assignment = role_axes.get(role)
             if assignment is None:
@@ -11084,6 +11446,7 @@ class MainWindow(QMainWindow):
         solution,
     ) -> None:
         base_rotation = self._plane_reference_rotation(references)
+        profile_offset = self._container_plane_offset(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = self._rotation_with_local_offset(
@@ -11107,6 +11470,7 @@ class MainWindow(QMainWindow):
                 ),
                 "unit": "mm",
                 "role": SketchRole.PROFILE.value,
+                "profile_offset": f"{profile_offset:.12g}",
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
                 "fallback_x": f"{fallback[0]:.12g}",
@@ -14750,6 +15114,35 @@ class MainWindow(QMainWindow):
             SelectionKind.OBJECT, owner_id
         ):
             return
+        if owner_id and self._container_orientation_selection_is_active():
+            selected_reference = self.document.find_entity(owner_id)
+            if (
+                selected_reference is not None
+                and selected_reference.kind == EntityKind.CONTAINER
+            ):
+                selected_reference = next(
+                    (
+                        child
+                        for child in selected_reference.children
+                        if child.kind == EntityKind.ORIGIN
+                    ),
+                    None,
+                )
+            if (
+                selected_reference is not None
+                and selected_reference.kind
+                in (
+                    EntityKind.ORIGIN,
+                    EntityKind.POINT,
+                    EntityKind.AXIS,
+                    EntityKind.PLANE,
+                )
+                and self.point_constraint_dialog is not None
+            ):
+                self.point_constraint_dialog.add_reference(
+                    selected_reference
+                )
+                return
         self.native_viewer.set_selected_container_contents(set())
         self.native_viewer.set_selected_container_origin(None)
         if not owner_id:
@@ -14922,7 +15315,14 @@ class MainWindow(QMainWindow):
         transform = entity_world_transform(self.document, obj.entity_id)
         if sketch is None or transform is None:
             return
-        shape = make_sketch_shape(obj, sketch, transform)
+        shape = make_sketch_shape(
+            obj,
+            sketch,
+            transform,
+            plane_offset=float(feature.parameters.get("profile_offset", 0.0))
+            if feature is not None
+            else 0.0,
+        )
         self.native_viewer.set_object_overlay(
             triangulate_shape(
                 shape,
@@ -30268,6 +30668,21 @@ class MainWindow(QMainWindow):
         )
 
     def _container_orientation_selection_changed(self, active: bool) -> None:
+        if active:
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._clear_topology_selection()
+                self.native_viewer.set_selected_reference_owner(None)
+                self.native_viewer.set_selected_container_origin(None)
+                self.native_viewer.set_selected_container_contents(set())
+                self.native_viewer.set_object_overlay(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self.tree.blockSignals(True)
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+            self.tree.blockSignals(False)
+            self.selected_object_id = None
         self.native_viewer.set_selection_filter(
             "all" if active else self.view_selection_filter.value
         )
@@ -30277,6 +30692,24 @@ class MainWindow(QMainWindow):
             "Select the frame reference."
             if active else ""
         )
+
+    def _reference_selection_confirmed(self) -> None:
+        """Clear every viewport/tree highlight after reference confirmation."""
+        self.tree.blockSignals(True)
+        self.tree.clearSelection()
+        self.tree.setCurrentItem(None)
+        self.tree.blockSignals(False)
+        self.selected_object_id = None
+        signals_were_blocked = self.native_viewer.blockSignals(True)
+        try:
+            self.native_viewer._clear_topology_selection()
+            self.native_viewer.set_selected_reference_owner(None)
+            self.native_viewer.set_selected_container_origin(None)
+            self.native_viewer.set_selected_container_contents(set())
+            self.native_viewer.set_object_overlay(None)
+            self._sync_constraint_reference_highlights()
+        finally:
+            self.native_viewer.blockSignals(signals_were_blocked)
 
     def _definition_edit_object(self) -> ZimaEntity | None:
         if (
@@ -30304,14 +30737,81 @@ class MainWindow(QMainWindow):
             if rotation_edits
             else tuple(float(value) for value in dialog.point_rotation())
         )
-        reference_rotation = self._plane_reference_rotation(
-            dialog.references
+        solution_references = dialog._solution_references()
+        reference_rotation = (
+            self._datum_plane_frame(
+                solution_references,
+                str(dialog.direction_combo.currentData()),
+            )[1]
+            if type(dialog) is PlaneConstraintDialog
+            and dialog.has_orientation_reference()
+            else self._plane_reference_rotation(solution_references)
         )
         return CoordinateSystem(
             origin=tuple(float(value) for value in solution),
             rotation=self._rotation_with_local_offset(
                 reference_rotation, rotation_offset
             ),
+        )
+
+    def _definition_preview_plane(self) -> str | None:
+        """Show a new datum plane once its primary frame is meaningful."""
+        dialog = self.point_constraint_dialog
+        if type(dialog) is not PlaneConstraintDialog:
+            return None
+        if not dialog.has_orientation_reference():
+            return ""
+        plane = self._datum_plane_frame(
+            dialog._solution_references(),
+            str(dialog.direction_combo.currentData()),
+        )[0]
+        return plane if plane in ("xy", "yz", "xz") else "xy"
+
+    def _definition_preview_plane_size(self) -> float | None:
+        dialog = self.point_constraint_dialog
+        if (
+            type(dialog) is PlaneConstraintDialog
+            and dialog.has_orientation_reference()
+        ):
+            return float(dialog.length_spin.value())
+        return None
+
+    def _definition_preview_plane_offset(self) -> float:
+        dialog = self.point_constraint_dialog
+        if type(dialog) is not PlaneConstraintDialog:
+            return 0.0
+        return self._container_plane_offset(dialog._solution_references())
+
+    def _container_orientation_reference_assigned(
+        self,
+        dialog: PlaneConstraintDialog,
+        row: int,
+    ) -> None:
+        if (
+            row != 0
+            or type(dialog) is not PlaneConstraintDialog
+            or dialog.point_object is not None
+            or bool(getattr(dialog, "_preview_camera_adjusted", False))
+        ):
+            return
+        dialog._preview_camera_adjusted = True
+        plane_size = max(float(dialog.length_spin.value()), 0.001)
+        scene_radius = max(float(self.native_viewer._scene_radius), 1.0e-9)
+        fit_zoom = scene_radius / (plane_size * 0.8)
+        current = self.native_viewer.camera
+        target_zoom = min(float(current.zoom), fit_zoom)
+        if target_zoom >= float(current.zoom) * 0.98:
+            return
+        self.native_viewer.animate_camera_state(
+            CameraState(
+                yaw_degrees=current.yaw_degrees,
+                pitch_degrees=current.pitch_degrees,
+                roll_degrees=current.roll_degrees,
+                pan_x=current.pan_x,
+                pan_y=current.pan_y,
+                zoom=max(target_zoom, 1.0e-4),
+            ),
+            duration_ms=450,
         )
 
     def _definition_history_boundary(self) -> int:
@@ -32159,8 +32659,16 @@ class MainWindow(QMainWindow):
                 value / radial_length * radius
                 for value in radial_direction
             )
-            plane_transform = sketch_plane_transform(
-                str(sketch.parameters.get("plane", "xz"))
+            sketch_plane = str(sketch.parameters.get("plane", "xz"))
+            profile_offset = number("profile_offset", 0.0)
+            plane_transform = multiply_transforms(
+                coordinate_system_transform(CoordinateSystem(
+                    origin=self._plane_local_offset(
+                        sketch_plane,
+                        profile_offset,
+                    )
+                )),
+                sketch_plane_transform(sketch_plane),
             )
 
             def embedded(point_2d):
@@ -32292,6 +32800,11 @@ class MainWindow(QMainWindow):
             extrusion_direction, offset_direction = (
                 self._protrusion_dimension_axes(sketch_plane)
             )
+            profile_offset = number("profile_offset", 0.0)
+            profile_origin = tuple(
+                value * profile_offset
+                for value in extrusion_direction
+            )
             offset = tuple(value * margin for value in offset_direction)
             extent_mode = str(
                 primitive.parameters.get("extent_mode", "one_side")
@@ -32309,8 +32822,12 @@ class MainWindow(QMainWindow):
             if forward > 1.0e-9:
                 specifications.append((
                     "length_forward",
-                    (0.0, 0.0, 0.0),
-                    tuple(value * forward for value in extrusion_direction),
+                    profile_origin,
+                    tuple(
+                        profile_origin[index]
+                        + extrusion_direction[index] * forward
+                        for index in range(3)
+                    ),
                     offset,
                     extrusion_direction,
                 ))
@@ -32320,8 +32837,12 @@ class MainWindow(QMainWindow):
                 )
                 specifications.append((
                     "length_reverse",
-                    (0.0, 0.0, 0.0),
-                    tuple(value * reverse for value in reverse_direction),
+                    profile_origin,
+                    tuple(
+                        profile_origin[index]
+                        + reverse_direction[index] * reverse
+                        for index in range(3)
+                    ),
                     tuple(-value for value in offset),
                     reverse_direction,
                 ))
@@ -32834,6 +33355,9 @@ class MainWindow(QMainWindow):
                 if self.point_constraint_dialog is not None
                 else "Preview"
             ),
+            preview_plane=self._definition_preview_plane(),
+            preview_plane_size=self._definition_preview_plane_size(),
+            preview_plane_offset=self._definition_preview_plane_offset(),
             uncut_component_id=self._active_component_entity_id,
             uncut_component_shape=(
                 self._active_component_document.build_active_shape()
@@ -33173,24 +33697,27 @@ class MainWindow(QMainWindow):
         dialog = self.point_constraint_dialog
         references = (
             [
-                reference
-                for reference in [
-                    *dialog.references,
-                    *(
-                        [
-                            reference for reference in
-                            dialog._container_orientation_references
-                            if reference is not None
-                        ]
-                        if hasattr(
-                            dialog,
-                            "_container_orientation_references",
-                        )
-                        else []
-                    ),
+                *[
+                    reference
+                    for reference in dialog.references
+                    if str(reference.get("key", ""))
+                    in dialog.highlighted_reference_keys
+                ],
+                *[
+                    reference
+                    for reference in getattr(
+                        dialog,
+                        "_container_orientation_references",
+                        (),
+                    )
+                    if reference is not None
+                    and str(reference.get("key", ""))
+                    in getattr(
+                        dialog,
+                        "_orientation_highlighted_reference_keys",
+                        set(),
+                    )
                 ]
-                if str(reference.get("key", ""))
-                in dialog.highlighted_reference_keys
             ]
             if dialog is not None and dialog.isVisible()
             else []
