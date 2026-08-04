@@ -6138,10 +6138,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         threshold = 9.0 * float(self.devicePixelRatioF())
         candidates: list[tuple[str, str, int]] = []
         for marker in mesh.points:
-            if (
-                marker.element_kind == "vertex"
-                and not self._sketch_reference_selection_mode
-            ):
+            if not self._point_marker_is_selectable(marker.element_kind):
                 continue
             screen = self._screen_point(self._camera_point(marker.position))
             if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
@@ -6409,10 +6406,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hits: list[tuple[float, str, int]] = []
         threshold = 9.0 * float(self.devicePixelRatioF())
         for marker in mesh.points:
-            if (
-                marker.element_kind == "vertex"
-                and not self._sketch_reference_selection_mode
-            ):
+            if not self._point_marker_is_selectable(marker.element_kind):
                 continue
             screen = self._screen_point(self._camera_point(marker.position))
             distance = hypot(
@@ -6427,6 +6421,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return None
         selected = min(hits)
         return selected[1], selected[2]
+
+    def _point_marker_is_selectable(self, element_kind: str) -> bool:
+        return (
+            element_kind != "vertex"
+            or self._sketch_reference_selection_mode
+            or self._interaction_mode == "topology"
+        )
 
     def _point_marker_is_visible(self, point: Point3) -> bool:
         mesh = self._mesh

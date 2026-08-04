@@ -84,6 +84,19 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertTrue(visible({**reference, "selected": True}, None, True))
         self.assertTrue(visible(reference, None, False))
 
+    def test_solid_vertices_are_selectable_only_in_topology_mode(self) -> None:
+        class ViewerState:
+            _sketch_reference_selection_mode = False
+            _interaction_mode = "object"
+
+        state = ViewerState()
+        selectable = ZimaOpenGLViewer._point_marker_is_selectable
+        self.assertFalse(selectable(state, "vertex"))
+        state._interaction_mode = "topology"
+        self.assertTrue(selectable(state, "vertex"))
+        state._interaction_mode = "object"
+        self.assertTrue(selectable(state, "datum_point"))
+
     def test_model_display_modes_use_distinct_surface_passes(self) -> None:
         self.assertEqual(_surface_pass_for_display_mode("wire"), "none")
         self.assertEqual(_surface_pass_for_display_mode("hidden_edges"), "depth")
