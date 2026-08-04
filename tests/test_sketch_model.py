@@ -930,6 +930,46 @@ class SketchModelTests(unittest.TestCase):
         self.assertEqual(set(sketch.constraints), {"t1", "t2"})
         self.assertEqual(sketch.geometry["circle"].attributes["radius"], 8.0)
 
+    def test_horizontal_line_can_be_tangent_to_two_equal_circles(self):
+        entities = [
+            {"id": "center1", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "center2", "type": "point", "x": 20.0, "y": 0.0},
+            {
+                "id": "p1", "type": "point", "x": 0.0, "y": 5.0,
+                "curve_attachment": {
+                    "type": "circle", "geometry_id": "circle1", "angle": math.pi / 2,
+                },
+            },
+            {
+                "id": "p2", "type": "point", "x": 20.0, "y": 5.0,
+                "curve_attachment": {
+                    "type": "circle", "geometry_id": "circle2", "angle": math.pi / 2,
+                },
+            },
+            {"id": "circle1", "type": "circle", "point_ids": ["center1"], "radius": 5.0},
+            {"id": "circle2", "type": "circle", "point_ids": ["center2"], "radius": 5.0},
+            {
+                "id": "line", "type": "segment", "point_ids": ["p1", "p2"],
+                "constraints": [
+                    {"type": "tangent", "geometry_id": "circle1", "contact_point_id": "p1"},
+                    {"type": "tangent", "geometry_id": "circle2", "contact_point_id": "p2"},
+                    {"type": "horizontal"},
+                ],
+            },
+        ]
+        model = SketchModel.from_editor_data(entities, [])
+        self.assertTrue(model.solve())
+        self.assertEqual(model.violated_equations(), ())
+
+        lower_entities = copy.deepcopy(entities)
+        for entity in lower_entities:
+            if entity.get("id") in ("p1", "p2"):
+                entity["y"] = -5.0
+                entity["curve_attachment"]["angle"] = -math.pi / 2
+        lower_model = SketchModel.from_editor_data(lower_entities, [])
+        self.assertTrue(lower_model.solve())
+        self.assertEqual(lower_model.violated_equations(), ())
+
     def test_legacy_two_point_circle_loads_as_centre_and_radius(self):
         restored = SketchModel.from_dict({
             "version": 2,

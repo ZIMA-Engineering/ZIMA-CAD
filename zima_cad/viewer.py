@@ -5718,6 +5718,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 elif (
                     self._sketch_preview_constraint is not None
                     and self._sketch_preview_constraint.startswith(
+                        "tangent_both:"
+                    )
+                ):
+                    preview_labels.extend(("T", "C", "T"))
+                elif (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith(
                         ("circle_tangent:", "circle_curve_tangent:")
                     )
                 ):
@@ -6443,7 +6450,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ) in self._sketch_tangent_placement_candidates(position):
             ranked.append((
                 guide_distance,
-                0,
+                -1 if tangent_constraint.startswith("tangent_both:") else 0,
                 (tangent_point, curve_reference_id, tangent_constraint),
             ))
         for guide_distance, guide_point, geometry_id in (
@@ -7418,6 +7425,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             first_entity.get("curve_attachment")
             if first_entity is not None else None
         )
+        first_tangent_curve_id = ""
+        first_tangent_direction: tuple[float, float] | None = None
         # A circle's explicit rim point and an arc's native end points do not
         # need a separate curve_attachment. They are nevertheless valid
         # tangent origins and must produce the same live T candidate as an
@@ -7542,6 +7551,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     -ay * sin(angle) + by * cos(angle),
                 )
             if tangent_direction is not None:
+                first_tangent_curve_id = curve_id
+                first_tangent_direction = tangent_direction
                 guide_end = (
                     first[0] + tangent_direction[0],
                     first[1] + tangent_direction[1],
@@ -7702,11 +7713,44 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     cursor_dx * guide_dy - cursor_dy * guide_dx
                 ) / guide_length
                 if guide_distance <= 14.0:
+                    tangent_constraint = f"tangent:{curve_id}"
+                    if (
+                        first_tangent_curve_id
+                        and first_tangent_curve_id != curve_id
+                        and first_tangent_direction is not None
+                    ):
+                        line_direction = (
+                            tangent_point[0] - first[0],
+                            tangent_point[1] - first[1],
+                        )
+                        direction_scale = max(
+                            hypot(*line_direction)
+                            * hypot(*first_tangent_direction),
+                            1.0e-12,
+                        )
+                        parallel_error = abs(
+                            line_direction[0] * first_tangent_direction[1]
+                            - line_direction[1] * first_tangent_direction[0]
+                        ) / direction_scale
+                        if parallel_error <= 1.0e-6:
+                            direction_constraint = (
+                                "horizontal"
+                                if abs(line_direction[1])
+                                <= max(1.0e-9, abs(line_direction[0]) * 1.0e-7)
+                                else "vertical"
+                                if abs(line_direction[0])
+                                <= max(1.0e-9, abs(line_direction[1]) * 1.0e-7)
+                                else ""
+                            )
+                            tangent_constraint = (
+                                f"tangent_both:{first_tangent_curve_id}:"
+                                f"{curve_id}:{direction_constraint}"
+                            )
                     candidates.append((
                         guide_distance,
                         tangent_point,
                         reference_id,
-                        f"tangent:{curve_id}",
+                        tangent_constraint,
                     ))
         return tuple(sorted(candidates, key=lambda item: item[0]))
 

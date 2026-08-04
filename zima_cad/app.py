@@ -23980,6 +23980,30 @@ class MainWindow(QMainWindow):
             }]
         elif (
             automatic_constraint is not None
+            and automatic_constraint.startswith("tangent_both:")
+            and self._sketch_tool in ("segment", "construction", "polyline")
+            and len(self._sketch_pending_points) >= 2
+        ):
+            parts = automatic_constraint.split(":", 3)
+            if len(parts) == 4:
+                first_curve_id, second_curve_id, direction = parts[1:]
+                constraints: list[dict[str, Any]] = [
+                    {
+                        "type": "tangent",
+                        "geometry_id": first_curve_id,
+                        "contact_point_id": self._sketch_pending_point_ids[0],
+                    },
+                    {
+                        "type": "tangent",
+                        "geometry_id": second_curve_id,
+                        "contact_point_id": point_id,
+                    },
+                ]
+                if direction in ("horizontal", "vertical"):
+                    constraints.append({"type": direction})
+                self._sketch_pending_constraint = constraints
+        elif (
+            automatic_constraint is not None
             and automatic_constraint.startswith(
                 ("tangent:", "tangent_first:")
             )
