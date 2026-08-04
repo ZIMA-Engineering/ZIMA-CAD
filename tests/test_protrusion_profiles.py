@@ -7,6 +7,7 @@ from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
 
 from zima_cad.model import (
+    CoordinateSystem,
     EntityKind,
     ZimaEntity,
     create_empty_part,
@@ -120,6 +121,68 @@ class ProtrusionProfileTests(unittest.TestCase):
         self.assertAlmostEqual(ymax, 10.0, places=6)
         self.assertAlmostEqual(zmin, 0.0, places=6)
         self.assertAlmostEqual(zmax, 20.0, places=6)
+
+    def test_external_sketch_lends_geometry_not_placement(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 10.0, "y": 20.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 20.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        document = create_empty_part()
+        source = ZimaEntity(
+            "SourceSketch",
+            EntityKind.CONTAINER,
+            coordinate_system=CoordinateSystem(
+                origin=(-500.0, 80.0, 40.0),
+                rotation=(20.0, 30.0, 40.0),
+            ),
+        )
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        source.add_child(sketch)
+        target = ZimaEntity(
+            "TargetProtrusion",
+            EntityKind.CONTAINER,
+            coordinate_system=CoordinateSystem(origin=(100.0, 200.0, 300.0)),
+        )
+        target.add_child(ZimaEntity(
+            "Protrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "profile_source": "external",
+                "sketch_id": sketch.entity_id,
+                "length_forward": "10",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        ))
+        document.root.add_child(source)
+        document.root.add_child(target)
+
+        shape = make_protrusion_shape(document, target)
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        xmin, ymin, zmin, xmax, ymax, zmax = bounds.Get()
+        self.assertAlmostEqual(xmin, 100.0, places=6)
+        self.assertAlmostEqual(xmax, 110.0, places=6)
+        self.assertAlmostEqual(ymin, 200.0, places=6)
+        self.assertAlmostEqual(ymax, 210.0, places=6)
+        self.assertAlmostEqual(zmin, 300.0, places=6)
+        self.assertAlmostEqual(zmax, 320.0, places=6)
 
     def test_closed_profile_revolves_around_first_construction_line(self):
         entities = [

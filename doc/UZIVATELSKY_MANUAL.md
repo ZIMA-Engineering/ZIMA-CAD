@@ -53,17 +53,19 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   Vrchol může určit tři posuvné DOF; orientaci kontejneru následně určí nejvýše
   dvě nezávislé orientační reference. Po dosažení 0 DOF se další nadbytečné,
   duplicitní nebo konfliktní reference nepřidají.
-- Jeden kontejner přijme nejvýše tři konstrukční reference: pro počátek,
-  hlavní směr a druhý směr. Rozhoduje informace nesená referencí, takže
-  plné určení může vyžadovat i méně než tři reference.
+- Tabulka polohy přijme nejvýše tři konstrukční reference pro určení
+  počátku. Orientační reference mají samostatné dva sloty a do této tabulky
+  se nepřidávají.
 - Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
   referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
   ukazatel DOF nadále popisuje určenost základního rámce.
-- Volby **FRONT** a **TOP** ve Vlastnostech roviny, skici, Protrusion a Revolve
-  nejsou polohové reference. Určují, která z lokálních rovin kontejneru
-  `XY/YZ/XZ` představuje přední a horní pohled. Po aktivaci jejich tlačítka
-  lze proto vybrat pouze rovinu z originu právě definovaného kontejneru;
-  plochy modelu ani roviny jiných kontejnerů se do seznamu referencí nepřidají.
+- První orientační slot přijímá rovinnou plochu nebo rovinu, roli
+  **FRONT/BACK** a vzdálenost podél její normály. Druhý slot přijímá
+  nezávislou rovinu, plochu, hranu nebo osu a roli
+  **TOP/BOTTOM/LEFT/RIGHT**. Rovnoběžná druhá reference se odmítne.
+- Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
+  2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
+  kontejner.
 
 ## Živé úpravy ve Vlastnostech
 

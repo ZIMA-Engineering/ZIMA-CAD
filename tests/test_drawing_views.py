@@ -34,11 +34,14 @@ from zima_cad.drawing import (
 )
 from zima_cad.model import (
     active_face_registry,
+    CoordinateSystem,
     ContainerType,
     EntityKind,
     create_empty_drawing,
     create_empty_part,
     make_sketch_shape,
+    coordinate_system_transform,
+    multiply_transforms,
 )
 from zima_cad.sketch_model import SketchModel
 from zima_cad.viewer import (
@@ -64,6 +67,50 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_container_frame_slots_expand_into_position_and_orientation(self):
+        primary = {"type": "face", "key": "face", "label": "Face"}
+        secondary = {"type": "edge", "key": "edge", "label": "Edge"}
+        expanded = MainWindow._expanded_container_frame_references([{
+            "type": "container_orientation",
+            "mappings": [
+                {
+                    "slot": "primary",
+                    "reference": primary,
+                    "role": "back",
+                    "offset": 12.5,
+                },
+                {
+                    "slot": "secondary",
+                    "reference": secondary,
+                    "role": "right",
+                },
+            ],
+        }])
+
+        self.assertEqual(expanded[0]["orientation_role"], "opposite_normal")
+        self.assertEqual(expanded[0]["offset"], -12.5)
+        self.assertNotIn("position_role", expanded[0])
+        self.assertEqual(expanded[1]["orientation_role"], "right")
+        self.assertEqual(expanded[1]["position_role"], "orientation_only")
+
+    def test_rotation_offsets_are_composed_in_local_container_frame(self):
+        base = (25.0, -35.0, 40.0)
+        offset = (15.0, 20.0, -10.0)
+        actual = MainWindow._rotation_with_local_offset(base, offset)
+        actual_transform = coordinate_system_transform(
+            CoordinateSystem(rotation=actual)
+        )
+        expected_transform = multiply_transforms(
+            coordinate_system_transform(CoordinateSystem(rotation=base)),
+            coordinate_system_transform(CoordinateSystem(rotation=offset)),
+        )
+        for row in range(3):
+            for column in range(3):
+                self.assertAlmostEqual(
+                    actual_transform[row][column],
+                    expected_transform[row][column],
+                )
+
     def test_fillet_command_resolves_edge_after_command_activation(self) -> None:
         document = create_empty_part()
         container = document.create_container("Box", ContainerType.BOX)
