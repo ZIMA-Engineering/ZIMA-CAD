@@ -273,7 +273,7 @@ class DrawingViewConventionTests(unittest.TestCase):
             "point": [4.0, -3.0],
         })
 
-    def test_orientation_references_reduce_rotational_dof(self) -> None:
+    def test_orientation_references_leave_rotation_offsets_editable(self) -> None:
         dof_for = AxisConstraintDialog._rotation_degrees_of_freedom
 
         self.assertEqual(dof_for([]), 3)
@@ -286,12 +286,12 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(editable_for([]), {"x", "y", "z"})
         self.assertEqual(
             editable_for([{"orientation_role": "normal"}]),
-            {"y"},
+            {"x", "y", "z"},
         )
         self.assertEqual(editable_for([
             {"orientation_role": "normal"},
             {"orientation_role": "up"},
-        ]), set())
+        ]), {"x", "y", "z"})
         drives = AxisConstraintDialog._reference_drives_rotation_kind
         legacy_plane = {
             "type": "entity",

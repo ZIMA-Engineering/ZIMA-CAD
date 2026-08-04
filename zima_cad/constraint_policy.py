@@ -9,6 +9,7 @@ class ConstraintCapability:
     rotation_dof: int
     accepts_orientation_references: bool
     maximum_orientation_references: int = 0
+    maximum_references: int = 3
 
     @property
     def total_dof(self) -> int:
@@ -33,8 +34,12 @@ def reference_admission(
     trial_is_valid: bool,
     orientation_candidate: bool,
     orientation_reference_count: int,
+    current_reference_count: int = 0,
 ) -> str:
     """Return `position`, `orientation`, or `reject` for one reference."""
+
+    if current_reference_count >= capability.maximum_references:
+        return "reject"
 
     if (
         trial_is_valid
@@ -61,21 +66,6 @@ def rotation_degrees_of_freedom(references) -> int:
 
 
 def editable_rotation_axes(references) -> set[str]:
-    oriented = [
-        reference for reference in references
-        if str(reference.get("orientation_role", "none")) != "none"
-    ]
-    if not oriented:
-        return {"x", "y", "z"}
-    if len(oriented) >= 2:
-        return set()
-    return {
-        {
-            "left": "x",
-            "right": "x",
-            "normal": "y",
-            "opposite_normal": "y",
-            "up": "z",
-            "down": "z",
-        }.get(str(oriented[0].get("orientation_role", "none")), "z")
-    }
+    # RX/RY/RZ are corrections applied after the references establish the
+    # base frame. They remain editable even when that frame is fully defined.
+    return {"x", "y", "z"}

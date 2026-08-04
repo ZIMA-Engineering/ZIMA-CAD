@@ -53,10 +53,12 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   Vrchol může určit tři posuvné DOF; orientaci kontejneru následně určí nejvýše
   dvě nezávislé orientační reference. Po dosažení 0 DOF se další nadbytečné,
   duplicitní nebo konfliktní reference nepřidají.
-- Pole `RX/RY/RZ` sledují skutečně zbývající rotační DOF. Bez orientační
-  reference jsou aktivní všechna, po první zůstane aktivní pouze rotace kolem
-  určeného směru a po druhé nezávislé referenci všechna zašednou. Úhlový offset
-  patří konkrétní vazbě a nesmí z uzamčené rotace znovu udělat volný DOF.
+- Jeden kontejner přijme nejvýše tři konstrukční reference: pro počátek,
+  hlavní směr a druhý směr. Rozhoduje informace nesená referencí, takže
+  plné určení může vyžadovat i méně než tři reference.
+- Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
+  referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
+  ukazatel DOF nadále popisuje určenost základního rámce.
 
 ## Živé úpravy ve Vlastnostech
 

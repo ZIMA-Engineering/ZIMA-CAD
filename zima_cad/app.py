@@ -1878,6 +1878,7 @@ class PointConstraintDialog(QDialog):
                 existing.get("position_role") == "orientation_only"
                 for existing in self.references
             ),
+            current_reference_count=len(self.references),
         )
         if admission != "position":
             if admission == "orientation":

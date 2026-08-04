@@ -48,6 +48,19 @@ class ConstraintCapabilityTests(unittest.TestCase):
             orientation_reference_count=2,
         ), "reject")
 
+    def test_container_accepts_at_most_three_references(self) -> None:
+        capability = constraint_capability("PROTRUSION")
+
+        self.assertEqual(reference_admission(
+            capability,
+            current_translation_dof=1,
+            trial_translation_dof=0,
+            trial_is_valid=True,
+            orientation_candidate=False,
+            orientation_reference_count=0,
+            current_reference_count=3,
+        ), "reject")
+
     def test_axis_can_accept_bounded_orientation_references(self) -> None:
         axis = constraint_capability("AXIS")
         self.assertEqual(axis.total_dof, 6)
@@ -68,7 +81,7 @@ class ConstraintCapabilityTests(unittest.TestCase):
             orientation_reference_count=2,
         ), "reject")
 
-    def test_rotation_fields_follow_remaining_orientation_dof(self) -> None:
+    def test_rotation_corrections_stay_editable_for_defined_frame(self) -> None:
         none = []
         first = [{"orientation_role": "normal"}]
         complete = [
@@ -78,9 +91,12 @@ class ConstraintCapabilityTests(unittest.TestCase):
         self.assertEqual(rotation_degrees_of_freedom(none), 3)
         self.assertEqual(editable_rotation_axes(none), {"x", "y", "z"})
         self.assertEqual(rotation_degrees_of_freedom(first), 1)
-        self.assertEqual(editable_rotation_axes(first), {"y"})
+        self.assertEqual(editable_rotation_axes(first), {"x", "y", "z"})
         self.assertEqual(rotation_degrees_of_freedom(complete), 0)
-        self.assertEqual(editable_rotation_axes(complete), set())
+        self.assertEqual(
+            editable_rotation_axes(complete),
+            {"x", "y", "z"},
+        )
 
 
 if __name__ == "__main__":
