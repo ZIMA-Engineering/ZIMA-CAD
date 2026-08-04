@@ -160,7 +160,9 @@ from zima_cad.selection import (
 )
 from zima_cad.constraint_policy import (
     constraint_capability,
+    editable_rotation_axes,
     reference_admission,
+    rotation_degrees_of_freedom,
 )
 from zima_cad.sketch_geometry import (
     center_arc_points,
@@ -2113,11 +2115,16 @@ class PointConstraintDialog(QDialog):
                 if str(reference.get("orientation_role", "none")) != "none"
                 and self._reference_drives_rotation(reference)
             ]
-            rotation_dof = AxisConstraintDialog._rotation_degrees_of_freedom(
-                rotation_references
-            )
-            for edit in self.point_rotation_edits:
-                edit.setEnabled(True)
+            rotation_dof = rotation_degrees_of_freedom(rotation_references)
+            editable_axes = editable_rotation_axes(rotation_references)
+            for axis, edit in zip(
+                ("x", "y", "z"), self.point_rotation_edits
+            ):
+                edit.setEnabled(axis in editable_axes)
+                edit.setStyleSheet(
+                    "QDoubleSpinBox:disabled {"
+                    " background: #303030; color: #dddddd; }"
+                )
             total_dof = dof + rotation_dof
             self.dof_label.setText(
                 tr("dialog.point_constraints.dof", count=total_dof)
@@ -2333,16 +2340,15 @@ class AxisConstraintDialog(PointConstraintDialog):
             if self._reference_drives_rotation(reference)
             and str(reference.get("orientation_role", "none")) != "none"
         ]
-        self.rotation_dof = self._rotation_degrees_of_freedom(
+        self.rotation_dof = rotation_degrees_of_freedom(
             orientation_references
         )
         style = (
             "QDoubleSpinBox:disabled { background: #303030; color: #dddddd; }"
         )
-        # FRONT and TOP define the base frame. RX/RY/RZ are always editable
-        # angular offsets relative to that frame, not unconstrained DOFs.
-        for edit in self.rotation_edits:
-            edit.setEnabled(True)
+        editable_axes = editable_rotation_axes(orientation_references)
+        for axis, edit in zip(("x", "y", "z"), self.rotation_edits):
+            edit.setEnabled(axis in editable_axes)
             edit.setStyleSheet(style)
         total_dof = int(getattr(self, "dof", 3)) + self.rotation_dof
         self.dof_label.setText(
@@ -2356,32 +2362,11 @@ class AxisConstraintDialog(PointConstraintDialog):
 
     @staticmethod
     def _rotation_degrees_of_freedom(references) -> int:
-        orientation_count = min(2, sum(
-            str(reference.get("orientation_role", "none")) != "none"
-            for reference in references
-        ))
-        return (3, 1, 0)[orientation_count]
+        return rotation_degrees_of_freedom(references)
 
     @staticmethod
     def _editable_rotation_axes(references) -> set[str]:
-        oriented = [
-            reference for reference in references
-            if str(reference.get("orientation_role", "none")) != "none"
-        ]
-        if not oriented:
-            return {"x", "y", "z"}
-        if len(oriented) >= 2:
-            return set()
-        return {
-            {
-                "left": "x",
-                "right": "x",
-                "normal": "y",
-                "opposite_normal": "y",
-                "up": "z",
-                "down": "z",
-            }.get(str(oriented[0].get("orientation_role", "none")), "z")
-        }
+        return editable_rotation_axes(references)
 
     def _update_window_title(self, _name: str | None = None) -> None:
         self.setWindowTitle(

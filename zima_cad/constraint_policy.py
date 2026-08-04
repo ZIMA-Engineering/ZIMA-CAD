@@ -50,3 +50,32 @@ def reference_admission(
     ):
         return "orientation"
     return "reject"
+
+
+def rotation_degrees_of_freedom(references) -> int:
+    orientation_count = min(2, sum(
+        str(reference.get("orientation_role", "none")) != "none"
+        for reference in references
+    ))
+    return (3, 1, 0)[orientation_count]
+
+
+def editable_rotation_axes(references) -> set[str]:
+    oriented = [
+        reference for reference in references
+        if str(reference.get("orientation_role", "none")) != "none"
+    ]
+    if not oriented:
+        return {"x", "y", "z"}
+    if len(oriented) >= 2:
+        return set()
+    return {
+        {
+            "left": "x",
+            "right": "x",
+            "normal": "y",
+            "opposite_normal": "y",
+            "up": "z",
+            "down": "z",
+        }.get(str(oriented[0].get("orientation_role", "none")), "z")
+    }
