@@ -340,6 +340,27 @@ class DrawingViewConventionTests(unittest.TestCase):
             {"direction": (0.0, 1.0, 0.0)},
         ))
 
+    def test_edge_direction_falls_back_to_constraint_equations(self) -> None:
+        class EdgeHarness:
+            document = None
+            _normalized_vector = staticmethod(MainWindow._normalized_vector)
+            _cross_product = staticmethod(MainWindow._cross_product)
+
+        direction = MainWindow._orientation_reference_vector(
+            EdgeHarness(),
+            {
+                "type": "edge",
+                "topology_key": "semantic:edge:key",
+                "equations": [
+                    [0.0, 1.0, 0.0, 2.0],
+                    [0.0, 0.0, 1.0, 3.0],
+                ],
+            },
+            allow_frame_fallback=False,
+        )
+
+        self.assertEqual(direction, (1.0, 0.0, 0.0))
+
     def test_three_independent_assembly_mates_lock_full_transform(self) -> None:
         rows = [
             {"target": "x", "orientation": True},

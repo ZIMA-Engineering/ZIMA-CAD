@@ -1954,8 +1954,7 @@ class PointConstraintDialog(QDialog):
         oriented = [
             reference for reference in self.references
             if reference is not exclude
-            and str(reference.get("orientation_role", "none")) != "none"
-            and self._reference_drives_rotation(reference)
+            and self._reference_orientation_options(reference) != ("none",)
         ]
         return bool(checker(oriented, candidate))
 
@@ -10707,42 +10706,53 @@ class MainWindow(QMainWindow):
         if (
             reference_type == "edge"
             and not allow_frame_fallback
-            and self.document is not None
         ):
-            reference = self.document.find_entity(
-                str(descriptor.get("entity_id", ""))
-            )
-            if reference is None:
-                return (0.0, 0.0, 0.0)
-            shape = self._shape_for_reference_descriptor(
-                descriptor,
-                reference,
-            )
-            try:
-                topology_index = int(descriptor.get("topology_key", "0"))
-            except (TypeError, ValueError):
-                topology_index = 0
-            edge = (
-                self._subshape_from_shape(
-                    shape,
-                    TopAbs_EDGE,
-                    topology_index,
+            if self.document is not None:
+                reference = self.document.find_entity(
+                    str(descriptor.get("entity_id", ""))
                 )
-                if shape is not None and topology_index > 0
-                else None
-            )
-            if edge is None:
-                return (0.0, 0.0, 0.0)
-            try:
-                adaptor = BRepAdaptor_Curve(edge)
-                if adaptor.GetType() != GeomAbs_Line:
-                    return (0.0, 0.0, 0.0)
-                direction = adaptor.Line().Direction()
+                shape = (
+                    self._shape_for_reference_descriptor(
+                        descriptor,
+                        reference,
+                    )
+                    if reference is not None
+                    else None
+                )
+                try:
+                    topology_index = int(
+                        descriptor.get("topology_key", "0")
+                    )
+                except (TypeError, ValueError):
+                    topology_index = 0
+                edge = (
+                    self._subshape_from_shape(
+                        shape,
+                        TopAbs_EDGE,
+                        topology_index,
+                    )
+                    if shape is not None and topology_index > 0
+                    else None
+                )
+                if edge is not None:
+                    try:
+                        adaptor = BRepAdaptor_Curve(edge)
+                        if adaptor.GetType() == GeomAbs_Line:
+                            direction = adaptor.Line().Direction()
+                            return self._normalized_vector(
+                                (direction.X(), direction.Y(), direction.Z())
+                            )
+                    except (AttributeError, RuntimeError):
+                        pass
+            rows = [
+                row for row in descriptor.get("equations", ())
+                if isinstance(row, (list, tuple)) and len(row) >= 3
+            ]
+            if len(rows) >= 2:
                 return self._normalized_vector(
-                    (direction.X(), direction.Y(), direction.Z())
+                    self._cross_product(rows[0][:3], rows[1][:3])
                 )
-            except (AttributeError, RuntimeError):
-                return (0.0, 0.0, 0.0)
+            return (0.0, 0.0, 0.0)
         if reference_type != "entity" or self.document is None:
             return (0.0, 0.0, 0.0)
         reference = self.document.find_entity(
