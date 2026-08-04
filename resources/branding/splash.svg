@@ -7,7 +7,7 @@
 <g opacity=".13" stroke="#FFFFFF" stroke-width="1"><path d="M0 510L900 60M0 570L900 120M250 600L900 275"/><path d="M580 0V600M650 0V600M720 0V600"/></g>
 <g transform="translate(70,122) scale(1.45)">
   <path d="M16 14 H84 L72 28 H40 L24 48 H60 L50 62 H16 L46 26 H16 Z" fill="#80AA1A"/>
-  <path d="M48 62 H84 L96 48 H60 Z" fill="#1E1E1E"/>
+  <path d="M48 62 H84 L96 48 H60 Z" fill="#596166"/>
 </g>
 <g font-family="DejaVu Sans, Arial, sans-serif"><text x="235" y="235" font-size="52" font-weight="600" letter-spacing="5"><tspan fill="#80AA1A">ZIMA</tspan><tspan fill="#FFFFFF">-CAD</tspan></text>
 <text x="238" y="269" font-size="14" letter-spacing="3" fill="#D4D6D7">OPEN SOURCE PARAMETRIC CAD</text>

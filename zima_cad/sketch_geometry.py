@@ -30,13 +30,14 @@ def center_arc_points(
         2,
         round(int(segments) * max(1.0, abs(sweep) / math.pi)),
     )
-    return tuple(
+    sampled = tuple(
         (
             center[0] + radius * math.cos(start_angle + sweep * index / count),
             center[1] + radius * math.sin(start_angle + sweep * index / count),
         )
         for index in range(count + 1)
     )
+    return sampled
 
 
 Point2 = tuple[float, float]
@@ -202,3 +203,71 @@ def corner_radius_from_drag(
     )
     maximum_radius = min(lengths) * tangent * (1.0 - 1.0e-6)
     return min(distance * tangent, maximum_radius), maximum_radius
+def ellipse_points(
+    center: tuple[float, float],
+    major: tuple[float, float],
+    minor: tuple[float, float],
+    *,
+    segments: int = 96,
+) -> tuple[tuple[float, float], ...]:
+    """Sample an ellipse defined by its centre and two semi-axis vectors."""
+    sampled = tuple(
+        (
+            center[0]
+            + (major[0] - center[0]) * math.cos(angle)
+            + (minor[0] - center[0]) * math.sin(angle),
+            center[1]
+            + (major[1] - center[1]) * math.cos(angle)
+            + (minor[1] - center[1]) * math.sin(angle),
+        )
+        for angle in (
+            math.tau * index / max(8, segments)
+            for index in range(max(8, segments) + 1)
+        )
+    )
+    return (*sampled[:-1], sampled[0])
+
+
+def elliptical_arc_points(
+    center: tuple[float, float],
+    major: tuple[float, float],
+    minor: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    clockwise: bool = False,
+    segments: int = 64,
+) -> tuple[tuple[float, float], ...]:
+    """Sample an elliptical arc through projected start/end parameters."""
+    ax, ay = major[0] - center[0], major[1] - center[1]
+    bx, by = minor[0] - center[0], minor[1] - center[1]
+    determinant = ax * by - ay * bx
+    if abs(determinant) <= 1.0e-12:
+        return ()
+
+    def parameter(point: tuple[float, float]) -> float:
+        px, py = point[0] - center[0], point[1] - center[1]
+        cosine = (px * by - py * bx) / determinant
+        sine = (ax * py - ay * px) / determinant
+        return math.atan2(sine, cosine)
+
+    first = parameter(start)
+    last = parameter(end)
+    if clockwise:
+        while last >= first:
+            last -= math.tau
+    else:
+        while last <= first:
+            last += math.tau
+    count = max(4, int(abs(last - first) / math.tau * segments))
+    sampled = tuple(
+        (
+            center[0] + ax * math.cos(angle) + bx * math.sin(angle),
+            center[1] + ay * math.cos(angle) + by * math.sin(angle),
+        )
+        for angle in (
+            first + (last - first) * index / count
+            for index in range(count + 1)
+        )
+    )
+    return (start, *sampled[1:-1], end)

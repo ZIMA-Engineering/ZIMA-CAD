@@ -22,6 +22,8 @@ from zima_cad.model import (
 )
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+from OCC.Core.GeomAbs import GeomAbs_Ellipse
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
@@ -1164,6 +1166,7 @@ class StableTopologyTests(unittest.TestCase):
             ]),
             8,
         )
+
         self.assertEqual(set(first.references), expected)
         self.assertEqual(set(first.edge_references), expected_edges)
         self.assertEqual(set(first.vertex_references), expected_vertices)
@@ -1218,6 +1221,459 @@ class StableTopologyTests(unittest.TestCase):
                     loaded_registry.resolve(reference).state,
                     TopologyResolutionState.RESOLVED,
                 )
+
+    def test_ellipse_protrusion_uses_stable_curve_provenance(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "EllipseProtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 10.0},
+            {
+                "id": "ellipse-profile",
+                "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "EllipseSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "EllipseExtrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "12",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            FaceRef(feature.entity_id, "generated", "ellipse-profile"),
+        }
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, "ellipse-profile")
+            for role in ("start", "end")
+        }
+
+        first = active_face_registry(document)
+        self.assertEqual(set(first.references), expected_faces)
+        self.assertEqual(set(first.edge_references), expected_edges)
+        self.assertEqual(set(first.vertex_references), set())
+        shape = make_protrusion_shape(document, container)
+        explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+        exact_ellipse_edges = 0
+        while explorer.More():
+            if BRepAdaptor_Curve(explorer.Current()).GetType() == GeomAbs_Ellipse:
+                exact_ellipse_edges += 1
+            explorer.Next()
+        self.assertGreaterEqual(exact_ellipse_edges, 2)
+        shape_registry = protrusion_face_registry(
+            document, container, shape
+        )
+        fillet_edge = EdgeRef(
+            feature.entity_id, "start", "ellipse-profile"
+        )
+        filleted_shape, filleted_registry = make_fillet_shape(
+            shape,
+            shape_registry,
+            fillet_edge,
+            0.2,
+            "ellipse-fillet",
+        )
+        fillet_face = FaceRef(
+            "ellipse-fillet",
+            "generated",
+            semantic_provenance_id(fillet_edge),
+        )
+        self.assertEqual(
+            filleted_registry.resolve(fillet_face).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertEqual(self._subshape_count(filleted_shape, TopAbs_SOLID), 1)
+
+        edited, dimensions = SketchModel.from_dict(
+            json.loads(str(sketch.parameters["sketch_data"]))
+        ).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "major":
+                entity["x"], entity["y"] = 24.0, 8.0
+            elif entity.get("id") == "minor":
+                entity["x"], entity["y"] = -4.0, 12.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        second = active_face_registry(document)
+        self.assertEqual(set(second.references), expected_faces)
+        self.assertEqual(set(second.edge_references), expected_edges)
+        edited_shape = make_protrusion_shape(document, container)
+        edited_shape_registry = protrusion_face_registry(
+            document, container, edited_shape
+        )
+        edited_fillet_shape, edited_fillet_registry = make_fillet_shape(
+            edited_shape,
+            edited_shape_registry,
+            fillet_edge,
+            0.2,
+            "ellipse-fillet",
+        )
+        self.assertEqual(
+            edited_fillet_registry.resolve(fillet_face).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertEqual(
+            self._subshape_count(edited_fillet_shape, TopAbs_SOLID),
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ellipse-extrusion.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            restored = active_face_registry(loaded)
+            self.assertEqual(set(restored.references), expected_faces)
+            self.assertEqual(set(restored.edge_references), expected_edges)
+
+    def test_elliptical_arc_protrusion_names_endpoints(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "EllipticalArcProtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "start", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "end", "type": "point", "x": -20.0, "y": 0.0},
+            {
+                "id": "ellipse-arc",
+                "type": "elliptical_arc",
+                "point_ids": ["center", "major", "minor", "start", "end"],
+            },
+            {
+                "id": "closure",
+                "type": "segment",
+                "point_ids": ["end", "start"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "EllipticalArcSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "EllipticalArcExtrusion",
+            EntityKind.PROTRUSION,
+            parameters={"sketch_id": sketch.entity_id, "length": "15"},
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            FaceRef(feature.entity_id, "generated", "ellipse-arc"),
+            FaceRef(feature.entity_id, "generated", "closure"),
+        }
+        expected_vertices = {
+            VertexRef(feature.entity_id, role, point_id)
+            for role in ("start", "end")
+            for point_id in ("start", "end")
+        }
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.vertex_references), expected_vertices)
+
+    def test_ellipse_cut_keeps_provenance_after_axis_change_and_reload(self) -> None:
+        document = create_empty_part()
+        base_container = document.create_container("Base", ContainerType.BOX)
+        base = document.create_primitive(base_container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(base)
+        base.parameters.update({
+            "length": "100", "width": "100", "height": "100",
+        })
+
+        container = ZimaEntity(
+            "EllipseCut",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        container.coordinate_system.origin = (-50.0, 0.0, 0.0)
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 18.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 9.0},
+            {
+                "id": "ellipse-profile",
+                "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "EllipseSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "yz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "EllipseCutter",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "100",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "operation": CombineMode.SUBTRACT.value,
+            },
+        )
+        feature.combine_mode = CombineMode.SUBTRACT
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        document.set_history_cursor(len(document.history_objects()))
+
+        generated = FaceRef(
+            feature.entity_id, "generated", "ellipse-profile"
+        )
+        first = active_face_registry(document)
+        self.assertEqual(
+            first.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        remembered_faces = set(first.references)
+        remembered_edges = set(first.edge_references)
+        self.assertTrue(any(
+            reference.feature_id == feature.entity_id
+            for reference in remembered_edges
+        ))
+
+        edited, dimensions = SketchModel.from_dict(json.loads(
+            str(sketch.parameters["sketch_data"])
+        )).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "major":
+                entity["x"], entity["y"] = 22.0, 4.0
+            elif entity.get("id") == "minor":
+                entity["x"], entity["y"] = -2.0, 11.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        second = active_face_registry(document)
+        self.assertEqual(set(second.references), remembered_faces)
+        self.assertEqual(set(second.edge_references), remembered_edges)
+        self.assertEqual(
+            second.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ellipse-cut.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            restored = active_face_registry(loaded)
+        self.assertEqual(set(restored.references), remembered_faces)
+        self.assertEqual(set(restored.edge_references), remembered_edges)
+        self.assertEqual(
+            restored.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+    def test_ellipse_fillet_history_survives_axis_change_and_reload(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "EllipseProtrusion",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 10.0},
+            {
+                "id": "ellipse-profile",
+                "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "EllipseSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "EllipseExtrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "20",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        source_edge = EdgeRef(
+            feature.entity_id, "start", "ellipse-profile"
+        )
+        fillet_container = document.create_container(
+            "EllipseFillet", ContainerType.FILLET
+        )
+        fillet = ZimaEntity(
+            "EllipseFillet",
+            EntityKind.FILLET,
+            parameters={
+                "edge_ref": source_edge.serialize(),
+                "radius": "0.5",
+            },
+        )
+        fillet_container.add_child(fillet)
+        generated = FaceRef(
+            fillet.entity_id,
+            "generated",
+            semantic_provenance_id(source_edge),
+        )
+
+        first_shape = document.build_active_shape()
+        first = active_face_registry(document)
+        self.assertEqual(self._subshape_count(first_shape, TopAbs_SOLID), 1)
+        self.assertEqual(
+            first.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertNotIn("build_status", fillet.parameters)
+
+        edited, dimensions = SketchModel.from_dict(json.loads(
+            str(sketch.parameters["sketch_data"])
+        )).to_editor_data()
+        for entity in edited:
+            if entity.get("id") == "major":
+                entity["x"], entity["y"] = 26.0, 5.0
+            elif entity.get("id") == "minor":
+                entity["x"], entity["y"] = -2.5, 13.0
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(edited, dimensions).to_dict()
+        )
+        edited_shape = document.build_active_shape()
+        edited_registry = active_face_registry(document)
+        self.assertEqual(self._subshape_count(edited_shape, TopAbs_SOLID), 1)
+        self.assertEqual(
+            edited_registry.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+        self.assertNotIn("build_status", fillet.parameters)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ellipse-fillet-history.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_shape = loaded.build_active_shape()
+            loaded_registry = active_face_registry(loaded)
+        self.assertEqual(self._subshape_count(loaded_shape, TopAbs_SOLID), 1)
+        self.assertEqual(
+            loaded_registry.resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+    def test_partial_ellipse_revolve_has_stable_topology(self) -> None:
+        document = create_empty_part()
+        container = ZimaEntity(
+            "EllipseRevolve",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.REVOLVE.value},
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -20.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 20.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "center", "type": "point", "x": 30.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 40.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 30.0, "y": 5.0},
+            {
+                "id": "ellipse-profile",
+                "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "EllipseRevolveSketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "EllipseRevolveFeature",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "120",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        expected_faces = {
+            FaceRef(feature.entity_id, "start"),
+            FaceRef(feature.entity_id, "end"),
+            FaceRef(feature.entity_id, "generated", "ellipse-profile"),
+        }
+        expected_edges = {
+            EdgeRef(feature.entity_id, role, "ellipse-profile")
+            for role in ("start", "end")
+        }
+
+        registry = active_face_registry(document)
+        self.assertEqual(set(registry.references), expected_faces)
+        self.assertEqual(set(registry.edge_references), expected_edges)
+        self.assertEqual(set(registry.vertex_references), set())
 
     def test_revolve_topology_survives_angle_and_profile_changes(self) -> None:
         document = create_empty_part()

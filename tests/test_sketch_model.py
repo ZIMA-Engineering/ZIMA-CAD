@@ -15,11 +15,296 @@ from zima_cad.sketch_model import (
 from zima_cad.sketch_geometry import (
     center_arc_points,
     corner_radius_from_drag,
+    ellipse_points,
+    elliptical_arc_points,
     evaluate_corner_radius,
 )
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_locked_circle_keypoint_keeps_quadrant(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("center", 2.0, 3.0))
+        sketch.add_point(SketchPoint(
+            "key", 2.0, 8.0,
+            attributes={"curve_attachment": {
+                "type": "circle",
+                "geometry_id": "circle",
+                "angle": math.pi / 2.0,
+                "locked": True,
+            }},
+        ))
+        sketch.add_geometry(SketchGeometry(
+            "circle", GeometryType.CIRCLE, ("center",),
+            attributes={"radius": 5.0},
+        ))
+        self.assertTrue(all(
+            abs(value) < 1.0e-9 for value in sketch._equation_values()
+        ))
+        sketch.points["key"].x = 3.0
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(
+            sketch.points["key"].x - sketch.points["center"].x,
+            0.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            sketch.points["key"].y - sketch.points["center"].y,
+            5.0,
+            places=6,
+        )
+
+    def test_ellipse_axis_direction_constraints_round_trip_together(self):
+        entities = [
+            {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "a", "type": "point", "x": 4.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 0.0, "y": 2.0},
+            {
+                "id": "ellipse",
+                "type": "ellipse",
+                "point_ids": ["c", "a", "b"],
+                "constraints": [
+                    {"type": "horizontal", "axis": "major"},
+                    {"type": "vertical", "axis": "minor"},
+                ],
+            },
+        ]
+        model = SketchModel.from_editor_data(entities, [])
+        self.assertEqual(len(model.constraints), 2)
+        self.assertTrue(all(
+            abs(value) < 1.0e-9 for value in model._equation_values()
+        ))
+        restored, _dimensions = model.to_editor_data()
+        ellipse = next(item for item in restored if item["id"] == "ellipse")
+        self.assertEqual(
+            [(item["type"], item["axis"]) for item in ellipse["constraints"]],
+            [("horizontal", "major"), ("vertical", "minor")],
+        )
+
+    def test_circle_circle_tangent_round_trips(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("c1", 0.0, 0.0),
+            SketchPoint("c2", 5.0, 0.0),
+            SketchPoint("contact", 2.0, 0.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(SketchGeometry(
+            "circle1", GeometryType.CIRCLE, ("c1",),
+            attributes={"radius": 2.0},
+        ))
+        sketch.add_geometry(SketchGeometry(
+            "circle2", GeometryType.CIRCLE, ("c2",),
+            attributes={"radius": 3.0},
+        ))
+        sketch.add_constraint(SketchConstraint(
+            "tangent", "tangent", ("c1", "c2", "contact"),
+            attributes={
+                "first_curve_geometry_id": "circle1",
+                "second_curve_geometry_id": "circle2",
+                "contact_point_id": "contact",
+            },
+        ))
+        self.assertTrue(all(
+            abs(value) < 1.0e-9
+            for value in sketch.constraint_residuals("tangent")
+        ))
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+        self.assertEqual(restored.constraints["tangent"].point_ids, ("c1", "c2", "contact"))
+
+    def test_circle_ellipse_tangent_round_trips(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("circle-center", 0.0, 0.0),
+            SketchPoint("ellipse-center", 5.0, 0.0),
+            SketchPoint("major", 8.0, 0.0),
+            SketchPoint("minor", 5.0, 1.0),
+            SketchPoint("contact", 2.0, 0.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(SketchGeometry(
+            "circle", GeometryType.CIRCLE, ("circle-center",),
+            attributes={"radius": 2.0},
+        ))
+        sketch.add_geometry(SketchGeometry(
+            "ellipse", GeometryType.ELLIPSE,
+            ("ellipse-center", "major", "minor"),
+        ))
+        sketch.add_constraint(SketchConstraint(
+            "tangent", "tangent",
+            ("circle-center", "ellipse-center", "major", "minor", "contact"),
+            attributes={
+                "first_curve_geometry_id": "circle",
+                "second_curve_geometry_id": "ellipse",
+                "contact_point_id": "contact",
+            },
+        ))
+        self.assertTrue(all(
+            abs(value) < 1.0e-9
+            for value in sketch.constraint_residuals("tangent")
+        ))
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+        self.assertEqual(
+            restored.constraints["tangent"].attributes["second_curve_geometry_id"],
+            "ellipse",
+        )
+
+    def test_circle_ellipse_concentric_round_trips(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("c1", 0.0, 0.0),
+            SketchPoint("c2", 0.0, 0.0),
+            SketchPoint("major", 4.0, 0.0),
+            SketchPoint("minor", 0.0, 2.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(SketchGeometry(
+            "circle", GeometryType.CIRCLE, ("c1",),
+            attributes={"radius": 1.0},
+        ))
+        sketch.add_geometry(SketchGeometry(
+            "ellipse", GeometryType.ELLIPSE, ("c2", "major", "minor"),
+        ))
+        sketch.add_constraint(SketchConstraint(
+            "concentric", "concentric", ("c1", "c2"),
+            attributes={
+                "first_geometry_id": "circle",
+                "second_geometry_id": "ellipse",
+            },
+        ))
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+        self.assertEqual(restored.constraints["concentric"].point_ids, ("c1", "c2"))
+
+    def test_line_ellipse_tangent_round_trips(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("l1", -5.0, 3.0),
+            SketchPoint("l2", 5.0, 3.0),
+            SketchPoint("center", 0.0, 0.0),
+            SketchPoint("major", 5.0, 0.0),
+            SketchPoint("minor", 0.0, 3.0),
+            SketchPoint("contact", 0.0, 3.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry("line", GeometryType.SEGMENT, ("l1", "l2"))
+        )
+        sketch.add_geometry(
+            SketchGeometry(
+                "ellipse",
+                GeometryType.ELLIPSE,
+                ("center", "major", "minor"),
+            )
+        )
+        sketch.add_constraint(
+            SketchConstraint(
+                "tangent",
+                "tangent",
+                ("l1", "l2", "center", "major", "minor", "contact"),
+                attributes={
+                    "line_geometry_id": "line",
+                    "curve_geometry_id": "ellipse",
+                    "contact_point_id": "contact",
+                },
+            )
+        )
+
+        self.assertTrue(
+            all(
+                abs(value) < 1.0e-9
+                for value in sketch.constraint_residuals("tangent")
+            )
+        )
+        entities, dimensions = sketch.to_editor_data()
+        restored = SketchModel.from_editor_data(entities, dimensions)
+        self.assertEqual(
+            restored.constraints["tangent"].point_ids,
+            ("l1", "l2", "center", "major", "minor", "contact"),
+        )
+
+    def test_line_ellipse_tangent_solves_from_separated_line(self):
+        sketch = SketchModel()
+        for point in (
+            SketchPoint("l1", -5.0, 4.0),
+            SketchPoint("l2", 5.0, 4.0),
+            SketchPoint("center", 0.0, 0.0),
+            SketchPoint("major", 5.0, 0.0),
+            SketchPoint("minor", 0.0, 3.0),
+            SketchPoint("contact", 0.0, 3.0),
+        ):
+            sketch.add_point(point)
+        sketch.add_geometry(
+            SketchGeometry("line", GeometryType.SEGMENT, ("l1", "l2"))
+        )
+        sketch.add_geometry(SketchGeometry(
+            "ellipse", GeometryType.ELLIPSE,
+            ("center", "major", "minor"),
+        ))
+        sketch.add_constraint(SketchConstraint(
+            "tangent", "tangent",
+            ("l1", "l2", "center", "major", "minor", "contact"),
+            attributes={
+                "line_geometry_id": "line",
+                "curve_geometry_id": "ellipse",
+                "contact_point_id": "contact",
+            },
+        ))
+
+        self.assertTrue(sketch.solve())
+        self.assertEqual(sketch.violated_equations(), ())
+
+    def test_ellipse_sampling_closes_and_arc_uses_requested_endpoints(self):
+        ellipse = ellipse_points((0.0, 0.0), (8.0, 0.0), (0.0, 4.0))
+        arc = elliptical_arc_points(
+            (0.0, 0.0),
+            (8.0, 0.0),
+            (0.0, 4.0),
+            (8.0, 0.0),
+            (0.0, 4.0),
+        )
+
+        self.assertEqual(ellipse[0], ellipse[-1])
+        self.assertAlmostEqual(arc[0][0], 8.0)
+        self.assertAlmostEqual(arc[0][1], 0.0)
+        self.assertAlmostEqual(arc[-1][0], 0.0, places=6)
+        self.assertAlmostEqual(arc[-1][1], 4.0, places=6)
+
+    def test_ellipse_and_elliptical_arc_round_trip_and_solve(self):
+        entities = [
+            {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "a", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 1.0, "y": 5.0},
+            {"id": "s", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "e", "type": "point", "x": 0.0, "y": 5.0},
+            {
+                "id": "ellipse",
+                "type": "ellipse",
+                "point_ids": ["c", "a", "b"],
+            },
+            {
+                "id": "elliptical_arc",
+                "type": "elliptical_arc",
+                "point_ids": ["c", "a", "b", "s", "e"],
+                "clockwise": False,
+            },
+        ]
+        model = SketchModel.from_editor_data(entities)
+
+        self.assertTrue(model.solve())
+        self.assertEqual(model.violated_equations(), ())
+        restored, _dimensions = model.to_editor_data()
+        restored_types = {
+            item["id"]: item["type"] for item in restored
+            if item["type"] != "point"
+        }
+        self.assertEqual(restored_types["ellipse"], "ellipse")
+        self.assertEqual(
+            restored_types["elliptical_arc"], "elliptical_arc"
+        )
+
     def test_unlocked_user_dimension_remains_driving_and_unlocked(self):
         entities = [
             {"type": "point", "id": "a", "x": 0.0, "y": 0.0},
@@ -418,6 +703,56 @@ class SketchModelTests(unittest.TestCase):
 
         self.assertEqual(top_reduction, 1)
         self.assertEqual(bottom_reduction, 1)
+
+    def test_radius_dimension_is_redundant_when_profile_height_drives_arc(self):
+        data = {
+            "version": 3,
+            "points": {
+                "c": {"x": 0.0, "y": 0.0},
+                "top": {"x": 0.0, "y": 2.0},
+                "bottom": {"x": 0.0, "y": -2.0},
+                "rt": {"x": 7.0, "y": 2.0},
+                "rm": {"x": 7.0, "y": 0.0},
+                "rb": {"x": 7.0, "y": -2.0},
+            },
+            "geometry": {
+                "arc": {
+                    "type": "arc",
+                    "points": ["c", "top", "bottom"],
+                    "radius": 2.0,
+                    "dimension_visible": False,
+                },
+                "top_line": {"type": "segment", "points": ["top", "rt"]},
+                "right_top": {"type": "segment", "points": ["rt", "rm"]},
+                "bottom_line": {"type": "segment", "points": ["bottom", "rb"]},
+                "right_bottom": {"type": "segment", "points": ["rm", "rb"]},
+            },
+            "constraints": {
+                "c0": {"type": "point_on_reference", "points": ["c"], "references": ["sketch_origin"]},
+                "c1": {"type": "point_on_reference", "points": ["top"], "references": ["sketch_axis:y"]},
+                "c2": {"type": "point_on_reference", "points": ["bottom"], "references": ["sketch_axis:y"]},
+                "c3": {"type": "point_on_reference", "points": ["rm"], "references": ["sketch_axis:x"]},
+                "c4": {"type": "horizontal", "points": ["top", "rt"]},
+                "c5": {"type": "vertical", "points": ["rt", "rm"]},
+                "c6": {"type": "horizontal", "points": ["bottom", "rb"]},
+                "c7": {"type": "vertical", "points": ["rm", "rb"]},
+            },
+            "dimensions": {
+                "height": {
+                    "type": "distance_y",
+                    "value": 4.0,
+                    "points": ["rt", "rb"],
+                    "driving": True,
+                }
+            },
+        }
+        before = SketchModel.from_dict(data)
+        after_data = copy.deepcopy(data)
+        after_data["geometry"]["arc"]["dimension_visible"] = True
+        after = SketchModel.from_dict(after_data)
+
+        self.assertEqual(before.dof_analysis().degrees_of_freedom, 1)
+        self.assertEqual(after.dof_analysis().degrees_of_freedom, 1)
 
     def test_circle_round_trips_with_centre_and_scalar_radius(self):
         sketch = SketchModel()
@@ -1204,6 +1539,71 @@ class SketchModelTests(unittest.TestCase):
             places=6,
         )
         self.assertEqual(sketch.violated_equations(), ())
+
+    def test_dimensioned_hexagon_vertices_remain_on_support_circle(self):
+        entities = [
+            {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+        ]
+        for index in range(6):
+            angle = index * math.tau / 6.0
+            entities.append({
+                "id": f"p{index}",
+                "type": "point",
+                "x": 10.0 * math.cos(angle),
+                "y": 10.0 * math.sin(angle),
+                "curve_attachment": {
+                    "type": "circle",
+                    "geometry_id": "support",
+                    "angle": angle,
+                },
+            })
+        entities.append({
+            "id": "support",
+            "type": "circle",
+            "point_ids": ["c"],
+            "radius": 10.0,
+            "role": "construction",
+        })
+        for index in range(6):
+            segment = {
+                "id": f"s{index}",
+                "type": "segment",
+                "point_ids": [f"p{index}", f"p{(index + 1) % 6}"],
+            }
+            if index:
+                segment["constraints"] = [{
+                    "type": "equal_length",
+                    "geometry_id": "s0",
+                }]
+            entities.append(segment)
+
+        model = SketchModel.from_editor_data(entities, [{
+            "id": "side",
+            "type": "distance",
+            "point_ids": ["p0", "p1"],
+            "value": 15.0,
+            "locked": True,
+        }])
+
+        self.assertTrue(model.solve())
+        radius = float(model.geometry["support"].attributes["radius"])
+        for index in range(6):
+            self.assertAlmostEqual(
+                math.dist(
+                    model.points["c"].position(),
+                    model.points[f"p{index}"].position(),
+                ),
+                radius,
+                places=6,
+            )
+            self.assertAlmostEqual(
+                math.dist(
+                    model.points[f"p{index}"].position(),
+                    model.points[f"p{(index + 1) % 6}"].position(),
+                ),
+                15.0,
+                places=6,
+            )
 
     def test_point_line_dimension_uses_perpendicular_distance(self):
         sketch = SketchModel()

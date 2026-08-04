@@ -27,11 +27,13 @@ The central implementation is active, not only a design proposal:
 - Box and Wedge faces have semantic roles; their boundary edges and vertices
   are derived from canonical sets of incident semantic faces rather than OCCT
   traversal order;
-- Segment-, center-arc- and supported spline-profile feature faces, edges and
+- Segment-, center-arc-, ellipse-, elliptical-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
-  Extrusion cylindrical faces and cap-circle edges use the persistent Sketch
-  ID. Complete 360-degree Revolves expose only generated topology because they
-  have no seam caps;
+  and elliptical Extrusion faces and cap edges use the persistent Sketch ID.
+  Closed ellipses deliberately do not expose the kernel-created seam edge or
+  seam vertex as stable user topology; elliptical arcs expose their real
+  endpoint vertices. Complete 360-degree Revolves expose only generated
+  topology because they have no seam caps;
 - supported external Sketch references persist semantic dictionaries instead
   of OCCT enumeration indices;
 - newly selected container face/orientation constraints persist semantic

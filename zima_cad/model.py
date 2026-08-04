@@ -26,8 +26,13 @@ from OCC.Core.BRepBuilderAPI import (
 )
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
-from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Plane
+from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
+from OCC.Core.GeomAbs import (
+    GeomAbs_Circle,
+    GeomAbs_Cylinder,
+    GeomAbs_Ellipse,
+    GeomAbs_Plane,
+)
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
@@ -40,7 +45,16 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeWedge,
     BRepPrimAPI_MakePrism,
 )
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.gp import (
+    gp_Ax1,
+    gp_Ax2,
+    gp_Circ,
+    gp_Dir,
+    gp_Elips,
+    gp_Pnt,
+    gp_Trsf,
+    gp_Vec,
+)
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 from OCC.Core.TopAbs import (
@@ -53,7 +67,12 @@ from OCC.Core.TopAbs import (
 from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.sketch_model import SketchModel, SketchModelError
-from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
+from zima_cad.sketch_geometry import (
+    center_arc_points,
+    ellipse_points,
+    elliptical_arc_points,
+    evaluate_corner_radius,
+)
 from zima_cad.topology import (
     EdgeRef,
     FaceRef,
@@ -1445,6 +1464,72 @@ def apply_object_to_shape(
     return result_shape
 
 
+def _occt_ellipse(
+    center: tuple[float, float],
+    first_axis: tuple[float, float],
+    second_axis: tuple[float, float],
+) -> tuple[gp_Elips, bool]:
+    """Build an exact planar OCCT ellipse and report a reversed Y basis."""
+    vectors = (
+        (first_axis[0] - center[0], first_axis[1] - center[1]),
+        (second_axis[0] - center[0], second_axis[1] - center[1]),
+    )
+    lengths = tuple(math.hypot(*vector) for vector in vectors)
+    if min(lengths) <= 1.0e-12:
+        raise ValueError("ellipse axes must be non-zero")
+    major_index = 0 if lengths[0] >= lengths[1] else 1
+    minor_index = 1 - major_index
+    x_vector = vectors[major_index]
+    y_vector = vectors[minor_index]
+    cross = x_vector[0] * y_vector[1] - x_vector[1] * y_vector[0]
+    reversed_y = cross < 0.0
+    ellipse = gp_Elips(
+        gp_Ax2(
+            gp_Pnt(center[0], center[1], 0.0),
+            gp_Dir(0.0, 0.0, 1.0),
+            gp_Dir(x_vector[0], x_vector[1], 0.0),
+        ),
+        lengths[major_index],
+        lengths[minor_index],
+    )
+    return ellipse, reversed_y
+
+
+def _occt_ellipse_parameter(
+    ellipse: gp_Elips,
+    point: tuple[float, float],
+) -> float:
+    center = ellipse.Location()
+    x_direction = ellipse.XAxis().Direction()
+    y_direction = ellipse.YAxis().Direction()
+    dx, dy = point[0] - center.X(), point[1] - center.Y()
+    cosine = (
+        dx * x_direction.X() + dy * x_direction.Y()
+    ) / ellipse.MajorRadius()
+    sine = (
+        dx * y_direction.X() + dy * y_direction.Y()
+    ) / ellipse.MinorRadius()
+    return math.atan2(sine, cosine)
+
+
+def _make_exact_ellipse_edge(
+    points: list[tuple[float, float]] | tuple[tuple[float, float], ...],
+    *,
+    arc: bool = False,
+    clockwise: bool = False,
+):
+    ellipse, reversed_y = _occt_ellipse(points[0], points[1], points[2])
+    if not arc:
+        return BRepBuilderAPI_MakeEdge(ellipse).Edge()
+    first = _occt_ellipse_parameter(ellipse, points[3])
+    last = _occt_ellipse_parameter(ellipse, points[4])
+    sense = not clockwise
+    if reversed_y:
+        sense = not sense
+    curve = GC_MakeArcOfEllipse(ellipse, first, last, sense).Value()
+    return BRepBuilderAPI_MakeEdge(curve).Edge()
+
+
 def _make_sketch_profile_faces(sketch: ZimaEntity):
     """Build planar faces for every closed non-construction sketch loop."""
     wires = []
@@ -1486,6 +1571,16 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                             )
                         ).Edge()
                         wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+            elif item.get("type") == "ellipse":
+                point_ids = tuple(map(str, item.get("point_ids", ())))
+                if len(point_ids) == 3 and all(pid in points for pid in point_ids):
+                    try:
+                        edge = _make_exact_ellipse_edge(
+                            tuple(points[pid] for pid in point_ids)
+                        )
+                        wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+                    except (RuntimeError, ValueError):
+                        continue
         segment_entities = {
             str(item.get("id", "")): item
             for item in entities
@@ -1564,6 +1659,8 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                     if item.get("arc_mode") == "center"
                     else (point_ids[0], point_ids[-1])
                 )
+            elif entity_type == "elliptical_arc" and len(point_ids) >= 5:
+                endpoints = (point_ids[3], point_ids[4])
             if geometry_id and endpoints is not None:
                 profile_entities[geometry_id] = (
                     item,
@@ -1689,6 +1786,16 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                         edge = BRepBuilderAPI_MakeEdge(
                             interpolation.Curve()
                         ).Edge()
+                    elif entity_type == "elliptical_arc":
+                        edge = _make_exact_ellipse_edge(
+                            tuple(points[pid] for pid in point_ids[:5]),
+                            arc=True,
+                            clockwise=(
+                                bool(geometry.get("clockwise", False))
+                                if start_id == point_ids[3]
+                                else not bool(geometry.get("clockwise", False))
+                            ),
+                        )
                     else:
                         valid = False
                         break
@@ -2527,10 +2634,13 @@ def protrusion_face_registry(
     curve_sources: list[tuple[str, tuple[float, float, float]]] = []
     curve_point_ids: dict[str, tuple[str, str]] = {}
     curve_midpoints: dict[str, tuple[float, float, float]] = {}
+    closed_curve_seam_ids: set[str] = set()
     for entity in sketch_entities:
         if not isinstance(entity, dict) or entity.get("type") not in (
-            "segment", "arc", "spline"
+            "segment", "arc", "spline", "ellipse", "elliptical_arc"
         ):
+            continue
+        if entity.get("role") == "construction":
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
         if len(point_ids) < 2 or any(
@@ -2584,6 +2694,28 @@ def protrusion_face_registry(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
             midpoint_2d = (point.X(), point.Y())
+        elif entity.get("type") == "ellipse" and len(point_ids) == 3:
+            sampled = ellipse_points(
+                sketch_points[point_ids[0]],
+                sketch_points[point_ids[1]],
+                sketch_points[point_ids[2]],
+            )
+            endpoint_ids = (point_ids[1], point_ids[1])
+            closed_curve_seam_ids.add(point_ids[1])
+            midpoint_2d = sampled[len(sampled) // 2]
+        elif entity.get("type") == "elliptical_arc" and len(point_ids) == 5:
+            sampled = elliptical_arc_points(
+                sketch_points[point_ids[0]],
+                sketch_points[point_ids[1]],
+                sketch_points[point_ids[2]],
+                sketch_points[point_ids[3]],
+                sketch_points[point_ids[4]],
+                clockwise=bool(entity.get("clockwise", False)),
+            )
+            if not sampled:
+                continue
+            endpoint_ids = (point_ids[3], point_ids[4])
+            midpoint_2d = sampled[len(sampled) // 2]
         else:
             continue
         curve_point_ids[source_id] = endpoint_ids
@@ -2598,6 +2730,13 @@ def protrusion_face_registry(
             for index in range(3)
         )
         curve_sources.append((source_id, generated_midpoint))
+
+    profile_endpoint_ids = {
+        point_id
+        for endpoints in curve_point_ids.values()
+        for point_id in endpoints
+        if point_id not in closed_curve_seam_ids
+    }
 
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     runtime_index = 0
@@ -2869,7 +3008,8 @@ def protrusion_face_registry(
             if matched_reference is not None:
                 break
         if matched_reference is None:
-            for point_id, positions in point_positions.items():
+            for point_id in profile_endpoint_ids:
+                positions = point_positions[point_id]
                 expected = (positions["start"], positions["end"])
                 if (
                     points_match(endpoints[0], expected[0])
@@ -2908,7 +3048,8 @@ def protrusion_face_registry(
         matched_reference = next(
             (
                 VertexRef(feature.entity_id, role, point_id)
-                for point_id, positions in point_positions.items()
+                for point_id in profile_endpoint_ids
+                for positions in (point_positions[point_id],)
                 for role in ("start", "end")
                 if points_match(position, positions[role])
             ),
@@ -3035,11 +3176,14 @@ def revolve_face_registry(
     curve_endpoints: dict[str, tuple[str, str]] = {}
     curve_midpoints: dict[str, tuple[float, float, float]] = {}
     generated_samples: dict[str, tuple[float, float, float]] = {}
+    closed_curve_seam_ids: set[str] = set()
     middle_angle = (start_angle + end_angle) * 0.5
     for entity in entities:
         if not isinstance(entity, dict) or entity.get("type") not in (
-            "segment", "arc", "spline"
+            "segment", "arc", "spline", "ellipse", "elliptical_arc"
         ):
+            continue
+        if entity.get("role") == "construction":
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
         if any(point_id not in local_points for point_id in point_ids):
@@ -3089,6 +3233,28 @@ def revolve_face_registry(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
             midpoint_2d = (point.X(), point.Y())
+        elif entity.get("type") == "ellipse" and len(point_ids) == 3:
+            sampled = ellipse_points(
+                points[point_ids[0]],
+                points[point_ids[1]],
+                points[point_ids[2]],
+            )
+            endpoint_ids = (point_ids[1], point_ids[1])
+            closed_curve_seam_ids.add(point_ids[1])
+            midpoint_2d = sampled[len(sampled) // 2]
+        elif entity.get("type") == "elliptical_arc" and len(point_ids) == 5:
+            sampled = elliptical_arc_points(
+                points[point_ids[0]],
+                points[point_ids[1]],
+                points[point_ids[2]],
+                points[point_ids[3]],
+                points[point_ids[4]],
+                clockwise=bool(entity.get("clockwise", False)),
+            )
+            if not sampled:
+                continue
+            endpoint_ids = (point_ids[3], point_ids[4])
+            midpoint_2d = sampled[len(sampled) // 2]
         else:
             continue
         curve_endpoints[source_id] = endpoint_ids
@@ -3097,6 +3263,13 @@ def revolve_face_registry(
         )
         curve_midpoints[source_id] = midpoint
         generated_samples[source_id] = rotate(midpoint, middle_angle)
+
+    profile_endpoint_ids = {
+        point_id
+        for endpoints in curve_endpoints.values()
+        for point_id in endpoints
+        if point_id not in closed_curve_seam_ids
+    }
 
     def point_tuple(point) -> tuple[float, float, float]:
         return (point.X(), point.Y(), point.Z())
@@ -3119,8 +3292,30 @@ def revolve_face_registry(
             vertex_explorer.Next()
         matched = None
         cap_role = None
-        if not is_full:
+        is_planar_face = BRepAdaptor_Surface(face).GetType() == GeomAbs_Plane
+        if not is_full and is_planar_face:
             for role in ("start", "end"):
+                role_angle = start_angle if role == "start" else end_angle
+                boundary_samples = [
+                    rotate(midpoint, role_angle)
+                    for midpoint in curve_midpoints.values()
+                ]
+                if boundary_samples:
+                    on_face = []
+                    for sample in boundary_samples:
+                        distance = BRepExtrema_DistShapeShape(
+                            BRepBuilderAPI_MakeVertex(
+                                gp_Pnt(*sample)
+                            ).Vertex(),
+                            face,
+                        )
+                        distance.Perform()
+                        on_face.append(
+                            distance.IsDone() and distance.Value() <= 1.0e-6
+                        )
+                    if all(on_face):
+                        cap_role = role
+                        break
                 expected = [positions[point_id][role] for point_id in local_points]
                 if len(face_vertices) >= 2 and all(
                     any(points_match(position, candidate) for candidate in expected)
@@ -3210,7 +3405,8 @@ def revolve_face_registry(
                 if matched is not None:
                     break
         if matched is None:
-            for point_id, point_positions in positions.items():
+            for point_id in profile_endpoint_ids:
+                point_positions = positions[point_id]
                 expected = (point_positions["start"], point_positions["end"])
                 if ((points_match(endpoints[0], expected[0]) and points_match(endpoints[1], expected[1])) or
                         (points_match(endpoints[0], expected[1]) and points_match(endpoints[1], expected[0]))):
@@ -3234,7 +3430,8 @@ def revolve_face_registry(
             position = point_tuple(BRep_Tool.Pnt(vertex))
             matched = next((
                 VertexRef(feature.entity_id, role, point_id)
-                for point_id, point_positions in positions.items()
+                for point_id in profile_endpoint_ids
+                for point_positions in (positions[point_id],)
                 for role in ("start", "end")
                 if points_match(position, point_positions[role])
             ), None)
@@ -4200,6 +4397,17 @@ def make_sketch_shape(
                     interpolation.Perform()
                     if interpolation.IsDone():
                         curve = interpolation.Curve()
+                elif entity.get("type") in ("ellipse", "elliptical_arc"):
+                    required = 3 if entity.get("type") == "ellipse" else 5
+                    if len(points) >= required:
+                        edge = _make_exact_ellipse_edge(
+                            tuple(tuple(point) for point in points[:required]),
+                            arc=entity.get("type") == "elliptical_arc",
+                            clockwise=bool(entity.get("clockwise", False)),
+                        )
+                        builder.Add(compound, edge)
+                        edge_count += 1
+                        continue
             except (RuntimeError, ValueError, TypeError):
                 curve = None
             if curve is not None:

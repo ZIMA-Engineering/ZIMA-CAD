@@ -43,7 +43,12 @@ from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.gp import gp_Pnt
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 
-from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
+from zima_cad.sketch_geometry import (
+    center_arc_points,
+    ellipse_points,
+    elliptical_arc_points,
+    evaluate_corner_radius,
+)
 from zima_cad.viewer_mesh import (
     Point3,
     SilhouetteEdge,
@@ -484,6 +489,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchEntityHovered = Signal(str)
     sketchCursorMoved = Signal(float, float)
     sketchConstraintReferenceSelected = Signal(str)
+    sketchConstraintSelected = Signal(str, int)
     sketchExternalReferenceSelected = Signal(str)
     sketchDeleteRequested = Signal()
     sketchArcDirectionSelected = Signal(bool)
@@ -552,6 +558,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_anchor: Point3 | None = None
         self._selected_reference_owner_id: str | None = None
         self._constraint_reference_owner_ids: frozenset[str] = frozenset()
+        self._excluded_topology_owner_ids: frozenset[str] = frozenset()
         self._constraint_reference_edges: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_points: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_planes: frozenset[TopologyKey] = frozenset()
@@ -574,6 +581,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_tool: str | None = None
         self._sketch_preview_position: tuple[float, float] | None = None
         self._sketch_preview_constraint: str | None = None
+        self._sketch_placement_candidates: tuple[
+            tuple[tuple[float, float], str | None, str | None], ...
+        ] = ()
+        self._sketch_placement_candidate_index = 0
+        self._sketch_placement_candidate_cursor: QPointF | None = None
+        self._selected_sketch_constraint: tuple[str, int] | None = None
+        self._hovered_sketch_constraint: tuple[str, int] | None = None
+        self._sketch_constraint_hit_regions: list[tuple[QRectF, str, int]] = []
         self._sketch_selection_mode = False
         self._sketch_constraint_selection_mode = False
         self._sketch_reference_selection_mode = False
@@ -644,6 +659,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         selected_entity_id: str | None = None,
         selected_entity_ids: set[str] | frozenset[str] = frozenset(),
         selected_corner_radius: tuple[str, str, str] | None = None,
+        selected_constraint: tuple[str, int] | None = None,
         external_references: tuple[dict[str, Any], ...]
         | list[dict[str, Any]] = (),
         snap_to_external_references: bool = False,
@@ -654,8 +670,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         previous_pending = self._sketch_pending_points
         self._sketch_pending_points = tuple(pending_points)
         if (
-            sketch_tool != "arc"
-            or len(self._sketch_pending_points) != 2
+            sketch_tool not in ("arc", "elliptical_arc")
+            or (
+                sketch_tool == "arc"
+                and len(self._sketch_pending_points) != 2
+            )
             or previous_pending != self._sketch_pending_points
         ):
             self._sketch_arc_clockwise = None
@@ -668,6 +687,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_sketch_entity_id = selected_entity_id
         self._selected_sketch_entity_ids = frozenset(selected_entity_ids)
         self._selected_sketch_corner_radius = selected_corner_radius
+        self._selected_sketch_constraint = selected_constraint
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
         self._sketch_tool = sketch_tool
@@ -681,7 +701,32 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             str(reference.get("id", ""))
             for reference in self._sketch_external_references
         }
-        if self._hovered_sketch_external_reference_id not in reference_ids:
+        hovered_reference_components = tuple(
+            component
+            for component in (
+                self._hovered_sketch_external_reference_id or ""
+            ).split("||")
+            if component
+        )
+        intrinsic_prefixes = (
+            "sketch_axis:",
+            "sketch_geometry:",
+            "sketch_circle:",
+            "sketch_arc:",
+            "sketch_ellipse:",
+            "sketch_elliptical_arc:",
+            "sketch_radius:",
+        )
+        if hovered_reference_components and not all(
+            component == "sketch_origin"
+            or component.startswith(intrinsic_prefixes)
+            or any(
+                component == reference_id
+                or component.startswith(reference_id + "::")
+                for reference_id in reference_ids
+            )
+            for component in hovered_reference_components
+        ):
             self._hovered_sketch_external_reference_id = None
         if not selection_mode or frame is None:
             self._preview_sketch_entity_id = None
@@ -1332,6 +1377,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
         self._clear_topology_hover()
 
+    def set_excluded_topology_owners(self, owner_ids: set[str]) -> None:
+        self._excluded_topology_owner_ids = frozenset(owner_ids)
+        self._clear_topology_hover()
+
+    def _topology_owner_is_selectable(self, owner_id: str) -> bool:
+        return (
+            owner_id not in self._excluded_topology_owner_ids
+            and (
+                self._topology_owner_filter is None
+                or owner_id in self._topology_owner_filter
+            )
+        )
+
     def set_interaction_mode(self, interaction_mode: str) -> None:
         if interaction_mode not in {"object", "topology"}:
             raise ValueError(
@@ -1616,7 +1674,37 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 else:
                     self._cycle_sketch_entity(event.position())
             else:
-                self.sketchCancelCurrentRequested.emit()
+                if self._sketch_tool in ("polyline", "polyline_arc"):
+                    self.sketchAlternateCurrentRequested.emit()
+                    snapped, reference_id, constraint = (
+                        self._sketch_placement_candidate(event.position())
+                    )
+                    self._sketch_preview_position = snapped
+                    self._sketch_preview_constraint = constraint
+                    self._hovered_sketch_external_reference_id = reference_id
+                    self.update()
+                    event.accept()
+                    return
+                candidates = self._smart_sketch_placement_candidates(
+                    event.position()
+                )
+                if len(candidates) > 1:
+                    self._sketch_placement_candidates = candidates
+                    self._sketch_placement_candidate_index = (
+                        self._sketch_placement_candidate_index + 1
+                    ) % len(candidates)
+                    self._sketch_placement_candidate_cursor = QPointF(
+                        event.position()
+                    )
+                    snapped, reference_id, constraint = candidates[
+                        self._sketch_placement_candidate_index
+                    ]
+                    self._sketch_preview_position = snapped
+                    self._sketch_preview_constraint = constraint
+                    self._hovered_sketch_external_reference_id = reference_id
+                    self.update()
+                else:
+                    self.sketchCancelCurrentRequested.emit()
             event.accept()
             return
         if (
@@ -1698,7 +1786,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     else (candidates[0] if candidates else "")
                 )
                 if selected:
-                    if selected.startswith("reference:"):
+                    if selected.startswith("constraint:"):
+                        _prefix, owner_id, raw_index = selected.split(":", 2)
+                        self.sketchConstraintSelected.emit(
+                            owner_id,
+                            int(raw_index),
+                        )
+                    elif selected.startswith("reference:"):
                         reference_id = selected.removeprefix("reference:")
                         if self._sketch_tool == "select":
                             self.sketchExternalReferenceSelected.emit(
@@ -1889,6 +1983,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_selection_mode
             and not self._sketch_reference_selection_mode
         ):
+            hovered_constraint = (
+                next(
+                    (
+                        (owner_id, constraint_index)
+                        for bounds, owner_id, constraint_index
+                        in reversed(self._sketch_constraint_hit_regions)
+                        if bounds.adjusted(-4.0, -4.0, 4.0, 4.0).contains(
+                            event.position()
+                        )
+                    ),
+                    None,
+                )
+                if self._sketch_tool == "select"
+                else None
+            )
+            if hovered_constraint != self._hovered_sketch_constraint:
+                self._hovered_sketch_constraint = hovered_constraint
+                self.update()
             if (
                 self._sketch_dimension_drag_key is not None
                 and event.buttons() & Qt.MouseButton.LeftButton
@@ -1985,9 +2097,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if active_candidate.startswith("reference:")
                 else None
             )
+            constraint_candidate = (
+                active_candidate.split(":", 2)
+                if active_candidate.startswith("constraint:")
+                else None
+            )
+            if constraint_candidate is not None:
+                self._hovered_sketch_constraint = (
+                    constraint_candidate[1],
+                    int(constraint_candidate[2]),
+                )
+            elif active_candidate:
+                self._hovered_sketch_constraint = None
             self._preview_sketch_entity_id = (
                 active_candidate
-                if active_candidate and reference_id is None
+                if active_candidate
+                and reference_id is None
+                and constraint_candidate is None
                 else None
             )
             if reference_id != self._hovered_sketch_external_reference_id:
@@ -2022,7 +2148,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 start_y = start[1] - center[1]
                 cursor_x = snapped[0] - center[0]
                 cursor_y = snapped[1] - center[1]
-                if hypot(cursor_x, cursor_y) > 1.0e-9:
+                cursor_length = hypot(cursor_x, cursor_y)
+                start_radius = hypot(start_x, start_y)
+                if cursor_length > 1.0e-9 and start_radius > 1.0e-9:
+                    snapped = (
+                        center[0] + start_radius * cursor_x / cursor_length,
+                        center[1] + start_radius * cursor_y / cursor_length,
+                    )
                     cursor_angle = atan2(cursor_y, cursor_x)
                     if self._sketch_arc_last_angle is None:
                         self._sketch_arc_last_angle = atan2(
@@ -2041,6 +2173,35 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     if clockwise != self._sketch_arc_clockwise:
                         self._sketch_arc_clockwise = clockwise
                         self.sketchArcDirectionSelected.emit(clockwise)
+            elif (
+                self._sketch_tool == "elliptical_arc"
+                and len(self._sketch_pending_points) == 4
+            ):
+                center, major, minor, start = self._sketch_pending_points
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                determinant = ax * by - ay * bx
+                if abs(determinant) > 1.0e-12:
+                    def ellipse_angle(point: tuple[float, float]) -> float:
+                        dx, dy = point[0] - center[0], point[1] - center[1]
+                        return atan2(
+                            (ax * dy - ay * dx) / determinant,
+                            (dx * by - dy * bx) / determinant,
+                        )
+
+                    cursor_angle = ellipse_angle(snapped)
+                    if self._sketch_arc_last_angle is None:
+                        self._sketch_arc_last_angle = ellipse_angle(start)
+                    delta = (
+                        cursor_angle - self._sketch_arc_last_angle + pi
+                    ) % (2.0 * pi) - pi
+                    self._sketch_arc_accumulated_sweep += delta
+                    self._sketch_arc_last_angle = cursor_angle
+                    if abs(self._sketch_arc_accumulated_sweep) > 1.0e-4:
+                        clockwise = self._sketch_arc_accumulated_sweep < 0.0
+                        if clockwise != self._sketch_arc_clockwise:
+                            self._sketch_arc_clockwise = clockwise
+                            self.sketchArcDirectionSelected.emit(clockwise)
             construction_id = (
                 reference_id.split(":", 1)[1]
                 if reference_id is not None
@@ -2342,6 +2503,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     tuple(local_points[0]),
                     tuple(local_points[1]),
                     tuple(local_points[2]),
+                    clockwise=bool(entity.get("clockwise", False)),
+                ))
+            elif entity_type == "ellipse" and len(local_points) >= 3:
+                local_points = list(ellipse_points(
+                    tuple(local_points[0]),
+                    tuple(local_points[1]),
+                    tuple(local_points[2]),
+                ))
+            elif entity_type == "elliptical_arc" and len(local_points) >= 5:
+                local_points = list(elliptical_arc_points(
+                    tuple(local_points[0]),
+                    tuple(local_points[1]),
+                    tuple(local_points[2]),
+                    tuple(local_points[3]),
+                    tuple(local_points[4]),
                     clockwise=bool(entity.get("clockwise", False)),
                 ))
             elif entity_type == "spline" and len(local_points) >= 2:
@@ -3780,6 +3956,29 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._camera_point(self._sketch_frame[0])
         )
         extent = float(max(self.width(), self.height()) * 2)
+        hovered_reference_ids = set(
+            component
+            for component in (
+                self._hovered_sketch_external_reference_id or ""
+            ).split("||")
+            if component
+        )
+        if (
+            self._sketch_preview_constraint is not None
+            and self._sketch_preview_constraint.startswith("tangent_first:")
+        ):
+            tangent_curve_id = self._sketch_preview_constraint.split(":", 1)[1]
+            tangent_curve = next(
+                (
+                    entity for entity in self._sketch_entities
+                    if str(entity.get("id", "")) == tangent_curve_id
+                ),
+                None,
+            )
+            if tangent_curve is not None:
+                hovered_reference_ids.add(
+                    f"sketch_{tangent_curve.get('type', '')}:{tangent_curve_id}"
+                )
 
         def infinite_line(first: QPointF, second: QPointF) -> None:
             dx = second.x() - first.x()
@@ -3808,15 +4007,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             painter.setPen(
                 highlighted_auxiliary(QColor("#FF7A00"))
-                if (
-                    axis_reference_id
-                    == self._hovered_sketch_external_reference_id
-                )
+                if axis_reference_id in hovered_reference_ids
                 else dashed
             )
             infinite_line(origin, end)
         origin_hovered = (
-            self._hovered_sketch_external_reference_id == "sketch_origin"
+            "sketch_origin" in hovered_reference_ids
         )
         origin_color = QColor("#FF7A00") if origin_hovered else yellow
         painter.setPen(QPen(origin_color, 2.5 if origin_hovered else 2.0))
@@ -3832,8 +4028,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if not isinstance(geometry, dict):
                 continue
             reference_hovered = (
-                str(reference.get("id", ""))
-                == self._hovered_sketch_external_reference_id
+                str(reference.get("id", "")) in hovered_reference_ids
             )
             reference_color = (
                 QColor("#FF7A00")
@@ -3954,11 +4149,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             == source_line_index
                         )
                         line_hovered = (
-                            self._hovered_sketch_external_reference_id
-                            == (
+                            (
                                 f"{reference.get('id', '')}"
                                 f"::line:{source_line_index}"
                             )
+                            in hovered_reference_ids
                         )
                         line_color = (
                             QColor("#FF7A00")
@@ -4205,6 +4400,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             previewed = (
                 str(entity.get("id", ""))
                 == self._preview_sketch_entity_id
+                or any(
+                    reference_id in hovered_reference_ids
+                    for reference_id in (
+                        f"sketch_geometry:{entity.get('id', '')}",
+                        f"sketch_circle:{entity.get('id', '')}",
+                        f"sketch_arc:{entity.get('id', '')}",
+                        f"sketch_ellipse:{entity.get('id', '')}",
+                        f"sketch_elliptical_arc:{entity.get('id', '')}",
+                    )
+                )
                 or (
                     entity_type == "point"
                     and self._hovered_sketch_corner_radius is not None
@@ -4238,6 +4443,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     tuple(raw_points[0]),
                     tuple(raw_points[1]),
                     tuple(raw_points[2]),
+                    clockwise=bool(entity.get("clockwise", False)),
+                )
+            elif entity_type == "ellipse" and len(raw_points) >= 3:
+                raw_points = ellipse_points(
+                    tuple(raw_points[0]),
+                    tuple(raw_points[1]),
+                    tuple(raw_points[2]),
+                )
+            elif entity_type == "elliptical_arc" and len(raw_points) >= 5:
+                raw_points = elliptical_arc_points(
+                    tuple(raw_points[0]),
+                    tuple(raw_points[1]),
+                    tuple(raw_points[2]),
+                    tuple(raw_points[3]),
+                    tuple(raw_points[4]),
                     clockwise=bool(entity.get("clockwise", False)),
                 )
             elif entity_type == "spline" and len(raw_points) >= 2:
@@ -4525,51 +4745,60 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         constraint_font.setBold(True)
         painter.setFont(constraint_font)
         painter.setPen(QPen(constraint_color, 2.0))
-        markers_by_geometry: dict[str, list[str]] = {
+        self._sketch_constraint_hit_regions = []
+        markers_by_geometry: dict[str, list[tuple[str, int]]] = {
             geometry_id: [] for geometry_id in geometry_by_id
         }
-        tangent_contact_ids: set[str] = set()
-        midpoint_point_ids: set[str] = set()
-        coincident_point_ids: set[str] = set()
+        tangent_contact_ids: dict[str, tuple[str, int]] = {}
+        midpoint_point_ids: dict[str, tuple[str, int]] = {}
+        coincident_point_ids: dict[str, tuple[str, int]] = {}
         symmetric_point_pairs: list[tuple[str, str]] = []
 
-        def add_marker(geometry_id: str, marker: str) -> None:
+        def add_marker(geometry_id: str, marker: str, index: int) -> None:
             markers = markers_by_geometry.get(geometry_id)
-            if markers is not None and marker not in markers:
-                markers.append(marker)
+            record = (marker, index)
+            if markers is not None and record not in markers:
+                markers.append(record)
 
         for geometry_id, geometry in geometry_by_id.items():
             constraints = geometry.get("constraints", ())
             if not isinstance(constraints, list):
                 continue
-            for constraint in constraints:
+            for constraint_index, constraint in enumerate(constraints):
                 if not isinstance(constraint, dict):
                     continue
                 constraint_type = str(constraint.get("type", ""))
                 if constraint_type == "horizontal":
-                    add_marker(geometry_id, "H")
+                    add_marker(geometry_id, "H", constraint_index)
                 elif constraint_type == "vertical":
-                    add_marker(geometry_id, "V")
+                    add_marker(geometry_id, "V", constraint_index)
                 elif constraint_type == "parallel":
-                    add_marker(geometry_id, "∥")
+                    add_marker(geometry_id, "∥", constraint_index)
                 elif constraint_type == "equal_length":
-                    add_marker(geometry_id, "=")
+                    add_marker(geometry_id, "=", constraint_index)
                     add_marker(
                         str(constraint.get("geometry_id", "")),
                         "=",
+                        constraint_index,
                     )
                 elif constraint_type == "tangent":
                     contact_id = str(
                         constraint.get("contact_point_id", "")
                     )
                     if contact_id:
-                        tangent_contact_ids.add(contact_id)
+                        tangent_contact_ids[contact_id] = (
+                            geometry_id,
+                            constraint_index,
+                        )
 
         for entity in self._sketch_entities:
             if entity.get("type") != "point":
                 continue
             if isinstance(entity.get("curve_attachment"), dict):
-                coincident_point_ids.add(str(entity.get("id", "")))
+                coincident_point_ids.setdefault(
+                    str(entity.get("id", "")),
+                    (str(entity.get("id", "")), -1),
+                )
             constraints = entity.get("constraints", ())
             if isinstance(constraints, list):
                 if any(
@@ -4577,7 +4806,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     and constraint.get("type") == "midpoint"
                     for constraint in constraints
                 ):
-                    midpoint_point_ids.add(str(entity.get("id", "")))
+                    midpoint_index = next(
+                        index for index, constraint in enumerate(constraints)
+                        if isinstance(constraint, dict)
+                        and constraint.get("type") == "midpoint"
+                    )
+                    midpoint_point_ids[str(entity.get("id", ""))] = (
+                        str(entity.get("id", "")), midpoint_index
+                    )
                 if any(
                     isinstance(constraint, dict)
                     and constraint.get("type")
@@ -4588,7 +4824,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                     for constraint in constraints
                 ):
-                    coincident_point_ids.add(str(entity.get("id", "")))
+                    coincident_index = next(
+                        index for index, constraint in enumerate(constraints)
+                        if isinstance(constraint, dict)
+                        and constraint.get("type") in (
+                            "coincident", "point_on_line", "point_on_reference"
+                        )
+                    )
+                    coincident_point_ids[str(entity.get("id", ""))] = (
+                        str(entity.get("id", "")), coincident_index
+                    )
                 for constraint in constraints:
                     if (
                         isinstance(constraint, dict)
@@ -4599,6 +4844,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             symmetric_point_pairs.append(
                                 (str(entity.get("id", "")), second_id)
                             )
+
+        endpoint_use: dict[str, int] = {}
+        for geometry in self._sketch_entities:
+            geometry_type = str(geometry.get("type", ""))
+            ids = tuple(map(str, geometry.get("point_ids", ())))
+            endpoint_ids = (
+                ids
+                if geometry_type in ("segment", "construction")
+                else ids[1:3]
+                if geometry_type == "arc"
+                else ()
+            )
+            for point_id in endpoint_ids:
+                endpoint_use[point_id] = endpoint_use.get(point_id, 0) + 1
+        for point_id, use_count in endpoint_use.items():
+            if use_count >= 2:
+                coincident_point_ids.setdefault(
+                    point_id,
+                    (point_id, -2),
+                )
 
         metrics = painter.fontMetrics()
         marker_spacing = 16.0
@@ -4615,12 +4880,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             dx, dy = direction
             center_x = (first.x() + second.x()) * 0.5
             center_y = (first.y() + second.y()) * 0.5
-            for marker_index, label in enumerate(markers):
+            for marker_index, (label, constraint_index) in enumerate(markers):
                 along = (
                     marker_index - (len(markers) - 1) * 0.5
                 ) * marker_spacing
-                painter.drawText(
-                    QPointF(
+                position = QPointF(
                     center_x
                     + dx * along
                     - metrics.horizontalAdvance(label) * 0.5
@@ -4629,35 +4893,72 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     + dy * along
                     + metrics.ascent() * 0.5
                     + dx * 11.0,
-                    ),
-                    label,
                 )
+                selected = self._selected_sketch_constraint == (
+                    geometry_id,
+                    constraint_index,
+                )
+                hovered = self._hovered_sketch_constraint == (
+                    geometry_id, constraint_index
+                )
+                painter.setPen(QPen(
+                    cyan if selected else QColor("#FF7A00") if hovered else constraint_color,
+                    2.0,
+                ))
+                painter.drawText(position, label)
+                bounds = metrics.boundingRect(label)
+                self._sketch_constraint_hit_regions.append((
+                    QRectF(
+                        position.x(),
+                        position.y() - metrics.ascent(),
+                        float(bounds.width()),
+                        float(bounds.height()),
+                    ),
+                    geometry_id,
+                    constraint_index,
+                ))
 
-        for contact_id in tangent_contact_ids:
+        for contact_id, key in tangent_contact_ids.items():
             local_contact = point_positions.get(contact_id)
             if local_contact is None:
                 continue
             contact = self._screen_point(
                 self._camera_point(self._sketch_world_point(local_contact))
             )
-            painter.drawText(
-                QPointF(contact.x() + 7.0, contact.y() - 7.0),
-                "T",
-            )
+            position = QPointF(contact.x() + 7.0, contact.y() - 7.0)
+            painter.setPen(QPen(
+                cyan if key == self._selected_sketch_constraint
+                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
+                else constraint_color, 2.0
+            ))
+            painter.drawText(position, "T")
+            self._sketch_constraint_hit_regions.append((
+                QRectF(position.x(), position.y() - metrics.ascent(),
+                       float(metrics.horizontalAdvance("T")), float(metrics.height())),
+                *key,
+            ))
 
-        for point_id in midpoint_point_ids:
+        for point_id, key in midpoint_point_ids.items():
             local_midpoint = point_positions.get(point_id)
             if local_midpoint is None:
                 continue
             midpoint = self._screen_point(
                 self._camera_point(self._sketch_world_point(local_midpoint))
             )
-            painter.drawText(
-                QPointF(midpoint.x() + 7.0, midpoint.y() - 7.0),
-                "M",
-            )
+            position = QPointF(midpoint.x() + 7.0, midpoint.y() - 7.0)
+            painter.setPen(QPen(
+                cyan if key == self._selected_sketch_constraint
+                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
+                else constraint_color, 2.0
+            ))
+            painter.drawText(position, "M")
+            self._sketch_constraint_hit_regions.append((
+                QRectF(position.x(), position.y() - metrics.ascent(),
+                       float(metrics.horizontalAdvance("M")), float(metrics.height())),
+                *key,
+            ))
 
-        for point_id in coincident_point_ids:
+        for point_id, key in coincident_point_ids.items():
             local_point = point_positions.get(point_id)
             if local_point is None:
                 continue
@@ -4668,10 +4969,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 int(point_id in tangent_contact_ids)
                 + int(point_id in midpoint_point_ids)
             )
-            painter.drawText(
-                QPointF(point.x() + 7.0, point.y() - marker_offset),
-                "C",
-            )
+            position = QPointF(point.x() + 7.0, point.y() - marker_offset)
+            painter.setPen(QPen(
+                cyan if key == self._selected_sketch_constraint
+                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
+                else constraint_color, 2.0
+            ))
+            painter.drawText(position, "C")
+            # Curve attachments are represented by the virtual constraint
+            # index -1. They still need a hit region so C participates in
+            # the same hover/right-click selection cycle as stored relations.
+            self._sketch_constraint_hit_regions.append((
+                QRectF(position.x(), position.y() - metrics.ascent(),
+                       float(metrics.horizontalAdvance("C")), float(metrics.height())),
+                *key,
+            ))
 
         for first_id, second_id in symmetric_point_pairs:
             for point_id in (first_id, second_id):
@@ -4805,6 +5117,76 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         reference_line,
                     )
 
+        if (
+            not self._sketch_pending_points
+            and self._sketch_preview_position is not None
+            and self._sketch_tool not in ("select", "dimension")
+        ):
+            preview = self._screen_point(
+                self._camera_point(
+                    self._sketch_world_point(self._sketch_preview_position)
+                )
+            )
+            orange = QColor("#FF7A00")
+            painter.setPen(QPen(orange, 2.0))
+            painter.setBrush(QBrush(orange))
+            painter.drawEllipse(preview, 5.0, 5.0)
+            label = (
+                "C  C"
+                if self._sketch_preview_constraint == "intersection"
+                else "K"
+                if self._sketch_preview_constraint is not None
+                and self._sketch_preview_constraint.startswith("keypoint:")
+                else "X"
+                if self._sketch_preview_constraint == "axis:x"
+                else "Y"
+                if self._sketch_preview_constraint == "axis:y"
+                else "C"
+                if self._hovered_sketch_external_reference_id is not None
+                else ""
+            )
+            if label:
+                painter.drawText(QPointF(preview.x() + 8.0, preview.y() - 8.0), label)
+
+        if self._sketch_tool == "polyline" and self._sketch_pending_points:
+            first = self._sketch_pending_points[-1]
+            point_positions = {
+                str(entity.get("id", "")): (
+                    float(entity.get("x", 0.0)),
+                    float(entity.get("y", 0.0)),
+                )
+                for entity in self._sketch_entities
+                if entity.get("type") == "point"
+            }
+            previous_arc = next((
+                entity for entity in reversed(self._sketch_entities)
+                if entity.get("type") == "arc"
+                and entity.get("point_ids")
+                and str(entity.get("point_ids")[-1]) in point_positions
+                and hypot(
+                    point_positions[str(entity.get("point_ids")[-1])][0] - first[0],
+                    point_positions[str(entity.get("point_ids")[-1])][1] - first[1],
+                ) <= 1.0e-9
+            ), None)
+            ids = tuple(map(str, previous_arc.get("point_ids", ()))) if previous_arc else ()
+            if len(ids) == 3 and ids[0] in point_positions:
+                center = point_positions[ids[0]]
+                radial = (first[0] - center[0], first[1] - center[1])
+                tangent = (
+                    (radial[1], -radial[0])
+                    if previous_arc.get("clockwise")
+                    else (-radial[1], radial[0])
+                )
+                length_squared = tangent[0] ** 2 + tangent[1] ** 2
+                if length_squared > 1.0e-12:
+                    factor = (
+                        (local[0] - first[0]) * tangent[0]
+                        + (local[1] - first[1]) * tangent[1]
+                    ) / length_squared
+                    return (
+                        first[0] + factor * tangent[0],
+                        first[1] + factor * tangent[1],
+                    ), None, f"tangent:{previous_arc.get('id', '')}"
         if self._sketch_pending_points:
             pending = [
                 self._screen_point(
@@ -4839,7 +5221,69 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         )
                     )
                 )
-                if self._sketch_tool == "circle":
+                if self._sketch_tool == "polyline_arc":
+                    start = self._sketch_pending_points[-1]
+                    point_positions = {
+                        str(entity.get("id", "")): (
+                            float(entity.get("x", 0.0)),
+                            float(entity.get("y", 0.0)),
+                        )
+                        for entity in self._sketch_entities
+                        if entity.get("type") == "point"
+                    }
+                    previous = next((
+                        entity for entity in reversed(self._sketch_entities)
+                        if entity.get("type") in ("segment", "arc")
+                        and entity.get("point_ids")
+                        and str(entity.get("point_ids")[-1]) in point_positions
+                        and hypot(
+                            point_positions[str(entity.get("point_ids")[-1])][0] - start[0],
+                            point_positions[str(entity.get("point_ids")[-1])][1] - start[1],
+                        ) <= 1.0e-9
+                    ), None)
+                    direction = None
+                    if previous is not None and previous.get("type") == "segment":
+                        ids = tuple(map(str, previous.get("point_ids", ())))
+                        if len(ids) == 2 and all(pid in point_positions for pid in ids):
+                            before = point_positions[ids[0]]
+                            direction = (start[0] - before[0], start[1] - before[1])
+                    elif previous is not None:
+                        ids = tuple(map(str, previous.get("point_ids", ())))
+                        if len(ids) == 3 and ids[0] in point_positions:
+                            center = point_positions[ids[0]]
+                            radial = (start[0] - center[0], start[1] - center[1])
+                            direction = (
+                                (radial[1], -radial[0])
+                                if previous.get("clockwise")
+                                else (-radial[1], radial[0])
+                            )
+                    length = hypot(*(direction or (0.0, 0.0)))
+                    if direction is not None and length > 1.0e-12:
+                        tx, ty = direction[0] / length, direction[1] / length
+                        nx, ny = -ty, tx
+                        dx = self._sketch_preview_position[0] - start[0]
+                        dy = self._sketch_preview_position[1] - start[1]
+                        denominator = 2.0 * (dx * nx + dy * ny)
+                        if abs(denominator) > 1.0e-9:
+                            signed_radius = (dx * dx + dy * dy) / denominator
+                            center = (
+                                start[0] + nx * signed_radius,
+                                start[1] + ny * signed_radius,
+                            )
+                            sampled = center_arc_points(
+                                center,
+                                start,
+                                self._sketch_preview_position,
+                                clockwise=signed_radius < 0.0,
+                            )
+                            painter.setBrush(Qt.BrushStyle.NoBrush)
+                            painter.drawPolyline(QPolygonF([
+                                self._screen_point(self._camera_point(
+                                    self._sketch_world_point(point)
+                                ))
+                                for point in sampled
+                            ]))
+                elif self._sketch_tool == "circle":
                     local_center = self._sketch_pending_points[0]
                     local_radius = hypot(
                         self._sketch_preview_position[0] - local_center[0],
@@ -4880,6 +5324,55 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ])
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPolyline(arc)
+                elif (
+                    self._sketch_tool in ("ellipse", "elliptical_arc")
+                    and len(pending) == 2
+                ):
+                    center, major = self._sketch_pending_points
+                    ax = major[0] - center[0]
+                    ay = major[1] - center[1]
+                    axis_length = hypot(ax, ay)
+                    if axis_length > 1.0e-12:
+                        nx, ny = -ay / axis_length, ax / axis_length
+                        signed = (
+                            (self._sketch_preview_position[0] - center[0]) * nx
+                            + (self._sketch_preview_position[1] - center[1]) * ny
+                        )
+                        minor = (
+                            center[0] + nx * signed,
+                            center[1] + ny * signed,
+                        )
+                        sampled = ellipse_points(center, major, minor)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawPolyline(QPolygonF([
+                            self._screen_point(self._camera_point(
+                                self._sketch_world_point(point)
+                            ))
+                            for point in sampled
+                        ]))
+                elif (
+                    self._sketch_tool == "elliptical_arc"
+                    and len(pending) >= 3
+                ):
+                    center, major, minor = self._sketch_pending_points[:3]
+                    if len(pending) == 3:
+                        sampled = ellipse_points(center, major, minor)
+                    else:
+                        sampled = elliptical_arc_points(
+                            center,
+                            major,
+                            minor,
+                            self._sketch_pending_points[3],
+                            self._sketch_preview_position,
+                            clockwise=bool(self._sketch_arc_clockwise),
+                        )
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPolyline(QPolygonF([
+                        self._screen_point(self._camera_point(
+                            self._sketch_world_point(point)
+                        ))
+                        for point in sampled
+                    ]))
                 elif self._sketch_tool == "spline":
                     sampled = _interpolated_spline_points(
                         self._sketch_pending_points
@@ -4895,22 +5388,143 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ])
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPolyline(spline)
+                elif self._sketch_tool == "rectangle":
+                    first_local = self._sketch_pending_points[0]
+                    opposite_local = self._sketch_preview_position
+                    local_corners = (
+                        first_local,
+                        (opposite_local[0], first_local[1]),
+                        opposite_local,
+                        (first_local[0], opposite_local[1]),
+                        first_local,
+                    )
+                    rectangle = QPolygonF([
+                        self._screen_point(
+                            self._camera_point(self._sketch_world_point(point))
+                        )
+                        for point in local_corners
+                    ])
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPolyline(rectangle)
+                elif self._sketch_tool == "hexagon":
+                    center = self._sketch_pending_points[0]
+                    radius = hypot(
+                        self._sketch_preview_position[0] - center[0],
+                        self._sketch_preview_position[1] - center[1],
+                    )
+                    start_angle = atan2(
+                        self._sketch_preview_position[1] - center[1],
+                        self._sketch_preview_position[0] - center[0],
+                    )
+                    local_vertices = [
+                        (
+                            center[0] + radius * cos(start_angle + i * pi / 3),
+                            center[1] + radius * sin(start_angle + i * pi / 3),
+                        )
+                        for i in range(6)
+                    ]
+                    polygon = QPolygonF([
+                        self._screen_point(
+                            self._camera_point(self._sketch_world_point(point))
+                        )
+                        for point in (*local_vertices, local_vertices[0])
+                    ])
+                    circle = QPolygonF([
+                        self._screen_point(
+                            self._camera_point(self._sketch_world_point((
+                                center[0] + radius * cos(angle),
+                                center[1] + radius * sin(angle),
+                            )))
+                        )
+                        for angle in (2.0 * pi * i / 96.0 for i in range(97))
+                    ])
+                    painter.setPen(highlighted_auxiliary(QColor("#FF7A00")))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPolyline(circle)
+                    painter.setPen(QPen(QColor("#FF7A00"), 1.5))
+                    painter.drawPolyline(polygon)
+                elif self._sketch_tool == "construction":
+                    painter.setPen(highlighted_centerline(QColor("#FF7A00")))
+                    infinite_line(pending[-1], preview)
                 else:
                     painter.drawLine(pending[-1], preview)
                 painter.drawEllipse(preview, 3.5, 3.5)
-                if self._sketch_preview_constraint is not None:
-                    center = QPointF(
-                        (pending[-1].x() + preview.x()) * 0.5 + 6.0,
-                        (pending[-1].y() + preview.y()) * 0.5 - 6.0,
+                preview_labels: list[str] = []
+                if self._sketch_preview_constraint == "horizontal":
+                    preview_labels.append("H")
+                elif self._sketch_preview_constraint == "vertical":
+                    preview_labels.append("V")
+                elif (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith("parallel:")
+                ):
+                    preview_labels.append("∥")
+                elif self._sketch_preview_constraint == "axis:x":
+                    preview_labels.append("X")
+                elif self._sketch_preview_constraint == "axis:y":
+                    preview_labels.append("Y")
+                elif (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith("keypoint:")
+                ):
+                    preview_labels.append("K")
+                elif self._sketch_preview_constraint == "intersection":
+                    preview_labels.extend(("C", "C"))
+                point_ids = {
+                    str(entity.get("id", ""))
+                    for entity in self._sketch_entities
+                    if entity.get("type") == "point"
+                }
+                if (
+                    (
+                        self._hovered_sketch_external_reference_id is not None
+                        and self._sketch_preview_constraint != "intersection"
                     )
+                    or self._preview_sketch_entity_id in point_ids
+                ):
+                    preview_labels.append("C")
+                if preview_labels:
+                    label_position = (
+                        QPointF(preview.x() + 9.0, preview.y() - 9.0)
+                        if self._sketch_tool in (
+                            "circle", "arc", "ellipse", "elliptical_arc",
+                            "hexagon",
+                        )
+                        else QPointF(
+                            (pending[-1].x() + preview.x()) * 0.5 + 6.0,
+                            (pending[-1].y() + preview.y()) * 0.5 - 6.0,
+                        )
+                    )
+                    painter.setPen(QPen(QColor("#FF7A00"), 2.0))
+                    painter.setBrush(QBrush(QColor("#FF7A00")))
+                    painter.drawEllipse(preview, 5.0, 5.0)
                     painter.drawText(
-                        center,
-                        (
-                            "H"
-                            if self._sketch_preview_constraint
-                            == "horizontal"
-                            else "V"
+                        label_position,
+                        "  ".join(preview_labels),
+                    )
+                if (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith(
+                        ("tangent:", "tangent_first:")
+                    )
+                ):
+                    # Match the marker used by a committed tangent constraint.
+                    # For tangent_first the contact is the first endpoint;
+                    # for a tangent drawn towards a curve it is the preview end.
+                    tangent_contact = (
+                        pending[-1]
+                        if self._sketch_preview_constraint.startswith(
+                            "tangent_first:"
+                        )
+                        else preview
+                    )
+                    painter.setPen(QPen(QColor("#FF7A00"), 2.0))
+                    painter.drawText(
+                        QPointF(
+                            tangent_contact.x() + 7.0,
+                            tangent_contact.y() - 7.0,
                         ),
+                        "T",
                     )
         # Repaint a hovered finite external point last.  A coincident sketch
         # point, constraint marker or main axis may otherwise cover the
@@ -4991,6 +5605,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     tuple(raw_points[0]),
                     tuple(raw_points[1]),
                     tuple(raw_points[2]),
+                    clockwise=bool(entity.get("clockwise", False)),
+                )
+            elif entity_type == "ellipse" and len(raw_points) >= 3:
+                raw_points = ellipse_points(
+                    tuple(raw_points[0]),
+                    tuple(raw_points[1]),
+                    tuple(raw_points[2]),
+                )
+            elif entity_type == "elliptical_arc" and len(raw_points) >= 5:
+                raw_points = elliptical_arc_points(
+                    tuple(raw_points[0]),
+                    tuple(raw_points[1]),
+                    tuple(raw_points[2]),
+                    tuple(raw_points[3]),
+                    tuple(raw_points[4]),
                     clockwise=bool(entity.get("clockwise", False)),
                 )
             elif entity_type == "spline" and len(raw_points) >= 2:
@@ -5367,18 +5996,289 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         candidates = self._sketch_entity_candidates(position)
         return candidates[0] if candidates else None
 
+    def _smart_sketch_placement_candidates(
+        self,
+        position: QPointF,
+    ) -> tuple[tuple[tuple[float, float], str | None, str | None], ...]:
+        base = self._base_sketch_placement_candidate(position)
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)), float(entity.get("y", 0.0))
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        ranked: list[
+            tuple[float, int, tuple[tuple[float, float], str | None, str | None]]
+        ] = []
+
+        def offer(
+            point: tuple[float, float],
+            reference_id: str,
+            constraint: str,
+            priority: int,
+        ) -> None:
+            screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(point))
+            )
+            distance = hypot(position.x() - screen.x(), position.y() - screen.y())
+            if distance <= 16.0:
+                ranked.append((distance, priority, (point, reference_id, constraint)))
+
+        for (
+            guide_distance,
+            tangent_point,
+            curve_reference_id,
+            tangent_constraint,
+        ) in self._sketch_tangent_placement_candidates(position):
+            ranked.append((
+                guide_distance,
+                0,
+                (tangent_point, curve_reference_id, tangent_constraint),
+            ))
+
+        line_references: list[
+            tuple[str, tuple[float, float], tuple[float, float], bool]
+        ] = [
+            ("sketch_axis:x", (0.0, 0.0), (1.0, 0.0), False),
+            ("sketch_axis:y", (0.0, 0.0), (0.0, 1.0), False),
+        ]
+        for geometry in self._sketch_entities:
+            if geometry.get("type") not in ("segment", "construction"):
+                continue
+            geometry_id = str(geometry.get("id", ""))
+            ids = tuple(map(str, geometry.get("point_ids", ())))
+            if not geometry_id or len(ids) != 2 or any(pid not in points for pid in ids):
+                continue
+            first, second = points[ids[0]], points[ids[1]]
+            line_references.append((
+                f"sketch_geometry:{geometry_id}",
+                first,
+                (second[0] - first[0], second[1] - first[1]),
+                geometry.get("type") == "segment",
+            ))
+        for reference in self._sketch_external_references:
+            reference_id = str(reference.get("id", ""))
+            geometry = reference.get("geometry")
+            if not reference_id or not isinstance(geometry, dict):
+                continue
+            raw_lines = (
+                (geometry,)
+                if geometry.get("type") == "line"
+                else geometry.get("lines", ())
+                if geometry.get("type") == "lines"
+                else ()
+            )
+            for index, line in enumerate(raw_lines):
+                if not isinstance(line, dict):
+                    continue
+                raw_point = line.get("point", ())
+                raw_direction = line.get("direction", ())
+                if (
+                    not isinstance(raw_point, (list, tuple))
+                    or not isinstance(raw_direction, (list, tuple))
+                    or len(raw_point) < 2
+                    or len(raw_direction) < 2
+                ):
+                    continue
+                suffix = f"::line:{index}" if len(raw_lines) > 1 else ""
+                line_references.append((
+                    reference_id + suffix,
+                    (float(raw_point[0]), float(raw_point[1])),
+                    (float(raw_direction[0]), float(raw_direction[1])),
+                    bool(line.get("bounded", False)),
+                ))
+        for first_index, first_line in enumerate(line_references):
+            first_id, first_origin, first_direction, first_bounded = first_line
+            for second_id, second_origin, second_direction, second_bounded in line_references[first_index + 1:]:
+                denominator = (
+                    first_direction[0] * second_direction[1]
+                    - first_direction[1] * second_direction[0]
+                )
+                if abs(denominator) <= 1.0e-12:
+                    continue
+                offset = (
+                    second_origin[0] - first_origin[0],
+                    second_origin[1] - first_origin[1],
+                )
+                first_factor = (
+                    offset[0] * second_direction[1]
+                    - offset[1] * second_direction[0]
+                ) / denominator
+                second_factor = (
+                    offset[0] * first_direction[1]
+                    - offset[1] * first_direction[0]
+                ) / denominator
+                if (
+                    (first_bounded and not 0.0 <= first_factor <= 1.0)
+                    or (second_bounded and not 0.0 <= second_factor <= 1.0)
+                ):
+                    continue
+                intersection = (
+                    first_origin[0] + first_factor * first_direction[0],
+                    first_origin[1] + first_factor * first_direction[1],
+                )
+                offer(
+                    intersection,
+                    first_id + "||" + second_id,
+                    "intersection",
+                    1,
+                )
+
+        for curve in self._sketch_entities:
+            curve_type = str(curve.get("type", ""))
+            if curve_type not in ("circle", "ellipse"):
+                continue
+            curve_id = str(curve.get("id", ""))
+            ids = tuple(map(str, curve.get("point_ids", ())))
+            if not curve_id or not ids or ids[0] not in points:
+                continue
+            center = points[ids[0]]
+            if curve_type == "circle":
+                radius = float(curve.get("radius", 0.0))
+                if radius <= 1.0e-12:
+                    continue
+                reference_id = f"sketch_circle:{curve_id}"
+                axes = ((radius, 0.0), (0.0, radius))
+            else:
+                if len(ids) < 3 or any(pid not in points for pid in ids[:3]):
+                    continue
+                major, minor = points[ids[1]], points[ids[2]]
+                reference_id = f"sketch_ellipse:{curve_id}"
+                axes = (
+                    (major[0] - center[0], major[1] - center[1]),
+                    (minor[0] - center[0], minor[1] - center[1]),
+                )
+            for angle_index, vector in enumerate((
+                axes[0], axes[1], (-axes[0][0], -axes[0][1]),
+                (-axes[1][0], -axes[1][1]),
+            )):
+                offer(
+                    (center[0] + vector[0], center[1] + vector[1]),
+                    reference_id,
+                    f"keypoint:{angle_index * 90}",
+                    2,
+                )
+            # Intersect the curve with every linear reference, not only the
+            # sketch X/Y axes. A construction geometry is treated as an
+            # infinite line; an ordinary segment remains bounded by its ends.
+            for line_id, line_origin, direction, bounded in line_references:
+                dx, dy = direction
+                if dx * dx + dy * dy <= 1.0e-24:
+                    continue
+                ox = line_origin[0] - center[0]
+                oy = line_origin[1] - center[1]
+                if curve_type == "circle":
+                    quadratic_a = dx * dx + dy * dy
+                    quadratic_b = 2.0 * (ox * dx + oy * dy)
+                    quadratic_c = ox * ox + oy * oy - radius * radius
+                else:
+                    ax, ay = axes[0]
+                    bx, by = axes[1]
+                    determinant = ax * by - ay * bx
+                    if abs(determinant) <= 1.0e-12:
+                        continue
+                    local_u = (ox * by - oy * bx) / determinant
+                    local_v = (ax * oy - ay * ox) / determinant
+                    direction_u = (dx * by - dy * bx) / determinant
+                    direction_v = (ax * dy - ay * dx) / determinant
+                    quadratic_a = (
+                        direction_u * direction_u
+                        + direction_v * direction_v
+                    )
+                    quadratic_b = 2.0 * (
+                        local_u * direction_u
+                        + local_v * direction_v
+                    )
+                    quadratic_c = local_u * local_u + local_v * local_v - 1.0
+                if quadratic_a <= 1.0e-24:
+                    continue
+                discriminant = (
+                    quadratic_b * quadratic_b
+                    - 4.0 * quadratic_a * quadratic_c
+                )
+                if discriminant < -1.0e-12:
+                    continue
+                root = sqrt(max(0.0, discriminant))
+                factors = (
+                    (-quadratic_b - root) / (2.0 * quadratic_a),
+                    (-quadratic_b + root) / (2.0 * quadratic_a),
+                )
+                for factor in dict.fromkeys(factors):
+                    if bounded and not -1.0e-12 <= factor <= 1.0 + 1.0e-12:
+                        continue
+                    offer(
+                        (
+                            line_origin[0] + factor * dx,
+                            line_origin[1] + factor * dy,
+                        ),
+                        line_id + "||" + reference_id,
+                        "intersection",
+                        1,
+                    )
+        ranked.sort(key=lambda item: (item[1], item[0]))
+        candidates = [item[2] for item in ranked]
+        if self._sketch_point_candidate(position) is not None:
+            candidates.insert(0, base)
+        else:
+            candidates.append(base)
+        return tuple(dict.fromkeys(candidates))
+
     def _sketch_placement_candidate(
+        self,
+        position: QPointF,
+    ) -> tuple[tuple[float, float], str | None, str | None]:
+        candidates = self._smart_sketch_placement_candidates(position)
+        same_cursor = (
+            self._sketch_placement_candidate_cursor is not None
+            and hypot(
+                position.x() - self._sketch_placement_candidate_cursor.x(),
+                position.y() - self._sketch_placement_candidate_cursor.y(),
+            ) <= 3.0
+        )
+        if not same_cursor or candidates != self._sketch_placement_candidates:
+            self._sketch_placement_candidate_index = 0
+        self._sketch_placement_candidates = candidates
+        self._sketch_placement_candidate_cursor = QPointF(position)
+        if not candidates:
+            return (self._sketch_local_position(position) or (0.0, 0.0)), None, None
+        self._sketch_placement_candidate_index %= len(candidates)
+        return candidates[self._sketch_placement_candidate_index]
+
+    def _base_sketch_placement_candidate(
         self,
         position: QPointF,
     ) -> tuple[tuple[float, float], str | None, str | None]:
         local = self._sketch_local_position(position) or (0.0, 0.0)
         nearest_point = self._sketch_point_candidate(position)
         if nearest_point is not None:
-            return nearest_point[2], None, None
+            snapped = nearest_point[2]
+            constraint = (
+                self._sketch_inferred_direction_constraint(snapped)
+                if self._sketch_pending_points
+                else None
+            )
+            return snapped, None, constraint
         if self._sketch_reference_snapping:
             sketch_curve = self._sketch_curve_reference_candidate(position)
             if sketch_curve is not None:
-                return sketch_curve[1], sketch_curve[0], None
+                snapped = sketch_curve[1]
+                constraint = (
+                    self._sketch_inferred_direction_constraint(snapped)
+                    if self._sketch_pending_points
+                    else None
+                )
+                if constraint is not None:
+                    combined = self._sketch_reference_direction_snap(
+                        sketch_curve[0],
+                        constraint,
+                        snapped,
+                    )
+                    if combined is None:
+                        constraint = None
+                    else:
+                        snapped = combined
+                return snapped, sketch_curve[0], constraint
             sketch_line = self._sketch_line_reference_candidate(position)
             if sketch_line is not None:
                 geometry_id, snapped = sketch_line
@@ -5431,6 +6331,41 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if constraint == "vertical":
                 first = self._sketch_pending_points[-1]
                 return (first[0], local[1]), None, constraint
+            if constraint is not None and constraint.startswith("parallel:"):
+                geometry_id = constraint.split(":", 1)[1]
+                points = {
+                    str(entity.get("id", "")): (
+                        float(entity.get("x", 0.0)),
+                        float(entity.get("y", 0.0)),
+                    )
+                    for entity in self._sketch_entities
+                    if entity.get("type") == "point"
+                }
+                source = next(
+                    (
+                        entity for entity in self._sketch_entities
+                        if str(entity.get("id", "")) == geometry_id
+                        and entity.get("type") in ("segment", "construction")
+                    ),
+                    None,
+                )
+                ids = tuple(map(str, source.get("point_ids", ()))) if source else ()
+                if len(ids) == 2 and all(point_id in points for point_id in ids):
+                    direction = (
+                        points[ids[1]][0] - points[ids[0]][0],
+                        points[ids[1]][1] - points[ids[0]][1],
+                    )
+                    length_squared = direction[0] ** 2 + direction[1] ** 2
+                    if length_squared > 1.0e-12:
+                        first = self._sketch_pending_points[-1]
+                        factor = (
+                            (local[0] - first[0]) * direction[0]
+                            + (local[1] - first[1]) * direction[1]
+                        ) / length_squared
+                        return (
+                            first[0] + factor * direction[0],
+                            first[1] + factor * direction[1],
+                        ), None, constraint
         return local, None, None
 
     def _sketch_curve_reference_candidate(
@@ -5503,6 +6438,39 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         distance,
                         f"sketch_arc:{arc.get('id', '')}",
                         arc_point,
+                    ))
+        for ellipse in self._sketch_entities:
+            ellipse_type = str(ellipse.get("type", ""))
+            if ellipse_type not in ("ellipse", "elliptical_arc"):
+                continue
+            ids = tuple(map(str, ellipse.get("point_ids", ())))
+            required = 3 if ellipse_type == "ellipse" else 5
+            if len(ids) < required or any(pid not in points for pid in ids):
+                continue
+            sampled = (
+                ellipse_points(points[ids[0]], points[ids[1]], points[ids[2]])
+                if ellipse_type == "ellipse"
+                else elliptical_arc_points(
+                    points[ids[0]],
+                    points[ids[1]],
+                    points[ids[2]],
+                    points[ids[3]],
+                    points[ids[4]],
+                    clockwise=bool(ellipse.get("clockwise", False)),
+                )
+            )
+            for curve_point in sampled:
+                screen = self._screen_point(
+                    self._camera_point(self._sketch_world_point(curve_point))
+                )
+                distance = hypot(
+                    position.x() - screen.x(), position.y() - screen.y()
+                )
+                if distance <= 12.0:
+                    candidates.append((
+                        distance,
+                        f"sketch_{ellipse_type}:{ellipse.get('id', '')}",
+                        curve_point,
                     ))
         geometry = {
             str(entity.get("id", "")): entity
@@ -5642,7 +6610,265 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return "horizontal"
         if vertical_distance <= 10.0:
             return "vertical"
+        if self._sketch_tool not in ("segment", "construction", "polyline", "polyline_arc"):
+            return None
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        nearest_parallel: tuple[float, str] | None = None
+        for geometry in self._sketch_entities:
+            if geometry.get("type") not in ("segment", "construction"):
+                continue
+            geometry_id = str(geometry.get("id", ""))
+            ids = tuple(map(str, geometry.get("point_ids", ())))
+            if not geometry_id or len(ids) != 2 or any(pid not in points for pid in ids):
+                continue
+            source_first = points[ids[0]]
+            source_second = points[ids[1]]
+            guide_end = (
+                first[0] + source_second[0] - source_first[0],
+                first[1] + source_second[1] - source_first[1],
+            )
+            guide_first_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(first))
+            )
+            guide_end_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(guide_end))
+            )
+            distance, _factor = self._point_segment_distance(
+                candidate_screen,
+                guide_first_screen,
+                guide_end_screen,
+            )
+            # Measure against the infinite guide rather than the source
+            # segment length.
+            dx = guide_end_screen.x() - guide_first_screen.x()
+            dy = guide_end_screen.y() - guide_first_screen.y()
+            length = hypot(dx, dy)
+            if length <= 1.0e-9:
+                continue
+            distance = abs(
+                (candidate_screen.x() - guide_first_screen.x()) * dy
+                - (candidate_screen.y() - guide_first_screen.y()) * dx
+            ) / length
+            if distance <= 14.0 and (
+                nearest_parallel is None or distance < nearest_parallel[0]
+            ):
+                nearest_parallel = (distance, geometry_id)
+        if nearest_parallel is not None:
+            return f"parallel:{nearest_parallel[1]}"
         return None
+
+    def _sketch_tangent_placement_candidates(
+        self,
+        position: QPointF,
+    ) -> tuple[
+        tuple[float, tuple[float, float], str | None, str], ...
+    ]:
+        """Return tangent endpoints whose guide passes near the cursor."""
+
+        if (
+            self._sketch_tool not in ("segment", "construction", "polyline", "polyline_arc")
+            or len(self._sketch_pending_points) != 1
+        ):
+            return ()
+        first = self._sketch_pending_points[0]
+        first_screen = self._screen_point(
+            self._camera_point(self._sketch_world_point(first))
+        )
+        cursor_dx = position.x() - first_screen.x()
+        cursor_dy = position.y() - first_screen.y()
+        if hypot(cursor_dx, cursor_dy) < 20.0:
+            return ()
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)),
+                float(entity.get("y", 0.0)),
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        candidates: list[
+            tuple[float, tuple[float, float], str | None, str]
+        ] = []
+
+        # If the first endpoint already lies on a curve, guide the second
+        # endpoint along the tangent at that exact first contact.
+        first_entity = next(
+            (
+                entity for entity in self._sketch_entities
+                if entity.get("type") == "point"
+                and hypot(
+                    float(entity.get("x", 0.0)) - first[0],
+                    float(entity.get("y", 0.0)) - first[1],
+                ) <= 1.0e-9
+                and isinstance(entity.get("curve_attachment"), dict)
+            ),
+            None,
+        )
+        first_attachment = (
+            first_entity.get("curve_attachment")
+            if first_entity is not None else None
+        )
+        if isinstance(first_attachment, dict):
+            curve_id = str(first_attachment.get("geometry_id", ""))
+            curve = next(
+                (
+                    entity for entity in self._sketch_entities
+                    if str(entity.get("id", "")) == curve_id
+                    and entity.get("type") in (
+                        "circle", "ellipse", "elliptical_arc",
+                    )
+                ),
+                None,
+            )
+            ids = (
+                tuple(map(str, curve.get("point_ids", ())))
+                if curve is not None else ()
+            )
+            tangent_direction = None
+            if (
+                curve is not None
+                and curve.get("type") == "circle"
+                and ids
+                and ids[0] in points
+            ):
+                center = points[ids[0]]
+                tangent_direction = (
+                    -(first[1] - center[1]),
+                    first[0] - center[0],
+                )
+            elif (
+                curve is not None
+                and curve.get("type") in ("ellipse", "elliptical_arc")
+                and len(ids) >= 3
+                and all(pid in points for pid in ids[:3])
+            ):
+                center, major, minor = (points[pid] for pid in ids[:3])
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                angle = float(first_attachment.get("angle", 0.0))
+                tangent_direction = (
+                    -ax * sin(angle) + bx * cos(angle),
+                    -ay * sin(angle) + by * cos(angle),
+                )
+            if tangent_direction is not None:
+                guide_end = (
+                    first[0] + tangent_direction[0],
+                    first[1] + tangent_direction[1],
+                )
+                guide_end_screen = self._screen_point(
+                    self._camera_point(self._sketch_world_point(guide_end))
+                )
+                guide_dx = guide_end_screen.x() - first_screen.x()
+                guide_dy = guide_end_screen.y() - first_screen.y()
+                guide_length_squared = guide_dx * guide_dx + guide_dy * guide_dy
+                if guide_length_squared > 1.0e-12:
+                    factor = (
+                        cursor_dx * guide_dx + cursor_dy * guide_dy
+                    ) / guide_length_squared
+                    guide_distance = abs(
+                        cursor_dx * guide_dy - cursor_dy * guide_dx
+                    ) / sqrt(guide_length_squared)
+                    if abs(factor) > 0.05 and guide_distance <= 14.0:
+                        candidates.append((
+                            guide_distance,
+                            (
+                                first[0] + factor * tangent_direction[0],
+                                first[1] + factor * tangent_direction[1],
+                            ),
+                            None,
+                            f"tangent_first:{curve_id}",
+                        ))
+        for curve in self._sketch_entities:
+            curve_type = str(curve.get("type", ""))
+            if curve_type not in ("circle", "ellipse"):
+                continue
+            curve_id = str(curve.get("id", ""))
+            ids = tuple(map(str, curve.get("point_ids", ())))
+            if not curve_id or not ids or ids[0] not in points:
+                continue
+            center = points[ids[0]]
+            tangent_points: tuple[tuple[float, float], ...] = ()
+            if curve_type == "circle":
+                radius = float(curve.get("radius", 0.0))
+                px, py = first[0] - center[0], first[1] - center[1]
+                distance_squared = px * px + py * py
+                if radius <= 1.0e-12 or distance_squared <= radius * radius + 1.0e-12:
+                    continue
+                along = radius * radius / distance_squared
+                across = (
+                    radius
+                    * sqrt(max(0.0, distance_squared - radius * radius))
+                    / distance_squared
+                )
+                tangent_points = (
+                    (
+                        center[0] + along * px - across * py,
+                        center[1] + along * py + across * px,
+                    ),
+                    (
+                        center[0] + along * px + across * py,
+                        center[1] + along * py - across * px,
+                    ),
+                )
+            else:
+                if len(ids) < 3 or any(pid not in points for pid in ids[:3]):
+                    continue
+                major, minor = points[ids[1]], points[ids[2]]
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                determinant = ax * by - ay * bx
+                if abs(determinant) <= 1.0e-12:
+                    continue
+                px, py = first[0] - center[0], first[1] - center[1]
+                local_u = (px * by - py * bx) / determinant
+                local_v = (ax * py - ay * px) / determinant
+                local_distance = hypot(local_u, local_v)
+                if local_distance <= 1.0 + 1.0e-12:
+                    continue
+                phase = atan2(local_v, local_u)
+                offset = acos(max(-1.0, min(1.0, 1.0 / local_distance)))
+                tangent_points = tuple(
+                    (
+                        center[0] + ax * cos(angle) + bx * sin(angle),
+                        center[1] + ay * cos(angle) + by * sin(angle),
+                    )
+                    for angle in (phase - offset, phase + offset)
+                )
+            reference_id = f"sketch_{curve_type}:{curve_id}"
+            for tangent_point in tangent_points:
+                tangent_screen = self._screen_point(
+                    self._camera_point(
+                        self._sketch_world_point(tangent_point)
+                    )
+                )
+                guide_dx = tangent_screen.x() - first_screen.x()
+                guide_dy = tangent_screen.y() - first_screen.y()
+                guide_length = hypot(guide_dx, guide_dy)
+                if guide_length <= 1.0e-9:
+                    continue
+                projection = (
+                    cursor_dx * guide_dx + cursor_dy * guide_dy
+                ) / (guide_length * guide_length)
+                if projection <= 0.05:
+                    continue
+                guide_distance = abs(
+                    cursor_dx * guide_dy - cursor_dy * guide_dx
+                ) / guide_length
+                if guide_distance <= 14.0:
+                    candidates.append((
+                        guide_distance,
+                        tangent_point,
+                        reference_id,
+                        f"tangent:{curve_id}",
+                    ))
+        return tuple(sorted(candidates, key=lambda item: item[0]))
 
     def _sketch_reference_direction_snap(
         self,
@@ -5653,6 +6879,201 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if not self._sketch_pending_points:
             return None
         first = self._sketch_pending_points[-1]
+        curve_prefixes = {
+            "sketch_circle:": "circle",
+            "sketch_arc:": "arc",
+            "sketch_ellipse:": "ellipse",
+            "sketch_elliptical_arc:": "elliptical_arc",
+        }
+        curve_type = next(
+            (
+                geometry_type
+                for prefix, geometry_type in curve_prefixes.items()
+                if reference_id.startswith(prefix)
+            ),
+            None,
+        )
+        if curve_type is not None:
+            geometry_id = reference_id.split(":", 1)[1]
+            points = {
+                str(entity.get("id", "")): (
+                    float(entity.get("x", 0.0)),
+                    float(entity.get("y", 0.0)),
+                )
+                for entity in self._sketch_entities
+                if entity.get("type") == "point"
+            }
+            curve = next(
+                (
+                    entity for entity in self._sketch_entities
+                    if str(entity.get("id", "")) == geometry_id
+                    and entity.get("type") == curve_type
+                ),
+                None,
+            )
+            ids = (
+                tuple(map(str, curve.get("point_ids", ())))
+                if curve is not None
+                else ()
+            )
+            intersections: list[tuple[float, float]] = []
+            if constraint.startswith("parallel:"):
+                source_id = constraint.split(":", 1)[1]
+                source = next(
+                    (
+                        entity for entity in self._sketch_entities
+                        if str(entity.get("id", "")) == source_id
+                        and entity.get("type") in ("segment", "construction")
+                    ),
+                    None,
+                )
+                source_ids = (
+                    tuple(map(str, source.get("point_ids", ())))
+                    if source is not None else ()
+                )
+                sampled: list[tuple[float, float]] = []
+                if len(source_ids) == 2 and all(pid in points for pid in source_ids):
+                    direction = (
+                        points[source_ids[1]][0] - points[source_ids[0]][0],
+                        points[source_ids[1]][1] - points[source_ids[0]][1],
+                    )
+                    if curve_type == "circle" and ids and ids[0] in points:
+                        center = points[ids[0]]
+                        radius = float(curve.get("radius", 0.0))
+                        sampled = [
+                            (
+                                center[0] + radius * cos(2.0 * pi * index / 256),
+                                center[1] + radius * sin(2.0 * pi * index / 256),
+                            )
+                            for index in range(257)
+                        ]
+                    elif curve_type == "arc" and len(ids) == 3 and all(pid in points for pid in ids):
+                        sampled = center_arc_points(
+                            points[ids[0]], points[ids[1]], points[ids[2]],
+                            segments=256,
+                            clockwise=bool(curve.get("clockwise", False)),
+                        )
+                    elif curve_type == "ellipse" and len(ids) >= 3 and all(pid in points for pid in ids[:3]):
+                        sampled = ellipse_points(
+                            *(points[pid] for pid in ids[:3]), segments=256
+                        )
+                    elif curve_type == "elliptical_arc" and len(ids) >= 5 and all(pid in points for pid in ids[:5]):
+                        sampled = elliptical_arc_points(
+                            *(points[pid] for pid in ids[:5]),
+                            clockwise=bool(curve.get("clockwise", False)),
+                            segments=256,
+                        )
+                    gx, gy = first
+                    dx, dy = direction
+                    for start, end in zip(sampled, sampled[1:]):
+                        sx, sy = start
+                        ex, ey = end[0] - sx, end[1] - sy
+                        denominator = dx * ey - dy * ex
+                        if abs(denominator) <= 1.0e-12:
+                            continue
+                        offset_x, offset_y = sx - gx, sy - gy
+                        curve_factor = (offset_x * dy - offset_y * dx) / denominator
+                        if 0.0 <= curve_factor <= 1.0:
+                            intersections.append((
+                                sx + curve_factor * ex,
+                                sy + curve_factor * ey,
+                            ))
+                return (
+                    min(
+                        intersections,
+                        key=lambda point: hypot(
+                            point[0] - snapped[0], point[1] - snapped[1]
+                        ),
+                    )
+                    if intersections else None
+                )
+            if curve_type == "circle" and ids and ids[0] in points:
+                center = points[ids[0]]
+                radius = float(curve.get("radius", 0.0))
+                fixed_delta = (
+                    first[1] - center[1]
+                    if constraint == "horizontal"
+                    else first[0] - center[0]
+                )
+                remainder = radius * radius - fixed_delta * fixed_delta
+                if remainder >= -1.0e-12:
+                    offset = sqrt(max(0.0, remainder))
+                    intersections = (
+                        [
+                            (center[0] - offset, first[1]),
+                            (center[0] + offset, first[1]),
+                        ]
+                        if constraint == "horizontal"
+                        else [
+                            (first[0], center[1] - offset),
+                            (first[0], center[1] + offset),
+                        ]
+                    )
+            elif (
+                curve_type == "ellipse"
+                and len(ids) >= 3
+                and all(point_id in points for point_id in ids[:3])
+            ):
+                center, major, minor = (points[point_id] for point_id in ids[:3])
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                alpha, beta, target = (
+                    (ay, by, first[1] - center[1])
+                    if constraint == "horizontal"
+                    else (ax, bx, first[0] - center[0])
+                )
+                amplitude = hypot(alpha, beta)
+                if amplitude > 1.0e-12 and abs(target) <= amplitude + 1.0e-12:
+                    phase = atan2(beta, alpha)
+                    delta = acos(max(-1.0, min(1.0, target / amplitude)))
+                    for angle in (phase - delta, phase + delta):
+                        point = (
+                            center[0] + ax * cos(angle) + bx * sin(angle),
+                            center[1] + ay * cos(angle) + by * sin(angle),
+                        )
+                        intersections.append(
+                            (point[0], first[1])
+                            if constraint == "horizontal"
+                            else (first[0], point[1])
+                        )
+            else:
+                sampled: tuple[tuple[float, float], ...] | list[tuple[float, float]] = ()
+                if curve_type == "arc" and len(ids) == 3 and all(pid in points for pid in ids):
+                    sampled = center_arc_points(
+                        points[ids[0]], points[ids[1]], points[ids[2]],
+                        segments=256,
+                        clockwise=bool(curve.get("clockwise", False)),
+                    )
+                elif curve_type == "elliptical_arc" and len(ids) >= 5 and all(pid in points for pid in ids[:5]):
+                    sampled = elliptical_arc_points(
+                        *(points[pid] for pid in ids[:5]),
+                        clockwise=bool(curve.get("clockwise", False)),
+                        segments=256,
+                    )
+                fixed_axis = 1 if constraint == "horizontal" else 0
+                target = first[fixed_axis]
+                for start, end in zip(sampled, sampled[1:]):
+                    delta = end[fixed_axis] - start[fixed_axis]
+                    if abs(delta) <= 1.0e-12:
+                        continue
+                    factor = (target - start[fixed_axis]) / delta
+                    if 0.0 <= factor <= 1.0:
+                        point = (
+                            start[0] + factor * (end[0] - start[0]),
+                            start[1] + factor * (end[1] - start[1]),
+                        )
+                        intersections.append(point)
+            return (
+                min(
+                    intersections,
+                    key=lambda point: hypot(
+                        point[0] - snapped[0],
+                        point[1] - snapped[1],
+                    ),
+                )
+                if intersections
+                else None
+            )
         if reference_id == "sketch_origin":
             return (
                 (0.0, 0.0)
@@ -6003,13 +7424,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._sketch_cycle_index + 1
             ) % len(candidates)
         active_candidate = candidates[self._sketch_cycle_index]
-        if active_candidate.startswith("reference:"):
+        if active_candidate.startswith("constraint:"):
+            _prefix, owner_id, raw_index = active_candidate.split(":", 2)
             self._preview_sketch_entity_id = None
+            self._hovered_sketch_constraint = (owner_id, int(raw_index))
+            if self._hovered_sketch_external_reference_id is not None:
+                self._hovered_sketch_external_reference_id = None
+                self.sketchReferenceHovered.emit("")
+        elif active_candidate.startswith("reference:"):
+            self._preview_sketch_entity_id = None
+            self._hovered_sketch_constraint = None
             reference_id = active_candidate.removeprefix("reference:")
             self._hovered_sketch_external_reference_id = reference_id
             self.sketchReferenceHovered.emit(reference_id)
         else:
             self._preview_sketch_entity_id = active_candidate
+            self._hovered_sketch_constraint = None
             if self._hovered_sketch_external_reference_id is not None:
                 self._hovered_sketch_external_reference_id = None
                 self.sketchReferenceHovered.emit("")
@@ -6020,6 +7450,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         position: QPointF,
     ) -> tuple[str, ...]:
         candidates = list(self._sketch_entity_candidates(position))
+        candidates.extend(
+            f"constraint:{owner_id}:{constraint_index}"
+            for bounds, owner_id, constraint_index
+            in self._sketch_constraint_hit_regions
+            if bounds.adjusted(-5.0, -5.0, 5.0, 5.0).contains(position)
+        )
         reference = self._sketch_external_reference_candidate(position)
         if reference is not None:
             candidates.append(f"reference:{reference[0]}")
@@ -6201,11 +7637,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ("plane", plane.owner_id, plane.plane_index)
                 )
         unique_candidates = tuple(dict.fromkeys(candidates))
-        if self._topology_owner_filter is None:
-            return unique_candidates
         return tuple(
             candidate for candidate in unique_candidates
-            if candidate[1] in self._topology_owner_filter
+            if self._topology_owner_is_selectable(candidate[1])
         )
 
     def topology_candidates_at(
@@ -6293,11 +7727,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 )
         unique_candidates = tuple(dict.fromkeys(candidates))
-        if self._topology_owner_filter is None:
-            return unique_candidates
         return tuple(
             candidate for candidate in unique_candidates
-            if candidate[1] in self._topology_owner_filter
+            if self._topology_owner_is_selectable(candidate[1])
         )
 
     def preview_topology_candidate(
@@ -6379,10 +7811,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hits: list[tuple[float, float, str, int]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for plane in mesh.planes:
-            if (
-                self._topology_owner_filter is not None
-                and plane.owner_id not in self._topology_owner_filter
-            ):
+            if not self._topology_owner_is_selectable(plane.owner_id):
                 continue
             camera_points = [
                 self._camera_point(point)
@@ -6486,6 +7915,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hits: list[tuple[float, str, int]] = []
         threshold = 9.0 * float(self.devicePixelRatioF())
         for marker in mesh.points:
+            if not self._topology_owner_is_selectable(marker.owner_id):
+                continue
             if not self._point_marker_is_selectable(marker.element_kind):
                 continue
             screen = self._screen_point(self._camera_point(marker.position))
@@ -6552,6 +7983,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         candidates: list[tuple[float, float, str, int]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for edge in mesh.edges:
+            if not self._topology_owner_is_selectable(edge.owner_id):
+                continue
             if not edge_visible_in_display(edge, self._display_mode):
                 continue
             if self._selection_filter == "axis":
@@ -6604,10 +8037,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for triangle_index, face_index in enumerate(
             mesh.triangle_face_indices
         ):
-            if (
-                self._topology_owner_filter is not None
-                and mesh.triangle_owner_ids[triangle_index]
-                not in self._topology_owner_filter
+            if not self._topology_owner_is_selectable(
+                mesh.triangle_owner_ids[triangle_index]
             ):
                 continue
             offset = triangle_index * 9

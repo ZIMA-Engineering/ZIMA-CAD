@@ -28,6 +28,8 @@ class GeometryType(str, Enum):
     ARC = "arc"
     SPLINE = "spline"
     CIRCLE = "circle"
+    ELLIPSE = "ellipse"
+    ELLIPTICAL_ARC = "elliptical_arc"
 
 
 _POINT_COUNTS: dict[GeometryType, tuple[int, int | None]] = {
@@ -37,12 +39,17 @@ _POINT_COUNTS: dict[GeometryType, tuple[int, int | None]] = {
     GeometryType.SPLINE: (2, None),
     # A circle owns one centre point and a scalar radius attribute.
     GeometryType.CIRCLE: (1, 1),
+    # Centre, end of major semi-axis, end of minor semi-axis.
+    GeometryType.ELLIPSE: (3, 3),
+    # Ellipse definition followed by start and end points.
+    GeometryType.ELLIPTICAL_ARC: (5, 5),
 }
 
 _CONSTRAINT_POINT_COUNTS = {
     "horizontal": 2,
     "vertical": 2,
     "coincident": 2,
+    "concentric": 2,
     "perpendicular": None,
     "parallel": 4,
     "equal_length": 4,
@@ -52,7 +59,8 @@ _CONSTRAINT_POINT_COUNTS = {
     # Two mirrored points, optionally followed by sketch-axis endpoints.
     "symmetric": None,
     # Line start/end, circle centre and the explicit contact point.
-    "tangent": 4,
+    # Line endpoints, curve definition points and explicit contact point.
+    "tangent": None,
 }
 
 
@@ -417,6 +425,37 @@ class SketchModel:
                 owner_id = owner_geometry.geometry_id
                 raw["geometry_id"] = reference.geometry_id
             elif constraint.constraint_type == "tangent":
+                first_curve_id = str(
+                    constraint.attributes.get("first_curve_geometry_id", "")
+                )
+                second_curve_id = str(
+                    constraint.attributes.get("second_curve_geometry_id", "")
+                )
+                if first_curve_id and second_curve_id:
+                    if (
+                        first_curve_id not in self.geometry
+                        or second_curve_id not in self.geometry
+                    ):
+                        raise SketchModelError(
+                            f"tangent constraint {constraint.constraint_id!r} "
+                            "has invalid geometry"
+                        )
+                    owner_id = first_curve_id
+                    raw["geometry_id"] = second_curve_id
+                    raw.pop("first_curve_geometry_id", None)
+                    raw.pop("second_curve_geometry_id", None)
+                    raw.pop("curve_geometry_id", None)
+                    raw.pop("circle_geometry_id", None)
+                    raw.pop("line_geometry_id", None)
+                    if constraint.reference_ids:
+                        raw["reference_id"] = constraint.reference_ids[0]
+                    owner = by_id.get(owner_id)
+                    if owner is None:
+                        raise SketchModelError(
+                            f"constraint {constraint.constraint_id!r} has no owner"
+                        )
+                    owner.setdefault("constraints", []).append(raw)
+                    continue
                 line_id = str(
                     constraint.attributes.get("line_geometry_id", "")
                 )
@@ -434,7 +473,12 @@ class SketchModel:
                     not in {GeometryType.SEGMENT, GeometryType.CONSTRUCTION}
                     or curve is None
                     or curve.geometry_type
-                    not in {GeometryType.CIRCLE, GeometryType.ARC}
+                    not in {
+                        GeometryType.CIRCLE,
+                        GeometryType.ARC,
+                        GeometryType.ELLIPSE,
+                        GeometryType.ELLIPTICAL_ARC,
+                    }
                 ):
                     raise SketchModelError(
                         f"tangent constraint "
@@ -445,19 +489,39 @@ class SketchModel:
                 raw.pop("line_geometry_id", None)
                 raw.pop("circle_geometry_id", None)
                 raw.pop("curve_geometry_id", None)
+            elif constraint.constraint_type == "concentric":
+                first_id = str(constraint.attributes.get("first_geometry_id", ""))
+                second_id = str(constraint.attributes.get("second_geometry_id", ""))
+                if first_id not in self.geometry or second_id not in self.geometry:
+                    raise SketchModelError(
+                        f"concentric constraint {constraint.constraint_id!r} "
+                        "has invalid geometry"
+                    )
+                owner_id = first_id
+                raw["geometry_id"] = second_id
+                raw.pop("first_geometry_id", None)
+                raw.pop("second_geometry_id", None)
             elif constraint.constraint_type in {"horizontal", "vertical"}:
                 if len(points) != 2:
                     raise SketchModelError(
                         f"{constraint.constraint_type} constraint "
                         f"{constraint.constraint_id!r} requires 2 points"
                     )
-                owner_geometry = geometry_for_points(points[0], points[1])
+                explicit_owner_id = str(
+                    constraint.attributes.get("owner_geometry_id", "")
+                )
+                owner_geometry = (
+                    self.geometry.get(explicit_owner_id)
+                    if explicit_owner_id
+                    else geometry_for_points(points[0], points[1])
+                )
                 if owner_geometry is None:
                     raise SketchModelError(
                         f"{constraint.constraint_type} constraint "
                         f"{constraint.constraint_id!r} has no connector"
                     )
                 owner_id = owner_geometry.geometry_id
+                raw.pop("owner_geometry_id", None)
             elif constraint.constraint_type in ("point_on_line", "midpoint"):
                 if len(points) != 3:
                     raise SketchModelError(
@@ -691,6 +755,9 @@ class SketchModel:
                 (second[0] - first[0]) * (fourth[0] - third[0])
                 + (second[1] - first[1]) * (fourth[1] - third[1]),
             )
+        if constraint.constraint_type == "concentric":
+            first, second = positions
+            return (first[0] - second[0], first[1] - second[1])
         if constraint.constraint_type == "parallel":
             first, second, third, fourth = positions
             return (
@@ -706,7 +773,61 @@ class SketchModel:
                 - (fourth[1] - third[1]) ** 2,
             )
         if constraint.constraint_type == "tangent":
-            first, second, centre, contact = positions
+            first_curve_id = str(
+                constraint.attributes.get("first_curve_geometry_id", "")
+            )
+            second_curve_id = str(
+                constraint.attributes.get("second_curve_geometry_id", "")
+            )
+            if first_curve_id and second_curve_id:
+                first_curve = self.geometry.get(first_curve_id)
+                second_curve = self.geometry.get(second_curve_id)
+                if first_curve is None or second_curve is None:
+                    raise SketchModelError(
+                        f"tangent constraint {constraint_id!r} has no curve"
+                    )
+                contact = positions[-1]
+
+                def curve_equation_and_normal(
+                    curve: SketchGeometry,
+                ) -> tuple[float, float, float]:
+                    definition = [
+                        self.points[point_id].position()
+                        for point_id in curve.point_ids
+                    ]
+                    centre = definition[0]
+                    px, py = contact[0] - centre[0], contact[1] - centre[1]
+                    if curve.geometry_type in {
+                        GeometryType.ELLIPSE,
+                        GeometryType.ELLIPTICAL_ARC,
+                    }:
+                        major, minor = definition[1:3]
+                        ax, ay = major[0] - centre[0], major[1] - centre[1]
+                        bx, by = minor[0] - centre[0], minor[1] - centre[1]
+                        determinant = ax * by - ay * bx
+                        if abs(determinant) <= 1.0e-12:
+                            return 1.0e12, 1.0e12, 1.0e12
+                        cosine = (px * by - py * bx) / determinant
+                        sine = (ax * py - ay * px) / determinant
+                        return (
+                            cosine * cosine + sine * sine - 1.0,
+                            (by * cosine - ay * sine) / determinant,
+                            (-bx * cosine + ax * sine) / determinant,
+                        )
+                    radius = float(curve.attributes.get("radius", 0.0))
+                    return px * px + py * py - radius * radius, px, py
+
+                first_value, first_nx, first_ny = curve_equation_and_normal(
+                    first_curve
+                )
+                second_value, second_nx, second_ny = curve_equation_and_normal(
+                    second_curve
+                )
+                return (
+                    first_value,
+                    second_value,
+                    first_nx * second_ny - first_ny * second_nx,
+                )
             curve_id = str(
                 constraint.attributes.get(
                     "curve_geometry_id",
@@ -718,9 +839,34 @@ class SketchModel:
                 raise SketchModelError(
                     f"tangent constraint {constraint_id!r} has no curve"
                 )
-            radius = float(curve.attributes.get("radius", 0.0))
+            first, second = positions[:2]
+            contact = positions[-1]
             dx = second[0] - first[0]
             dy = second[1] - first[1]
+            if curve.geometry_type in {
+                GeometryType.ELLIPSE,
+                GeometryType.ELLIPTICAL_ARC,
+            }:
+                centre, major, minor = positions[2:5]
+                ax, ay = major[0] - centre[0], major[1] - centre[1]
+                bx, by = minor[0] - centre[0], minor[1] - centre[1]
+                determinant = ax * by - ay * bx
+                if abs(determinant) <= 1.0e-12:
+                    return (1.0e12, 1.0e12, 1.0e12)
+                px, py = contact[0] - centre[0], contact[1] - centre[1]
+                cosine = (px * by - py * bx) / determinant
+                sine = (ax * py - ay * px) / determinant
+                # A world-space normal to u²+v²=1 is A^-T(u,v).
+                normal_x = (by * cosine - ay * sine) / determinant
+                normal_y = (-bx * cosine + ax * sine) / determinant
+                return (
+                    (contact[0] - first[0]) * dy
+                    - (contact[1] - first[1]) * dx,
+                    cosine * cosine + sine * sine - 1.0,
+                    normal_x * dx + normal_y * dy,
+                )
+            centre = positions[2]
+            radius = float(curve.attributes.get("radius", 0.0))
             radial_x = contact[0] - centre[0]
             radial_y = contact[1] - centre[1]
             return (
@@ -851,6 +997,33 @@ class SketchModel:
                     )
                 ):
                     violated.append(geometry_id)
+            elif geometry.geometry_type in {
+                GeometryType.ELLIPSE,
+                GeometryType.ELLIPTICAL_ARC,
+            }:
+                center, major, minor = (
+                    self.points[pid].position()
+                    for pid in geometry.point_ids[:3]
+                )
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                scale = max(math.hypot(ax, ay) * math.hypot(bx, by), 1.0e-12)
+                if abs(ax * bx + ay * by) / scale > angular_tolerance:
+                    violated.append(geometry_id)
+                    continue
+                if geometry.geometry_type == GeometryType.ELLIPTICAL_ARC:
+                    determinant = ax * by - ay * bx
+                    if abs(determinant) <= 1.0e-12:
+                        violated.append(geometry_id)
+                        continue
+                    for pid in geometry.point_ids[3:5]:
+                        px, py = self.points[pid].position()
+                        dx, dy = px - center[0], py - center[1]
+                        cosine = (dx * by - dy * bx) / determinant
+                        sine = (ax * dy - ay * dx) / determinant
+                        if abs(cosine * cosine + sine * sine - 1.0) > linear_tolerance:
+                            violated.append(geometry_id)
+                            break
         for point_id, point in self.points.items():
             attachment = point.attributes.get("curve_attachment")
             if not isinstance(attachment, Mapping):
@@ -861,8 +1034,29 @@ class SketchModel:
             if (
                 attached is None
                 or not attached.point_ids
-                or attachment.get("type") not in ("circle", "arc")
+                or attachment.get("type") not in (
+                    "circle", "arc", "ellipse", "elliptical_arc"
+                )
             ):
+                continue
+            if attachment.get("type") in ("ellipse", "elliptical_arc"):
+                if len(attached.point_ids) < 3:
+                    continue
+                center, major, minor = (
+                    self.points[pid].position()
+                    for pid in attached.point_ids[:3]
+                )
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                determinant = ax * by - ay * bx
+                if abs(determinant) <= 1.0e-12:
+                    violated.append(point_id)
+                    continue
+                dx, dy = point.x - center[0], point.y - center[1]
+                cosine = (dx * by - dy * bx) / determinant
+                sine = (ax * dy - ay * dx) / determinant
+                if abs(cosine * cosine + sine * sine - 1.0) > linear_tolerance:
+                    violated.append(point_id)
                 continue
             center = self.points[attached.point_ids[0]]
             radius = float(
@@ -903,6 +1097,7 @@ class SketchModel:
                 "horizontal",
                 "vertical",
                 "coincident",
+                "concentric",
                 "point_on_line",
                 "midpoint",
                 "symmetric",
@@ -958,14 +1153,28 @@ class SketchModel:
                 tolerance = angular_tolerance
             elif constraint_type == "tangent":
                 raw = self.constraint_residuals(constraint_id)
-                first, second, _centre, contact = positions
+                first, second = positions[:2]
+                contact = positions[-1]
                 line_length = math.dist(first, second)
                 scale = max(line_length, 1.0e-12)
-                errors = (
-                    raw[0] / scale,
-                    raw[1] / max(scale * scale, 1.0e-12),
-                    raw[2] / scale,
+                curve_id = str(
+                    constraint.attributes.get(
+                        "curve_geometry_id",
+                        constraint.attributes.get("circle_geometry_id", ""),
+                    )
                 )
+                curve = self.geometry.get(curve_id)
+                if curve is not None and curve.geometry_type in {
+                    GeometryType.ELLIPSE,
+                    GeometryType.ELLIPTICAL_ARC,
+                }:
+                    errors = (raw[0] / scale, raw[1], raw[2])
+                else:
+                    errors = (
+                        raw[0] / scale,
+                        raw[1] / max(scale * scale, 1.0e-12),
+                        raw[2] / scale,
+                    )
                 if line_length > 1.0e-12:
                     dx = second[0] - first[0]
                     dy = second[1] - first[1]
@@ -1267,6 +1476,28 @@ class SketchModel:
                         + (end[1] - center[1]) ** 2
                         - radius_squared,
                     ))
+            if geometry.geometry_type in {
+                GeometryType.ELLIPSE,
+                GeometryType.ELLIPTICAL_ARC,
+            }:
+                center, major, minor = (
+                    self.points[point_id].position()
+                    for point_id in geometry.point_ids[:3]
+                )
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                values.append(ax * bx + ay * by)
+                determinant = ax * by - ay * bx
+                if geometry.geometry_type == GeometryType.ELLIPTICAL_ARC:
+                    if abs(determinant) <= 1.0e-12:
+                        values.extend((1.0e12, 1.0e12))
+                        continue
+                    for point_id in geometry.point_ids[3:5]:
+                        px, py = self.points[point_id].position()
+                        dx, dy = px - center[0], py - center[1]
+                        cosine = (dx * by - dy * bx) / determinant
+                        sine = (ax * dy - ay * dx) / determinant
+                        values.append(cosine * cosine + sine * sine - 1.0)
         for point in self.points.values():
             attachment = point.attributes.get("curve_attachment")
             if not isinstance(attachment, Mapping):
@@ -1277,8 +1508,35 @@ class SketchModel:
             if (
                 attached is None
                 or not attached.point_ids
-                or attachment.get("type") not in ("circle", "arc")
+                or attachment.get("type") not in (
+                    "circle", "arc", "ellipse", "elliptical_arc"
+                )
             ):
+                continue
+            if attachment.get("type") in ("ellipse", "elliptical_arc"):
+                if len(attached.point_ids) < 3:
+                    continue
+                center, major, minor = (
+                    self.points[pid].position()
+                    for pid in attached.point_ids[:3]
+                )
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                determinant = ax * by - ay * bx
+                if abs(determinant) <= 1.0e-12:
+                    values.append(1.0e12)
+                    continue
+                dx, dy = point.x - center[0], point.y - center[1]
+                cosine = (dx * by - dy * bx) / determinant
+                sine = (ax * dy - ay * dx) / determinant
+                if bool(attachment.get("locked", False)):
+                    angle = float(attachment.get("angle", 0.0))
+                    values.extend((
+                        point.x - center[0] - ax * math.cos(angle) - bx * math.sin(angle),
+                        point.y - center[1] - ay * math.cos(angle) - by * math.sin(angle),
+                    ))
+                else:
+                    values.append(cosine * cosine + sine * sine - 1.0)
                 continue
             center = self.points[attached.point_ids[0]]
             radius = float(
@@ -1292,11 +1550,18 @@ class SketchModel:
                     else 0.0,
                 )
             )
-            values.append(
-                (point.x - center.x) ** 2
-                + (point.y - center.y) ** 2
-                - radius * radius
-            )
+            if bool(attachment.get("locked", False)):
+                angle = float(attachment.get("angle", 0.0))
+                values.extend((
+                    point.x - center.x - radius * math.cos(angle),
+                    point.y - center.y - radius * math.sin(angle),
+                ))
+            else:
+                values.append(
+                    (point.x - center.x) ** 2
+                    + (point.y - center.y) ** 2
+                    - radius * radius
+                )
         for constraint in self.constraints.values():
             point_ids = constraint.point_ids
             positions = [
@@ -1321,6 +1586,7 @@ class SketchModel:
                 "horizontal",
                 "vertical",
                 "coincident",
+                "concentric",
                 "perpendicular",
                 "parallel",
                 "equal_length",
@@ -1569,6 +1835,26 @@ class SketchModel:
                     f"circle {geometry.geometry_id!r} requires a positive "
                     "radius"
                 )
+        if geometry.geometry_type in {
+            GeometryType.ELLIPSE,
+            GeometryType.ELLIPTICAL_ARC,
+        }:
+            center, major, minor = (
+                self.points[point_id].position()
+                for point_id in geometry.point_ids[:3]
+            )
+            if (
+                math.dist(center, major) <= 1.0e-12
+                or math.dist(center, minor) <= 1.0e-12
+                or abs(
+                    (major[0] - center[0]) * (minor[1] - center[1])
+                    - (major[1] - center[1]) * (minor[0] - center[0])
+                ) <= 1.0e-12
+            ):
+                raise SketchModelError(
+                    f"{geometry.geometry_type.value} "
+                    f"{geometry.geometry_id!r} has degenerate axes"
+                )
 
     def _validate_constraint(self, constraint: SketchConstraint) -> None:
         if not constraint.constraint_type:
@@ -1598,6 +1884,15 @@ class SketchModel:
             raise SketchModelError(
                 f"symmetric constraint {constraint.constraint_id!r} "
                 f"requires 2 or 4 points, got {len(constraint.point_ids)}"
+            )
+        if (
+            constraint.constraint_type == "tangent"
+            and len(constraint.point_ids) not in (3, 4, 5, 6, 7)
+        ):
+            raise SketchModelError(
+                f"tangent constraint {constraint.constraint_id!r} "
+                f"requires 3 to 7 points, got "
+                f"{len(constraint.point_ids)}"
             )
         if expected is not None and len(constraint.point_ids) != expected:
             raise SketchModelError(
@@ -1765,7 +2060,18 @@ class SketchModel:
                     owner_geometry = model.geometry[owner_id]
                     owner_points = list(owner_geometry.point_ids)
                     if constraint_type in {"horizontal", "vertical"}:
-                        point_ids = owner_points
+                        if owner_geometry.geometry_type in {
+                            GeometryType.ELLIPSE,
+                            GeometryType.ELLIPTICAL_ARC,
+                        }:
+                            axis = str(constraint.get("axis", "major"))
+                            point_ids = [
+                                owner_points[0],
+                                owner_points[2 if axis == "minor" else 1],
+                            ]
+                            constraint["owner_geometry_id"] = owner_id
+                        else:
+                            point_ids = owner_points
                     elif constraint_type == "perpendicular":
                         if target_geometry is None:
                             if target_reference is None:
@@ -1843,14 +2149,22 @@ class SketchModel:
                                 GeometryType.SEGMENT,
                                 GeometryType.CONSTRUCTION,
                             }
-                            and target.geometry_type
-                            in {GeometryType.CIRCLE, GeometryType.ARC}
+                            and target.geometry_type in {
+                                GeometryType.CIRCLE,
+                                GeometryType.ARC,
+                                GeometryType.ELLIPSE,
+                                GeometryType.ELLIPTICAL_ARC,
+                            }
                         ):
                             line = owner_geometry
                             curve = target
                         elif (
-                            owner_geometry.geometry_type
-                            in {GeometryType.CIRCLE, GeometryType.ARC}
+                            owner_geometry.geometry_type in {
+                                GeometryType.CIRCLE,
+                                GeometryType.ARC,
+                                GeometryType.ELLIPSE,
+                                GeometryType.ELLIPTICAL_ARC,
+                            }
                             and target.geometry_type
                             in {
                                 GeometryType.SEGMENT,
@@ -1860,14 +2174,59 @@ class SketchModel:
                             line = target
                             curve = owner_geometry
                         else:
-                            raise SketchModelError(
-                                "tangent requires one line and one "
-                                "circular curve"
+                            curve_types = {
+                                GeometryType.CIRCLE,
+                                GeometryType.ARC,
+                                GeometryType.ELLIPSE,
+                                GeometryType.ELLIPTICAL_ARC,
+                            }
+                            if (
+                                owner_geometry.geometry_type not in curve_types
+                                or target.geometry_type not in curve_types
+                            ):
+                                raise SketchModelError(
+                                    "tangent requires a line and curve or two curves"
+                                )
+                            first_curve = owner_geometry
+                            second_curve = target
+                            point_ids = [
+                                *(first_curve.point_ids[:3]
+                                  if first_curve.geometry_type in {
+                                      GeometryType.ELLIPSE,
+                                      GeometryType.ELLIPTICAL_ARC,
+                                  } else first_curve.point_ids[:1]),
+                                *(second_curve.point_ids[:3]
+                                  if second_curve.geometry_type in {
+                                      GeometryType.ELLIPSE,
+                                      GeometryType.ELLIPTICAL_ARC,
+                                  } else second_curve.point_ids[:1]),
+                            ]
+                            contact_point_id = str(
+                                constraint.get("contact_point_id", "")
                             )
-                        point_ids = [
-                            *line.point_ids,
-                            curve.point_ids[0],
-                        ]
+                            if contact_point_id not in model.points:
+                                raise SketchModelError(
+                                    "tangent constraint has no contact point"
+                                )
+                            point_ids.append(contact_point_id)
+                            constraint["first_curve_geometry_id"] = first_curve.geometry_id
+                            constraint["second_curve_geometry_id"] = second_curve.geometry_id
+                            line = None
+                            curve = None
+                        if line is None:
+                            pass
+                        else:
+                            point_ids = [
+                                *line.point_ids,
+                                *(
+                                    curve.point_ids[:3]
+                                    if curve.geometry_type in {
+                                        GeometryType.ELLIPSE,
+                                        GeometryType.ELLIPTICAL_ARC,
+                                    }
+                                    else curve.point_ids[:1]
+                                ),
+                            ]
                         contact_point_id = str(
                             constraint.get("contact_point_id", "")
                         )
@@ -1875,16 +2234,39 @@ class SketchModel:
                             raise SketchModelError(
                                 "tangent constraint has no contact point"
                             )
-                        point_ids.append(contact_point_id)
-                        constraint["line_geometry_id"] = line.geometry_id
-                        if curve.geometry_type == GeometryType.CIRCLE:
-                            constraint["circle_geometry_id"] = (
-                                curve.geometry_id
+                        if not point_ids or point_ids[-1] != contact_point_id:
+                            point_ids.append(contact_point_id)
+                        if line is not None and curve is not None:
+                            constraint["line_geometry_id"] = line.geometry_id
+                            if curve.geometry_type == GeometryType.CIRCLE:
+                                constraint["circle_geometry_id"] = curve.geometry_id
+                            else:
+                                constraint["curve_geometry_id"] = curve.geometry_id
+                    elif constraint_type == "concentric":
+                        if target_geometry is None:
+                            raise SketchModelError(
+                                "a concentric constraint requires two curves"
                             )
-                        else:
-                            constraint["curve_geometry_id"] = (
-                                curve.geometry_id
+                        target = model.geometry[str(target_geometry)]
+                        curve_types = {
+                            GeometryType.CIRCLE,
+                            GeometryType.ARC,
+                            GeometryType.ELLIPSE,
+                            GeometryType.ELLIPTICAL_ARC,
+                        }
+                        if (
+                            owner_geometry.geometry_type not in curve_types
+                            or target.geometry_type not in curve_types
+                        ):
+                            raise SketchModelError(
+                                "concentric requires two circular or elliptic curves"
                             )
+                        point_ids = [
+                            owner_geometry.point_ids[0],
+                            target.point_ids[0],
+                        ]
+                        constraint["first_geometry_id"] = owner_geometry.geometry_id
+                        constraint["second_geometry_id"] = target.geometry_id
                     else:
                         point_ids = owner_points
                 model.add_constraint(
