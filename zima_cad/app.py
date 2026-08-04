@@ -23932,6 +23932,7 @@ class MainWindow(QMainWindow):
                 point_id,
                 first,
                 snapped,
+                automatic_constraint=automatic_constraint,
             )
             return
         if (
@@ -29438,26 +29439,49 @@ class MainWindow(QMainWindow):
         entities: list[dict[str, Any]],
     ) -> None:
         groups: dict[str, list[dict[str, Any]]] = {}
+        points = {
+            str(entity.get("id", "")): MainWindow._sketch_point_position(entity)
+            for entity in entities
+            if entity.get("type") == "point"
+        }
         for entity in entities:
             group = str(entity.get("equal_radius_group", ""))
-            if entity.get("type") == "circle" and group:
+            if entity.get("type") in ("circle", "arc") and group:
                 groups.setdefault(group, []).append(entity)
-        for circles in groups.values():
+            records = entity.get("corner_radii", ())
+            if not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                record_group = str(record.get("equal_radius_group", ""))
+                if record_group:
+                    groups.setdefault(record_group, []).append(record)
+        for members in groups.values():
             driver = next(
                 (
-                    circle for circle in circles
-                    if not bool(circle.get("equal_radius_reference", False))
+                    member for member in members
+                    if not bool(member.get("equal_radius_reference", False))
                 ),
-                circles[0],
+                members[0],
             )
-            try:
-                radius = float(driver.get("radius", 0.0))
-            except (TypeError, ValueError):
-                continue
+            if driver.get("type") == "arc":
+                ids = tuple(map(str, driver.get("point_ids", ())))
+                radius = (
+                    math.dist(points[ids[0]], points[ids[1]])
+                    if len(ids) >= 2 and all(pid in points for pid in ids[:2])
+                    else 0.0
+                )
+            else:
+                try:
+                    radius = float(driver.get("radius", 0.0))
+                except (TypeError, ValueError):
+                    continue
             if radius <= 1.0e-12:
                 continue
-            for circle in circles:
-                circle["radius"] = radius
+            for member in members:
+                if member.get("type") != "arc":
+                    member["radius"] = radius
 
     def _handle_sketch_concentric_selection(self, entity_id: str) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
@@ -30175,11 +30199,18 @@ class MainWindow(QMainWindow):
                 if entity.get("type") in ("segment", "construction", "arc")
             ) >= 2
         )
+        virtual_equal_radius = (
+            constraint_index == -3
+            and owner is not None
+            and owner.get("type") == "circle"
+            and bool(str(owner.get("equal_radius_group", "")))
+        )
         if (
             owner is None
             or (
                 not virtual_curve_attachment
                 and not virtual_shared_endpoint
+                and not virtual_equal_radius
                 and (
                     not isinstance(constraints, list)
                     or not 0 <= constraint_index < len(constraints)
@@ -30199,9 +30230,23 @@ class MainWindow(QMainWindow):
                 "point_id": owner_id,
             }
             if virtual_shared_endpoint
+            else {
+                "type": "equal_radius",
+                "equal_radius_group": str(
+                    owner.get("equal_radius_group", "")
+                ),
+            }
+            if virtual_equal_radius
             else constraints[constraint_index]
         )
         related_ids = {owner_id}
+        if virtual_equal_radius:
+            group = str(owner.get("equal_radius_group", ""))
+            related_ids.update(
+                str(entity.get("id", ""))
+                for entity in entities
+                if str(entity.get("equal_radius_group", "")) == group
+            )
         for key in (
             "geometry_id", "line_geometry_id", "curve_geometry_id",
             "circle_geometry_id", "first_geometry_id", "second_geometry_id",
@@ -30663,6 +30708,19 @@ class MainWindow(QMainWindow):
             None,
         )
         if geometry is None:
+            return
+        if constraint_index == -3 and geometry.get("type") == "circle":
+            geometry.pop("equal_radius_group", None)
+            geometry.pop("equal_radius_reference", None)
+            self._store_sketch_entities(sketch, entities)
+            self._sketch_selected_constraint = None
+            self._sketch_selected_entity_id = entity_id
+            self._mark_model_for_regeneration()
+            self.rebuild_view(fit=False)
+            self._refresh_sketch_overlay()
+            self.statusBar().showMessage(
+                tr("sketch.status.constraint_deleted")
+            )
             return
         constraints = geometry.get("constraints", ())
         if (
@@ -31310,6 +31368,8 @@ class MainWindow(QMainWindow):
         opposite_id: str,
         first: tuple[float, float],
         opposite: tuple[float, float],
+        *,
+        automatic_constraint: str | None = None,
     ) -> None:
         second, _position, _created = self._ensure_sketch_point(
             sketch,
@@ -31327,6 +31387,21 @@ class MainWindow(QMainWindow):
         )
         if not all(point_ids) or len(set(point_ids)) != 4:
             return
+        if automatic_constraint and automatic_constraint.startswith(
+            "rectangle_corner:"
+        ):
+            parts = automatic_constraint.split(":")
+            if len(parts) == 4:
+                try:
+                    corner_index = int(parts[1])
+                except ValueError:
+                    corner_index = -1
+                if corner_index in (1, 3):
+                    self._add_sketch_point_reference_constraint(
+                        sketch,
+                        point_ids[corner_index],
+                        f"sketch_circle:{parts[2]}",
+                    )
         entities = self._stored_sketch_entities(sketch)
         for start_id, end_id, constraint_type in (
             (point_ids[0], point_ids[1], "horizontal"),
@@ -31367,6 +31442,93 @@ class MainWindow(QMainWindow):
             "point_ids": [centre_id],
             "radius": radius,
         }
+        if automatic_constraint and automatic_constraint.startswith(
+            "equal_radius:"
+        ):
+            source_id = automatic_constraint.split(":", 1)[1]
+            source_circle = next(
+                (
+                    entity
+                    for entity in entities
+                    if entity.get("type") == "circle"
+                    and str(entity.get("id", "")) == source_id
+                ),
+                None,
+            )
+            if source_circle is not None:
+                group = str(source_circle.get("equal_radius_group", ""))
+                if not group:
+                    group = f"equal-circle:{source_id}"
+                    source_circle["equal_radius_group"] = group
+                    source_circle.pop("equal_radius_reference", None)
+                circle["equal_radius_group"] = group
+                circle["equal_radius_reference"] = True
+                circle["radius"] = float(source_circle.get("radius", radius))
+        elif automatic_constraint and automatic_constraint.startswith(
+            "equal_corner_radius:"
+        ):
+            radius_id = automatic_constraint.split(":", 1)[1]
+            source_record = next(
+                (
+                    record
+                    for entity in entities
+                    for record in (
+                        entity.get("corner_radii", ())
+                        if isinstance(entity.get("corner_radii", ()), list)
+                        else ()
+                    )
+                    if isinstance(record, dict)
+                    and str(
+                        record.get("id")
+                        or f"radius:{entity.get('id', '')}:"
+                        f"{record.get('other_geometry_id', '')}:"
+                        f"{record.get('vertex_id', '')}"
+                    ) == radius_id
+                ),
+                None,
+            )
+            if source_record is not None:
+                group = str(source_record.get("equal_radius_group", ""))
+                if not group:
+                    group = f"equal-radius:{radius_id}"
+                    source_record["equal_radius_group"] = group
+                    source_record.pop("equal_radius_reference", None)
+                circle["equal_radius_group"] = group
+                circle["equal_radius_reference"] = True
+                circle["radius"] = float(source_record.get("radius", radius))
+        elif automatic_constraint and automatic_constraint.startswith(
+            "equal_arc_radius:"
+        ):
+            arc_id = automatic_constraint.split(":", 1)[1]
+            source_arc = next(
+                (
+                    entity
+                    for entity in entities
+                    if entity.get("type") == "arc"
+                    and str(entity.get("id", "")) == arc_id
+                ),
+                None,
+            )
+            points = {
+                str(entity.get("id", "")): self._sketch_point_position(entity)
+                for entity in entities
+                if entity.get("type") == "point"
+            }
+            arc_ids = (
+                tuple(map(str, source_arc.get("point_ids", ())))
+                if source_arc is not None else ()
+            )
+            if len(arc_ids) >= 2 and all(pid in points for pid in arc_ids[:2]):
+                group = str(source_arc.get("equal_radius_group", ""))
+                if not group:
+                    group = f"equal-arc:{arc_id}"
+                    source_arc["equal_radius_group"] = group
+                    source_arc.pop("equal_radius_reference", None)
+                circle["equal_radius_group"] = group
+                circle["equal_radius_reference"] = True
+                circle["radius"] = math.dist(
+                    points[arc_ids[0]], points[arc_ids[1]]
+                )
         deferred_rim_reference: tuple[str, str] | None = None
         rim_point_id = ""
         if rim_position is not None:

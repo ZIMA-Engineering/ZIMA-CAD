@@ -2329,6 +2329,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if hovered_radius != self._hovered_sketch_corner_radius:
                 self._hovered_sketch_corner_radius = hovered_radius
             preview_id = point_id or construction_id or circle_id or arc_id
+            if constraint is not None and constraint.startswith(
+                "equal_radius:"
+            ):
+                preview_id = constraint.split(":", 1)[1]
+            elif constraint is not None and constraint.startswith(
+                "equal_arc_radius:"
+            ):
+                preview_id = constraint.split(":", 1)[1]
             if preview_id != self._preview_sketch_entity_id:
                 self._preview_sketch_entity_id = preview_id
                 # Construction highlighting is visual only. Do not report
@@ -4515,6 +4523,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         bool(record.get("equal_radius_group")),
                     )
                 )
+        equal_circle_markers: list[tuple[QPointF, str]] = []
         for entity in self._sketch_entities:
             entity_type = str(entity.get("type", ""))
             selected = (
@@ -4655,6 +4664,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.setPen(circle_pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPolyline(projected_circle)
+                if (
+                    entity.get("equal_radius_group")
+                    and bool(entity.get("equal_radius_reference", False))
+                    and projected_circle
+                ):
+                    marker = projected_circle[len(projected_circle) // 8]
+                    equal_circle_markers.append((
+                        QPointF(marker.x() + 6.0, marker.y() - 6.0),
+                        str(entity.get("id", "")),
+                    ))
                 painter.setPen(QPen(yellow, 2.0))
                 painter.setBrush(QBrush(yellow))
                 continue
@@ -5031,11 +5050,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
         metrics = painter.fontMetrics()
         marker_spacing = 16.0
-        point_marker_slots: dict[str, int] = {}
+        point_marker_slots: dict[tuple[int, int], int] = {}
 
         def point_marker_position(point_id: str, point: QPointF) -> QPointF:
-            slot = point_marker_slots.get(point_id, 0)
-            point_marker_slots[point_id] = slot + 1
+            del point_id
+            # Different model points can occupy the same screen position
+            # (notably centers of concentric circles). Share their marker
+            # slots so constraint labels do not paint over one another.
+            position_key = (round(point.x()), round(point.y()))
+            slot = point_marker_slots.get(position_key, 0)
+            point_marker_slots[position_key] = slot + 1
             return QPointF(
                 point.x() + 7.0 + slot * marker_spacing,
                 point.y() - 7.0,
@@ -5165,6 +5189,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 )
                 painter.drawText(point_marker_position(point_id, point), "S")
+
+        for position, circle_id in equal_circle_markers:
+            key = (circle_id, -3)
+            painter.setPen(QPen(
+                cyan if key == self._selected_sketch_constraint
+                else QColor("#FF7A00")
+                if key == self._hovered_sketch_constraint
+                else constraint_color,
+                2.0,
+            ))
+            painter.drawText(position, "=")
+            self._sketch_constraint_hit_regions.append((
+                QRectF(
+                    position.x(), position.y() - metrics.ascent(),
+                    float(metrics.horizontalAdvance("=")),
+                    float(metrics.height()),
+                ),
+                *key,
+            ))
 
         for arc_point in equal_radius_marker_points:
             painter.drawText(
@@ -5606,6 +5649,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ])
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPolyline(rectangle)
+                    compound = self._sketch_preview_constraint or ""
+                    if compound.startswith("rectangle_corner:"):
+                        try:
+                            corner_index = int(compound.split(":", 2)[1])
+                            marker = rectangle[corner_index]
+                            painter.setPen(QPen(QColor("#FF7A00"), 2.0))
+                            painter.setBrush(QBrush(QColor("#FF7A00")))
+                            painter.drawEllipse(marker, 5.0, 5.0)
+                            painter.drawText(
+                                QPointF(marker.x() + 8.0, marker.y() - 8.0),
+                                "C",
+                            )
+                        except (IndexError, TypeError, ValueError):
+                            pass
                 elif self._sketch_tool == "hexagon":
                     center = self._sketch_pending_points[0]
                     radius = hypot(
@@ -5686,6 +5743,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     )
                 ):
                     preview_labels.append("C")
+                elif (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith(
+                        (
+                            "equal_radius:", "equal_corner_radius:",
+                            "equal_arc_radius:",
+                        )
+                    )
+                ):
+                    preview_labels.append("=")
                 elif self._sketch_preview_constraint == "intersection":
                     preview_labels.extend(("C", "C"))
                 point_ids = {
@@ -6340,6 +6407,55 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if distance <= 16.0:
                 ranked.append((distance, priority, (point, reference_id, constraint)))
 
+        # The two generated rectangle corners are not under the cursor. Let
+        # either of them snap to a circle keypoint and adjust the matching
+        # coordinate of the opposite corner.
+        if self._sketch_tool == "rectangle" and self._sketch_pending_points:
+            first = self._sketch_pending_points[0]
+            local = self._sketch_local_position(position)
+            if local is not None:
+                for curve in self._sketch_entities:
+                    if curve.get("type") != "circle":
+                        continue
+                    curve_id = str(curve.get("id", ""))
+                    ids = tuple(map(str, curve.get("point_ids", ())))
+                    if not curve_id or not ids or ids[0] not in points:
+                        continue
+                    center = points[ids[0]]
+                    radius = float(curve.get("radius", 0.0))
+                    if radius <= 1.0e-12:
+                        continue
+                    for angle, keypoint in (
+                        (0, (center[0] + radius, center[1])),
+                        (90, (center[0], center[1] + radius)),
+                        (180, (center[0] - radius, center[1])),
+                        (270, (center[0], center[1] - radius)),
+                    ):
+                        for corner_index, active, opposite in (
+                            (1, (local[0], first[1]), (keypoint[0], local[1])),
+                            (3, (first[0], local[1]), (local[0], keypoint[1])),
+                        ):
+                            active_screen = self._screen_point(
+                                self._camera_point(self._sketch_world_point(active))
+                            )
+                            keypoint_screen = self._screen_point(
+                                self._camera_point(self._sketch_world_point(keypoint))
+                            )
+                            distance = hypot(
+                                active_screen.x() - keypoint_screen.x(),
+                                active_screen.y() - keypoint_screen.y(),
+                            )
+                            if distance <= 16.0:
+                                ranked.append((
+                                    distance,
+                                    0,
+                                    (
+                                        opposite,
+                                        None,
+                                        f"rectangle_corner:{corner_index}:{curve_id}:{angle}",
+                                    ),
+                                ))
+
         for (
             guide_distance,
             tangent_point,
@@ -6359,6 +6475,150 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 1,
                 (guide_point, None, f"perpendicular:{geometry_id}"),
             ))
+
+        if self._sketch_tool == "circle" and self._sketch_pending_points:
+            center = self._sketch_pending_points[0]
+            local = self._sketch_local_position(position)
+            if local is not None:
+                dx, dy = local[0] - center[0], local[1] - center[1]
+                cursor_radius = hypot(dx, dy)
+                if cursor_radius > 1.0e-12:
+                    ux, uy = dx / cursor_radius, dy / cursor_radius
+                    equal_radius_groups = {
+                        str(curve.get("equal_radius_group", "")): str(
+                            curve.get("id", "")
+                        )
+                        for curve in self._sketch_entities
+                        if curve.get("type") == "circle"
+                        and str(curve.get("equal_radius_group", ""))
+                        and not bool(
+                            curve.get("equal_radius_reference", False)
+                        )
+                    }
+                    for curve in self._sketch_entities:
+                        if curve.get("type") != "circle":
+                            continue
+                        curve_id = str(curve.get("id", ""))
+                        group = str(curve.get("equal_radius_group", ""))
+                        if (
+                            bool(curve.get("equal_radius_reference", False))
+                            or group
+                            and equal_radius_groups.get(group, curve_id)
+                            != curve_id
+                        ):
+                            continue
+                        radius = float(curve.get("radius", 0.0))
+                        if not curve_id or radius <= 1.0e-12:
+                            continue
+                        equal_point = (
+                            center[0] + ux * radius,
+                            center[1] + uy * radius,
+                        )
+                        equal_screen = self._screen_point(
+                            self._camera_point(
+                                self._sketch_world_point(equal_point)
+                            )
+                        )
+                        distance = hypot(
+                            position.x() - equal_screen.x(),
+                            position.y() - equal_screen.y(),
+                        )
+                        if distance <= 16.0:
+                            ranked.append((
+                                distance,
+                                0,
+                                (
+                                    equal_point,
+                                    None,
+                                    f"equal_radius:{curve_id}",
+                                ),
+                            ))
+                    for owner in self._sketch_entities:
+                        records = owner.get("corner_radii", ())
+                        if not isinstance(records, list):
+                            continue
+                        for record in records:
+                            if (
+                                not isinstance(record, dict)
+                                or bool(record.get("suppressed", False))
+                                or bool(record.get("equal_radius_reference", False))
+                            ):
+                                continue
+                            owner_id = str(owner.get("id", ""))
+                            radius_id = str(
+                                record.get("id")
+                                or f"radius:{owner_id}:"
+                                f"{record.get('other_geometry_id', '')}:"
+                                f"{record.get('vertex_id', '')}"
+                            )
+                            radius = float(record.get("radius", 0.0))
+                            if not radius_id or radius <= 1.0e-12:
+                                continue
+                            equal_point = (
+                                center[0] + ux * radius,
+                                center[1] + uy * radius,
+                            )
+                            equal_screen = self._screen_point(
+                                self._camera_point(
+                                    self._sketch_world_point(equal_point)
+                                )
+                            )
+                            distance = hypot(
+                                position.x() - equal_screen.x(),
+                                position.y() - equal_screen.y(),
+                            )
+                            if distance <= 16.0:
+                                ranked.append((
+                                    distance,
+                                    0,
+                                    (
+                                        equal_point,
+                                        None,
+                                        f"equal_corner_radius:{radius_id}",
+                                    ),
+                                ))
+                    for curve in self._sketch_entities:
+                        if curve.get("type") != "arc":
+                            continue
+                        curve_id = str(curve.get("id", ""))
+                        ids = tuple(map(str, curve.get("point_ids", ())))
+                        if (
+                            not curve_id
+                            or len(ids) < 2
+                            or ids[0] not in points
+                            or ids[1] not in points
+                            or bool(curve.get("equal_radius_reference", False))
+                        ):
+                            continue
+                        radius = hypot(
+                            points[ids[1]][0] - points[ids[0]][0],
+                            points[ids[1]][1] - points[ids[0]][1],
+                        )
+                        if radius <= 1.0e-12:
+                            continue
+                        equal_point = (
+                            center[0] + ux * radius,
+                            center[1] + uy * radius,
+                        )
+                        equal_screen = self._screen_point(
+                            self._camera_point(
+                                self._sketch_world_point(equal_point)
+                            )
+                        )
+                        distance = hypot(
+                            position.x() - equal_screen.x(),
+                            position.y() - equal_screen.y(),
+                        )
+                        if distance <= 16.0:
+                            ranked.append((
+                                distance,
+                                0,
+                                (
+                                    equal_point,
+                                    None,
+                                    f"equal_arc_radius:{curve_id}",
+                                ),
+                            ))
 
         line_references: list[
             tuple[str, tuple[float, float], tuple[float, float], bool]
