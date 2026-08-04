@@ -493,6 +493,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchExternalReferenceSelected = Signal(str)
     sketchDeleteRequested = Signal()
     sketchArcDirectionSelected = Signal(bool)
+    sketchTrimPreviewRequested = Signal(object)
+    sketchTrimGestureRequested = Signal(object)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -607,6 +609,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_corner_drag_moved = False
         self._sketch_dimension_drag_key: str | None = None
         self._sketch_dimension_drag_moved = False
+        self._sketch_trim_path: list[tuple[float, float]] = []
+        self._sketch_trim_preview_paths: tuple[
+            tuple[tuple[float, float], ...], ...
+        ] = ()
+        self._sketch_trim_dragging = False
         self._preview_sketch_entity_id: str | None = None
         self._hovered_sketch_external_reference_id: str | None = None
         self._sketch_cycle_ids: tuple[str, ...] = ()
@@ -691,6 +698,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
         self._sketch_tool = sketch_tool
+        if sketch_tool != "trim":
+            self._sketch_trim_path.clear()
+            self._sketch_trim_preview_paths = ()
+            self._sketch_trim_dragging = False
         if (
             not snap_to_external_references
             and self._hovered_sketch_external_reference_id is not None
@@ -735,6 +746,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if selection_mode or frame is None or not pending_points:
             self._sketch_preview_position = None
             self._sketch_preview_constraint = None
+        self.update()
+
+    def set_sketch_trim_preview(
+        self,
+        paths: object,
+    ) -> None:
+        normalized: list[tuple[tuple[float, float], ...]] = []
+        if isinstance(paths, (list, tuple)):
+            for path in paths:
+                if not isinstance(path, (list, tuple)):
+                    continue
+                points = tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in path
+                    if isinstance(point, (list, tuple)) and len(point) >= 2
+                )
+                if len(points) >= 2:
+                    normalized.append(points)
+        self._sketch_trim_preview_paths = tuple(normalized)
         self.update()
 
     def set_sketch_reference_selection_mode(self, enabled: bool) -> None:
@@ -1527,6 +1557,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_points()
         self._paint_dimensions()
         self._paint_sketch_overlay()
+        self._paint_sketch_trim_overlay()
         self._paint_sketch_selection_box()
         self._paint_object_overlay()
         self._paint_edge_labels()
@@ -1613,6 +1644,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and event.button() == Qt.MouseButton.LeftButton
         ):
             self.sketchViewClicked.emit()
+        if (
+            event.button() == Qt.MouseButton.RightButton
+            and self._sketch_frame is not None
+            and self._sketch_tool == "trim"
+        ):
+            self._suppress_next_context_menu = True
+            self.sketchCancelCurrentRequested.emit()
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.RightButton
             and self._sketch_frame is not None
@@ -1712,6 +1752,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_frame is not None
             and not self._sketch_reference_selection_mode
         ):
+            if self._sketch_tool == "trim":
+                local = self._sketch_local_position(event.position())
+                if local is not None:
+                    self._sketch_trim_path = [local]
+                    self._sketch_trim_dragging = True
+                    self.sketchTrimPreviewRequested.emit(tuple(self._sketch_trim_path))
+                    self.update()
+                event.accept()
+                return
             if self._sketch_selection_mode:
                 if self._sketch_tool in ("select", "dimension"):
                     dimension_key = self.dimension_key_at(event.position())
@@ -1976,6 +2025,31 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             self.navigationChanged.emit(self.camera)
             self.update()
+            event.accept()
+            return
+        if self._sketch_frame is not None and self._sketch_tool == "trim":
+            local = self._sketch_local_position(event.position())
+            if local is not None:
+                if (
+                    self._sketch_trim_dragging
+                    and event.buttons() & Qt.MouseButton.LeftButton
+                ):
+                    if (
+                        not self._sketch_trim_path
+                        or hypot(
+                            self._sketch_trim_path[-1][0] - local[0],
+                            self._sketch_trim_path[-1][1] - local[1],
+                        )
+                        >= max(self.sketch_snap_tolerance(3.0), 1.0e-6)
+                    ):
+                        self._sketch_trim_path.append(local)
+                preview_path = (
+                    tuple(self._sketch_trim_path)
+                    if self._sketch_trim_dragging
+                    else (local,)
+                )
+                self.sketchTrimPreviewRequested.emit(preview_path)
+                self.update()
             event.accept()
             return
         if (
@@ -2350,6 +2424,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if (
             event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_frame is not None
+            and self._sketch_tool == "trim"
+            and self._sketch_trim_dragging
+        ):
+            local = self._sketch_local_position(event.position())
+            if local is not None and (
+                not self._sketch_trim_path
+                or hypot(
+                    self._sketch_trim_path[-1][0] - local[0],
+                    self._sketch_trim_path[-1][1] - local[1],
+                ) > 1.0e-9
+            ):
+                self._sketch_trim_path.append(local)
+            path = tuple(self._sketch_trim_path)
+            self._sketch_trim_path.clear()
+            self._sketch_trim_dragging = False
+            self.sketchTrimGestureRequested.emit(path)
+            self.update()
+            event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
             and self._sketch_dimension_drag_key is not None
         ):
             local = self._sketch_local_position(event.position())
@@ -2445,6 +2541,36 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.drawRect(
             QRectF(self._sketch_box_start, self._sketch_box_end).normalized()
         )
+        painter.end()
+
+    def _paint_sketch_trim_overlay(self) -> None:
+        if self._sketch_frame is None or self._sketch_tool != "trim":
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if self._sketch_trim_preview_paths:
+            painter.setPen(QPen(QColor("#FF7A00"), 4.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for path in self._sketch_trim_preview_paths:
+                painter.drawPolyline(QPolygonF([
+                    self._screen_point(
+                        self._camera_point(self._sketch_world_point(point))
+                    )
+                    for point in path
+                ]))
+        if self._sketch_trim_path:
+            painter.setPen(QPen(QColor("#FFD740"), 2.0))
+            screen_path = [
+                self._screen_point(
+                    self._camera_point(self._sketch_world_point(point))
+                )
+                for point in self._sketch_trim_path
+            ]
+            if len(screen_path) >= 2:
+                painter.drawPolyline(QPolygonF(screen_path))
+            elif screen_path:
+                painter.setBrush(QBrush(QColor("#FFD740")))
+                painter.drawEllipse(screen_path[0], 3.5, 3.5)
         painter.end()
 
     def _sketch_entities_in_selection_box(self) -> list[str]:

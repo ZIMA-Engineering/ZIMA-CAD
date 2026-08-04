@@ -172,6 +172,13 @@ from zima_cad.sketch_geometry import (
     elliptical_arc_points,
     evaluate_corner_radius,
 )
+from zima_cad.sketch_trim import (
+    apply_trim_pieces,
+    nearest_trim_piece,
+    pieces_crossed_by_path,
+    sample_sketch_curves,
+    trim_topology,
+)
 from zima_cad.paths import app_path, application_root, ensure_application_directories
 from zima_cad.settings import (
     ApplicationSettings,
@@ -7663,6 +7670,9 @@ class MainWindow(QMainWindow):
         self._sketch_radius_dimension_mode = "outside"
         self._sketch_circle_dimension_selection: str | None = None
         self._sketch_circle_dimension_mode = "diameter"
+        self._sketch_trim_baseline_entities: list[dict[str, Any]] | None = None
+        self._sketch_trim_baseline_dimensions: list[dict[str, Any]] | None = None
+        self._sketch_trim_topology: tuple[Any, ...] = ()
         self._sketch_selected_entity_id: str | None = None
         self._sketch_selected_constraint: tuple[str, int] | None = None
         self._sketch_selected_entity_ids: set[str] = set()
@@ -7857,6 +7867,12 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchArcDirectionSelected.connect(
             self._set_pending_sketch_arc_direction
+        )
+        self.native_viewer.sketchTrimPreviewRequested.connect(
+            self._on_sketch_trim_preview_requested
+        )
+        self.native_viewer.sketchTrimGestureRequested.connect(
+            self._on_sketch_trim_gesture_requested
         )
         self.regenerate_action = QAction(
             tr("command.regenerate"),
@@ -8357,6 +8373,17 @@ class MainWindow(QMainWindow):
             )
             self._mark_application_command(dimension_action)
             self.tools_toolbar.addSeparator()
+            trim_action = self.tools_toolbar.addAction(
+                tr("sketch.tool.trim")
+            )
+            trim_action.setIcon(resource_icon("sketch-trim"))
+            trim_action.setToolTip(tr("sketch.tool.trim.tooltip"))
+            trim_action.setCheckable(True)
+            trim_action.setChecked(self._sketch_tool == "trim")
+            trim_action.triggered.connect(
+                lambda: self._set_sketch_tool("trim")
+            )
+            self._mark_application_command(trim_action)
             mirror_action = self.tools_toolbar.addAction(
                 tr("sketch.tool.mirror")
             )
@@ -12675,6 +12702,21 @@ class MainWindow(QMainWindow):
             if selected_external_item is not None:
                 self.tree.setCurrentItem(selected_external_item)
         sketch_entities = self._stored_sketch_entities(sketch)
+        geometry_group = QTreeWidgetItem([tr("tree.sketch.geometry")])
+        geometry_group.setIcon(0, resource_icon("sketch"))
+        geometry_group.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        constraints_group = QTreeWidgetItem([tr("sketch.constraints")])
+        constraints_group.setIcon(0, resource_icon("sketch-constraints"))
+        constraints_group.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        dimensions_group = QTreeWidgetItem([tr("sketch.dimensions")])
+        dimensions_group.setIcon(0, resource_icon("sketch-dimensions"))
+        dimensions_group.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.tree.addTopLevelItem(geometry_group)
+        self.tree.addTopLevelItem(constraints_group)
+        self.tree.addTopLevelItem(dimensions_group)
+        geometry_group.setExpanded(True)
+        constraints_group.setExpanded(True)
+        dimensions_group.setExpanded(True)
         point_labels = {
             str(entity.get("id", "")): (
                 f"{tr('sketch.tool.point')}{point_index:03d}"
@@ -12690,6 +12732,30 @@ class MainWindow(QMainWindow):
             )
         }
         type_counts: dict[str, int] = {}
+        constraint_counts: dict[str, int] = {}
+        selected_geometry_ids = set(self._sketch_selected_entity_ids)
+        if self._sketch_selected_entity_id is not None:
+            selected_geometry_ids.add(self._sketch_selected_entity_id)
+
+        def constraint_related_ids(
+            owner_id: str,
+            constraint: dict[str, Any],
+        ) -> set[str]:
+            related = {owner_id}
+            for key in (
+                "geometry_id", "line_geometry_id", "curve_geometry_id",
+                "circle_geometry_id", "first_geometry_id",
+                "second_geometry_id", "first_curve_geometry_id",
+                "second_curve_geometry_id", "point_id",
+                "contact_point_id", "vertex_id",
+            ):
+                value = str(constraint.get(key, ""))
+                if value:
+                    related.add(value)
+            raw_point_ids = constraint.get("point_ids", ())
+            if isinstance(raw_point_ids, list):
+                related.update(map(str, raw_point_ids))
+            return related
         selected_item = None
         for entity in sketch_entities:
             entity_id = str(entity.get("id", ""))
@@ -12783,8 +12849,14 @@ class MainWindow(QMainWindow):
                                     reference_id,
                                 ),
                             )
+                        constraint_counts[constraint_type] = (
+                            constraint_counts.get(constraint_type, 0) + 1
+                        )
                         constraint_item = QTreeWidgetItem(
-                            [constraint_label]
+                            [
+                                f"{constraint_label}"
+                                f"{constraint_counts[constraint_type]:03d}"
+                            ]
                         )
                         constraint_item.setIcon(
                             0,
@@ -12804,7 +12876,7 @@ class MainWindow(QMainWindow):
                             Qt.ItemFlag.ItemIsEnabled
                             | Qt.ItemFlag.ItemIsSelectable
                         )
-                        item.addChild(constraint_item)
+                        constraints_group.addChild(constraint_item)
                         if self._sketch_selected_constraint == (
                             entity_id, constraint_index
                         ):
@@ -12812,6 +12884,13 @@ class MainWindow(QMainWindow):
                                 0, QBrush(QColor("#00D1FF"))
                             )
                             selected_item = constraint_item
+                        elif (
+                            constraint_related_ids(entity_id, constraint)
+                            & selected_geometry_ids
+                        ):
+                            constraint_item.setForeground(
+                                0, QBrush(QColor("#00D1FF"))
+                            )
             else:
                 point_ids = entity.get("point_ids", ())
                 if (
@@ -12880,8 +12959,14 @@ class MainWindow(QMainWindow):
                         }.get(constraint_type)
                         if label_key is None:
                             continue
+                        constraint_counts[constraint_type] = (
+                            constraint_counts.get(constraint_type, 0) + 1
+                        )
                         constraint_item = QTreeWidgetItem(
-                            [tr(label_key)]
+                            [
+                                f"{tr(label_key)}"
+                                f"{constraint_counts[constraint_type]:03d}"
+                            ]
                         )
                         constraint_item.setIcon(
                             0,
@@ -12896,7 +12981,7 @@ class MainWindow(QMainWindow):
                             Qt.ItemFlag.ItemIsEnabled
                             | Qt.ItemFlag.ItemIsSelectable
                         )
-                        item.addChild(constraint_item)
+                        constraints_group.addChild(constraint_item)
                         if self._sketch_selected_constraint == (
                             entity_id, constraint_index
                         ):
@@ -12904,7 +12989,14 @@ class MainWindow(QMainWindow):
                                 0, QBrush(QColor("#00D1FF"))
                             )
                             selected_item = constraint_item
-            self.tree.addTopLevelItem(item)
+                        elif (
+                            constraint_related_ids(entity_id, constraint)
+                            & selected_geometry_ids
+                        ):
+                            constraint_item.setForeground(
+                                0, QBrush(QColor("#00D1FF"))
+                            )
+            geometry_group.addChild(item)
             if entity_id in self._sketch_selected_entity_ids:
                 item.setForeground(0, QBrush(QColor("#00D1FF")))
                 item.setSelected(True)
@@ -12943,7 +13035,7 @@ class MainWindow(QMainWindow):
                 Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsSelectable
             )
-            self.tree.addTopLevelItem(item)
+            dimensions_group.addChild(item)
             if dimension_id == self._sketch_selected_dimension_id:
                 selected_item = item
         if selected_item is not None:
@@ -23067,6 +23159,23 @@ class MainWindow(QMainWindow):
         if self._sketch_edit_entity_id is None:
             return
         previous_tool = self._sketch_tool
+        if (
+            tool == "trim"
+            and previous_tool != "trim"
+            and self.document is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None:
+                self._sketch_trim_baseline_entities = copy.deepcopy(
+                    self._stored_sketch_entities(sketch)
+                )
+                self._sketch_trim_baseline_dimensions = copy.deepcopy(
+                    self._stored_sketch_dimensions(sketch)
+                )
+                self._sketch_trim_topology = trim_topology(
+                    self._sketch_trim_baseline_entities,
+                    include_base_axes=True,
+                )
         if tool not in ("select", "mirror"):
             self._sketch_selected_entity_ids.clear()
         if self._sketch_reference_mode:
@@ -23146,6 +23255,13 @@ class MainWindow(QMainWindow):
                     else "sketch.status.mirror.select_objects"
                 )
             )
+        elif tool == "trim":
+            self.statusBar().showMessage(tr("sketch.status.trim.active"))
+        elif previous_tool == "trim":
+            self._sketch_trim_baseline_entities = None
+            self._sketch_trim_baseline_dimensions = None
+            self.native_viewer.set_sketch_trim_preview(())
+            self._sketch_trim_topology = ()
 
     def _set_sketch_constraint_tool(self, constraint: str) -> None:
         if (
@@ -24493,8 +24609,234 @@ class MainWindow(QMainWindow):
                 return index / (len(evaluated.arc_points) - 1)
         return 0.5
 
+    def _on_sketch_trim_preview_requested(self, raw_path: object) -> None:
+        if (
+            self._sketch_tool != "trim"
+            or self.document is None
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        if not isinstance(raw_path, (list, tuple)):
+            return
+        path = tuple(
+            (float(point[0]), float(point[1]))
+            for point in raw_path
+            if isinstance(point, (list, tuple)) and len(point) >= 2
+        )
+        if not path:
+            self.native_viewer.set_sketch_trim_preview(())
+            return
+        tolerance = max(
+            self.native_viewer.sketch_snap_tolerance(10.0), 1.0e-6
+        )
+        if len(path) == 1:
+            piece = nearest_trim_piece(
+                self._sketch_trim_topology, path[0], tolerance
+            )
+            selected = (piece,) if piece is not None else ()
+        else:
+            selected = pieces_crossed_by_path(
+                self._sketch_trim_topology, path, tolerance
+            )
+        self.native_viewer.set_sketch_trim_preview(
+            tuple(piece.points for piece in selected)
+        )
+
+    @staticmethod
+    def _sketch_trim_point_segment_distance(
+        point: tuple[float, float],
+        first: tuple[float, float],
+        second: tuple[float, float],
+    ) -> float:
+        dx, dy = second[0] - first[0], second[1] - first[1]
+        denominator = dx * dx + dy * dy
+        factor = (
+            0.0
+            if denominator <= 1.0e-20
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    ((point[0] - first[0]) * dx
+                     + (point[1] - first[1]) * dy) / denominator,
+                ),
+            )
+        )
+        return math.hypot(
+            point[0] - first[0] - factor * dx,
+            point[1] - first[1] - factor * dy,
+        )
+
+    def _on_sketch_trim_gesture_requested(
+        self,
+        raw_path: object,
+    ) -> None:
+        if (
+            self._sketch_tool != "trim"
+            or self.document is None
+            or self._sketch_edit_entity_id is None
+            or not isinstance(raw_path, (list, tuple))
+        ):
+            return
+        path = tuple(
+            (float(point[0]), float(point[1]))
+            for point in raw_path
+            if isinstance(point, (list, tuple)) and len(point) >= 2
+        )
+        if not path:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        pieces = self._sketch_trim_topology or trim_topology(
+            entities, include_base_axes=True
+        )
+        tolerance = max(
+            self.native_viewer.sketch_snap_tolerance(10.0), 1.0e-6
+        )
+        path_length = sum(
+            math.dist(first, second)
+            for first, second in zip(path, path[1:])
+        )
+        if path_length <= tolerance * 0.35:
+            candidate = nearest_trim_piece(pieces, path[-1], tolerance)
+            selected = (candidate,) if candidate is not None else ()
+        else:
+            selected = pieces_crossed_by_path(pieces, path, tolerance)
+        if not selected:
+            self.statusBar().showMessage(
+                tr("sketch.status.trim.no_candidate")
+            )
+            return
+        stored_dimensions = self._stored_sketch_dimensions(sketch)
+        dimension_point_ids = {
+            point_id
+            for dimension in stored_dimensions
+            for point_id in map(str, dimension.get("point_ids", ()))
+        }
+        revised_entities, mapping = apply_trim_pieces(
+            entities,
+            selected,
+            referenced_point_ids=dimension_point_ids,
+        )
+        valid_points = {
+            str(entity.get("id", ""))
+            for entity in revised_entities if entity.get("type") == "point"
+        }
+        valid_geometry = {
+            str(entity.get("id", ""))
+            for entity in revised_entities if entity.get("type") != "point"
+        }
+        for point in revised_entities:
+            attachment = point.get("curve_attachment")
+            if point.get("type") != "point" or not isinstance(attachment, dict):
+                continue
+            geometry_id = str(attachment.get("geometry_id", ""))
+            if geometry_id in mapping:
+                replacements = mapping[geometry_id]
+                if len(replacements) == 1:
+                    attachment["geometry_id"] = replacements[0]
+                else:
+                    point.pop("curve_attachment", None)
+            elif geometry_id and geometry_id not in valid_geometry:
+                point.pop("curve_attachment", None)
+        dimensions = [
+            dimension
+            for dimension in stored_dimensions
+            if all(
+                point_id in valid_points
+                for point_id in map(str, dimension.get("point_ids", ()))
+            )
+        ]
+        self._store_sketch_editor_data(sketch, revised_entities, dimensions)
+        original_point_ids = {
+            str(entity.get("id", ""))
+            for entity in entities if entity.get("type") == "point"
+        }
+        revised_points = {
+            str(entity.get("id", "")): self._sketch_point_position(entity)
+            for entity in revised_entities if entity.get("type") == "point"
+        }
+        geometry_point_ids = {
+            str(entity.get("id", "")): set(
+                map(str, entity.get("point_ids", ()))
+            )
+            for entity in revised_entities if entity.get("type") != "point"
+        }
+        reference_prefix = {
+            "segment": "sketch_geometry:",
+            "construction": "sketch_geometry:",
+            "circle": "sketch_circle:",
+            "arc": "sketch_arc:",
+            "ellipse": "sketch_ellipse:",
+            "elliptical_arc": "sketch_elliptical_arc:",
+        }
+        for point_id, position in revised_points.items():
+            if point_id in original_point_ids:
+                continue
+            axis_tolerance = max(tolerance * 1.0e-3, 1.0e-7)
+            if abs(position[1]) <= axis_tolerance:
+                self._add_sketch_point_reference_constraint(
+                    sketch, point_id, "sketch_axis:x"
+                )
+            if abs(position[0]) <= axis_tolerance:
+                self._add_sketch_point_reference_constraint(
+                    sketch, point_id, "sketch_axis:y"
+                )
+            for curve in sample_sketch_curves(revised_entities):
+                prefix = reference_prefix.get(curve.entity_type)
+                if (
+                    prefix is None
+                    or point_id in geometry_point_ids.get(curve.entity_id, set())
+                ):
+                    continue
+                distance = min(
+                    self._sketch_trim_point_segment_distance(
+                        position, first, second
+                    )
+                    for first, second in zip(curve.points, curve.points[1:])
+                )
+                if distance <= axis_tolerance:
+                    self._add_sketch_point_reference_constraint(
+                        sketch, point_id, prefix + curve.entity_id
+                    )
+        self.native_viewer.set_sketch_trim_preview(())
+        self._sketch_trim_topology = trim_topology(
+            self._stored_sketch_entities(sketch),
+            include_base_axes=True,
+        )
+        self._mark_model_for_regeneration()
+        self._regenerate_active_sketch_constraints(sketch)
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self.statusBar().showMessage(
+            tr("sketch.status.trim.removed", count=len(selected))
+        )
+
     def _cancel_current_sketch_entity(self) -> None:
         if self._sketch_edit_entity_id is None:
+            return
+        if self._sketch_tool == "trim":
+            sketch = (
+                self.document.find_entity(self._sketch_edit_entity_id)
+                if self.document is not None else None
+            )
+            baseline_entities = self._sketch_trim_baseline_entities
+            baseline_dimensions = self._sketch_trim_baseline_dimensions
+            if sketch is not None and baseline_entities is not None:
+                self._store_sketch_editor_data(
+                    sketch,
+                    copy.deepcopy(baseline_entities),
+                    copy.deepcopy(baseline_dimensions or []),
+                )
+                self._mark_model_for_regeneration()
+                self.rebuild_view(fit=False)
+            self._set_sketch_tool("select")
+            self.statusBar().showMessage(tr("sketch.status.trim.cancelled"))
             return
         if self._sketch_tool == "dimension":
             if (
@@ -24693,6 +25035,10 @@ class MainWindow(QMainWindow):
             self._rebuild_application_toolbar()
             return
         if self._sketch_tool == "select":
+            return
+        if self._sketch_tool == "trim":
+            self._set_sketch_tool("select")
+            self.statusBar().showMessage(tr("sketch.status.trim.finished"))
             return
         if self._sketch_tool == "mirror":
             if self._sketch_mirror_phase == "objects":
