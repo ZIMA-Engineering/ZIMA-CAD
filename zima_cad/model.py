@@ -3532,7 +3532,94 @@ def make_fillet_shape(
         final_faces,
         result_registry.register_face,
     )
+    _register_feature_incidence_topology(
+        result_registry,
+        result_shape,
+        feature_id,
+    )
     return result_shape, result_registry
+
+
+def _register_feature_incidence_topology(
+    registry: TopologyRegistry,
+    shape,
+    feature_id: str,
+) -> None:
+    """Name still-unmapped feature edges/vertices by semantic incidence."""
+
+    faces = _unique_subshapes(shape, TopAbs_FACE)
+    edges = _unique_subshapes(shape, TopAbs_EDGE)
+    vertices = _unique_subshapes(shape, TopAbs_VERTEX)
+    face_refs = {
+        index: references[0]
+        for index, face in enumerate(faces)
+        if len(references := _resolved_face_refs_for_shape(registry, face)) == 1
+    }
+    adjacent_faces: dict[int, set[FaceRef]] = {}
+    incident_faces: dict[int, set[FaceRef]] = {}
+    for face_index, face in enumerate(faces):
+        reference = face_refs.get(face_index)
+        if reference is None:
+            continue
+        edge_explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        while edge_explorer.More():
+            edge = edge_explorer.Current()
+            edge_index = next((
+                index for index, candidate in enumerate(edges)
+                if edge.IsSame(candidate)
+            ), None)
+            if edge_index is not None:
+                adjacent_faces.setdefault(edge_index, set()).add(reference)
+            edge_explorer.Next()
+        vertex_explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while vertex_explorer.More():
+            vertex = vertex_explorer.Current()
+            vertex_index = next((
+                index for index, candidate in enumerate(vertices)
+                if vertex.IsSame(candidate)
+            ), None)
+            if vertex_index is not None:
+                incident_faces.setdefault(vertex_index, set()).add(reference)
+            vertex_explorer.Next()
+
+    edge_references: dict[EdgeRef, list[int]] = {}
+    for edge_index, references in adjacent_faces.items():
+        if (
+            registry.edge_reference_for_runtime_index(edge_index + 1) is None
+            and len(references) == 2
+        ):
+            reference = EdgeRef(
+                feature_id,
+                "generated-edge",
+                semantic_provenance_id(*references),
+            )
+            edge_references.setdefault(reference, []).append(edge_index)
+    _register_derived_references(
+        registry,
+        edge_references,
+        edges,
+        registry.register_edge,
+    )
+
+    vertex_references: dict[VertexRef, list[int]] = {}
+    for vertex_index, references in incident_faces.items():
+        if (
+            registry.vertex_reference_for_runtime_index(vertex_index + 1)
+            is None
+            and len(references) >= 3
+        ):
+            reference = VertexRef(
+                feature_id,
+                "generated-vertex",
+                semantic_provenance_id(*references),
+            )
+            vertex_references.setdefault(reference, []).append(vertex_index)
+    _register_derived_references(
+        registry,
+        vertex_references,
+        vertices,
+        registry.register_vertex,
+    )
 
 
 def _resolved_face_refs_for_shape(

@@ -14,12 +14,13 @@ from zima_cad.model import (
     make_protrusion_shape,
     make_revolve_shape,
     make_fillet_shape,
+    _unique_subshapes,
     protrusion_face_registry,
     revolve_face_registry,
     semantic_face_registry,
     ZimaEntity,
 )
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
@@ -403,6 +404,42 @@ class StableTopologyTests(unittest.TestCase):
                 active_face_registry(loaded).resolve(generated).state,
                 TopologyResolutionState.RESOLVED,
             )
+
+    def test_fillet_names_every_result_edge_for_following_features(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+        source_shape = document.build_standalone_shape(container)
+        source_registry = semantic_face_registry(document, box, source_shape)
+
+        first_shape, first_registry = make_fillet_shape(
+            source_shape,
+            source_registry,
+            source_registry.edge_references[0],
+            4.0,
+            "fillet-1",
+        )
+        edges = _unique_subshapes(first_shape, TopAbs_EDGE)
+        self.assertTrue(edges)
+        self.assertTrue(all(
+            first_registry.edge_reference_for_runtime_index(index) is not None
+            for index in range(1, len(edges) + 1)
+        ))
+
+        following_reference = next(
+            reference
+            for reference in first_registry.edge_references
+            if reference.feature_id == "fillet-1"
+        )
+        second_shape, _second_registry = make_fillet_shape(
+            first_shape,
+            first_registry,
+            following_reference,
+            1.0,
+            "fillet-2",
+        )
+        self.assertEqual(self._subshape_count(second_shape, TopAbs_SOLID), 1)
 
     def test_disconnected_add_preserves_last_valid_body(self) -> None:
         document = create_empty_part()

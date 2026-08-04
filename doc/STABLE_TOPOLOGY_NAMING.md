@@ -60,7 +60,9 @@ cap faces. Partial Revolve now applies the same rule to its repeated start/end
 faces, edges and vertices. General multi-body Booleans and Chamfer are not yet
 implemented. The first history/UI Fillet resolves its input through a stable
 edge reference, propagates existing ancestry and names its generated face from
-that edge. Repeated cuts across a
+that edge. Edges and vertices of the Fillet result are derived from their
+semantic face incidence, so every result edge remains selectable as a stable
+input for a following feature. Repeated cuts across a
 two-solid source now have
 regression coverage for face, edge and vertex ancestry. An additive bridge can
 join that source into one solid while preserving supported source/bridge
@@ -278,9 +280,10 @@ correct result.
    coverage.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
 9. **Fillet subset done:** a single selected stable edge is stored in Part
-   history, its radius is editable, ancestry is propagated and the generated
-   face is named. Next add multi-edge selection and apply the same contract to
-   Chamfer.
+   history, its radius is editable, ancestry is propagated, the generated face
+   is named and all result edges receive stable incidence-derived identities
+   for following features. Next add multi-edge selection and apply the same
+   contract to Chamfer.
 10. Consider legacy numerical-reference migration only if it becomes a product
     requirement; current development intentionally requires recreation.
 
