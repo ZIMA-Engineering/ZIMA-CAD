@@ -1154,10 +1154,6 @@ class PointConstraintDialog(QDialog):
         self.references = [
             reference for reference in self.references
             if reference.get("type") != "container_orientation"
-            and not (
-                type(self) is PointConstraintDialog
-                and reference.get("position_role") == "orientation_only"
-            )
         ]
         self.highlighted_reference_keys = {
             str(reference.get("key", ""))
@@ -1324,6 +1320,38 @@ class PointConstraintDialog(QDialog):
             edit.setValue(value)
             edit.blockSignals(False)
         self.point_rotation_edits: list[QDoubleSpinBox] = []
+        if type(self) is PointConstraintDialog:
+            has_rotation_offsets = (
+                point_entity is not None
+                and all(
+                    f"rotation_offset_{axis}" in point_entity.parameters
+                    for axis in ("x", "y", "z")
+                )
+            )
+            rotation = (
+                tuple(
+                    float(point_entity.parameters[f"rotation_offset_{axis}"])
+                    for axis in ("x", "y", "z")
+                )
+                if has_rotation_offsets
+                else (
+                    point_object.coordinate_system.rotation
+                    if point_object is not None
+                    else (0.0, 0.0, 0.0)
+                )
+            )
+            for axis, value in zip(("RX", "RY", "RZ"), rotation):
+                edit = QDoubleSpinBox()
+                edit.setRange(-360_000.0, 360_000.0)
+                edit.setDecimals(self.decimal_places)
+                edit.setSingleStep(5.0)
+                edit.setSuffix(" deg")
+                edit.setValue(float(value))
+                edit.valueChanged.connect(
+                    lambda _value: self.definitionChanged.emit()
+                )
+                coordinates.addRow(axis, edit)
+                self.point_rotation_edits.append(edit)
         layout.addLayout(coordinates)
         self.dof_label = QLabel()
         self.result_label = QLabel()

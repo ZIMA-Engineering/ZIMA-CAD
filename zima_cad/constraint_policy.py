@@ -15,22 +15,14 @@ class ConstraintCapability:
         return self.translation_dof + self.rotation_dof
 
 
-CONTAINER_CONSTRAINT_CAPABILITIES = {
-    "POINT": ConstraintCapability(3, 0, False),
-    # An unoriented spatial line has three position and two direction DOF;
-    # rotation around itself does not change the axis geometry.
-    "AXIS": ConstraintCapability(3, 2, True, 2),
-    "PLANE": ConstraintCapability(3, 2, True, 2),
-}
-
 DEFAULT_CONSTRAINT_CAPABILITY = ConstraintCapability(3, 3, True, 2)
 
 
 def constraint_capability(container_type: str) -> ConstraintCapability:
-    return CONTAINER_CONSTRAINT_CAPABILITIES.get(
-        str(container_type).upper(),
-        DEFAULT_CONSTRAINT_CAPABILITY,
-    )
+    # Every container owns a complete local coordinate system. Geometry inside
+    # it may be rotationally symmetric, but container placement still exposes
+    # X/Y/Z and RX/RY/RZ consistently.
+    return DEFAULT_CONSTRAINT_CAPABILITY
 
 
 def reference_admission(

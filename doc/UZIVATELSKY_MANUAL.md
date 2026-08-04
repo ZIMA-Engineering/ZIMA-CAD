@@ -48,11 +48,11 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   nebo kontejneru. Ukládá se stabilní `VertexRef` a odebere všechny tři
   posuvné stupně volnosti. Když vrchol zmizí, reference se označí jako
   chybějící, zachová poslední polohu a nepřeskočí na jiný vrchol podle pořadí.
-- Čistý bod má pouze tři posuvné stupně volnosti `X/Y/Z`; rotační hodnoty pro
-  něj nemají geometrický význam a ve Vlastnostech se nezobrazují. Jakmile
-  reference sníží počet DOF na nulu, další nadbytečné nebo orientační reference
-  se nepřidají. Stejná centrální politika omezuje počet orientačních referencí
-  ostatních typů kontejnerů.
+- Každý kontejner vlastní úplný lokální souřadný systém a ve Vlastnostech má
+  šest stupňů volnosti `X/Y/Z + RX/RY/RZ`, včetně kontejneru bodu, osy a roviny.
+  Vrchol může určit tři posuvné DOF; orientaci kontejneru následně určí nejvýše
+  dvě nezávislé orientační reference. Po dosažení 0 DOF se další nadbytečné,
+  duplicitní nebo konfliktní reference nepřidají.
 
 ## Živé úpravy ve Vlastnostech
 
