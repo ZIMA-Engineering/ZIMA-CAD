@@ -108,6 +108,10 @@
   viewer between topology and ordinary object interaction centrally. Reuse the
   same request/validator path for Chamfer, Assembly mates and Sketch external
   references; do not add further per-command selection flags.
+- Keep container Properties on the shared `ConstraintCapability` policy. Point
+  exposes translation only and rejects references after reaching zero DOF;
+  Axis/Plane and spatial containers may consume only their declared bounded
+  orientation DOF. Migrate remaining dialog-specific checks to this policy.
 - Add polygon input and ellipse geometry.
 - Continue stabilization of centre arcs and spline editing.
 - Improve the solver's numerical stability, branch preservation, diagnostics

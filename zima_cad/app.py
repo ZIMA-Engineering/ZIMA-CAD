@@ -158,6 +158,10 @@ from zima_cad.selection import (
     SelectionRequest,
     SelectionResolution,
 )
+from zima_cad.constraint_policy import (
+    constraint_capability,
+    reference_admission,
+)
 from zima_cad.sketch_geometry import (
     center_arc_points,
     corner_radius_from_drag,
@@ -1136,6 +1140,9 @@ class PointConstraintDialog(QDialog):
             reference_kind_callback or (lambda _object_id: None)
         )
         self.edit_mode = point_object is not None and point_entity is not None
+        self.constraint_capability = constraint_capability(
+            ContainerType.POINT.value
+        )
         self.references = self._stored_references(point_entity)
         self._stored_container_orientation = next(
             (
@@ -1147,6 +1154,10 @@ class PointConstraintDialog(QDialog):
         self.references = [
             reference for reference in self.references
             if reference.get("type") != "container_orientation"
+            and not (
+                type(self) is PointConstraintDialog
+                and reference.get("position_role") == "orientation_only"
+            )
         ]
         self.highlighted_reference_keys = {
             str(reference.get("key", ""))
@@ -1313,38 +1324,6 @@ class PointConstraintDialog(QDialog):
             edit.setValue(value)
             edit.blockSignals(False)
         self.point_rotation_edits: list[QDoubleSpinBox] = []
-        if type(self) is PointConstraintDialog:
-            has_rotation_offsets = (
-                point_entity is not None
-                and all(
-                    f"rotation_offset_{axis}" in point_entity.parameters
-                    for axis in ("x", "y", "z")
-                )
-            )
-            rotation = (
-                tuple(
-                    float(point_entity.parameters[f"rotation_offset_{axis}"])
-                    for axis in ("x", "y", "z")
-                )
-                if has_rotation_offsets
-                else (
-                    point_object.coordinate_system.rotation
-                    if point_object is not None
-                    else (0.0, 0.0, 0.0)
-                )
-            )
-            for axis, value in zip(("RX", "RY", "RZ"), rotation):
-                edit = QDoubleSpinBox()
-                edit.setRange(-360_000.0, 360_000.0)
-                edit.setDecimals(self.decimal_places)
-                edit.setSingleStep(5.0)
-                edit.setSuffix(" deg")
-                edit.setValue(float(value))
-                edit.valueChanged.connect(
-                    lambda _value: self.definitionChanged.emit()
-                )
-                coordinates.addRow(axis, edit)
-                self.point_rotation_edits.append(edit)
         layout.addLayout(coordinates)
         self.dof_label = QLabel()
         self.result_label = QLabel()
@@ -1377,6 +1356,9 @@ class PointConstraintDialog(QDialog):
         *,
         editable: bool = False,
     ) -> None:
+        self.constraint_capability = constraint_capability(
+            container_type.value
+        )
         self.container_type_combo.setCurrentIndex(
             max(
                 0,
@@ -1855,12 +1837,19 @@ class PointConstraintDialog(QDialog):
             )
         )
         current_dof = getattr(self, "dof", 3)
-        if (
-            current_dof == 0
-            or trial_solution is None
-            or trial_dof >= current_dof
-        ):
-            if is_orientation_candidate:
+        admission = reference_admission(
+            self.constraint_capability,
+            current_translation_dof=current_dof,
+            trial_translation_dof=trial_dof,
+            trial_is_valid=trial_solution is not None,
+            orientation_candidate=is_orientation_candidate,
+            orientation_reference_count=sum(
+                existing.get("position_role") == "orientation_only"
+                for existing in self.references
+            ),
+        )
+        if admission != "position":
+            if admission == "orientation":
                 reference["position_role"] = "orientation_only"
                 used_roles = {
                     str(existing.get("orientation_role", "none"))
@@ -1889,6 +1878,9 @@ class PointConstraintDialog(QDialog):
                 tr("dialog.point_constraints.rejected_reference")
             )
             return
+        if not self.constraint_capability.accepts_orientation_references:
+            reference["orientation_role"] = "none"
+            reference["orientation_drives_rotation"] = False
         self.references.append(reference)
         self.highlighted_reference_keys.add(str(reference.get("key", "")))
         self._append_reference_row(reference)
@@ -2110,7 +2102,11 @@ class PointConstraintDialog(QDialog):
         self.definitionChanged.emit()
 
     def point_rotation(self) -> tuple[float, float, float]:
-        return tuple(edit.value() for edit in self.point_rotation_edits)
+        return (
+            tuple(edit.value() for edit in self.point_rotation_edits)
+            if self.point_rotation_edits
+            else (0.0, 0.0, 0.0)
+        )
 
     def _show_auxiliary_geometry(self) -> bool:
         return (
