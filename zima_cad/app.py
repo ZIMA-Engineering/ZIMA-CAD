@@ -2009,6 +2009,9 @@ class PointConstraintDialog(QDialog):
             missing = bool(entity_id) and not self.reference_exists_callback(
                 entity_id
             )
+            missing = missing or str(
+                reference.get("resolution_state", "resolved")
+            ) != TopologyResolutionState.RESOLVED.value
             if missing:
                 label = str(
                     reference.get("label", reference.get("key", entity_id))
@@ -2048,6 +2051,7 @@ class PointConstraintDialog(QDialog):
             self.references,
             fallback,
         )
+        self._refresh_reference_item_warnings()
         self.dof = dof
         self.solution = solution
         for index, edit in enumerate(self.coordinate_edits):
@@ -9685,6 +9689,25 @@ class MainWindow(QMainWindow):
                 if len(matches) == 1:
                     stable_reference, stable_subshape = matches[0]
                     descriptor["face_ref"] = stable_reference.to_dict()
+        elif (
+            shape_reference_type == "vertex"
+            and descriptor.get("reference_scope") == "history_result"
+        ):
+            try:
+                boundary = int(descriptor.get("history_cursor", 0))
+            except (TypeError, ValueError):
+                boundary = 0
+            stable_reference = parse_vertex_reference(
+                descriptor.get("point_ref")
+            )
+            if stable_reference is not None:
+                resolution = face_registry_at(
+                    self.document, boundary
+                ).resolve_vertex(stable_reference)
+                descriptor["resolution_state"] = resolution.state.value
+                if resolution.state != TopologyResolutionState.RESOLVED:
+                    return []
+                stable_subshape = resolution.shape
         model_shape = self._shape_for_reference_descriptor(
             descriptor,
             reference,
@@ -9765,6 +9788,11 @@ class MainWindow(QMainWindow):
             ]
 
         point = None
+        if stable_subshape is not None:
+            try:
+                point = BRep_Tool.Pnt(stable_subshape)
+            except (TypeError, RuntimeError):
+                point = None
         try:
             edge_index = int(descriptor.get("edge_index", "0"))
         except (TypeError, ValueError):
@@ -14976,6 +15004,20 @@ class MainWindow(QMainWindow):
         ):
             return
         if (
+            element_kind == "point"
+            and self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            scene = self._native_viewer_scene
+            vertex = (
+                scene.resolve_topology(owner_id, "point", element_index)
+                if scene is not None else None
+            )
+            owner = self.document.find_entity(owner_id)
+            if vertex is not None and owner is not None:
+                self._add_point_shape_constraint(owner, vertex)
+                return
+        if (
             self.orientation_dialog is not None
             and self.orientation_dialog.isVisible()
             and not self.orientation_dialog.selection_paused
@@ -15556,6 +15598,18 @@ class MainWindow(QMainWindow):
                 if endpoint_identity is not None
                 else str(topology_index)
             )
+            stable_metadata = dict(reference_metadata)
+            if (
+                obj.kind == EntityKind.PART
+                and stable_metadata.get("reference_scope")
+                == "history_result"
+            ):
+                boundary = int(stable_metadata.get("history_cursor", 0))
+                reference = face_registry_at(
+                    self.document, boundary
+                ).vertex_reference_for_runtime_index(topology_index)
+                if reference is not None:
+                    stable_metadata["point_ref"] = reference.to_dict()
             dialog.add_shape_reference(
                 obj.entity_id,
                 self._topology_reference_label(
@@ -15571,7 +15625,7 @@ class MainWindow(QMainWindow):
                 ],
                 topology_key,
                 {
-                    **reference_metadata,
+                    **stable_metadata,
                     "vertex_index": topology_index,
                     **(
                         {

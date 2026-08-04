@@ -33,6 +33,7 @@ from zima_cad.drawing import (
     update_view_bounds,
 )
 from zima_cad.model import (
+    active_face_registry,
     ContainerType,
     EntityKind,
     create_empty_drawing,
@@ -56,6 +57,7 @@ from zima_cad.viewer_mesh import (
     silhouette_segments,
     silhouette_segments_from_edges,
     triangulate_shape,
+    topology_subshape,
 )
 
 
@@ -96,6 +98,61 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertTrue(selectable(state, "vertex"))
         state._interaction_mode = "object"
         self.assertTrue(selectable(state, "datum_point"))
+
+    def test_solid_vertex_pick_maps_back_to_occt_vertex(self) -> None:
+        shape = BRepPrimAPI_MakeBox(20.0, 30.0, 40.0).Shape()
+        mesh = triangulate_shape(shape, owner_id="result")
+        self.assertEqual(len(mesh.points), 8)
+        for marker in mesh.points:
+            self.assertIsNotNone(topology_subshape(
+                shape,
+                element_kind="point",
+                element_index=marker.point_index,
+            ))
+
+    def test_stable_vertex_reference_constrains_point_and_reports_loss(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(container.entity_id, EntityKind.BOX)
+        registry = active_face_registry(document)
+        reference = registry.vertex_references[0]
+        descriptor = {
+            "type": "vertex",
+            "entity_id": document.root.entity_id,
+            "reference_scope": "history_result",
+            "history_cursor": 1,
+            "point_ref": reference.to_dict(),
+            "equations": [],
+        }
+
+        class Harness:
+            def __init__(self, part):
+                self.document = part
+
+            def _shape_for_reference_descriptor(self, _descriptor, _reference):
+                return self.document.build_shape_at(1)
+
+            def _resolved_shape_reference_equations(self, item):
+                return MainWindow._resolved_shape_reference_equations(self, item)
+
+        harness = Harness(document)
+        solution, dof, _status, _constrained = (
+            MainWindow._solve_point_constraints(
+                harness, [descriptor], (9.0, 9.0, 9.0)
+            )
+        )
+        self.assertEqual(dof, 0)
+        self.assertIsNotNone(solution)
+
+        box.suppressed = True
+        solution, dof, _status, _constrained = (
+            MainWindow._solve_point_constraints(
+                harness, [descriptor], (9.0, 9.0, 9.0)
+            )
+        )
+        self.assertEqual(dof, 3)
+        self.assertEqual(solution, (9.0, 9.0, 9.0))
+        self.assertEqual(descriptor["resolution_state"], "missing")
 
     def test_model_display_modes_use_distinct_surface_passes(self) -> None:
         self.assertEqual(_surface_pass_for_display_mode("wire"), "none")

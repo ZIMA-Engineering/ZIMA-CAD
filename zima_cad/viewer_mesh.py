@@ -304,6 +304,8 @@ def topology_subshape(
     shape_type = {
         "edge": TopAbs_EDGE,
         "face": TopAbs_FACE,
+        "point": TopAbs_VERTEX,
+        "vertex": TopAbs_VERTEX,
     }.get(element_kind)
     if (
         shape is None
@@ -317,7 +319,7 @@ def topology_subshape(
     current_index = 0
     while explorer.More():
         candidate = explorer.Current()
-        if shape_type == TopAbs_EDGE and any(
+        if shape_type in (TopAbs_EDGE, TopAbs_VERTEX) and any(
             candidate.IsSame(existing)
             for existing in seen
         ):

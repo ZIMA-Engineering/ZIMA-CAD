@@ -44,6 +44,10 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - Při dosažení 0 stupňů volnosti je objekt plně určený. Geometrii lze stále
   vybrat, ale jako další reference se přijme až po odebrání některé existující
   vazby.
+- Vrchol aktuálního výsledného tělesa lze použít jako polohovou referenci bodu
+  nebo kontejneru. Ukládá se stabilní `VertexRef` a odebere všechny tři
+  posuvné stupně volnosti. Když vrchol zmizí, reference se označí jako
+  chybějící, zachová poslední polohu a nepřeskočí na jiný vrchol podle pořadí.
 
 ## Živé úpravy ve Vlastnostech
 
