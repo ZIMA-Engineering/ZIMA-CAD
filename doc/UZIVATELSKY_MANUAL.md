@@ -71,8 +71,8 @@ nastavením solidu.
 
 ### Zaoblení hrany
 
-Vyberte podporovanou hranu výsledného tělesa ve 3D pohledu a spusťte
-**Zaoblení**. Zadejte kladný poloměr. Nový prvek se vloží do historie a hranu
+Spusťte **Zaoblení** a potom ukažte podporovanou hranu výsledného tělesa ve
+3D pohledu. Zadejte kladný poloměr. Nový prvek se vloží do historie a hranu
 uchovává její stabilní sémantickou referencí, nikoliv pořadovým číslem
 geometrického jádra. Poloměr lze později změnit dvojklikem nebo přes
 **Vlastnosti** prvku. Neproveditelná hodnota zachová poslední platnou geometrii.

@@ -60,6 +60,22 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_fillet_command_resolves_edge_after_command_activation(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+        reference = MainWindow._fillet_edge_reference(
+            document, document.root.entity_id, 1
+        )
+        self.assertIsNotNone(reference)
+        self.assertEqual(reference.role, "boundary")
+        self.assertIsNone(
+            MainWindow._fillet_edge_reference(
+                document, container.entity_id, 1
+            )
+        )
+
     def test_external_sketch_points_only_appear_on_hover_or_selection(self) -> None:
         reference = {"id": "external-point"}
         visible = ZimaOpenGLViewer._external_point_marker_visible

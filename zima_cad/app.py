@@ -7155,6 +7155,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_surface_color(str(stored_body_color))
         self._native_viewer_scene: DocumentViewerScene | None = None
         self._selected_fillet_edge: EdgeRef | None = None
+        self._fillet_selection_active = False
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
         self._dimension_bindings: dict[str, tuple[Any, ...]] = {}
@@ -8858,9 +8859,27 @@ class MainWindow(QMainWindow):
     def _create_fillet(self) -> None:
         if self.document is None:
             return
-        reference = self._selected_fillet_edge
-        if reference is None:
-            self.statusBar().showMessage(tr("fillet.status.select_edge"))
+        self._fillet_selection_active = True
+        self._selected_fillet_edge = None
+        self.native_viewer.set_selection_filter("all")
+        self.statusBar().showMessage(tr("fillet.status.select_edge"))
+
+    def keyPressEvent(self, event) -> None:
+        if (
+            event.key() == Qt.Key.Key_Escape
+            and self._fillet_selection_active
+        ):
+            self._fillet_selection_active = False
+            self._selected_fillet_edge = None
+            self.statusBar().clearMessage()
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _finish_create_fillet(self, reference: EdgeRef) -> None:
+        if self.document is None:
+            self._fillet_selection_active = False
             return
         radius, accepted = QInputDialog.getDouble(
             self,
@@ -8872,6 +8891,8 @@ class MainWindow(QMainWindow):
             3,
         )
         if not accepted:
+            self._fillet_selection_active = False
+            self.rebuild_view(fit=False, rebuild_geometry=False)
             return
         obj = self.document.create_container("Fillet", ContainerType.FILLET)
         feature = ZimaEntity(
@@ -8889,10 +8910,13 @@ class MainWindow(QMainWindow):
         error = str(feature.parameters.get("build_status", "")).strip()
         if error:
             self.document.delete_container(obj.entity_id)
+            self._fillet_selection_active = False
             self.statusBar().showMessage(
                 tr("fillet.status.failed", error=error)
             )
+            self.rebuild_view(fit=False, rebuild_geometry=False)
             return
+        self._fillet_selection_active = False
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
         self.rebuild_view(fit=False, rebuild_geometry=True)
@@ -14402,6 +14426,18 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or edge_index <= 0:
             return
+        if self._fillet_selection_active:
+            reference = self._fillet_edge_reference(
+                self.document, owner_id, edge_index
+            )
+            if reference is None:
+                self.statusBar().showMessage(
+                    tr("fillet.status.edge_unsupported")
+                )
+                return
+            self._selected_fillet_edge = reference
+            self._finish_create_fillet(reference)
+            return
         assembly_dialog = self.assembly_component_dialog
         if (
             assembly_dialog is not None
@@ -14485,6 +14521,22 @@ class MainWindow(QMainWindow):
                 self.document
             ).edge_reference_for_runtime_index(edge_index)
         self._apply_native_view_selection(owner_id, shape)
+
+    @staticmethod
+    def _fillet_edge_reference(
+        document: PartDocument | None,
+        owner_id: str,
+        edge_index: int,
+    ) -> EdgeRef | None:
+        if (
+            document is None
+            or owner_id != document.root.entity_id
+            or edge_index <= 0
+        ):
+            return None
+        return active_face_registry(
+            document
+        ).edge_reference_for_runtime_index(edge_index)
 
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
