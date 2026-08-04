@@ -69,6 +69,18 @@ Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostup
 také v kontextovém menu objektu v tree. Obě místa pracují se společným
 nastavením solidu.
 
+### Zaoblení hrany
+
+Vyberte podporovanou hranu výsledného tělesa ve 3D pohledu a spusťte
+**Zaoblení**. Zadejte kladný poloměr. Nový prvek se vloží do historie a hranu
+uchovává její stabilní sémantickou referencí, nikoliv pořadovým číslem
+geometrického jádra. Poloměr lze později změnit dvojklikem nebo přes
+**Vlastnosti** prvku. Neproveditelná hodnota zachová poslední platnou geometrii.
+
+První podporovaný rozsah je jedna stabilně pojmenovaná hrana Boxu/Wedge nebo
+hrana, jejíž identita byla zachována podporovanou historií. Výběr více hran a
+Chamfer budou doplněny v dalším kroku.
+
 ## Režim skici
 
 Ve Vlastnostech skici tlačítko **SKETCH** potvrdí její umístění a otevře

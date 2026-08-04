@@ -19,7 +19,7 @@ from zima_cad.model import (
     semantic_face_registry,
     ZimaEntity,
 )
-from OCC.Core.TopAbs import TopAbs_SOLID
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
@@ -349,6 +349,60 @@ class StableTopologyTests(unittest.TestCase):
             TopologyResolutionState.RESOLVED,
         )
         self.assertEqual(self._subshape_count(edited_shape, TopAbs_SOLID), 1)
+
+    def test_fillet_history_regenerates_from_stable_edge_reference(self) -> None:
+        document = create_empty_part()
+        box_container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(box_container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+        source_shape = document.build_active_shape()
+        source_registry = active_face_registry(document)
+        edge = source_registry.edge_references[0]
+
+        fillet_container = document.create_container(
+            "Fillet", ContainerType.FILLET
+        )
+        fillet = ZimaEntity(
+            name="Fillet",
+            kind=EntityKind.FILLET,
+            parameters={"edge_ref": edge.serialize(), "radius": "4"},
+        )
+        fillet_container.add_child(fillet)
+        result = document.build_active_shape()
+        self.assertEqual(self._subshape_count(result, TopAbs_SOLID), 1)
+        self.assertNotEqual(
+            self._subshape_count(result, TopAbs_FACE),
+            self._subshape_count(source_shape, TopAbs_FACE),
+        )
+        generated = FaceRef(
+            fillet.entity_id, "generated", semantic_provenance_id(edge)
+        )
+        self.assertEqual(
+            active_face_registry(document).resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+        box.parameters.update({"length": "140", "width": "65", "height": "45"})
+        edited = document.build_active_shape()
+        self.assertEqual(self._subshape_count(edited, TopAbs_SOLID), 1)
+        self.assertNotIn("build_status", fillet.parameters)
+        self.assertEqual(
+            active_face_registry(document).resolve(generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fillet.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            self.assertEqual(
+                self._subshape_count(loaded.build_active_shape(), TopAbs_SOLID),
+                1,
+            )
+            self.assertEqual(
+                active_face_registry(loaded).resolve(generated).state,
+                TopologyResolutionState.RESOLVED,
+            )
 
     def test_disconnected_add_preserves_last_valid_body(self) -> None:
         document = create_empty_part()

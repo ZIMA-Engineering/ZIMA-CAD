@@ -57,10 +57,10 @@ full closed-spline Revolve and repeated full center-arc Revolve cuts are covered
 through dimension changes and save/reload. Three-level Extrusion nesting keeps
 outer/hole/island lateral provenance and deterministically fragments multiple
 cap faces. Partial Revolve now applies the same rule to its repeated start/end
-faces, edges and vertices. General multi-body Booleans and history/UI
-integration of Fillet and Chamfer are not yet implemented. A first model-level
-Fillet resolves its input through a stable edge reference, propagates existing
-ancestry and names its generated face from that edge. Repeated cuts across a
+faces, edges and vertices. General multi-body Booleans and Chamfer are not yet
+implemented. The first history/UI Fillet resolves its input through a stable
+edge reference, propagates existing ancestry and names its generated face from
+that edge. Repeated cuts across a
 two-solid source now have
 regression coverage for face, edge and vertex ancestry. An additive bridge can
 join that source into one solid while preserving supported source/bridge
@@ -265,9 +265,10 @@ correct result.
    Next expand curved-profile, repeated-intersection and general Boolean
    coverage.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
-9. **Started:** model-level Fillet consumes a stable edge identity, propagates
-   ancestry and names the generated face. Next integrate it into Part history
-   and UI, then apply the same contract to Chamfer.
+9. **Fillet subset done:** a single selected stable edge is stored in Part
+   history, its radius is editable, ancestry is propagated and the generated
+   face is named. Next add multi-edge selection and apply the same contract to
+   Chamfer.
 10. Consider legacy numerical-reference migration only if it becomes a product
     requirement; current development intentionally requires recreation.
 

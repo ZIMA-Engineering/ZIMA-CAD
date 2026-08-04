@@ -128,6 +128,7 @@ from zima_cad.model import (
 from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
+    EdgeRef,
     TopologyResolutionState,
     assembly_face_descriptor,
     assembly_edge_descriptor,
@@ -254,6 +255,7 @@ TREE_ICON_NAMES = {
     EntityKind.SKETCH: "sketch",
     EntityKind.PROTRUSION: "protrusion",
     EntityKind.REVOLVE: "revolve",
+    EntityKind.FILLET: "protrusion",
     EntityKind.BOX: "box",
     EntityKind.SPHERE: "sphere",
     EntityKind.CYLINDER: "cylinder",
@@ -7152,6 +7154,7 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.set_surface_color(str(stored_body_color))
         self._native_viewer_scene: DocumentViewerScene | None = None
+        self._selected_fillet_edge: EdgeRef | None = None
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
         self._dimension_bindings: dict[str, tuple[Any, ...]] = {}
@@ -7858,6 +7861,9 @@ class MainWindow(QMainWindow):
             revolve_action.setToolTip(tr("assembly.cut.targets.tooltip"))
             self._mark_application_command(revolve_action)
             revolve_action.triggered.connect(self._create_revolve)
+            fillet_action = self.tools_toolbar.addAction(tr("fillet.command"))
+            self._mark_application_command(fillet_action)
+            fillet_action.triggered.connect(self._create_fillet)
             self.tools_toolbar.addSeparator()
             for kind, text_key in (
                 (EntityKind.BOX, "primitive.box"),
@@ -8848,6 +8854,88 @@ class MainWindow(QMainWindow):
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _create_fillet(self) -> None:
+        if self.document is None:
+            return
+        reference = self._selected_fillet_edge
+        if reference is None:
+            self.statusBar().showMessage(tr("fillet.status.select_edge"))
+            return
+        radius, accepted = QInputDialog.getDouble(
+            self,
+            tr("fillet.command"),
+            tr("fillet.radius"),
+            4.0,
+            0.001,
+            1_000_000.0,
+            3,
+        )
+        if not accepted:
+            return
+        obj = self.document.create_container("Fillet", ContainerType.FILLET)
+        feature = ZimaEntity(
+            name=tr("fillet.command"),
+            kind=EntityKind.FILLET,
+            parameters={
+                "edge_ref": reference.serialize(),
+                "radius": str(radius),
+                "unit": "mm",
+            },
+        )
+        obj.add_child(feature)
+        self._mark_model_for_regeneration()
+        self.document.build_active_shape()
+        error = str(feature.parameters.get("build_status", "")).strip()
+        if error:
+            self.document.delete_container(obj.entity_id)
+            self.statusBar().showMessage(
+                tr("fillet.status.failed", error=error)
+            )
+            return
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.entity_id)
+        self.rebuild_view(fit=False, rebuild_geometry=True)
+
+    def _edit_fillet(self, obj: ZimaEntity) -> None:
+        feature = next((
+            child for child in obj.children
+            if child.kind == EntityKind.FILLET and not child.locked
+        ), None)
+        if feature is None:
+            return
+        try:
+            current_radius = float(feature.parameters.get("radius", 4.0))
+        except (TypeError, ValueError):
+            current_radius = 4.0
+        radius, accepted = QInputDialog.getDouble(
+            self,
+            tr("fillet.command"),
+            tr("fillet.radius"),
+            current_radius,
+            0.001,
+            1_000_000.0,
+            3,
+        )
+        if not accepted:
+            return
+        previous = str(feature.parameters.get("radius", current_radius))
+        feature.parameters["radius"] = str(radius)
+        self._mark_model_for_regeneration()
+        if self.document is not None:
+            self.document.build_active_shape()
+        if feature.parameters.get("build_status"):
+            error = str(feature.parameters["build_status"])
+            feature.parameters["radius"] = previous
+            if self.document is not None:
+                self.document.build_active_shape()
+            self.statusBar().showMessage(
+                tr("fillet.status.failed", error=error)
+            )
+            return
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.entity_id)
+        self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _create_point_object(self) -> None:
         if self.document is None:
@@ -14389,6 +14477,13 @@ class MainWindow(QMainWindow):
                 owner_id, edge_index, "axis"
             )
             return
+        if (
+            self.document is not None
+            and owner_id == self.document.root.entity_id
+        ):
+            self._selected_fillet_edge = active_face_registry(
+                self.document
+            ).edge_reference_for_runtime_index(edge_index)
         self._apply_native_view_selection(owner_id, shape)
 
     def _on_native_object_selected(self, owner_id: str) -> None:
@@ -18010,6 +18105,9 @@ class MainWindow(QMainWindow):
             == ContainerType.PROTRUSION.value
         ):
             self._edit_protrusion(obj)
+            return
+        if obj.container_type == ContainerType.FILLET:
+            self._edit_fillet(obj)
             return
         if obj.kind != EntityKind.CONTAINER:
             return
@@ -29877,6 +29975,10 @@ class MainWindow(QMainWindow):
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:
                 self._edit_revolve(owner)
+        elif obj.kind == EntityKind.FILLET and self.document is not None:
+            owner = self.document.find_owning_object(obj.entity_id)
+            if owner is not None:
+                self._edit_fillet(owner)
         elif obj.kind == EntityKind.POINT and self.document is not None:
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:

@@ -57,6 +57,7 @@ from zima_cad.sketch_geometry import center_arc_points, evaluate_corner_radius
 from zima_cad.topology import (
     EdgeRef,
     FaceRef,
+    parse_edge_reference,
     TopologyRegistry,
     VertexRef,
     semantic_provenance_id,
@@ -229,6 +230,7 @@ class EntityKind(str, Enum):
     SKETCH = "sketch"
     PROTRUSION = "protrusion"
     REVOLVE = "revolve"
+    FILLET = "fillet"
     BOX = "box"
     SPHERE = "sphere"
     CYLINDER = "cylinder"
@@ -251,6 +253,7 @@ class ContainerType(str, Enum):
     WEDGE = "WEDGE"
     PROTRUSION = "PROTRUSION"
     REVOLVE = "REVOLVE"
+    FILLET = "FILLET"
     COMPONENT = "COMPONENT"
 
 
@@ -282,6 +285,7 @@ ENTITY_KINDS = frozenset(
         EntityKind.SKETCH,
         EntityKind.PROTRUSION,
         EntityKind.REVOLVE,
+        EntityKind.FILLET,
         EntityKind.BOX,
         EntityKind.SPHERE,
         EntityKind.CYLINDER,
@@ -405,7 +409,9 @@ class ZimaEntity:
         sketches = [entity for entity in entities if entity.kind == EntityKind.SKETCH]
         features = [
             entity for entity in entities
-            if entity.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+            if entity.kind in (
+                EntityKind.PROTRUSION, EntityKind.REVOLVE, EntityKind.FILLET
+            )
         ]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
         if (
@@ -457,6 +463,7 @@ class ZimaEntity:
                 EntityKind.SKETCH,
                 EntityKind.PROTRUSION,
                 EntityKind.REVOLVE,
+                EntityKind.FILLET,
                 EntityKind.BOX,
                 EntityKind.SPHERE,
                 EntityKind.CYLINDER,
@@ -1292,10 +1299,48 @@ def apply_object_to_shape(
         obj.kind == EntityKind.CONTAINER
         and feature_type == ContainerType.REVOLVE.value
     )
+    is_fillet = (
+        obj.kind == EntityKind.CONTAINER
+        and feature_type == ContainerType.FILLET.value
+    )
     is_component = (
         obj.kind == EntityKind.CONTAINER
         and feature_type == ContainerType.COMPONENT.value
     )
+    if is_fillet:
+        feature = next((
+            child for child in obj.children
+            if child.kind == EntityKind.FILLET and not child.locked
+        ), None)
+        if result_shape is None or feature is None or document is None:
+            if feature is not None and not accept_first_shape:
+                feature.parameters["build_status"] = "missing_input"
+            return result_shape
+        reference = parse_edge_reference(feature.parameters.get("edge_ref"))
+        history_index = document.history_index(obj.entity_id)
+        registry = (
+            face_registry_at(document, history_index)
+            if history_index is not None else TopologyRegistry()
+        )
+        registry = _rebind_registry_to_shape(registry, result_shape)
+        try:
+            radius = float(feature.parameters.get("radius", 1.0))
+            if reference is None:
+                raise ValueError("Fillet requires a stable edge reference")
+            result_shape, _registry = make_fillet_shape(
+                result_shape,
+                registry,
+                reference,
+                radius,
+                feature.entity_id,
+            )
+        except (RuntimeError, TypeError, ValueError) as error:
+            if not accept_first_shape:
+                feature.parameters["build_status"] = str(error)
+            return result_shape
+        if not accept_first_shape:
+            feature.parameters.pop("build_status", None)
+        return result_shape
     shape = (
         make_component_shape(document, obj)
         if is_component
@@ -3233,6 +3278,41 @@ def _unique_subshapes(shape, shape_type: int) -> list[Any]:
     return result
 
 
+def _rebind_registry_to_shape(
+    registry: TopologyRegistry,
+    shape,
+) -> TopologyRegistry:
+    """Bind one evaluation's semantic refs to an equivalent live shape."""
+
+    rebound = TopologyRegistry()
+    kinds = (
+        (
+            _unique_subshapes(shape, TopAbs_FACE),
+            registry.references,
+            registry.runtime_index_for_reference,
+            rebound.register_face,
+        ),
+        (
+            _unique_subshapes(shape, TopAbs_EDGE),
+            registry.edge_references,
+            registry.edge_runtime_index_for_reference,
+            rebound.register_edge,
+        ),
+        (
+            _unique_subshapes(shape, TopAbs_VERTEX),
+            registry.vertex_references,
+            registry.vertex_runtime_index_for_reference,
+            rebound.register_vertex,
+        ),
+    )
+    for shapes, references, runtime_index, register in kinds:
+        for reference in references:
+            index = runtime_index(reference)
+            if index is not None and 0 < index <= len(shapes):
+                register(reference, shapes[index - 1], runtime_index=index)
+    return rebound
+
+
 def _boolean_history_shapes(builder, source_shape) -> list[Any]:
     candidates = []
     for method_name in ("Modified", "Generated"):
@@ -3590,6 +3670,28 @@ def boolean_topology_registry_at(
     result_shape = None
     result_registry = TopologyRegistry()
     for container in document.history_objects_at(cursor):
+        if container.container_type == ContainerType.FILLET:
+            feature = next((
+                child for child in container.children
+                if child.kind == EntityKind.FILLET and not child.locked
+            ), None)
+            reference = (
+                parse_edge_reference(feature.parameters.get("edge_ref"))
+                if feature is not None else None
+            )
+            if result_shape is None or feature is None or reference is None:
+                continue
+            try:
+                result_shape, result_registry = make_fillet_shape(
+                    result_shape,
+                    result_registry,
+                    reference,
+                    float(feature.parameters.get("radius", 1.0)),
+                    feature.entity_id,
+                )
+            except (RuntimeError, TypeError, ValueError):
+                pass
+            continue
         tool_shape = document.build_standalone_shape(container)
         if tool_shape is None:
             continue
