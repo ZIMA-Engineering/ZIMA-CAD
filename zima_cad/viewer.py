@@ -44,10 +44,14 @@ from OCC.Core.gp import gp_Pnt
 from OCC.Core.TColgp import TColgp_HArray1OfPnt
 
 from zima_cad.sketch_geometry import (
+    arc_cardinal_keypoints,
     center_arc_points,
     ellipse_points,
+    elliptical_arc_cardinal_keypoints,
     elliptical_arc_points,
     evaluate_corner_radius,
+    outward_minor_arc_endpoint,
+    polyline_arc_start_context,
 )
 from zima_cad.viewer_mesh import (
     Point3,
@@ -592,6 +596,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_tool: str | None = None
         self._sketch_preview_position: tuple[float, float] | None = None
         self._sketch_preview_constraint: str | None = None
+        self._sketch_preview_is_keypoint = False
         self._sketch_placement_candidates: tuple[
             tuple[tuple[float, float], str | None, str | None], ...
         ] = ()
@@ -607,6 +612,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_arc_clockwise: bool | None = None
         self._sketch_arc_last_angle: float | None = None
         self._sketch_arc_accumulated_sweep = 0.0
+        self._sketch_polyline_arc_reverse = False
         self._selected_sketch_entity_id: str | None = None
         self._selected_sketch_entity_ids: frozenset[str] = frozenset()
         self._selected_sketch_corner_radius: tuple[str, str, str] | None = None
@@ -755,6 +761,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if selection_mode or frame is None or not pending_points:
             self._sketch_preview_position = None
             self._sketch_preview_constraint = None
+            self._sketch_preview_is_keypoint = False
         self.update()
 
     def set_sketch_trim_preview(
@@ -2238,7 +2245,44 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         center[0] + start_radius * cursor_x / cursor_length,
                         center[1] + start_radius * cursor_y / cursor_length,
                     )
-                    cursor_angle = atan2(cursor_y, cursor_x)
+                    start_angle = atan2(start_y, start_x)
+                    quadrant_candidates = tuple(
+                        (
+                            start_angle + step * pi * 0.5,
+                            (
+                                center[0] + start_radius * cos(
+                                    start_angle + step * pi * 0.5
+                                ),
+                                center[1] + start_radius * sin(
+                                    start_angle + step * pi * 0.5
+                                ),
+                            ),
+                        )
+                        for step in (-1, 1, 2)
+                    )
+                    nearest_quadrant = min(
+                        (
+                            hypot(
+                                event.position().x()
+                                - self._screen_point(self._camera_point(
+                                    self._sketch_world_point(point)
+                                )).x(),
+                                event.position().y()
+                                - self._screen_point(self._camera_point(
+                                    self._sketch_world_point(point)
+                                )).y(),
+                            ),
+                            angle,
+                            point,
+                        )
+                        for angle, point in quadrant_candidates
+                    )
+                    if nearest_quadrant[0] <= 16.0:
+                        _distance, quadrant_angle, snapped = nearest_quadrant
+                        constraint = f"keypoint:{degrees(quadrant_angle) % 360.0}"
+                    cursor_angle = atan2(
+                        snapped[1] - center[1], snapped[0] - center[0]
+                    )
                     if self._sketch_arc_last_angle is None:
                         self._sketch_arc_last_angle = atan2(
                             start_y,
@@ -2277,6 +2321,38 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         center[0] + ax * cos(cursor_angle) + bx * sin(cursor_angle),
                         center[1] + ay * cos(cursor_angle) + by * sin(cursor_angle),
                     )
+                    quadrant_candidates = tuple(
+                        (
+                            step * pi * 0.5,
+                            (
+                                center[0] + ax * cos(step * pi * 0.5)
+                                + bx * sin(step * pi * 0.5),
+                                center[1] + ay * cos(step * pi * 0.5)
+                                + by * sin(step * pi * 0.5),
+                            ),
+                        )
+                        for step in range(4)
+                    )
+                    nearest_quadrant = min(
+                        (
+                            hypot(
+                                event.position().x()
+                                - self._screen_point(self._camera_point(
+                                    self._sketch_world_point(point)
+                                )).x(),
+                                event.position().y()
+                                - self._screen_point(self._camera_point(
+                                    self._sketch_world_point(point)
+                                )).y(),
+                            ),
+                            angle,
+                            point,
+                        )
+                        for angle, point in quadrant_candidates
+                    )
+                    if nearest_quadrant[0] <= 16.0:
+                        _distance, cursor_angle, snapped = nearest_quadrant
+                        constraint = f"keypoint:{degrees(cursor_angle) % 360.0}"
                     if len(self._sketch_pending_points) == 4:
                         start = self._sketch_pending_points[3]
                         if self._sketch_arc_last_angle is None:
@@ -2354,6 +2430,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if reference_id != self._hovered_sketch_external_reference_id:
                 self._hovered_sketch_external_reference_id = reference_id
                 self.sketchReferenceHovered.emit(reference_id or "")
+            self._sketch_preview_is_keypoint = bool(
+                constraint is not None and constraint.startswith("keypoint:")
+            )
             if (
                 snapped != self._sketch_preview_position
                 or constraint != self._sketch_preview_constraint
@@ -5333,8 +5412,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if self._sketch_preview_constraint is not None
                 and self._sketch_preview_constraint.startswith("midpoint:")
                 else "K"
-                if self._sketch_preview_constraint is not None
-                and self._sketch_preview_constraint.startswith("keypoint:")
+                if self._sketch_preview_is_keypoint
                 else "X"
                 if self._sketch_preview_constraint == "axis:x"
                 else "Y"
@@ -5429,40 +5507,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
                 if self._sketch_tool == "polyline_arc":
                     start = self._sketch_pending_points[-1]
-                    point_positions = {
-                        str(entity.get("id", "")): (
-                            float(entity.get("x", 0.0)),
-                            float(entity.get("y", 0.0)),
-                        )
-                        for entity in self._sketch_entities
-                        if entity.get("type") == "point"
-                    }
-                    previous = next((
-                        entity for entity in reversed(self._sketch_entities)
-                        if entity.get("type") in ("segment", "arc")
-                        and entity.get("point_ids")
-                        and str(entity.get("point_ids")[-1]) in point_positions
-                        and hypot(
-                            point_positions[str(entity.get("point_ids")[-1])][0] - start[0],
-                            point_positions[str(entity.get("point_ids")[-1])][1] - start[1],
-                        ) <= 1.0e-9
-                    ), None)
-                    direction = None
-                    if previous is not None and previous.get("type") == "segment":
-                        ids = tuple(map(str, previous.get("point_ids", ())))
-                        if len(ids) == 2 and all(pid in point_positions for pid in ids):
-                            before = point_positions[ids[0]]
-                            direction = (start[0] - before[0], start[1] - before[1])
-                    elif previous is not None:
-                        ids = tuple(map(str, previous.get("point_ids", ())))
-                        if len(ids) == 3 and ids[0] in point_positions:
-                            center = point_positions[ids[0]]
-                            radial = (start[0] - center[0], start[1] - center[1])
-                            direction = (
-                                (radial[1], -radial[0])
-                                if previous.get("clockwise")
-                                else (-radial[1], radial[0])
-                            )
+                    direction = self._polyline_arc_start_direction(start)
                     length = hypot(*(direction or (0.0, 0.0)))
                     if direction is not None and length > 1.0e-12:
                         tx, ty = direction[0] / length, direction[1] / length
@@ -5475,6 +5520,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             center = (
                                 start[0] + nx * signed_radius,
                                 start[1] + ny * signed_radius,
+                            )
+                            center_screen = self._screen_point(
+                                self._camera_point(self._sketch_world_point(center))
+                            )
+                            painter.setPen(QPen(QColor("#FF7A00"), 2.0))
+                            painter.setBrush(QBrush(QColor("#FF7A00")))
+                            painter.drawEllipse(center_screen, 4.5, 4.5)
+                            painter.drawText(
+                                QPointF(center_screen.x() + 7.0,
+                                        center_screen.y() - 7.0),
+                                "C",
                             )
                             sampled = center_arc_points(
                                 center,
@@ -5516,9 +5572,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPolyline(projected_circle)
                 elif self._sketch_tool == "arc" and len(pending) == 2:
+                    center = self._sketch_pending_points[0]
+                    start = self._sketch_pending_points[1]
                     sampled = center_arc_points(
-                        self._sketch_pending_points[0],
-                        self._sketch_pending_points[1],
+                        center,
+                        start,
                         self._sketch_preview_position,
                         clockwise=bool(self._sketch_arc_clockwise),
                     )
@@ -5706,8 +5764,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 elif self._sketch_preview_constraint == "axis:y":
                     preview_labels.append("Y")
                 elif (
-                    self._sketch_preview_constraint is not None
-                    and self._sketch_preview_constraint.startswith("keypoint:")
+                    self._sketch_preview_is_keypoint
                 ):
                     preview_labels.append("K")
                 elif (
@@ -6751,6 +6808,43 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     1,
                 )
 
+        for arc in self._sketch_entities:
+            if arc.get("type") != "arc":
+                continue
+            arc_id = str(arc.get("id", ""))
+            ids = tuple(map(str, arc.get("point_ids", ())))
+            if not arc_id or len(ids) != 3 or any(pid not in points for pid in ids):
+                continue
+            for angle, keypoint in arc_cardinal_keypoints(
+                points[ids[0]], points[ids[1]], points[ids[2]],
+                clockwise=bool(arc.get("clockwise", False)),
+            ):
+                offer(
+                    keypoint,
+                    f"sketch_arc:{arc_id}",
+                    f"keypoint:{angle}",
+                    2,
+                )
+
+        for arc in self._sketch_entities:
+            if arc.get("type") != "elliptical_arc":
+                continue
+            arc_id = str(arc.get("id", ""))
+            ids = tuple(map(str, arc.get("point_ids", ())))
+            if not arc_id or len(ids) != 5 or any(pid not in points for pid in ids):
+                continue
+            for angle, keypoint in elliptical_arc_cardinal_keypoints(
+                points[ids[0]], points[ids[1]], points[ids[2]],
+                points[ids[3]], points[ids[4]],
+                clockwise=bool(arc.get("clockwise", False)),
+            ):
+                offer(
+                    keypoint,
+                    f"sketch_elliptical_arc:{arc_id}",
+                    f"keypoint:{angle}",
+                    2,
+                )
+
         for curve in self._sketch_entities:
             curve_type = str(curve.get("type", ""))
             if curve_type not in ("circle", "ellipse"):
@@ -6892,9 +6986,326 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_placement_candidates = candidates
         self._sketch_placement_candidate_cursor = QPointF(position)
         if not candidates:
+            self._sketch_preview_is_keypoint = False
             return (self._sketch_local_position(position) or (0.0, 0.0)), None, None
         self._sketch_placement_candidate_index %= len(candidates)
-        return candidates[self._sketch_placement_candidate_index]
+        candidate, reference_id, constraint = candidates[
+            self._sketch_placement_candidate_index
+        ]
+        self._sketch_preview_is_keypoint = bool(
+            constraint is not None and constraint.startswith("keypoint:")
+        )
+        if self._sketch_tool == "polyline_arc" and self._sketch_pending_points:
+            start = self._sketch_pending_points[-1]
+            start_entity = next(
+                (entity for entity in self._sketch_entities
+                 if entity.get("type") == "point"
+                 and hypot(float(entity.get("x", 0.0)) - start[0],
+                           float(entity.get("y", 0.0)) - start[1]) <= 1.0e-9),
+                None,
+            )
+            context = polyline_arc_start_context(
+                list(self._sketch_entities),
+                str(start_entity.get("id", "")) if start_entity else "",
+            )
+            local_cursor = self._sketch_local_position(position)
+            support_start = context is not None and context[2] is not None
+            if not support_start:
+                # The side chosen for an axis/construction arc must not leak
+                # through the next segment and reverse its following tangent
+                # arc back into that segment.
+                self._sketch_polyline_arc_reverse = False
+            if support_start and local_cursor is not None:
+                base_direction = context[0]
+                side = (
+                    (local_cursor[0] - start[0]) * base_direction[0]
+                    + (local_cursor[1] - start[1]) * base_direction[1]
+                )
+                if abs(side) > 1.0e-9:
+                    self._sketch_polyline_arc_reverse = side < 0.0
+            if context is not None and context[1] is not None:
+                outward = outward_minor_arc_endpoint(
+                    start,
+                    context[0],
+                    candidate,
+                )
+                if hypot(
+                    outward[0] - candidate[0], outward[1] - candidate[1]
+                ) > 1.0e-9:
+                    candidate = outward
+                    # The reflected point is deliberately no longer the
+                    # behind-the-line snap target.
+                    reference_id = None
+                    constraint = None
+            snapped = self._polyline_arc_center_snap(candidate)
+            if snapped is not None:
+                candidate, center_constraint = snapped
+                constraint = center_constraint + (
+                    ":reverse" if self._sketch_polyline_arc_reverse else ":forward"
+                )
+            elif support_start:
+                constraint = (
+                    "polyline_arc_direction:reverse"
+                    if self._sketch_polyline_arc_reverse
+                    else "polyline_arc_direction:forward"
+                )
+        pending_keypoint = self._pending_arc_quadrant_snap(position, candidate)
+        if pending_keypoint is not None:
+            candidate, constraint = pending_keypoint
+            reference_id = None
+        # Other smart inferences may replace the textual keypoint constraint
+        # while keeping the exact snapped coordinate.  Derive the visible K
+        # from the final point as well, so the active second arc point always
+        # gets its orange point marker at a quadrant snap.
+        self._sketch_preview_is_keypoint = (
+            self._sketch_preview_is_keypoint
+            or self._is_sketch_keypoint_position(candidate)
+        )
+        return candidate, reference_id, constraint
+
+    def _pending_arc_quadrant_snap(
+        self,
+        cursor: QPointF,
+        current: tuple[float, float],
+    ) -> tuple[tuple[float, float], str] | None:
+        candidates: list[tuple[float, tuple[float, float]]] = []
+        if self._sketch_tool == "arc" and len(self._sketch_pending_points) == 2:
+            center, start = self._sketch_pending_points
+            radius = hypot(start[0] - center[0], start[1] - center[1])
+            start_angle = atan2(start[1] - center[1], start[0] - center[0])
+            if radius > 1.0e-12:
+                candidates = [
+                    (
+                        degrees(angle) % 360.0,
+                        (center[0] + radius * cos(angle),
+                         center[1] + radius * sin(angle)),
+                    )
+                    for angle in (
+                        start_angle + step * pi * 0.5
+                        for step in (-1, 1, 2)
+                    )
+                ]
+        elif (
+            self._sketch_tool == "elliptical_arc"
+            and len(self._sketch_pending_points) in (3, 4)
+        ):
+            center, major, minor = self._sketch_pending_points[:3]
+            ax, ay = major[0] - center[0], major[1] - center[1]
+            bx, by = minor[0] - center[0], minor[1] - center[1]
+            candidates = [
+                (
+                    float(step * 90),
+                    (center[0] + ax * cos(step * pi * 0.5)
+                     + bx * sin(step * pi * 0.5),
+                     center[1] + ay * cos(step * pi * 0.5)
+                     + by * sin(step * pi * 0.5)),
+                )
+                for step in range(4)
+            ]
+        elif self._sketch_tool == "polyline_arc" and self._sketch_pending_points:
+            start = self._sketch_pending_points[-1]
+            direction = self._polyline_arc_start_direction(start)
+            length = hypot(*(direction or (0.0, 0.0)))
+            if direction is not None and length > 1.0e-12:
+                tx, ty = direction[0] / length, direction[1] / length
+                nx, ny = -ty, tx
+                dx, dy = current[0] - start[0], current[1] - start[1]
+                denominator = 2.0 * (dx * nx + dy * ny)
+                if abs(denominator) > 1.0e-9:
+                    signed_radius = (dx * dx + dy * dy) / denominator
+                    center = (
+                        start[0] + nx * signed_radius,
+                        start[1] + ny * signed_radius,
+                    )
+                    radius = abs(signed_radius)
+                    start_angle = atan2(start[1] - center[1], start[0] - center[0])
+                    sweep_sign = -1.0 if signed_radius < 0.0 else 1.0
+                    candidates = [
+                        (
+                            float(step * 90),
+                            (
+                                center[0] + radius * cos(
+                                    start_angle + sweep_sign * step * pi * 0.5
+                                ),
+                                center[1] + radius * sin(
+                                    start_angle + sweep_sign * step * pi * 0.5
+                                ),
+                            ),
+                        )
+                        for step in (1, 2)
+                    ]
+        ranked = []
+        for angle, point in candidates:
+            screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(point))
+            )
+            ranked.append((
+                hypot(cursor.x() - screen.x(), cursor.y() - screen.y()),
+                angle,
+                point,
+            ))
+        if not ranked:
+            return None
+        distance, angle, point = min(ranked, key=lambda item: item[0])
+        if distance > 16.0:
+            return None
+        return point, f"keypoint:{angle}"
+
+    def _is_sketch_keypoint_position(
+        self,
+        position: tuple[float, float],
+    ) -> bool:
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)), float(entity.get("y", 0.0))
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        candidates: list[tuple[float, float]] = []
+        for curve in self._sketch_entities:
+            curve_type = str(curve.get("type", ""))
+            ids = tuple(map(str, curve.get("point_ids", ())))
+            if not ids or ids[0] not in points:
+                continue
+            center = points[ids[0]]
+            if curve_type == "circle":
+                radius = float(curve.get("radius", 0.0))
+                candidates.extend((
+                    (center[0] + radius, center[1]),
+                    (center[0], center[1] + radius),
+                    (center[0] - radius, center[1]),
+                    (center[0], center[1] - radius),
+                ))
+            elif curve_type == "arc" and len(ids) == 3 and all(pid in points for pid in ids):
+                candidates.extend(
+                    point for _angle, point in arc_cardinal_keypoints(
+                        center, points[ids[1]], points[ids[2]],
+                        clockwise=bool(curve.get("clockwise", False)),
+                    )
+                )
+            elif curve_type == "ellipse" and len(ids) >= 3 and all(pid in points for pid in ids[:3]):
+                major, minor = points[ids[1]], points[ids[2]]
+                ax, ay = major[0] - center[0], major[1] - center[1]
+                bx, by = minor[0] - center[0], minor[1] - center[1]
+                candidates.extend((
+                    (center[0] + ax, center[1] + ay),
+                    (center[0] + bx, center[1] + by),
+                    (center[0] - ax, center[1] - ay),
+                    (center[0] - bx, center[1] - by),
+                ))
+            elif curve_type == "elliptical_arc" and len(ids) == 5 and all(pid in points for pid in ids):
+                candidates.extend(
+                    point for _angle, point in elliptical_arc_cardinal_keypoints(
+                        center, points[ids[1]], points[ids[2]],
+                        points[ids[3]], points[ids[4]],
+                        clockwise=bool(curve.get("clockwise", False)),
+                    )
+                )
+        return any(hypot(position[0] - point[0], position[1] - point[1]) <= 1.0e-7
+                   for point in candidates)
+
+    def _polyline_arc_center_snap(
+        self,
+        endpoint: tuple[float, float],
+    ) -> tuple[tuple[float, float], str] | None:
+        """Snap the derived arc centre to a real point or sketch origin."""
+        start = self._sketch_pending_points[-1]
+        direction = self._polyline_arc_start_direction(start)
+        length = hypot(*(direction or (0.0, 0.0)))
+        if direction is None or length <= 1.0e-12:
+            return None
+        tx, ty = direction[0] / length, direction[1] / length
+        nx, ny = -ty, tx
+        dx, dy = endpoint[0] - start[0], endpoint[1] - start[1]
+        denominator = 2.0 * (dx * nx + dy * ny)
+        if abs(denominator) <= 1.0e-9:
+            return None
+        radius = (dx * dx + dy * dy) / denominator
+        raw_center = (start[0] + nx * radius, start[1] + ny * radius)
+        targets = [
+            (
+                (float(entity.get("x", 0.0)), float(entity.get("y", 0.0))),
+                f"polyline_arc_center_point:{entity.get('id', '')}",
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        ]
+        targets.append(((0.0, 0.0), "polyline_arc_center_origin"))
+        points = {
+            str(entity.get("id", "")): (
+                float(entity.get("x", 0.0)), float(entity.get("y", 0.0))
+            )
+            for entity in self._sketch_entities
+            if entity.get("type") == "point"
+        }
+        center_lines = [
+            ((0.0, 0.0), (1.0, 0.0), "sketch_axis:x"),
+            ((0.0, 0.0), (0.0, 1.0), "sketch_axis:y"),
+        ]
+        for geometry in self._sketch_entities:
+            if geometry.get("type") != "construction":
+                continue
+            ids = tuple(map(str, geometry.get("point_ids", ())))
+            if len(ids) != 2 or any(pid not in points for pid in ids):
+                continue
+            first, second = points[ids[0]], points[ids[1]]
+            center_lines.append((
+                first,
+                (second[0] - first[0], second[1] - first[1]),
+                f"sketch_geometry:{geometry.get('id', '')}",
+            ))
+        # The centre is restricted to the normal through the arc start.  Its
+        # intersection with an axis/construction line is therefore a genuine
+        # one-click coincident candidate.
+        for origin, line_direction, reference_id in center_lines:
+            determinant = nx * line_direction[1] - ny * line_direction[0]
+            if abs(determinant) <= 1.0e-12:
+                continue
+            offset = (origin[0] - start[0], origin[1] - start[1])
+            factor = (
+                offset[0] * line_direction[1]
+                - offset[1] * line_direction[0]
+            ) / determinant
+            target = (start[0] + factor * nx, start[1] + factor * ny)
+            targets.append((
+                target,
+                f"polyline_arc_center_reference:{reference_id}",
+            ))
+        raw_screen = self._screen_point(
+            self._camera_point(self._sketch_world_point(raw_center))
+        )
+        ranked = []
+        for target, marker in targets:
+            target_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(target))
+            )
+            distance = hypot(
+                raw_screen.x() - target_screen.x(),
+                raw_screen.y() - target_screen.y(),
+            )
+            # A valid centre must lie on the normal through the arc start.
+            normal_error = abs(
+                (target[0] - start[0]) * tx
+                + (target[1] - start[1]) * ty
+            )
+            if distance <= 12.0 and normal_error <= 1.0e-7:
+                ranked.append((distance, target, marker))
+        if not ranked:
+            return None
+        _distance, center, marker = min(ranked, key=lambda item: item[0])
+        fixed_radius = hypot(center[0] - start[0], center[1] - start[1])
+        ex, ey = endpoint[0] - center[0], endpoint[1] - center[1]
+        endpoint_length = hypot(ex, ey)
+        if fixed_radius <= 1.0e-12 or endpoint_length <= 1.0e-12:
+            return None
+        return (
+            (
+                center[0] + fixed_radius * ex / endpoint_length,
+                center[1] + fixed_radius * ey / endpoint_length,
+            ),
+            marker,
+        )
 
     def _base_sketch_placement_candidate(
         self,
@@ -7373,6 +7784,29 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 nearest_parallel = (distance, geometry_id)
         if nearest_parallel is not None:
             return f"parallel:{nearest_parallel[1]}"
+        return None
+
+    def _polyline_arc_start_direction(
+        self,
+        start: tuple[float, float],
+    ) -> tuple[float, float] | None:
+        """Direction in which a Polyline arc must leave its start point."""
+        start_entity = next(
+            (entity for entity in self._sketch_entities
+             if entity.get("type") == "point"
+             and hypot(float(entity.get("x", 0.0)) - start[0],
+                       float(entity.get("y", 0.0)) - start[1]) <= 1.0e-9),
+            None,
+        )
+        context = polyline_arc_start_context(
+            list(self._sketch_entities),
+            str(start_entity.get("id", "")) if start_entity else "",
+        )
+        if context is not None:
+            direction = context[0]
+            if context[2] is not None and self._sketch_polyline_arc_reverse:
+                return (-direction[0], -direction[1])
+            return direction
         return None
 
     def _sketch_tangent_placement_candidates(

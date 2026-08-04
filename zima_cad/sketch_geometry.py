@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from typing import Any
 
 
 def center_arc_points(
@@ -40,7 +41,214 @@ def center_arc_points(
     return sampled
 
 
+def arc_cardinal_keypoints(
+    center: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    clockwise: bool = False,
+) -> tuple[tuple[int, tuple[float, float]], ...]:
+    """Exact 0/90/180/270-degree points that lie on a finite arc."""
+    radius = math.dist(center, start)
+    if radius <= 1.0e-12:
+        return ()
+    start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
+    end_angle = math.atan2(end[1] - center[1], end[0] - center[0])
+    total = (
+        (start_angle - end_angle) % (2.0 * math.pi)
+        if clockwise
+        else (end_angle - start_angle) % (2.0 * math.pi)
+    )
+    result = []
+    for degrees_value in (0, 90, 180, 270):
+        angle = math.radians(degrees_value)
+        travelled = (
+            (start_angle - angle) % (2.0 * math.pi)
+            if clockwise
+            else (angle - start_angle) % (2.0 * math.pi)
+        )
+        if travelled <= total + 1.0e-10:
+            result.append((degrees_value, (
+                center[0] + radius * math.cos(angle),
+                center[1] + radius * math.sin(angle),
+            )))
+    return tuple(result)
+
+
+def elliptical_arc_cardinal_keypoints(
+    center: tuple[float, float],
+    major: tuple[float, float],
+    minor: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    clockwise: bool = False,
+) -> tuple[tuple[int, tuple[float, float]], ...]:
+    """Parametric 0/90/180/270-degree points on a finite elliptic arc."""
+    ax, ay = major[0] - center[0], major[1] - center[1]
+    bx, by = minor[0] - center[0], minor[1] - center[1]
+    determinant = ax * by - ay * bx
+    if abs(determinant) <= 1.0e-12:
+        return ()
+
+    def parameter(point: tuple[float, float]) -> float:
+        dx, dy = point[0] - center[0], point[1] - center[1]
+        cosine = (dx * by - dy * bx) / determinant
+        sine = (ax * dy - ay * dx) / determinant
+        return math.atan2(sine, cosine)
+
+    start_angle = parameter(start)
+    end_angle = parameter(end)
+    total = (
+        (start_angle - end_angle) % (2.0 * math.pi)
+        if clockwise
+        else (end_angle - start_angle) % (2.0 * math.pi)
+    )
+    result = []
+    for degrees_value in (0, 90, 180, 270):
+        angle = math.radians(degrees_value)
+        travelled = (
+            (start_angle - angle) % (2.0 * math.pi)
+            if clockwise
+            else (angle - start_angle) % (2.0 * math.pi)
+        )
+        if travelled <= total + 1.0e-10:
+            result.append((degrees_value, (
+                center[0] + ax * math.cos(angle) + bx * math.sin(angle),
+                center[1] + ay * math.cos(angle) + by * math.sin(angle),
+            )))
+    return tuple(result)
+
+
 Point2 = tuple[float, float]
+
+
+def outward_minor_arc_endpoint(
+    start: Point2,
+    tangent_direction: Point2,
+    endpoint: Point2,
+) -> Point2:
+    """Keep a tangent arc on the forward, at-most-180-degree side.
+
+    Reflecting only the backwards tangent component preserves which side of
+    the source line the user selected while preventing a major arc from
+    curling back across that source line.
+    """
+    length = math.hypot(*tangent_direction)
+    if length <= 1.0e-12:
+        return endpoint
+    tx, ty = tangent_direction[0] / length, tangent_direction[1] / length
+    dx, dy = endpoint[0] - start[0], endpoint[1] - start[1]
+    forward = dx * tx + dy * ty
+    if forward >= 0.0:
+        return endpoint
+    return (
+        endpoint[0] - 2.0 * forward * tx,
+        endpoint[1] - 2.0 * forward * ty,
+    )
+
+
+def polyline_arc_start_context(
+    entities: list[dict[str, Any]], start_point_id: str,
+) -> tuple[Point2, str | None, str | None] | None:
+    """Resolve tangent direction and persistent centre support for an arc."""
+    points = {
+        str(item.get("id", "")): (float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+        for item in entities if item.get("type") == "point"
+    }
+    start = points.get(start_point_id)
+    if start is None:
+        return None
+    incident = []
+    for item in entities:
+        if item.get("type") not in ("segment", "construction", "arc"):
+            continue
+        ids = tuple(map(str, item.get("point_ids", ())))
+        endpoints = ids[1:3] if item.get("type") == "arc" else ids[:2]
+        if start_point_id not in endpoints:
+            continue
+        priority = 0 if endpoints[-1:] == (start_point_id,) else 1
+        if item.get("type") == "construction":
+            priority += 2
+        incident.append((priority, item, ids))
+    if incident:
+        _priority, item, ids = min(incident, key=lambda value: value[0])
+        geometry_id = str(item.get("id", ""))
+        if item.get("type") == "arc" and len(ids) == 3 and ids[0] in points:
+            center = points[ids[0]]
+            radial = (start[0] - center[0], start[1] - center[1])
+            tangent = ((radial[1], -radial[0]) if item.get("clockwise")
+                       else (-radial[1], radial[0]))
+            return tangent, geometry_id, None
+        if len(ids) == 2 and all(point_id in points for point_id in ids):
+            other = points[ids[0] if ids[1] == start_point_id else ids[1]]
+            line = (start[0] - other[0], start[1] - other[1])
+            if item.get("type") == "construction":
+                return (-line[1], line[0]), None, f"sketch_geometry:{geometry_id}"
+            return line, geometry_id, None
+    point = next((item for item in entities if item.get("type") == "point"
+                  and str(item.get("id", "")) == start_point_id), None)
+    constraints = point.get("constraints", ()) if point else ()
+    if isinstance(constraints, list):
+        for constraint in constraints:
+            reference_id = str(constraint.get("reference_id", "")) if isinstance(constraint, dict) else ""
+            if reference_id == "sketch_axis:x":
+                return (0.0, 1.0), None, reference_id
+            if reference_id == "sketch_axis:y":
+                return (1.0, 0.0), None, reference_id
+            if not isinstance(constraint, dict) or constraint.get("type") != "point_on_line":
+                continue
+            support_ids = tuple(map(str, constraint.get("point_ids", ())))
+            support = next(
+                (item for item in entities
+                 if item.get("type") == "construction"
+                 and tuple(map(str, item.get("point_ids", ()))) == support_ids),
+                None,
+            )
+            if support is not None and len(support_ids) == 2 and all(pid in points for pid in support_ids):
+                first, second = (points[pid] for pid in support_ids)
+                line = (second[0] - first[0], second[1] - first[1])
+                return (-line[1], line[0]), None, f"sketch_geometry:{support.get('id', '')}"
+    return None
+
+
+def valid_automatic_tangent(
+    entities: list[dict[str, Any]], constraint: dict[str, Any],
+) -> bool:
+    """Whether a tangent candidate's contact really belongs to its curve."""
+    if constraint.get("type") != "tangent":
+        return True
+    curve_id = str(constraint.get("geometry_id", ""))
+    contact_id = str(constraint.get("contact_point_id", ""))
+    curve = next((item for item in entities if str(item.get("id", "")) == curve_id
+                  and item.get("type") in ("circle", "arc", "ellipse", "elliptical_arc")), None)
+    contact = next((item for item in entities if item.get("type") == "point"
+                    and str(item.get("id", "")) == contact_id), None)
+    if curve is None or contact is None:
+        return False
+    ids = tuple(map(str, curve.get("point_ids", ())))
+    if contact_id in ids[1:]:
+        return True
+    attachment = contact.get("curve_attachment")
+    if isinstance(attachment, dict) and str(attachment.get("geometry_id", "")) == curve_id:
+        return True
+    points = {str(item.get("id", "")): (float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+              for item in entities if item.get("type") == "point"}
+    if not ids or ids[0] not in points or contact_id not in points:
+        return False
+    center, position = points[ids[0]], points[contact_id]
+    if curve.get("type") not in ("circle", "arc"):
+        return False
+    radius = float(curve.get("radius", 0.0))
+    if radius <= 1.0e-12 and len(ids) >= 2 and ids[1] in points:
+        radius = math.dist(center, points[ids[1]])
+    if abs(math.dist(center, position) - radius) > max(1.0e-7, radius * 1.0e-7):
+        return False
+    if curve.get("type") == "arc" and len(ids) == 3 and all(pid in points for pid in ids):
+        sampled = center_arc_points(center, points[ids[1]], points[ids[2]], segments=256,
+                                    clockwise=bool(curve.get("clockwise", False)))
+        return min((math.dist(position, point) for point in sampled), default=float("inf")) <= max(1.0e-5, radius * 1.0e-4)
+    return True
 
 
 @dataclass(frozen=True)

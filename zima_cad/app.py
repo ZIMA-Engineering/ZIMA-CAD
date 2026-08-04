@@ -171,6 +171,9 @@ from zima_cad.sketch_geometry import (
     ellipse_points,
     elliptical_arc_points,
     evaluate_corner_radius,
+    outward_minor_arc_endpoint,
+    polyline_arc_start_context,
+    valid_automatic_tangent,
 )
 from zima_cad.sketch_trim import (
     apply_trim_pieces,
@@ -7648,6 +7651,8 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids: list[str] = []
         self._sketch_pending_new_point_ids: set[str] = set()
         self._sketch_pending_constraint: str | list[dict[str, str]] | None = None
+        self._sketch_polyline_arc_center_reference_id: str | None = None
+        self._sketch_polyline_arc_reverse = False
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id: str | None = None
         self._sketch_midpoint_point_id: str | None = None
@@ -23690,6 +23695,30 @@ class MainWindow(QMainWindow):
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
             return
+        if (
+            self._sketch_tool == "polyline_arc"
+            and automatic_constraint is not None
+            and automatic_constraint.startswith("polyline_arc_")
+        ):
+            self._sketch_polyline_arc_reverse = automatic_constraint.endswith(
+                ":reverse"
+            )
+            if automatic_constraint.startswith("polyline_arc_center_origin"):
+                self._sketch_polyline_arc_center_reference_id = (
+                    "sketch_axis:x||sketch_axis:y"
+                )
+            elif automatic_constraint.startswith(
+                "polyline_arc_center_reference:"
+            ):
+                encoded_reference = automatic_constraint.removeprefix(
+                    "polyline_arc_center_reference:"
+                )
+                if encoded_reference.endswith((":reverse", ":forward")):
+                    encoded_reference = encoded_reference.rsplit(":", 1)[0]
+                self._sketch_polyline_arc_center_reference_id = encoded_reference
+            # A point target needs no extra record: the exact centre position
+            # is reused as that point when the arc is committed.
+            automatic_constraint = None
         if self._sketch_tool == "circle" and self._sketch_pending_points:
             centre = self._sketch_pending_points[0]
             radius = math.hypot(x - centre[0], y - centre[1])
@@ -23790,6 +23819,23 @@ class MainWindow(QMainWindow):
             sine /= scale
             x = center[0] + ax * cosine + bx * sine
             y = center[1] + ay * cosine + by * sine
+        if (
+            self._sketch_tool == "polyline_arc"
+            and self._sketch_pending_points
+            and self._sketch_pending_point_ids
+        ):
+            context = self._polyline_arc_start_context(
+                self._stored_sketch_entities(sketch),
+                self._sketch_pending_point_ids[-1],
+            )
+            if context is not None and context[1] is not None:
+                outward = outward_minor_arc_endpoint(
+                    self._sketch_pending_points[-1], context[0], (x, y)
+                )
+                if math.dist(outward, (x, y)) > 1.0e-9:
+                    x, y = outward
+                    reference_id = None
+                    automatic_constraint = None
         point, snapped, created = self._ensure_sketch_point(
             sketch,
             (x, y),
@@ -23823,11 +23869,15 @@ class MainWindow(QMainWindow):
                 and automatic_constraint.startswith("keypoint:")
                 and isinstance(point.get("curve_attachment"), dict)
             ):
+                # K is a magnetic construction aid, not a persistent angular
+                # constraint.  Keep the ordinary point-on-curve attachment
+                # (C); H/V/T from subsequently drawn geometry provide the
+                # lasting design intent.
                 angle = math.radians(
                     float(automatic_constraint.split(":", 1)[1])
                 )
                 point["curve_attachment"]["angle"] = angle
-                point["curve_attachment"]["locked"] = True
+                point["curve_attachment"].pop("locked", None)
                 entities = self._stored_sketch_entities(sketch)
                 stored_point = next(
                     (
@@ -24979,11 +25029,29 @@ class MainWindow(QMainWindow):
     def _alternate_current_sketch_entity(self) -> None:
         if self._sketch_tool in ("polyline", "polyline_arc"):
             if len(self._sketch_pending_points) == 1:
-                self._sketch_tool = (
-                    "polyline_arc"
-                    if self._sketch_tool == "polyline"
-                    else "polyline"
-                )
+                if self._sketch_tool == "polyline_arc":
+                    self._sketch_tool = "polyline"
+                else:
+                    sketch = (
+                        self.document.find_entity(self._sketch_edit_entity_id)
+                        if self.document is not None
+                        and self._sketch_edit_entity_id is not None
+                        else None
+                    )
+                    entities = (
+                        self._stored_sketch_entities(sketch)
+                        if sketch is not None else []
+                    )
+                    context = self._polyline_arc_start_context(
+                        entities,
+                        self._sketch_pending_point_ids[0]
+                        if self._sketch_pending_point_ids else "",
+                    )
+                    # A free first point has no defined tangent/normal.  It
+                    # therefore starts with a segment; an arc becomes
+                    # available once the chain reaches constrained geometry.
+                    if context is not None:
+                        self._sketch_tool = "polyline_arc"
             self._refresh_sketch_overlay()
             self._rebuild_application_toolbar()
             return
@@ -31129,6 +31197,33 @@ class MainWindow(QMainWindow):
             self._show_all_sketch_dimensions(sketch)
         self._rebuild_application_toolbar()
 
+    @staticmethod
+    def _polyline_arc_start_context(
+        entities: list[dict[str, Any]],
+        start_point_id: str,
+    ) -> tuple[tuple[float, float], str | None, str | None] | None:
+        """Return (tangent direction, tangent geometry, centre reference).
+
+        Ordinary segments continue tangentially.  Construction geometry and
+        sketch axes define the radius direction instead, so the new arc leaves
+        them normally.  The centre reference is retained to make that normal
+        relation persistent rather than merely a placement hint.
+        """
+        return polyline_arc_start_context(entities, start_point_id)
+
+    @staticmethod
+    def _valid_automatic_tangent(
+        entities: list[dict[str, Any]],
+        constraint: dict[str, Any],
+    ) -> bool:
+        """Reject a stale curve candidate that does not own the contact.
+
+        Polyline used to keep a tangent preview from another arc when the
+        endpoint snapped to a new one.  The solver then received a perfectly
+        shaped tangent record with a contact point nowhere on that curve.
+        """
+        return valid_automatic_tangent(entities, constraint)
+
     def _commit_pending_sketch_entity(self) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
             return
@@ -31182,29 +31277,14 @@ class MainWindow(QMainWindow):
                 for item in entities if item.get("type") == "point"
             }
             start, end = point_map[point_ids[0]], point_map[point_ids[1]]
-            previous = next((
-                item for item in reversed(entities)
-                if item.get("type") in ("segment", "arc")
-                and tuple(map(str, item.get("point_ids", ())))[-1:] == (point_ids[0],)
-            ), None)
-            direction = None
-            if previous is not None and previous.get("type") == "segment":
-                previous_ids = tuple(map(str, previous.get("point_ids", ())))
-                if len(previous_ids) == 2:
-                    before = point_map[previous_ids[0]]
-                    direction = (start[0] - before[0], start[1] - before[1])
-            elif previous is not None:
-                previous_ids = tuple(map(str, previous.get("point_ids", ())))
-                if len(previous_ids) == 3:
-                    center = point_map[previous_ids[0]]
-                    radial = (start[0] - center[0], start[1] - center[1])
-                    direction = (
-                        (radial[1], -radial[0])
-                        if previous.get("clockwise")
-                        else (-radial[1], radial[0])
-                    )
+            context = self._polyline_arc_start_context(entities, point_ids[0])
+            direction, tangent_geometry_id, center_reference_id = (
+                context if context is not None else (None, None, None)
+            )
+            if direction is not None and self._sketch_polyline_arc_reverse:
+                direction = (-direction[0], -direction[1])
             length = math.hypot(*(direction or (0.0, 0.0)))
-            if previous is None or direction is None or length <= 1.0e-12:
+            if direction is None or length <= 1.0e-12:
                 return
             tx, ty = direction[0] / length, direction[1] / length
             nx, ny = -ty, tx
@@ -31213,14 +31293,27 @@ class MainWindow(QMainWindow):
             if abs(denominator) <= 1.0e-9:
                 return
             signed_radius = (dx * dx + dy * dy) / denominator
-            center_id = self._next_sketch_point_id(entities)
-            entities.append({
-                "id": center_id,
-                "type": "point",
-                "x": start[0] + nx * signed_radius,
-                "y": start[1] + ny * signed_radius,
-                "derived": True,
-            })
+            center_position = (
+                start[0] + nx * signed_radius,
+                start[1] + ny * signed_radius,
+            )
+            existing_center = next((
+                item for item in entities
+                if item.get("type") == "point"
+                and math.dist(self._sketch_point_position(item), center_position)
+                <= 1.0e-9
+            ), None)
+            if existing_center is not None:
+                center_id = str(existing_center.get("id", ""))
+            else:
+                center_id = self._next_sketch_point_id(entities)
+                entities.append({
+                    "id": center_id,
+                    "type": "point",
+                    "x": center_position[0],
+                    "y": center_position[1],
+                    "derived": True,
+                })
             geometry = {
                 "id": geometry["id"],
                 "type": "arc",
@@ -31228,12 +31321,16 @@ class MainWindow(QMainWindow):
                 "clockwise": signed_radius < 0.0,
                 "radius": abs(signed_radius),
                 "point_ids": [center_id, *point_ids],
-                "constraints": [{
+                "constraints": ([{
                     "type": "tangent",
-                    "geometry_id": str(previous.get("id", "")),
+                    "geometry_id": tangent_geometry_id,
                     "contact_point_id": point_ids[0],
-                }],
+                }] if tangent_geometry_id else []),
             }
+            self._sketch_polyline_arc_center_reference_id = (
+                self._sketch_polyline_arc_center_reference_id
+                or center_reference_id
+            )
         elif self._sketch_tool == "polyline":
             previous_arc = next((
                 item for item in reversed(entities)
@@ -31287,7 +31384,11 @@ class MainWindow(QMainWindow):
         if isinstance(self._sketch_pending_constraint, list):
             geometry["constraints"] = [
                 *geometry.get("constraints", ()),
-                *self._sketch_pending_constraint,
+                *(
+                    constraint
+                    for constraint in self._sketch_pending_constraint
+                    if self._valid_automatic_tangent(entities, constraint)
+                ),
             ]
         elif self._sketch_pending_constraint is not None:
             geometry["constraints"] = [
@@ -31297,6 +31398,17 @@ class MainWindow(QMainWindow):
         entities.append(geometry)
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
+        if (
+            self._sketch_tool == "polyline_arc"
+            and self._sketch_polyline_arc_center_reference_id
+        ):
+            self._add_sketch_point_reference_constraint(
+                sketch,
+                str(geometry.get("point_ids", ("",))[0]),
+                self._sketch_polyline_arc_center_reference_id,
+            )
+        self._sketch_polyline_arc_center_reference_id = None
+        self._sketch_polyline_arc_reverse = False
         # A tangent preview to an ellipse also means that the selected line
         # endpoint lies on that ellipse.  Store the point-on-curve relation
         # explicitly; the tangent constraint alone only controls direction
@@ -32190,6 +32302,18 @@ class MainWindow(QMainWindow):
                     if attached_arc else ()
                 )
                 if len(ids) != 3 or any(item not in points for item in ids):
+                    continue
+                if bool(attachment.get("locked", False)):
+                    center_position = MainWindow._sketch_point_position(
+                        points[ids[0]]
+                    )
+                    start_position = MainWindow._sketch_point_position(
+                        points[ids[1]]
+                    )
+                    radius = math.dist(center_position, start_position)
+                    angle = float(attachment.get("angle", 0.0))
+                    point["x"] = center_position[0] + radius * math.cos(angle)
+                    point["y"] = center_position[1] + radius * math.sin(angle)
                     continue
                 sampled = center_arc_points(
                     MainWindow._sketch_point_position(points[ids[0]]),
@@ -33134,6 +33258,31 @@ class MainWindow(QMainWindow):
                 sketch.parameters = copy.deepcopy(
                     self._sketch_baseline_parameters
                 )
+        if self.document is not None and not restore:
+            sketch = self.document.find_entity(sketch_id)
+            final_profile_status = (
+                sketch_profile_status(sketch) if sketch is not None else "invalid"
+            )
+            evaluated_result_type = (
+                "solid" if final_profile_status == "closed" else "surface"
+            )
+            # Profile result type is derived afresh every time Sketcher is
+            # finished.  This handles both directions: closing a contour
+            # creates a solid, reopening it returns the dependent feature to
+            # a surface instead of preserving a stale earlier choice.
+            for owner in self.document.history_objects():
+                for feature in owner.children:
+                    if (
+                        feature.kind in (
+                            EntityKind.PROTRUSION,
+                            EntityKind.REVOLVE,
+                        )
+                        and str(feature.parameters.get("sketch_id", ""))
+                        == sketch_id
+                    ):
+                        feature.parameters["result_type"] = (
+                            evaluated_result_type
+                        )
         self._clear_dimension_overlays()
         self.native_viewer.set_sketch_overlay(None)
         self._set_sketch_reference_mode(False)
