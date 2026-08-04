@@ -5,25 +5,38 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.app import MainWindow
 from zima_cad.model import (
     CoordinateSystem,
+    ContainerType,
     EntityKind,
     ZimaEntity,
     create_empty_part,
     make_protrusion_shape,
     make_revolve_shape,
     make_sketch_shape,
+    sketch_profile_status,
 )
 from zima_cad.sketch_model import SketchModel
 
 
 class ProtrusionProfileTests(unittest.TestCase):
     @staticmethod
-    def _build_profile(entities, profile_offset=0.0):
+    def _build_profile(
+        entities,
+        profile_offset=0.0,
+        result_type="solid",
+        through_history=False,
+    ):
         document = create_empty_part()
-        container = ZimaEntity("Protrusion001", EntityKind.CONTAINER)
+        container = ZimaEntity(
+            "Protrusion001",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
         sketch = ZimaEntity(
             "Sketch001",
             EntityKind.SKETCH,
@@ -44,12 +57,109 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "extent_mode": "one_side",
                 "direction": "forward",
                 "profile_offset": f"{profile_offset:.12g}",
+                "result_type": result_type,
             },
         )
         container.add_child(sketch)
         container.add_child(feature)
         document.root.add_child(container)
-        return make_protrusion_shape(document, container)
+        return (
+            document.build_shape_for_objects([container])
+            if through_history
+            else make_protrusion_shape(document, container)
+        )
+
+    def test_open_profile_is_surface_only(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+        ]
+        self.assertIsNone(self._build_profile(entities))
+        surface = self._build_profile(entities, result_type="surface")
+        self.assertIsNotNone(surface)
+        self.assertTrue(TopExp_Explorer(surface, TopAbs_FACE).More())
+        history_surface = self._build_profile(
+            entities,
+            result_type="surface",
+            through_history=True,
+        )
+        self.assertIsNotNone(history_surface)
+        self.assertTrue(TopExp_Explorer(history_surface, TopAbs_FACE).More())
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(surface, properties)
+        self.assertAlmostEqual(float(properties.Mass()), 0.0, places=9)
+
+    def test_profile_status_distinguishes_open_and_closed(self):
+        def sketch(entities):
+            return ZimaEntity(
+                "Sketch",
+                EntityKind.SKETCH,
+                parameters={
+                    "profile": "entities",
+                    "sketch_data": json.dumps(
+                        SketchModel.from_editor_data(entities).to_dict()
+                    ),
+                },
+            )
+
+        open_entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+        ]
+        closed_entities = open_entities + [
+            {"id": "c", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "ca", "type": "segment", "point_ids": ["c", "a"]},
+        ]
+        self.assertEqual(sketch_profile_status(sketch(open_entities)), "open")
+        self.assertEqual(sketch_profile_status(sketch(closed_entities)), "closed")
+
+    def test_open_profile_can_create_revolved_surface(self):
+        entities = [
+            {"id": "axis_a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis_b", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "a", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 15.0},
+            {
+                "id": "axis",
+                "type": "construction",
+                "point_ids": ["axis_a", "axis_b"],
+            },
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+        ]
+        document = create_empty_part()
+        container = ZimaEntity("RevolveSurface", EntityKind.CONTAINER)
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "Revolve",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "180",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "result_type": "surface",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+        surface = make_revolve_shape(document, container)
+        self.assertIsNotNone(surface)
+        self.assertTrue(TopExp_Explorer(surface, TopAbs_FACE).More())
+        self.assertFalse(TopExp_Explorer(surface, TopAbs_SOLID).More())
 
     def assertHasVolume(self, shape):
         self.assertIsNotNone(shape)

@@ -1399,6 +1399,20 @@ def apply_object_to_shape(
         )
         status_owner = solid_feature or obj
         record_build_status = not accept_first_shape
+        surface_result = (
+            (is_protrusion or is_revolve)
+            and solid_feature is not None
+            and str(solid_feature.parameters.get("result_type", "solid"))
+            == "surface"
+        )
+
+        if surface_result:
+            if record_build_status:
+                status_owner.parameters.pop("build_status", None)
+            result_shape = _compound_shapes(
+                [candidate for candidate in (result_shape, shape) if candidate is not None]
+            )
+            shape = None
 
         def solid_count(candidate) -> int:
             explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
@@ -1410,12 +1424,16 @@ def apply_object_to_shape(
                 explorer.Next()
             return len(solids)
 
-        shape_solids = solid_count(shape)
-        if operation in (CombineMode.ADD, CombineMode.SUBTRACT) and not shape_solids:
+        shape_solids = solid_count(shape) if shape is not None else 0
+        if (
+            shape is not None
+            and operation in (CombineMode.ADD, CombineMode.SUBTRACT)
+            and not shape_solids
+        ):
             if record_build_status:
                 status_owner.parameters["build_status"] = "not_solid"
             shape = None
-        elif record_build_status:
+        elif shape is not None and record_build_status:
             status_owner.parameters.pop("build_status", None)
         if shape is not None and (operation == CombineMode.ADD or (
             accept_first_shape and result_shape is None
@@ -1530,8 +1548,12 @@ def _make_exact_ellipse_edge(
     return BRepBuilderAPI_MakeEdge(curve).Edge()
 
 
-def _make_sketch_profile_faces(sketch: ZimaEntity):
-    """Build planar faces for every closed non-construction sketch loop."""
+def _make_sketch_profile_wires(
+    sketch: ZimaEntity,
+    *,
+    include_open: bool = False,
+):
+    """Build connected profile wires from non-construction sketch geometry."""
     wires = []
     if sketch.parameters.get("profile") == "circle":
         radius = max(1.0e-9, float(sketch.parameters.get("diameter", 10.0)) / 2.0)
@@ -1546,7 +1568,7 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
             )
             entities, _dimensions = model.to_editor_data()
         except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
-            return None
+            return []
         points = {
             str(item.get("id")): (
                 float(item.get("x", 0.0)),
@@ -1693,7 +1715,11 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                 chain_points.append(
                     end_id if start_id == chain_points[-1] else start_id
                 )
-            if len(chain_points) < 2 or chain_points[-1] != chain_points[0]:
+            closed_chain = (
+                len(chain_points) >= 2
+                and chain_points[-1] == chain_points[0]
+            )
+            if len(chain_points) < 2 or (not closed_chain and not include_open):
                 continue
             wire_builder = BRepBuilderAPI_MakeWire()
             valid = True
@@ -1803,6 +1829,8 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                 except (RuntimeError, TypeError, ValueError, KeyError):
                     valid = False
                     break
+                if not closed_chain and index + 1 >= geometry_count:
+                    continue
                 outgoing_id = chain_geometry[(index + 1) % geometry_count]
                 arc_points = (
                     corner_arcs.get((end_id, geometry_id, outgoing_id))
@@ -1830,6 +1858,25 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                     )
             if valid and wire_builder.IsDone():
                 wires.append(wire_builder.Wire())
+    return wires
+
+
+def sketch_profile_status(sketch: ZimaEntity) -> str:
+    """Return ``closed``, ``open``, ``mixed`` or ``invalid`` for a sketch."""
+    wires = _make_sketch_profile_wires(sketch, include_open=True)
+    if not wires:
+        return "invalid"
+    closed = [bool(wire.Closed()) for wire in wires]
+    if all(closed):
+        return "closed"
+    if any(closed):
+        return "mixed"
+    return "open"
+
+
+def _make_sketch_profile_faces(sketch: ZimaEntity):
+    """Build planar faces for every closed non-construction sketch loop."""
+    wires = _make_sketch_profile_wires(sketch)
     if not wires:
         return None
 
@@ -1848,6 +1895,19 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
     return faces
 
 
+def _compound_shapes(shapes: list[Any]):
+    if not shapes:
+        return None
+    if len(shapes) == 1:
+        return shapes[0]
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for shape in shapes:
+        builder.Add(compound, shape)
+    return compound
+
+
 def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     """Build a straight extrusion from the closed profile of a referenced sketch."""
     if document is None:
@@ -1863,8 +1923,13 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     sketch = document.find_entity(str(parameters.get("sketch_id", "")))
     if sketch is None or sketch.kind != EntityKind.SKETCH:
         return None
-    faces = _make_sketch_profile_faces(sketch)
-    if not faces:
+    result_type = str(parameters.get("result_type", "solid"))
+    profiles = (
+        _make_sketch_profile_wires(sketch, include_open=True)
+        if result_type == "surface"
+        else _make_sketch_profile_faces(sketch)
+    )
+    if not profiles:
         return None
 
     forward = max(0.0, float(parameters.get("length_forward", parameters.get("length", 10.0))))
@@ -1904,21 +1969,23 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
             (0.0, 0.0, 0.0, 1.0),
         ),
     )
-    solids = []
-    for face in faces:
-        embedded_face = transform_shape(face, plane_transform)
+    generated = []
+    for profile in profiles:
+        embedded_face = transform_shape(profile, plane_transform)
         local = BRepPrimAPI_MakePrism(
             embedded_face,
             gp_Vec(*(value * length for value in extrusion_direction)),
         ).Shape()
-        solids.append(transform_shape(local, translated))
+        generated.append(transform_shape(local, translated))
+    if result_type == "surface":
+        return _compound_shapes(generated)
     def solid_volume(shape) -> float:
         properties = GProp_GProps()
         brepgprop.VolumeProperties(shape, properties)
         return abs(float(properties.Mass()))
 
     profiled_solids = sorted(
-        ((solid_volume(solid), solid) for solid in solids),
+        ((solid_volume(solid), solid) for solid in generated),
         key=lambda item: item[0],
         reverse=True,
     )
@@ -1957,8 +2024,13 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
     sketch = document.find_entity(str(parameters.get("sketch_id", "")))
     if sketch is None or sketch.kind != EntityKind.SKETCH:
         return None
-    faces = _make_sketch_profile_faces(sketch)
-    if not faces:
+    result_type = str(parameters.get("result_type", "solid"))
+    profiles = (
+        _make_sketch_profile_wires(sketch, include_open=True)
+        if result_type == "surface"
+        else _make_sketch_profile_faces(sketch)
+    )
+    if not profiles:
         return None
     try:
         sketch_model = SketchModel.from_dict(
@@ -2035,8 +2107,8 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
     local_solids = []
     try:
         for signed_angle in signed_angles:
-            for face in faces:
-                embedded_face = transform_shape(face, plane_transform)
+            for profile in profiles:
+                embedded_face = transform_shape(profile, plane_transform)
                 local_solids.append(
                     BRepPrimAPI_MakeRevol(
                         embedded_face,
@@ -2047,6 +2119,14 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
                 )
     except (RuntimeError, TypeError, ValueError):
         return None
+    if result_type == "surface":
+        local_result = _compound_shapes(local_solids)
+        if local_result is None:
+            return None
+        return transform_shape(
+            local_result,
+            coordinate_system_transform(obj.coordinate_system),
+        )
 
     def solid_volume(shape) -> float:
         properties = GProp_GProps()

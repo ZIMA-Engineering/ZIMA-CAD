@@ -1208,6 +1208,19 @@ class SketchModel:
                 reference = str(dimension.attributes.get("reference_id", ""))
                 coordinate_index = 1 if reference == "sketch_axis:x" else 0
                 actual = abs(sum(point[coordinate_index] for point in positions) / len(positions))
+                if bool(dimension.attributes.get("symmetric_diameter", False)):
+                    actual *= 2.0
+            elif dimension.dimension_type == "distance_symmetry":
+                target_count = int(dimension.attributes.get("target_count", 1))
+                if len(positions) >= target_count + 2:
+                    axis_a, axis_b = positions[target_count:target_count + 2]
+                    dx, dy = axis_b[0] - axis_a[0], axis_b[1] - axis_a[1]
+                    length = math.hypot(dx, dy)
+                    if length > 1.0e-12:
+                        actual = 2.0 * abs(sum(
+                            (dx * (point[1] - axis_a[1]) - dy * (point[0] - axis_a[0])) / length
+                            for point in positions[:target_count]
+                        ) / target_count)
             elif len(positions) >= 2:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
@@ -1385,6 +1398,19 @@ class SketchModel:
                     sum(point[coordinate_index] for point in positions)
                     / len(positions)
                 )
+                if bool(dimension.attributes.get("symmetric_diameter", False)):
+                    actual *= 2.0
+            elif dimension.dimension_type == "distance_symmetry":
+                target_count = int(dimension.attributes.get("target_count", 1))
+                if len(positions) >= target_count + 2:
+                    axis_a, axis_b = positions[target_count:target_count + 2]
+                    dx, dy = axis_b[0] - axis_a[0], axis_b[1] - axis_a[1]
+                    length = math.hypot(dx, dy)
+                    if length > 1.0e-12:
+                        actual = 2.0 * abs(sum(
+                            (dx * (point[1] - axis_a[1]) - dy * (point[0] - axis_a[0])) / length
+                            for point in positions[:target_count]
+                        ) / target_count)
             elif len(positions) >= 2:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
@@ -1625,10 +1651,31 @@ class SketchModel:
                 reference = str(dimension.attributes.get("reference_id", ""))
                 coordinate_index = 1 if reference == "sketch_axis:x" else 0
                 side = float(dimension.attributes.get("side_sign", 1.0))
+                axis_target = target * (
+                    0.5
+                    if bool(
+                        dimension.attributes.get("symmetric_diameter", False)
+                    )
+                    else 1.0
+                )
                 values.extend(
-                    point[coordinate_index] - side * target
+                    point[coordinate_index] - side * axis_target
                     for point in positions[:2]
                 )
+            elif dimension_type == "distance_symmetry":
+                target_count = int(dimension.attributes.get("target_count", 1))
+                if len(positions) >= target_count + 2:
+                    axis_a, axis_b = positions[target_count:target_count + 2]
+                    dx, dy = axis_b[0] - axis_a[0], axis_b[1] - axis_a[1]
+                    length = max(math.hypot(dx, dy), 1.0e-12)
+                    side = float(dimension.attributes.get("side_sign", 1.0))
+                    values.extend(
+                        (
+                            dx * (point[1] - axis_a[1])
+                            - dy * (point[0] - axis_a[0])
+                        ) / length - side * target * 0.5
+                        for point in positions[:target_count]
+                    )
             elif len(positions) >= 2:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]

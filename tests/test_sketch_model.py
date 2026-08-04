@@ -1288,6 +1288,58 @@ class SketchModelTests(unittest.TestCase):
         self.assertTrue(sketch.solve())
         self.assertAlmostEqual(sketch.points["p1"].x, 5.0, places=6)
         self.assertAlmostEqual(sketch.points["p2"].x, 15.0, places=6)
+
+    def test_symmetric_axis_dimension_uses_full_diameter_value(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("p1", 0.0, 4.0))
+        sketch.add_point(SketchPoint("p2", 10.0, 4.0))
+        sketch.add_geometry(
+            SketchGeometry("g1", GeometryType.SEGMENT, ("p1", "p2"))
+        )
+        sketch.add_dimension(
+            SketchDimension(
+                "diameter",
+                "distance_axis",
+                20.0,
+                ("p1", "p2"),
+                True,
+                {
+                    "reference_id": "sketch_axis:x",
+                    "side_sign": 1.0,
+                    "symmetric_diameter": True,
+                },
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(sketch.points["p1"].y, 10.0, places=6)
+        self.assertAlmostEqual(sketch.points["p2"].y, 10.0, places=6)
+
+    def test_symmetric_dimension_uses_construction_line_as_axis(self):
+        sketch = SketchModel()
+        sketch.add_point(SketchPoint("target", 5.0, 4.0))
+        sketch.add_point(SketchPoint("axis_a", 2.0, 0.0))
+        sketch.add_point(SketchPoint("axis_b", 2.0, 10.0))
+        for point_id, x, y in (("axis_a", 2.0, 0.0), ("axis_b", 2.0, 10.0)):
+            sketch.add_dimension(SketchDimension(
+                f"{point_id}_x", "coordinate_x", x, (point_id,), True
+            ))
+            sketch.add_dimension(SketchDimension(
+                f"{point_id}_y", "coordinate_y", y, (point_id,), True
+            ))
+        sketch.add_dimension(
+            SketchDimension(
+                "diameter",
+                "distance_symmetry",
+                10.0,
+                ("target", "axis_a", "axis_b"),
+                True,
+                {"target_count": 1, "side_sign": -1.0},
+            )
+        )
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(sketch.points["target"].x, 7.0, places=6)
         self.assertEqual(sketch.violated_equations(), ())
 
     def test_three_point_angle_dimension_is_solved(self):
