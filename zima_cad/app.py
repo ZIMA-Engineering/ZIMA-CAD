@@ -1104,6 +1104,7 @@ class PrimitivePropertiesDialog(QDialog):
 
 
 class PointConstraintDialog(QDialog):
+    REFERENCE_VISIBLE_ROWS = 3
     createRequested = Signal(list, tuple, str, bool, bool)
     updateRequested = Signal(list, tuple, str, bool, bool)
     referenceActivated = Signal(dict)
@@ -1297,12 +1298,12 @@ class PointConstraintDialog(QDialog):
         self.reference_list.cellClicked.connect(
             self._reference_cell_clicked
         )
-        # Show the usual complete six-reference definition without scrolling;
-        # redundant or advanced references remain accessible below it.
+        # A container accepts at most three construction references. Legacy
+        # definitions with more rows remain accessible through the scrollbar.
         if type(self) is PointConstraintDialog:
             reference_table_height = (
                 self.reference_list.horizontalHeader().sizeHint().height()
-                + reference_row_height * 6
+                + reference_row_height * self.REFERENCE_VISIBLE_ROWS
                 + self.reference_list.frameWidth() * 2
             )
             self.reference_list.setFixedHeight(reference_table_height)
@@ -1399,7 +1400,7 @@ class PointConstraintDialog(QDialog):
         self.container_type_combo.setEnabled(editable)
 
     def _apply_compact_reference_layout(self, minimum_width: int = 460) -> None:
-        """Apply the approved six-row properties-dialog geometry."""
+        """Apply the shared three-row reference-table geometry."""
         reference_row_height = 34
         self.reference_list.verticalHeader().setDefaultSectionSize(
             reference_row_height
@@ -1412,7 +1413,7 @@ class PointConstraintDialog(QDialog):
         )
         reference_table_height = (
             self.reference_list.horizontalHeader().sizeHint().height()
-            + reference_row_height * 6
+            + reference_row_height * self.REFERENCE_VISIBLE_ROWS
             + self.reference_list.frameWidth() * 2
         )
         self.reference_list.setFixedHeight(reference_table_height)
@@ -2332,7 +2333,7 @@ class AxisConstraintDialog(PointConstraintDialog):
             )
             reference_table_height = (
                 self.reference_list.horizontalHeader().sizeHint().height()
-                + reference_row_height * 6
+                + reference_row_height * self.REFERENCE_VISIBLE_ROWS
                 + self.reference_list.frameWidth() * 2
             )
             self.reference_list.setFixedHeight(reference_table_height)
@@ -2511,7 +2512,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             )
             reference_table_height = (
                 self.reference_list.horizontalHeader().sizeHint().height()
-                + reference_row_height * 6
+                + reference_row_height * self.REFERENCE_VISIBLE_ROWS
                 + self.reference_list.frameWidth() * 2
             )
             self.reference_list.setFixedHeight(reference_table_height)
@@ -3147,7 +3148,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             )
             reference_table_height = (
                 self.reference_list.horizontalHeader().sizeHint().height()
-                + reference_row_height * 6
+                + reference_row_height * self.REFERENCE_VISIBLE_ROWS
                 + self.reference_list.frameWidth() * 2
             )
             self.reference_list.setFixedHeight(reference_table_height)
