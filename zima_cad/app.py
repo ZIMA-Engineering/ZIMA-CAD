@@ -188,6 +188,7 @@ from zima_cad.viewer import (
     camera_angles_for_view_direction,
 )
 from zima_cad.viewer_scene import (
+    CONTAINER_PREVIEW_ORIGIN_ID,
     DocumentViewerScene,
     build_document_viewer_scene_data,
 )
@@ -2524,7 +2525,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
     def _install_container_orientation_controls(self) -> None:
         self.container_orientation_buttons: list[QPushButton] = []
         self.container_orientation_flips: list[QCheckBox] = []
-        self._container_orientation_keys: list[str | None] = [None, None]
+        self._container_orientation_planes: list[str] = ["xz", "xy"]
         self._active_container_orientation_row: int | None = None
         orientation_form = QFormLayout()
         for index, role_name in enumerate(("FRONT", "TOP")):
@@ -2560,9 +2561,29 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             for index, mapping in enumerate(mappings[:2]):
                 if not isinstance(mapping, dict):
                     continue
-                key = str(mapping.get("reference_key", ""))
-                if key:
-                    self._container_orientation_keys[index] = key
+                plane = str(mapping.get("plane", "")).lower()
+                if plane in ("xy", "yz", "xz"):
+                    self._container_orientation_planes[index] = plane
+                # Files written before local FRONT/TOP planes stored an
+                # external reference key here. Preserve its geometric frame
+                # by migrating that role onto the positioning reference.
+                reference_key = str(mapping.get("reference_key", ""))
+                legacy_reference = next(
+                    (
+                        reference for reference in self.references
+                        if str(reference.get("key", "")) == reference_key
+                    ),
+                    None,
+                )
+                if legacy_reference is not None:
+                    slot = str(mapping.get("slot", ""))
+                    flipped = bool(mapping.get("flip", False))
+                    legacy_reference["orientation_role"] = (
+                        "opposite_normal" if flipped else "normal"
+                    ) if slot == "front" else (
+                        "down" if flipped else "up"
+                    )
+                    legacy_reference["orientation_drives_rotation"] = True
                 self.container_orientation_flips[index].setChecked(
                     bool(mapping.get("flip", False))
                 )
@@ -2576,7 +2597,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                 "mappings": [
                     {
                         "slot": slot,
-                        "reference_key": self._container_orientation_keys[index],
+                        "plane": self._container_orientation_planes[index],
                         "flip": checkbox.isChecked(),
                     }
                     for index, (slot, checkbox) in enumerate(
@@ -2586,109 +2607,53 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             },
         ]
 
-    def _container_orientation_references(self) -> list[dict[str, Any]]:
-        return [
-            reference for reference in self.references
-            if self._is_orientation_reference(reference)
-        ]
-
     def _refresh_container_orientation_controls(self, _value: int = -1) -> None:
         if not hasattr(self, "container_orientation_buttons"):
             return
-        references = self._container_orientation_references()
-        available = {
-            str(reference.get("key", "")): reference
-            for reference in references
-        }
-        used = {key for key in self._container_orientation_keys if key in available}
         for index in range(2):
-            key = self._container_orientation_keys[index]
-            if key not in available:
-                replacement = next(
-                    (
-                        str(reference.get("key", ""))
-                        for reference in references
-                        if str(reference.get("key", "")) not in used
-                    ),
-                    None,
-                )
-                self._container_orientation_keys[index] = replacement
-                key = replacement
-                if key:
-                    used.add(key)
-            reference = available.get(key or "")
             self.container_orientation_buttons[index].setText(
-                str(reference.get("label", reference.get("key", "—")))
-                if reference is not None else "—"
+                self._container_orientation_planes[index].upper()
             )
-        self._apply_container_orientation_roles()
 
     def _activate_container_orientation_row(self, row: int) -> None:
         self._active_container_orientation_row = row
         for index, button in enumerate(self.container_orientation_buttons):
             button.setChecked(index == row)
+        parent = self.parent()
+        if hasattr(parent, "_container_orientation_selection_changed"):
+            parent._container_orientation_selection_changed(True)
 
-    def _assign_container_orientation_reference(
-        self, reference: dict[str, Any]
+    def assign_container_orientation_plane(
+        self,
+        plane: str,
     ) -> bool:
         row = self._active_container_orientation_row
-        if row is None or not self._is_orientation_reference(reference):
-            return False
-        key = str(reference.get("key", ""))
-        if not key:
+        plane = str(plane).lower()
+        if row is None or plane not in ("xy", "yz", "xz"):
             return False
         other = 1 - row
-        other_reference = next(
-            (
-                item for item in self.references
-                if str(item.get("key", ""))
-                == str(self._container_orientation_keys[other] or "")
-            ),
-            None,
-        )
-        if (
-            other_reference is not None
-            and not self._orientation_is_independent(
-                reference,
-                exclude=reference,
+        if self._container_orientation_planes[other] == plane:
+            self._container_orientation_planes[other] = (
+                self._container_orientation_planes[row]
             )
-        ):
-            self.reference_status_label.setStyleSheet(
-                "color: #ed7777; font-weight: 700;"
-            )
-            self.reference_status_label.setText(
-                tr("dialog.point_constraints.rejected_reference")
-            )
-            return False
-        if self._container_orientation_keys[other] == key:
-            self._container_orientation_keys[other] = (
-                self._container_orientation_keys[row]
-            )
-        self._container_orientation_keys[row] = key
+        self._container_orientation_planes[row] = plane
         self._active_container_orientation_row = None
         for button in self.container_orientation_buttons:
             button.setChecked(False)
         self._refresh_container_orientation_controls()
+        parent = self.parent()
+        if hasattr(parent, "_container_orientation_selection_changed"):
+            parent._container_orientation_selection_changed(False)
         self._update_solution()
         return True
 
-    def _apply_container_orientation_roles(self) -> None:
-        roles = ("normal", "up")
-        selected = dict(zip(self._container_orientation_keys, roles))
-        for reference in self.references:
-            key = str(reference.get("key", ""))
-            role = selected.get(key, "none")
-            reference["orientation_role"] = role
-            reference["orientation_drives_rotation"] = role != "none"
+    def container_orientation_selection_active(self) -> bool:
+        return self._active_container_orientation_row is not None
 
     def _container_orientation_changed(self, _checked: bool = False) -> None:
-        self._apply_container_orientation_roles()
         self._update_solution()
 
     def _default_orientation_role(self, used_roles: set[str]) -> str:
-        if hasattr(self, "container_orientation_buttons"):
-            index = len(self._container_orientation_references())
-            return "normal" if index == 0 else "up" if index == 1 else "none"
         return super()._default_orientation_role(used_roles)
 
     def _is_orientation_reference(
@@ -2711,24 +2676,12 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self._refresh_reference_orientation_combos()
 
     def _add_reference(self, reference: dict[str, Any]) -> None:
-        existing = next(
-            (
-                item for item in self.references
-                if item.get("key") == reference.get("key")
-            ),
-            None,
-        )
-        if existing is None:
-            super()._add_reference(reference)
-            existing = next(
-                (
-                    item for item in self.references
-                    if item.get("key") == reference.get("key")
-                ),
-                None,
-            )
-        if existing is not None:
-            self._assign_container_orientation_reference(existing)
+        before = len(self.references)
+        super()._add_reference(reference)
+        if len(self.references) > before:
+            self._ensure_automatic_orientation_roles()
+            self._refresh_reference_orientation_combos()
+            self._update_solution()
 
     def _remove_reference_at(self, row: int) -> None:
         if type(self) is not PlaneConstraintDialog:
@@ -2746,7 +2699,6 @@ class PlaneConstraintDialog(AxisConstraintDialog):
     def add_reference(self, reference: ZimaEntity) -> None:
         if reference.kind == EntityKind.ORIGIN:
             # Expand Origin into its datum planes for complete placement.
-            # Orientation stays global until the user assigns view roles.
             super().add_reference(reference)
             return
         super().add_reference(reference)
@@ -10388,11 +10340,6 @@ class MainWindow(QMainWindow):
         fallback: str,
     ) -> tuple[str, tuple[float, float, float]]:
         """Keep datum axes global-like while placing it on the selected plane."""
-        if any(
-            descriptor.get("type") == "container_orientation"
-            for descriptor in references
-        ):
-            return fallback, self._plane_reference_rotation(references)
         oriented = [
             descriptor
             for descriptor in references
@@ -15017,6 +14964,11 @@ class MainWindow(QMainWindow):
             scene.resolve_topology(owner_id, "face", face_index)
             if scene is not None else None
         )
+        if self._container_orientation_selection_is_active():
+            self.statusBar().showMessage(
+                "FRONT/TOP: select a local plane of this container."
+            )
+            return
         if self._submit_command_selection(
             SelectionKind.FACE, owner_id, face_index, shape
         ):
@@ -15108,6 +15060,22 @@ class MainWindow(QMainWindow):
         element_kind: str,
     ) -> None:
         if not owner_id or self.document is None:
+            return
+        if self._container_orientation_selection_is_active():
+            dialog = self.point_constraint_dialog
+            expected_owner_id = self._definition_origin_owner_id()
+            plane = {1: "xy", 2: "yz", 3: "xz"}.get(element_index)
+            if (
+                isinstance(dialog, PlaneConstraintDialog)
+                and element_kind == "plane"
+                and owner_id == expected_owner_id
+                and plane is not None
+            ):
+                dialog.assign_container_orientation_plane(plane)
+            else:
+                self.statusBar().showMessage(
+                    "FRONT/TOP: select a plane of the container being defined."
+                )
             return
         selection_kind = {
             "point": SelectionKind.POINT,
@@ -30232,6 +30200,39 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog is not None
         )
 
+    def _container_orientation_selection_is_active(self) -> bool:
+        dialog = self.point_constraint_dialog
+        return (
+            isinstance(dialog, PlaneConstraintDialog)
+            and dialog.container_orientation_selection_active()
+        )
+
+    def _definition_origin_owner_id(self) -> str | None:
+        dialog = self.point_constraint_dialog
+        if not isinstance(dialog, PlaneConstraintDialog):
+            return None
+        if dialog.point_object is None:
+            return CONTAINER_PREVIEW_ORIGIN_ID
+        origin = next(
+            (
+                child for child in dialog.point_object.children
+                if child.kind == EntityKind.ORIGIN
+            ),
+            None,
+        )
+        return origin.entity_id if origin is not None else None
+
+    def _container_orientation_selection_changed(self, active: bool) -> None:
+        self.native_viewer.set_selection_filter(
+            "plane" if active else self.view_selection_filter.value
+        )
+        self.native_viewer.set_interaction_mode("topology")
+        self.native_viewer.set_selection_enabled(True)
+        self.statusBar().showMessage(
+            "FRONT/TOP: select a local container plane."
+            if active else ""
+        )
+
     def _definition_edit_object(self) -> ZimaEntity | None:
         if (
             self.point_constraint_dialog is not None
@@ -32846,7 +32847,9 @@ class MainWindow(QMainWindow):
             }[self.view_display_mode]
         )
         self.native_viewer.set_selection_filter(
-            "surface"
+            "plane"
+            if self._container_orientation_selection_is_active()
+            else "surface"
             if (
                 (
                     self.assembly_component_dialog is not None

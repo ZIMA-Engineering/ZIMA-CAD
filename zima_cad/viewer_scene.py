@@ -31,6 +31,7 @@ from zima_cad.viewer_mesh import (
 
 
 SKETCH_COLOR = (1.0, 0.843, 0.251)
+CONTAINER_PREVIEW_ORIGIN_ID = "__container_preview_origin__"
 
 
 @dataclass(frozen=True)
@@ -215,7 +216,7 @@ def build_document_viewer_scene_data(
         )
 
     if preview_coordinate_system is not None:
-        preview_owner_id = "__container_preview_origin__"
+        preview_owner_id = CONTAINER_PREVIEW_ORIGIN_ID
         preview_transform = coordinate_system_transform(
             preview_coordinate_system
         )

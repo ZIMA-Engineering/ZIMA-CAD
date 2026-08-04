@@ -59,6 +59,11 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
   referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
   ukazatel DOF nadále popisuje určenost základního rámce.
+- Volby **FRONT** a **TOP** ve Vlastnostech roviny, skici, Protrusion a Revolve
+  nejsou polohové reference. Určují, která z lokálních rovin kontejneru
+  `XY/YZ/XZ` představuje přední a horní pohled. Po aktivaci jejich tlačítka
+  lze proto vybrat pouze rovinu z originu právě definovaného kontejneru;
+  plochy modelu ani roviny jiných kontejnerů se do seznamu referencí nepřidají.
 
 ## Živé úpravy ve Vlastnostech
 
