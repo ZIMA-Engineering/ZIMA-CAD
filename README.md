@@ -54,6 +54,15 @@ The application opens one main window with multiple document tabs:
 Current mouse controls, reference selection and the Properties workflow are
 described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
 
+Part containers use one shared placement model: up to three positional
+references determine the local origin, two optional orientation slots map
+model geometry to FRONT/BACK and TOP/BOTTOM/LEFT/RIGHT, and RX/RY/RZ remain
+editable angular corrections. If no orientation references are supplied, the
+container keeps its own local frame. Plane, Sketch, Protrusion and Revolve
+also have an independent work-plane/profile offset; this offset does not move
+the container origin. Solid dimensions opened by double-clicking a feature are
+anchored on that actual offset profile plane.
+
 The Assembly workflow supports inserted part instances, live placement,
 planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
 types, editable in-view mate dimensions, expanded source-part trees,
@@ -107,6 +116,13 @@ positive X to the left and positive Y upward.
 Each `Container` owns a mandatory system `Origin` and at most one user entity:
 Point, Axis, Sketch or Solid. Additional geometry is created in another Container.
 The creation commands and `.prtz` format validation enforce this rule.
+
+Container placement and work-plane placement are deliberately separate. The
+container origin is solved only from X/Y/Z and positional references. Optional
+FRONT/TOP mappings define its base orientation, with RX/RY/RZ applied as local
+corrections. A feature's work-plane offset then moves only the plane on which
+its sketch or profile is evaluated. External sketches lend their 2D geometry;
+the receiving Protrusion or Revolve owns the resulting placement and offset.
 
 ## Portable Layout
 

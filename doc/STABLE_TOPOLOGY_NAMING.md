@@ -78,9 +78,10 @@ entity or instance ID combined with a temporary OpenCascade topology index.
 The owner ID is stable, but the numerical index is not. Recomputing a feature
 or changing a Boolean operation may reorder or replace OCCT subshapes.
 
-Box, Wedge and Extrusion now provide the first continuous semantic subset, but
-the system does not yet cover general Part history, Revolve, Boolean results or
-all Assembly references.
+Box, Wedge, Extrusion and Revolve provide the continuous semantic feature
+subset. Supported Part Boolean history and Assembly face/edge workflows also
+propagate these identities, but general Part operations, all Boolean
+combinations and all Assembly reference types are not yet covered.
 
 The implemented rule is:
 
@@ -197,8 +198,8 @@ Geometry builders should eventually return `EvaluatedShape`, not only a naked
 `TopoDS_Shape`. The current implementation builds a registry alongside the
 supported history snapshot; each builder remains responsible for provenance.
 
-Extrusion implements these initial face roles, and Revolve should follow the
-same provenance rule where applicable:
+Extrusion and Revolve implement these initial face roles with the same
+provenance rule where applicable:
 
 - `start`;
 - `end`;

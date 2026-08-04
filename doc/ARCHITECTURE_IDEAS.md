@@ -109,10 +109,11 @@ pojmenováním plochy.
 - Vazby se ve 3D view zobrazují jako klikací kóty. Hodnotové vazby lze editovat
   přímo ve view, nulové a souosé vazby zůstávají viditelné jako stav ustavení.
 - Centrální `TopologyRegistry` poskytuje stabilní `FaceRef`, `EdgeRef` a
-  `VertexRef` pro Box/Wedge a Extrusion. Externí skici již tyto identity
-  používají místo dočasných indexů. Další etapa musí pokrýt Revolve a propagaci
-  identity přes přidání, odečtení a obecné booleovské operace; nejednoznačný
-  výsledek se nesmí tiše svázat podle aktuálního pořadí topologie.
+  `VertexRef` pro Box/Wedge, Extrusion a Revolve. Externí skici i podporované
+  operace historie používají tyto identity místo dočasných indexů. Podporovaná
+  propagace přes přidání a odečtení zachovává původ a rozlišuje chybějící a
+  nejednoznačný výsledek; zbývá ji rozšířit na obecné booleovské kombinace a
+  další typy operací.
 - Protrusion a Revolve v sestavě jsou pouze odečítací operace. Mohou působit na
   všechny nebo jen vybrané instance, ale nesmějí měnit původní `.prtz`.
 

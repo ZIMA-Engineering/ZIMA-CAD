@@ -59,10 +59,17 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
   referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
   ukazatel DOF nadále popisuje určenost základního rámce.
-- První orientační slot přijímá rovinnou plochu nebo rovinu, roli
-  **FRONT/BACK** a vzdálenost podél její normály. Druhý slot přijímá
+- První orientační slot přijímá rovinnou plochu nebo rovinu a roli
+  **FRONT/BACK**. Druhý slot přijímá
   nezávislou rovinu, plochu, hranu nebo osu a roli
   **TOP/BOTTOM/LEFT/RIGHT**. Rovnoběžná druhá reference se odmítne.
+- Oba orientační sloty jsou nepovinné. Bez nich se použije vlastní lokální rámec
+  kontejneru a jeho korekce `RX/RY/RZ`; jde o plnohodnotné a podporované
+  umístění, nikoliv o chybějící definici.
+- **Odsazení pracovní roviny** je samostatná hodnota a nepatří k referenci
+  FRONT. U roviny, skici, Protrusion a Revolve posune pouze pracovní nebo
+  profilovou rovinu v lokálním směru její normály. Neposouvá počátek
+  kontejneru ani jeho polohové reference.
 - Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.
@@ -94,6 +101,10 @@ V horní části Vlastností solidu je výrazný přepínač operace:
 Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostupná
 také v kontextovém menu objektu v tree. Obě místa pracují se společným
 nastavením solidu.
+
+Po dvojkliku na Protrusion nebo Revolve se jejich prostorové kóty zobrazují na
+skutečné profilové rovině. Je-li zadané odsazení pracovní roviny, počátek
+lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
 
 ### Zaoblení hrany
 

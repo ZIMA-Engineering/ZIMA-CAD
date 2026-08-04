@@ -76,10 +76,11 @@ The following principles guide that consolidation:
   point IDs to their replacements. Dimensions and constraints must either be
   transferred deliberately or removed with an explicit, predictable rule.
 - External references use stable semantic `FaceRef`, `EdgeRef` and `VertexRef`
-  identities for supported Box/Wedge and Extrusion results. Their persisted
-  identity does not depend on the current numerical ordering of OCCT topology.
-  Revolve and Boolean-result propagation remain outside the supported stable
-  subset.
+  identities for supported Box/Wedge, Extrusion and Revolve results. Their
+  persisted identity does not depend on the current numerical ordering of OCCT
+  topology. The implemented additive/subtractive subset also propagates
+  supported ancestry with explicit missing and ambiguous states; general
+  Boolean coverage remains ongoing.
 - Driving state, UI locking and reference/display-only state are separate
   properties. An unlocked user dimension is still driving and immutable from
   the solver's perspective.
@@ -102,7 +103,7 @@ After these are complete, priority shifts from adding tools to reliability:
 - visualize under-, fully- and over-constrained states and remaining degrees
   of freedom;
 - preserve the current solution branch during edits;
-- extend predictable external-reference recovery from Extrusion to Revolve and
-  Boolean-result topology;
+- extend predictable external-reference recovery across the remaining general
+  Boolean-result and future feature topology;
 - build regression coverage for combinations of geometry, dimensions,
   constraints and references.

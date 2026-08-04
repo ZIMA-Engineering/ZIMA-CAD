@@ -18,7 +18,10 @@ as the document model, geometric kernel integration and user workflows evolve.
 - in-view parameter editing
 - persistent ZIMA-CAD document formats
 - six-degree-of-freedom container placement with independent positional and
-  rotational references, editable RX/RY/RZ offsets and local Front/Top mapping
+  rotational references, editable RX/RY/RZ corrections and optional local
+  Front/Top mapping
+- independent work-plane/profile offset for Plane, Sketch, Protrusion and
+  Revolve, without moving the owning container origin
 - automatic locked feature axes for circular protrusions, cylinders, cones and
   spheres, exposed through the common Axes visibility control
 - unified native model display modes with topology-aware boundary, sharp,
@@ -95,6 +98,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - additive and subtractive operations
 - extrusion up to a selected face or plane
 - profile validation
+- independent profile-plane offset, including correctly offset in-view length
+  dimensions
 
 ## 4. Revolve
 
@@ -104,6 +109,7 @@ as the document model, geometric kernel integration and user workflows evolve.
 - first sketch construction line used as the revolution axis
 - additive and subtractive operations
 - shared line, arc and spline profile builder with Protrusion
+- independent profile-plane offset used by both geometry and angular dimensions
 - revolved thin features
 
 ## 5. Sweep
@@ -126,9 +132,11 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 7. Advanced Part Modeling
 
-**Status: Planned**
+**Status: Initial Fillet implemented; remaining features planned**
 
-- fillets and chamfers
+- single-edge history Fillet selected after command activation, stored through
+  a stable semantic edge reference and preserving the last valid body on error
+- multi-edge fillets and chamfers
 - shell and thickness
 - holes and threads
 - mirrors and patterns

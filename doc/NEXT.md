@@ -30,15 +30,19 @@
 
 ## Container Orientation and Reference Geometry
 
-- Exercise the new six-DOF properties workflow for Point, Axis, Plane, Sketch,
-  Protrusion and Revolve on real feature chains.
+- Exercise the shared six-DOF properties workflow for Point, Axis, Plane,
+  Sketch, Protrusion and Revolve on real feature chains. Positional references,
+  optional FRONT/TOP orientation mapping, RX/RY/RZ corrections and work-plane
+  offset are now separate concerns.
 - Continue extending semantic topology references from the now-supported
   container planar-face/orientation constraints to edge, vertex and curved-face
   container constraints.
-- Keep positional references independent from explicit rotational references;
-  report the remaining X/Y/Z/RX/RY/RZ degrees of freedom clearly.
-- Stabilize the two-row mapping of container planes to Front, Back, Top,
-  Bottom, Left and Right, including automatic prevention of parallel mappings.
+- Keep positional references independent from explicit rotational references
+  and keep the work-plane offset independent from both. Report remaining
+  X/Y/Z/RX/RY/RZ degrees of freedom clearly.
+- Continue testing the implemented two-row mapping to Front, Back, Top, Bottom,
+  Left and Right, including automatic prevention of parallel mappings and the
+  valid empty-mapping fallback to the container's local frame.
 - Verify generated locked axes for circular protrusions, cylinders, cones and
   spheres after edit, regeneration, save and reload.
 
@@ -138,6 +142,8 @@
 - Verify native selection and constraint previews across all reference types.
 - Continue stabilizing the implemented native in-view dimension overlays; the
   unreachable AIS implementation was removed during cleanup.
+- Protrusion length and Revolve angle overlays now start on their actual offset
+  profile plane; extend the same placement rule to future profile features.
 - The axis-editor pointer path can no longer enter OCCT presentation or
   highlighting code.
 
@@ -179,27 +185,27 @@
 - Each Container may contain exactly one user entity (Point, Axis, Sketch or Solid)
   in addition to its mandatory system Origin. Creation commands and `.prtz`
   validation enforce this invariant.
-- Add editable container position:
+- Editable container position is implemented:
   - X
   - Y
   - Z
-- Add editable container rotation:
+- Editable container rotation is implemented:
   - RX
   - RY
   - RZ
-- Initial RX/RY/RZ support is implemented in container properties, `.prtz` storage,
+- RX/RY/RZ support is implemented in container properties, `.prtz` storage,
   solid rebuild and selected-container local coordinate-system display.
-- Container rotation must rotate its local coordinate system:
+- Container rotation rotates its local coordinate system:
   - point
   - axes
   - planes
 - Child solids and sketches now follow the complete parent container transform.
 - Continue extending local-coordinate evaluation to future geometry types.
-- Initial plane-on-face attachment is implemented for Container XY/YZ/XZ planes
-  and semantic Box faces (`x_min` through `z_max`). Attachments project the
-  global Origin onto the target plane, use two perpendicular global reference
-  axes with a 45-degree switch, persist in `.prtz`, and preserve the last valid
-  transform when the target disappears.
+- Position and orientation use the shared reference solver. Up to three
+  positional references solve the origin; two bounded orientation slots define
+  FRONT/BACK and TOP/BOTTOM/LEFT/RIGHT. RX/RY/RZ are corrections on that base
+  frame. Plane, Sketch, Protrusion and Revolve own a separate work-plane offset
+  that never changes the container origin.
 - Extend attachment references beyond Box faces and add dependency-cycle
   detection before supporting general feature chains.
 - Wedge is available as a parameterized solid (`length`, `width`, `height`,
