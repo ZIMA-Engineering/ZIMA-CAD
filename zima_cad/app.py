@@ -151,6 +151,13 @@ from zima_cad.sketch_model import (
     SketchPoint,
     classify_linear_dimension,
 )
+from zima_cad.selection import (
+    SelectionCandidate,
+    SelectionController,
+    SelectionKind,
+    SelectionRequest,
+    SelectionResolution,
+)
 from zima_cad.sketch_geometry import (
     center_arc_points,
     corner_radius_from_drag,
@@ -7154,8 +7161,7 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.set_surface_color(str(stored_body_color))
         self._native_viewer_scene: DocumentViewerScene | None = None
-        self._selected_fillet_edge: EdgeRef | None = None
-        self._fillet_selection_active = False
+        self._selection_controller = SelectionController()
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
         self._dimension_bindings: dict[str, tuple[Any, ...]] = {}
@@ -8859,27 +8865,73 @@ class MainWindow(QMainWindow):
     def _create_fillet(self) -> None:
         if self.document is None:
             return
-        self._fillet_selection_active = True
-        self._selected_fillet_edge = None
+        self._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=self._resolve_stable_edge_candidate,
+            on_complete=lambda values: self._finish_create_fillet(values[0]),
+            prompt=tr("fillet.status.select_edge"),
+            wrong_kind_message=tr("fillet.status.select_edge"),
+            on_cancel=self._restore_default_selection,
+        ))
         self.native_viewer.set_selection_filter("all")
-        self.statusBar().showMessage(tr("fillet.status.select_edge"))
+        self.native_viewer.set_interaction_mode("topology")
+        self.statusBar().showMessage(self._selection_controller.prompt)
 
     def keyPressEvent(self, event) -> None:
         if (
             event.key() == Qt.Key.Key_Escape
-            and self._fillet_selection_active
+            and self._selection_controller.cancel()
         ):
-            self._fillet_selection_active = False
-            self._selected_fillet_edge = None
-            self.statusBar().clearMessage()
-            self.rebuild_view(fit=False, rebuild_geometry=False)
             event.accept()
             return
         super().keyPressEvent(event)
 
+    def _restore_default_selection(self) -> None:
+        self.statusBar().clearMessage()
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _resolve_stable_edge_candidate(
+        self,
+        candidate: SelectionCandidate,
+    ) -> SelectionResolution:
+        reference = self._fillet_edge_reference(
+            self.document,
+            candidate.owner_id,
+            candidate.element_index,
+        )
+        return SelectionResolution(
+            value=reference,
+            error=(
+                None
+                if reference is not None
+                else tr("fillet.status.edge_unsupported")
+            ),
+        )
+
+    def _submit_command_selection(
+        self,
+        kind: SelectionKind,
+        owner_id: str,
+        element_index: int = 0,
+        shape=None,
+    ) -> bool:
+        update = self._selection_controller.submit(SelectionCandidate(
+            kind=kind,
+            owner_id=owner_id,
+            element_index=element_index,
+            shape=shape,
+        ))
+        if not update.consumed:
+            return False
+        if update.message:
+            self.statusBar().showMessage(update.message)
+        elif update.completed:
+            self.statusBar().clearMessage()
+        return True
+
     def _finish_create_fillet(self, reference: EdgeRef) -> None:
         if self.document is None:
-            self._fillet_selection_active = False
             return
         radius, accepted = QInputDialog.getDouble(
             self,
@@ -8891,7 +8943,6 @@ class MainWindow(QMainWindow):
             3,
         )
         if not accepted:
-            self._fillet_selection_active = False
             self.rebuild_view(fit=False, rebuild_geometry=False)
             return
         obj = self.document.create_container("Fillet", ContainerType.FILLET)
@@ -8910,13 +8961,11 @@ class MainWindow(QMainWindow):
         error = str(feature.parameters.get("build_status", "")).strip()
         if error:
             self.document.delete_container(obj.entity_id)
-            self._fillet_selection_active = False
             self.statusBar().showMessage(
                 tr("fillet.status.failed", error=error)
             )
             self.rebuild_view(fit=False, rebuild_geometry=False)
             return
-        self._fillet_selection_active = False
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
         self.rebuild_view(fit=False, rebuild_geometry=True)
@@ -14426,17 +14475,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or edge_index <= 0:
             return
-        if self._fillet_selection_active:
-            reference = self._fillet_edge_reference(
-                self.document, owner_id, edge_index
-            )
-            if reference is None:
-                self.statusBar().showMessage(
-                    tr("fillet.status.edge_unsupported")
-                )
-                return
-            self._selected_fillet_edge = reference
-            self._finish_create_fillet(reference)
+        scene = self._native_viewer_scene
+        shape = (
+            scene.resolve_topology(owner_id, "edge", edge_index)
+            if scene is not None else None
+        )
+        if self._submit_command_selection(
+            SelectionKind.EDGE, owner_id, edge_index, shape
+        ):
             return
         assembly_dialog = self.assembly_component_dialog
         if (
@@ -14513,13 +14559,6 @@ class MainWindow(QMainWindow):
                 owner_id, edge_index, "axis"
             )
             return
-        if (
-            self.document is not None
-            and owner_id == self.document.root.entity_id
-        ):
-            self._selected_fillet_edge = active_face_registry(
-                self.document
-            ).edge_reference_for_runtime_index(edge_index)
         self._apply_native_view_selection(owner_id, shape)
 
     @staticmethod
@@ -14540,6 +14579,10 @@ class MainWindow(QMainWindow):
 
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
+            return
+        if owner_id and self._submit_command_selection(
+            SelectionKind.OBJECT, owner_id
+        ):
             return
         self.native_viewer.set_selected_container_contents(set())
         self.native_viewer.set_selected_container_origin(None)
@@ -14826,6 +14869,15 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not owner_id or face_index <= 0:
             return
+        scene = self._native_viewer_scene
+        shape = (
+            scene.resolve_topology(owner_id, "face", face_index)
+            if scene is not None else None
+        )
+        if self._submit_command_selection(
+            SelectionKind.FACE, owner_id, face_index, shape
+        ):
+            return
         if (
             self.orientation_dialog is not None
             and self.orientation_dialog.isVisible()
@@ -14913,6 +14965,15 @@ class MainWindow(QMainWindow):
         element_kind: str,
     ) -> None:
         if not owner_id or self.document is None:
+            return
+        selection_kind = {
+            "point": SelectionKind.POINT,
+            "axis": SelectionKind.AXIS,
+            "plane": SelectionKind.PLANE,
+        }.get(element_kind)
+        if selection_kind is not None and self._submit_command_selection(
+            selection_kind, owner_id, element_index
+        ):
             return
         if (
             self.orientation_dialog is not None
@@ -32572,6 +32633,7 @@ class MainWindow(QMainWindow):
             point_constraints_active
             or assembly_references_active
             or orientation_references_active
+            or self._selection_controller.active
         )
         self.native_viewer.set_outline_face_highlights(
             topology_selection_active or orientation_references_visible

@@ -103,6 +103,11 @@
   previews while creating connected geometry.
 - External Sketch point references stay hidden until the cursor enters their
   snap radius; keep this hover-only behavior for future dense reference types.
+- Continue migrating interactive tools to the central `SelectionController`.
+  Fillet already uses a declarative one-stable-edge request and switches the
+  viewer between topology and ordinary object interaction centrally. Reuse the
+  same request/validator path for Chamfer, Assembly mates and Sketch external
+  references; do not add further per-command selection flags.
 - Add polygon input and ellipse geometry.
 - Continue stabilization of centre arcs and spline editing.
 - Improve the solver's numerical stability, branch preservation, diagnostics

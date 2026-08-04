@@ -180,6 +180,17 @@ The two directions support different workflows:
 Runtime shape keys and `TopoDS_Face` instances are never persisted as stable
 identity.
 
+## Command selection
+
+Interactive commands use one kernel-independent `SelectionController` above
+the viewer. A `SelectionRequest` declares allowed object/face/edge/point/axis/
+plane kinds, minimum and maximum count, a command validator/resolver and
+completion/cancellation callbacks. The viewer only reports transient picked
+candidates; the resolver converts supported topology to stable references.
+Fillet is the first migrated client and requests one stable `EdgeRef` after
+command activation. Chamfer, Assembly and Sketch reference workflows should be
+migrated to the same controller instead of adding command-specific pick flags.
+
 ## Operation contract
 
 Geometry builders should eventually return `EvaluatedShape`, not only a naked
