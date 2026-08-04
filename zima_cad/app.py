@@ -30066,6 +30066,7 @@ class MainWindow(QMainWindow):
         if self._sketch_edit_entity_id is None:
             return
         sketch_id = self._sketch_edit_entity_id
+        return_camera = self._sketch_previous_camera
         if self.document is not None and restore:
             sketch = self.document.find_entity(self._sketch_edit_entity_id)
             if sketch is not None and self._sketch_baseline_parameters is not None:
@@ -30076,12 +30077,6 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_sketch_overlay(None)
         self._set_sketch_reference_mode(False)
         self.native_viewer.set_selection_enabled(self.view_selection_enabled)
-        if self._sketch_previous_camera is not None:
-            self.native_viewer.camera = self._sketch_previous_camera
-            self.native_viewer.navigationChanged.emit(
-                self.native_viewer.camera
-            )
-            self.native_viewer.update()
         self._sketch_edit_entity_id = None
         self._sketch_previous_camera = None
         self._sketch_baseline_parameters = None
@@ -30123,6 +30118,8 @@ class MainWindow(QMainWindow):
             self.regenerate_model()
         else:
             self.rebuild_view(fit=False)
+        if return_camera is not None:
+            self.native_viewer.animate_camera_state(return_camera)
         self.statusBar().showMessage(
             tr(
                 "sketch.status.cancelled"

@@ -109,6 +109,8 @@ plochy, která určuje orientaci skici.
 Po vstupu se pohled nastaví kolmo ke skice. Lokální osy X/Y jsou zobrazené
 hnědou tenkou čárkovanou čarou přes celé view. Profilová geometrie je modrá,
 body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
+Po dokončení nebo opuštění skici se kamera plynule vrátí do polohy, kterou
+měla před vstupem do skicáře.
 
 Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
 **Obdélník**, **Kružnice**, **Oblouk** a **Spline**. Kružnice se zadává
