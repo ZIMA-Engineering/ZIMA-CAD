@@ -30205,12 +30205,28 @@ class MainWindow(QMainWindow):
             and owner.get("type") == "circle"
             and bool(str(owner.get("equal_radius_group", "")))
         )
+        radius_record_index = -1000 - constraint_index
+        corner_records = (
+            owner.get("corner_radii", ())
+            if owner is not None
+            and isinstance(owner.get("corner_radii", ()), list)
+            else ()
+        )
+        virtual_corner_equal_radius = (
+            constraint_index <= -1000
+            and 0 <= radius_record_index < len(corner_records)
+            and isinstance(corner_records[radius_record_index], dict)
+            and bool(str(corner_records[radius_record_index].get(
+                "equal_radius_group", ""
+            )))
+        )
         if (
             owner is None
             or (
                 not virtual_curve_attachment
                 and not virtual_shared_endpoint
                 and not virtual_equal_radius
+                and not virtual_corner_equal_radius
                 and (
                     not isinstance(constraints, list)
                     or not 0 <= constraint_index < len(constraints)
@@ -30237,11 +30253,32 @@ class MainWindow(QMainWindow):
                 ),
             }
             if virtual_equal_radius
+            else {
+                "type": "equal_radius",
+                "equal_radius_group": str(
+                    corner_records[radius_record_index].get(
+                        "equal_radius_group", ""
+                    )
+                ),
+                "geometry_id": str(
+                    corner_records[radius_record_index].get(
+                        "other_geometry_id", ""
+                    )
+                ),
+            }
+            if virtual_corner_equal_radius
             else constraints[constraint_index]
         )
         related_ids = {owner_id}
         if virtual_equal_radius:
             group = str(owner.get("equal_radius_group", ""))
+            related_ids.update(
+                str(entity.get("id", ""))
+                for entity in entities
+                if str(entity.get("equal_radius_group", "")) == group
+            )
+        elif virtual_corner_equal_radius:
+            group = str(constraint.get("equal_radius_group", ""))
             related_ids.update(
                 str(entity.get("id", ""))
                 for entity in entities
@@ -30712,6 +30749,27 @@ class MainWindow(QMainWindow):
         if constraint_index == -3 and geometry.get("type") == "circle":
             geometry.pop("equal_radius_group", None)
             geometry.pop("equal_radius_reference", None)
+            self._store_sketch_entities(sketch, entities)
+            self._sketch_selected_constraint = None
+            self._sketch_selected_entity_id = entity_id
+            self._mark_model_for_regeneration()
+            self.rebuild_view(fit=False)
+            self._refresh_sketch_overlay()
+            self.statusBar().showMessage(
+                tr("sketch.status.constraint_deleted")
+            )
+            return
+        if constraint_index <= -1000:
+            record_index = -1000 - constraint_index
+            records = geometry.get("corner_radii", ())
+            if (
+                not isinstance(records, list)
+                or not 0 <= record_index < len(records)
+                or not isinstance(records[record_index], dict)
+            ):
+                return
+            records[record_index].pop("equal_radius_group", None)
+            records[record_index].pop("equal_radius_reference", None)
             self._store_sketch_entities(sketch, entities)
             self._sketch_selected_constraint = None
             self._sketch_selected_entity_id = entity_id

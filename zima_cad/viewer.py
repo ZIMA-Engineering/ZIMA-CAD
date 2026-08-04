@@ -58,6 +58,15 @@ from zima_cad.viewer_mesh import (
     silhouette_segments_from_edges,
 )
 
+
+@dataclass(frozen=True)
+class SketchConstraintMarker:
+    label: str
+    position: QPointF
+    owner_id: str
+    constraint_index: int
+    selectable: bool = True
+
 TopologyKey = tuple[str, int]
 
 
@@ -4451,6 +4460,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 str,
                 str,
                 bool,
+                int,
             ]
         ] = []
         for first_id, first_geometry in sketch_geometry_by_id.items():
@@ -4460,7 +4470,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             first_ids = tuple(map(str, first_geometry.get("point_ids", ())))
             if len(first_ids) != 2:
                 continue
-            for record in records:
+            for record_index, record in enumerate(records):
                 if not isinstance(record, dict):
                     continue
                 if bool(record.get("suppressed", False)):
@@ -4521,6 +4531,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         second_id,
                         vertex_id,
                         bool(record.get("equal_radius_group")),
+                        record_index,
                     )
                 )
         equal_circle_markers: list[tuple[QPointF, str]] = []
@@ -4733,13 +4744,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawPolyline(QPolygonF(points))
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        equal_radius_marker_points: list[QPointF] = []
+        equal_radius_marker_points: list[tuple[QPointF, str, int]] = []
         for (
             raw_arc,
             first_id,
             second_id,
             vertex_id,
             has_equal_radius,
+            radius_record_index,
         ) in corner_arcs:
             hovered = self._hovered_sketch_corner_radius == (
                 first_id,
@@ -4772,7 +4784,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             painter.drawPolyline(arc)
             if has_equal_radius and arc:
-                equal_radius_marker_points.append(arc[len(arc) // 2])
+                equal_radius_marker_points.append((
+                    arc[len(arc) // 2],
+                    first_id,
+                    radius_record_index,
+                ))
             if selected:
                 vertex = point_positions.get(vertex_id)
                 if vertex is not None:
@@ -4799,6 +4815,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if entity.get("type") in ("segment", "construction")
             and str(entity.get("id", ""))
         }
+        constraint_markers: list[SketchConstraintMarker] = []
 
         def geometry_screen_line(
             geometry: dict[str, Any],
@@ -4905,22 +4922,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             vx, vy = reference_direction
             del ux, uy, vx, vy
             position = point_marker_position(anchor_point_id, anchor)
-            painter.setPen(QPen(
-                cyan if key == self._selected_sketch_constraint
-                else QColor("#FF7A00")
-                if key == self._hovered_sketch_constraint
-                else constraint_color,
-                2.0,
-            ))
-            painter.drawText(position, "⊥")
-            self._sketch_constraint_hit_regions.append((
-                QRectF(
-                    position.x(),
-                    position.y() - metrics.ascent(),
-                    float(metrics.horizontalAdvance("⊥")),
-                    float(metrics.height()),
-                ),
-                *key,
+            constraint_markers.append(SketchConstraintMarker(
+                "⊥", position, key[0], key[1]
             ))
 
         constraint_color = QColor("#7CFF6B")
@@ -4935,7 +4938,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         tangent_contact_ids: dict[str, tuple[str, int]] = {}
         midpoint_point_ids: dict[str, tuple[str, int]] = {}
         coincident_point_ids: dict[str, tuple[str, int]] = {}
-        symmetric_point_pairs: list[tuple[str, str]] = []
+        symmetric_point_pairs: list[tuple[str, str, int]] = []
 
         def add_marker(geometry_id: str, marker: str, index: int) -> None:
             markers = markers_by_geometry.get(geometry_id)
@@ -5017,7 +5020,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     coincident_point_ids[str(entity.get("id", ""))] = (
                         str(entity.get("id", "")), coincident_index
                     )
-                for constraint in constraints:
+                for constraint_index, constraint in enumerate(constraints):
                     if (
                         isinstance(constraint, dict)
                         and constraint.get("type") == "symmetric"
@@ -5025,7 +5028,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         second_id = str(constraint.get("point_id", ""))
                         if second_id:
                             symmetric_point_pairs.append(
-                                (str(entity.get("id", "")), second_id)
+                                (
+                                    str(entity.get("id", "")),
+                                    second_id,
+                                    constraint_index,
+                                )
                             )
 
         endpoint_use: dict[str, int] = {}
@@ -5091,28 +5098,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     + metrics.ascent() * 0.5
                     + dx * 11.0,
                 )
-                selected = self._selected_sketch_constraint == (
-                    geometry_id,
-                    constraint_index,
-                )
-                hovered = self._hovered_sketch_constraint == (
-                    geometry_id, constraint_index
-                )
-                painter.setPen(QPen(
-                    cyan if selected else QColor("#FF7A00") if hovered else constraint_color,
-                    2.0,
-                ))
-                painter.drawText(position, label)
-                bounds = metrics.boundingRect(label)
-                self._sketch_constraint_hit_regions.append((
-                    QRectF(
-                        position.x(),
-                        position.y() - metrics.ascent(),
-                        float(bounds.width()),
-                        float(bounds.height()),
-                    ),
-                    geometry_id,
-                    constraint_index,
+                constraint_markers.append(SketchConstraintMarker(
+                    label, position, geometry_id, constraint_index
                 ))
 
         for contact_id, key in tangent_contact_ids.items():
@@ -5123,16 +5110,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._camera_point(self._sketch_world_point(local_contact))
             )
             position = point_marker_position(contact_id, contact)
-            painter.setPen(QPen(
-                cyan if key == self._selected_sketch_constraint
-                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
-                else constraint_color, 2.0
-            ))
-            painter.drawText(position, "T")
-            self._sketch_constraint_hit_regions.append((
-                QRectF(position.x(), position.y() - metrics.ascent(),
-                       float(metrics.horizontalAdvance("T")), float(metrics.height())),
-                *key,
+            constraint_markers.append(SketchConstraintMarker(
+                "T", position, key[0], key[1]
             ))
 
         for point_id, key in midpoint_point_ids.items():
@@ -5143,16 +5122,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._camera_point(self._sketch_world_point(local_midpoint))
             )
             position = point_marker_position(point_id, midpoint)
-            painter.setPen(QPen(
-                cyan if key == self._selected_sketch_constraint
-                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
-                else constraint_color, 2.0
-            ))
-            painter.drawText(position, "M")
-            self._sketch_constraint_hit_regions.append((
-                QRectF(position.x(), position.y() - metrics.ascent(),
-                       float(metrics.horizontalAdvance("M")), float(metrics.height())),
-                *key,
+            constraint_markers.append(SketchConstraintMarker(
+                "M", position, key[0], key[1]
             ))
 
         for point_id, key in coincident_point_ids.items():
@@ -5163,22 +5134,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._camera_point(self._sketch_world_point(local_point))
             )
             position = point_marker_position(point_id, point)
-            painter.setPen(QPen(
-                cyan if key == self._selected_sketch_constraint
-                else QColor("#FF7A00") if key == self._hovered_sketch_constraint
-                else constraint_color, 2.0
-            ))
-            painter.drawText(position, "C")
-            # Curve attachments are represented by the virtual constraint
-            # index -1. They still need a hit region so C participates in
-            # the same hover/right-click selection cycle as stored relations.
-            self._sketch_constraint_hit_regions.append((
-                QRectF(position.x(), position.y() - metrics.ascent(),
-                       float(metrics.horizontalAdvance("C")), float(metrics.height())),
-                *key,
+            constraint_markers.append(SketchConstraintMarker(
+                "C", position, key[0], key[1]
             ))
 
-        for first_id, second_id in symmetric_point_pairs:
+        for first_id, second_id, constraint_index in symmetric_point_pairs:
             for point_id in (first_id, second_id):
                 local_point = point_positions.get(point_id)
                 if local_point is None:
@@ -5188,32 +5148,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self._sketch_world_point(local_point)
                     )
                 )
-                painter.drawText(point_marker_position(point_id, point), "S")
+                constraint_markers.append(SketchConstraintMarker(
+                    "S",
+                    point_marker_position(point_id, point),
+                    first_id,
+                    constraint_index,
+                ))
 
         for position, circle_id in equal_circle_markers:
             key = (circle_id, -3)
-            painter.setPen(QPen(
-                cyan if key == self._selected_sketch_constraint
-                else QColor("#FF7A00")
-                if key == self._hovered_sketch_constraint
-                else constraint_color,
-                2.0,
-            ))
-            painter.drawText(position, "=")
-            self._sketch_constraint_hit_regions.append((
-                QRectF(
-                    position.x(), position.y() - metrics.ascent(),
-                    float(metrics.horizontalAdvance("=")),
-                    float(metrics.height()),
-                ),
-                *key,
+            constraint_markers.append(SketchConstraintMarker(
+                "=", position, key[0], key[1]
             ))
 
-        for arc_point in equal_radius_marker_points:
-            painter.drawText(
-                QPointF(arc_point.x() + 7.0, arc_point.y() - 7.0),
+        for arc_point, owner_id, record_index in equal_radius_marker_points:
+            constraint_markers.append(SketchConstraintMarker(
                 "=",
-            )
+                QPointF(arc_point.x() + 7.0, arc_point.y() - 7.0),
+                owner_id,
+                -1000 - record_index,
+            ))
 
         painter.setPen(QPen(constraint_color, 2.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -5336,6 +5290,31 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         (geometry_id, constraint_index),
                         constrained_point_ids,
                     )
+
+        # Every persistent constraint symbol uses this single style and
+        # interaction path. Geometry-specific code above only computes its
+        # anchor position and identity.
+        for marker in constraint_markers:
+            key = (marker.owner_id, marker.constraint_index)
+            painter.setPen(QPen(
+                cyan if key == self._selected_sketch_constraint
+                else QColor("#FF7A00")
+                if key == self._hovered_sketch_constraint
+                else constraint_color,
+                2.0,
+            ))
+            painter.drawText(marker.position, marker.label)
+            if marker.selectable and marker.owner_id:
+                self._sketch_constraint_hit_regions.append((
+                    QRectF(
+                        marker.position.x(),
+                        marker.position.y() - metrics.ascent(),
+                        float(metrics.horizontalAdvance(marker.label)),
+                        float(metrics.height()),
+                    ),
+                    marker.owner_id,
+                    marker.constraint_index,
+                ))
 
         if (
             not self._sketch_pending_points
