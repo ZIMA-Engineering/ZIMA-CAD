@@ -50,6 +50,7 @@ from zima_cad.viewer import (
     _multiply_rotation_matrices,
     orbit_camera_state,
     camera_angles_for_view_direction,
+    preserve_camera_for_scene_bounds,
 )
 from zima_cad.viewer_mesh import (
     EdgePolyline,
@@ -403,6 +404,57 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertAlmostEqual(camera_direction[0], 0.0)
         self.assertAlmostEqual(camera_direction[1], 0.0)
         self.assertAlmostEqual(camera_direction[2], -1.0)
+
+    def test_live_bounds_change_preserves_camera_projection(self) -> None:
+        camera = CameraState(
+            yaw_degrees=37.0,
+            pitch_degrees=-52.0,
+            roll_degrees=11.0,
+            pan_x=23.0,
+            pan_y=-17.0,
+            zoom=1.7,
+        )
+        previous_center = (1.0, 2.0, 3.0)
+        previous_radius = 12.0
+        new_center = (8.0, -4.0, 9.0)
+        new_radius = 31.0
+        point = (5.0, 7.0, -2.0)
+        viewport_height = 600.0
+
+        def projected(center, radius):
+            rotation = _camera_rotation_matrix(
+                camera.yaw_degrees,
+                camera.pitch_degrees,
+                camera.roll_degrees,
+            )
+            relative = tuple(
+                point[axis] - center[axis] for axis in range(3)
+            )
+            rotated = tuple(
+                sum(rotation[row][column] * relative[column]
+                    for column in range(3))
+                for row in range(3)
+            )
+            scale = viewport_height * 0.5 / radius * camera.zoom
+            return (
+                camera.pan_x + rotated[0] * scale,
+                camera.pan_y - rotated[1] * scale,
+                scale,
+            )
+
+        before = projected(previous_center, previous_radius)
+        preserve_camera_for_scene_bounds(
+            camera,
+            previous_center,
+            previous_radius,
+            new_center,
+            new_radius,
+            viewport_height,
+        )
+        after = projected(new_center, new_radius)
+
+        for actual, expected in zip(after, before):
+            self.assertAlmostEqual(actual, expected)
 
     def test_three_independent_assembly_mates_lock_full_transform(self) -> None:
         rows = [

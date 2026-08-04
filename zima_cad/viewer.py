@@ -308,6 +308,42 @@ def _camera_rotation_matrix(
     )
 
 
+def preserve_camera_for_scene_bounds(
+    camera: CameraState,
+    previous_center: Point3,
+    previous_radius: float,
+    new_center: Point3,
+    new_radius: float,
+    viewport_height: float,
+) -> None:
+    """Keep world-to-screen navigation stable across a bounds rebuild."""
+    if previous_radius <= 1e-12 or new_radius <= 1e-12:
+        return
+    previous_scale = (
+        max(0.0, float(viewport_height))
+        * 0.5
+        / previous_radius
+        * camera.zoom
+    )
+    rotation = _camera_rotation_matrix(
+        camera.yaw_degrees,
+        camera.pitch_degrees,
+        camera.roll_degrees,
+    )
+    center_delta = tuple(
+        previous_center[axis] - new_center[axis]
+        for axis in range(3)
+    )
+    rotated_delta = tuple(
+        sum(rotation[row][column] * center_delta[column]
+            for column in range(3))
+        for row in range(3)
+    )
+    camera.zoom *= new_radius / previous_radius
+    camera.pan_x -= rotated_delta[0] * previous_scale
+    camera.pan_y += rotated_delta[1] * previous_scale
+
+
 def _nearest_angle(angle: float, reference: float) -> float:
     return reference + ((angle - reference + 180.0) % 360.0) - 180.0
 
@@ -968,6 +1004,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return self._pick_point(position)
 
     def set_mesh(self, mesh: ViewerMesh | None, *, fit: bool = True) -> None:
+        previous_mesh = self._mesh
+        previous_center = self._scene_center
+        previous_radius = self._scene_radius
+        previous_zoom = self.camera.zoom
         self._mesh = mesh
         self._silhouette_edges = (
             build_silhouette_edges(mesh) if mesh is not None else ()
@@ -999,6 +1039,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if fit:
             self.reset_camera()
         else:
+            if (
+                previous_mesh is not None
+                and not previous_mesh.is_empty
+                and mesh is not None
+                and not mesh.is_empty
+                and previous_radius > 1e-12
+            ):
+                # Scene bounds are renderer bookkeeping, not navigation.
+                # Compensate their changed center and radius so a live model
+                # rebuild keeps every unchanged world point on the same
+                # screen pixel at the same scale.
+                self.camera.zoom = previous_zoom
+                preserve_camera_for_scene_bounds(
+                    self.camera,
+                    previous_center,
+                    previous_radius,
+                    self._scene_center,
+                    self._scene_radius,
+                    float(self.height()),
+                )
+                self.navigationChanged.emit(self.camera)
             self.update()
 
     def clear_scene(self) -> None:
