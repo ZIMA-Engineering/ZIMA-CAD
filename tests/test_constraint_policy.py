@@ -61,6 +61,20 @@ class ConstraintCapabilityTests(unittest.TestCase):
             current_reference_count=3,
         ), "reject")
 
+    def test_parallel_orientation_reference_is_rejected(self) -> None:
+        capability = constraint_capability("PLANE")
+
+        self.assertEqual(reference_admission(
+            capability,
+            current_translation_dof=0,
+            trial_translation_dof=0,
+            trial_is_valid=True,
+            orientation_candidate=True,
+            orientation_reference_count=1,
+            current_reference_count=2,
+            orientation_independent=False,
+        ), "reject")
+
     def test_axis_can_accept_bounded_orientation_references(self) -> None:
         axis = constraint_capability("AXIS")
         self.assertEqual(axis.total_dof, 6)

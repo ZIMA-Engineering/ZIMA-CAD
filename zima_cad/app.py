@@ -1661,6 +1661,18 @@ class PointConstraintDialog(QDialog):
             "down": "z",
         }
         family = role_family.get(role)
+        if family is not None and not self._orientation_is_independent(
+            reference,
+            exclude=reference,
+        ):
+            role = "none"
+            family = None
+            self.reference_status_label.setStyleSheet(
+                "color: #ed7777; font-weight: 700;"
+            )
+            self.reference_status_label.setText(
+                tr("dialog.point_constraints.rejected_reference")
+            )
         was_oriented = role_family.get(
             str(reference.get("orientation_role", "none"))
         ) is not None
@@ -1860,6 +1872,11 @@ class PointConstraintDialog(QDialog):
                 == EntityKind.AXIS
             )
         )
+        orientation_independent = (
+            self._orientation_is_independent(reference)
+            if is_orientation_candidate
+            else True
+        )
         fallback = tuple(edit.value() for edit in self.coordinate_edits)
         trial_solution, trial_dof, _status, _constrained = (
             self.solve_callback(
@@ -1879,6 +1896,7 @@ class PointConstraintDialog(QDialog):
                 for existing in self.references
             ),
             current_reference_count=len(self.references),
+            orientation_independent=orientation_independent,
         )
         if admission != "position":
             if admission == "orientation":
@@ -1918,6 +1936,28 @@ class PointConstraintDialog(QDialog):
         self._append_reference_row(reference)
         self._refresh_reference_item_warnings()
         self._update_solution()
+
+    def _orientation_is_independent(
+        self,
+        candidate: dict[str, Any],
+        *,
+        exclude: dict[str, Any] | None = None,
+    ) -> bool:
+        owner = getattr(self.solve_callback, "__self__", None)
+        checker = getattr(
+            owner,
+            "_orientation_references_are_independent",
+            None,
+        )
+        if not callable(checker):
+            return True
+        oriented = [
+            reference for reference in self.references
+            if reference is not exclude
+            and str(reference.get("orientation_role", "none")) != "none"
+            and self._reference_drives_rotation(reference)
+        ]
+        return bool(checker(oriented, candidate))
 
     def _default_orientation_role(self, used_roles: set[str]) -> str:
         return (
@@ -2597,6 +2637,28 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         if not key:
             return False
         other = 1 - row
+        other_reference = next(
+            (
+                item for item in self.references
+                if str(item.get("key", ""))
+                == str(self._container_orientation_keys[other] or "")
+            ),
+            None,
+        )
+        if (
+            other_reference is not None
+            and not self._orientation_is_independent(
+                reference,
+                exclude=reference,
+            )
+        ):
+            self.reference_status_label.setStyleSheet(
+                "color: #ed7777; font-weight: 700;"
+            )
+            self.reference_status_label.setText(
+                tr("dialog.point_constraints.rejected_reference")
+            )
+            return False
         if self._container_orientation_keys[other] == key:
             self._container_orientation_keys[other] = (
                 self._container_orientation_keys[row]
@@ -10588,6 +10650,36 @@ class MainWindow(QMainWindow):
             math.degrees(value)
             for value in (rx_radians, ry_radians, rz_radians)
         )
+
+    def _orientation_references_are_independent(
+        self,
+        existing: list[dict[str, Any]],
+        candidate: dict[str, Any],
+    ) -> bool:
+        candidate_vector = self._normalized_vector(
+            self._orientation_reference_vector(
+                candidate,
+                allow_frame_fallback=False,
+            )
+        )
+        if candidate_vector == (0.0, 0.0, 0.0):
+            return False
+        for reference in existing:
+            existing_vector = self._normalized_vector(
+                self._orientation_reference_vector(
+                    reference,
+                    allow_frame_fallback=False,
+                )
+            )
+            if existing_vector == (0.0, 0.0, 0.0):
+                continue
+            alignment = abs(sum(
+                candidate_vector[index] * existing_vector[index]
+                for index in range(3)
+            ))
+            if alignment >= 1.0 - 1e-8:
+                return False
+        return True
 
     def _orientation_reference_vector(
         self,

@@ -35,6 +35,7 @@ def reference_admission(
     orientation_candidate: bool,
     orientation_reference_count: int,
     current_reference_count: int = 0,
+    orientation_independent: bool = True,
 ) -> str:
     """Return `position`, `orientation`, or `reject` for one reference."""
 
@@ -49,6 +50,7 @@ def reference_admission(
         return "position"
     if (
         orientation_candidate
+        and orientation_independent
         and capability.accepts_orientation_references
         and orientation_reference_count
         < capability.maximum_orientation_references

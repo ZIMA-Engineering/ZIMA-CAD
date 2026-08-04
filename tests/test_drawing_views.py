@@ -308,6 +308,38 @@ class DrawingViewConventionTests(unittest.TestCase):
             EntityKind.PLANE,
         ))
 
+    def test_parallel_direction_does_not_complete_container_frame(self) -> None:
+        class OrientationHarness:
+            _normalized_vector = staticmethod(MainWindow._normalized_vector)
+
+            @staticmethod
+            def _orientation_reference_vector(
+                descriptor,
+                *,
+                allow_frame_fallback,
+            ):
+                return tuple(descriptor["direction"])
+
+        independent = MainWindow._orientation_references_are_independent
+        harness = OrientationHarness()
+        primary = [{"direction": (1.0, 0.0, 0.0)}]
+
+        self.assertFalse(independent(
+            harness,
+            primary,
+            {"direction": (2.0, 0.0, 0.0)},
+        ))
+        self.assertFalse(independent(
+            harness,
+            primary,
+            {"direction": (-1.0, 0.0, 0.0)},
+        ))
+        self.assertTrue(independent(
+            harness,
+            primary,
+            {"direction": (0.0, 1.0, 0.0)},
+        ))
+
     def test_three_independent_assembly_mates_lock_full_transform(self) -> None:
         rows = [
             {"target": "x", "orientation": True},
