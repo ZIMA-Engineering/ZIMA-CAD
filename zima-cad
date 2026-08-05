@@ -7,7 +7,7 @@ export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
 
 # GPU selection is portable and overrideable:
 #   auto   - use NVIDIA PRIME on a hybrid NVIDIA system, system GPU otherwise
-#   nvidia - force NVIDIA PRIME (uses XWayland when the session is Wayland)
+#   nvidia - force NVIDIA PRIME
 #   system - leave GPU/platform selection entirely to Qt and the desktop
 ZIMA_CAD_GPU_MODE="${ZIMA_CAD_GPU:-auto}"
 ZIMA_CAD_HAS_NVIDIA=false
@@ -33,9 +33,6 @@ if [[ "$ZIMA_CAD_GPU_MODE" == "nvidia" ]] \
         && "$ZIMA_CAD_HYBRID_GPU" == true ]]; then
     export __NV_PRIME_RENDER_OFFLOAD=1
     export __GLX_VENDOR_LIBRARY_NAME=nvidia
-    if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
-        export QT_QPA_PLATFORM=xcb
-    fi
 elif [[ "$ZIMA_CAD_GPU_MODE" != "auto" \
     && "$ZIMA_CAD_GPU_MODE" != "system" ]]; then
     echo "Unknown ZIMA_CAD_GPU mode: $ZIMA_CAD_GPU_MODE" >&2

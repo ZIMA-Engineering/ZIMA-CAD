@@ -23,6 +23,7 @@ from PySide6.QtGui import (
     QColor,
     QMatrix4x4,
     QMouseEvent,
+    QOpenGLExtraFunctions,
     QPainter,
     QPen,
     QPolygonF,
@@ -32,7 +33,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
-    QOpenGLFunctions_3_3_Core,
     QOpenGLShader,
     QOpenGLShaderProgram,
     QOpenGLVertexArrayObject,
@@ -163,7 +163,7 @@ GL_POLYGON_OFFSET_FILL = 0x8037
 GL_TRIANGLES = 0x0004
 
 BACKGROUND_VERTEX_SHADER = """
-#version 330 core
+#version 300 es
 out float verticalPosition;
 void main() {
     const vec2 positions[3] = vec2[3](
@@ -178,7 +178,8 @@ void main() {
 """
 
 BACKGROUND_FRAGMENT_SHADER = """
-#version 330 core
+#version 300 es
+precision highp float;
 in float verticalPosition;
 uniform vec3 bottomColor;
 uniform vec3 topColor;
@@ -192,7 +193,7 @@ void main() {
 """
 
 SURFACE_VERTEX_SHADER = """
-#version 330 core
+#version 300 es
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 uniform mat4 mvp;
@@ -205,7 +206,8 @@ void main() {
 """
 
 SURFACE_FRAGMENT_SHADER = """
-#version 330 core
+#version 300 es
+precision highp float;
 in vec3 cameraNormal;
 uniform vec3 surfaceColor;
 out vec4 fragmentColor;
@@ -218,7 +220,7 @@ void main() {
 """
 
 EDGE_VERTEX_SHADER = """
-#version 330 core
+#version 300 es
 layout(location = 0) in vec3 position;
 uniform mat4 mvp;
 void main() {
@@ -227,7 +229,8 @@ void main() {
 """
 
 EDGE_FRAGMENT_SHADER = """
-#version 330 core
+#version 300 es
+precision highp float;
 uniform vec3 edgeColor;
 out vec4 fragmentColor;
 void main() {
@@ -514,8 +517,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         surface_format = QSurfaceFormat()
-        surface_format.setVersion(3, 3)
-        surface_format.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        surface_format.setRenderableType(
+            QSurfaceFormat.RenderableType.OpenGLES
+        )
+        surface_format.setVersion(3, 0)
+        surface_format.setProfile(
+            QSurfaceFormat.OpenGLContextProfile.NoProfile
+        )
         surface_format.setDepthBufferSize(24)
         # Avoid a multisampled native buffer while navigating large CAD
         # scenes. Edge smoothing is handled independently.
@@ -543,7 +551,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
-        self._gl: QOpenGLFunctions_3_3_Core | None = None
+        self._gl: QOpenGLExtraFunctions | None = None
         self._background_program: QOpenGLShaderProgram | None = None
         self._surface_program: QOpenGLShaderProgram | None = None
         self._edge_program: QOpenGLShaderProgram | None = None
@@ -1508,9 +1516,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.update()
 
     def initializeGL(self) -> None:
-        self._gl = QOpenGLFunctions_3_3_Core()
-        if not self._gl.initializeOpenGLFunctions():
-            raise RuntimeError("OpenGL 3.3 core functions are unavailable")
+        context = self.context()
+        if context is None:
+            raise RuntimeError("OpenGL ES context is unavailable")
+        self._gl = context.extraFunctions()
+        self._gl.initializeOpenGLFunctions()
         def gl_text(name: int) -> str:
             value = self._gl.glGetString(name)
             if value is None:
@@ -3226,7 +3236,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _draw_highlighted_face(
         self,
-        gl: QOpenGLFunctions_3_3_Core,
+        gl: QOpenGLExtraFunctions,
         program: QOpenGLShaderProgram,
         face: TopologyKey | None,
         color: QVector3D,
@@ -3370,7 +3380,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _draw_gpu_silhouette_edges(
         self,
-        gl: QOpenGLFunctions_3_3_Core,
+        gl: QOpenGLExtraFunctions,
         program: QOpenGLShaderProgram,
     ) -> None:
         buffer = self._silhouette_buffer
@@ -3425,7 +3435,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _draw_highlighted_edge(
         self,
-        gl: QOpenGLFunctions_3_3_Core,
+        gl: QOpenGLExtraFunctions,
         program: QOpenGLShaderProgram,
         edge_key: TopologyKey | None,
         color: QVector3D,
@@ -3460,7 +3470,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _draw_highlighted_object(
         self,
-        gl: QOpenGLFunctions_3_3_Core,
+        gl: QOpenGLExtraFunctions,
         program: QOpenGLShaderProgram,
         owner_id: str | None,
         color: QVector3D,
@@ -3489,7 +3499,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _draw_highlighted_reference(
         self,
-        gl: QOpenGLFunctions_3_3_Core,
+        gl: QOpenGLExtraFunctions,
         program: QOpenGLShaderProgram,
         owner_id: str | None,
     ) -> None:

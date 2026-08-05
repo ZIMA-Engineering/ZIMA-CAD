@@ -1,11 +1,34 @@
 import sys
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap, QSurfaceFormat
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from zima_cad.paths import app_path
 from zima_cad.settings import resolve_startup_context
+
+
+def configure_opengl() -> None:
+    """Configure one shareable EGL/GL format before QApplication exists."""
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_ShareOpenGLContexts,
+        True,
+    )
+    surface_format = QSurfaceFormat()
+    # EGL exposes the PRIME-rendered NVIDIA device reliably on native
+    # Wayland through OpenGL ES.  Requesting desktop OpenGL here makes Qt's
+    # QOpenGLWidget fail with EGL_BAD_MATCH on hybrid NVIDIA systems.
+    surface_format.setRenderableType(
+        QSurfaceFormat.RenderableType.OpenGLES
+    )
+    surface_format.setVersion(3, 0)
+    surface_format.setProfile(
+        QSurfaceFormat.OpenGLContextProfile.NoProfile
+    )
+    surface_format.setDepthBufferSize(24)
+    surface_format.setSamples(0)
+    surface_format.setSwapInterval(0)
+    QSurfaceFormat.setDefaultFormat(surface_format)
 
 
 class PersistentSplashScreen(QLabel):
@@ -29,6 +52,7 @@ class PersistentSplashScreen(QLabel):
 
 
 def bootstrap() -> int:
+    configure_opengl()
     try:
         startup_context, qt_arguments = resolve_startup_context(sys.argv[1:])
     except ValueError as exc:
