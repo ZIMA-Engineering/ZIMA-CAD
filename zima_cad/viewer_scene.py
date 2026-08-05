@@ -192,13 +192,35 @@ def build_document_viewer_scene_data(
             surface_colors_by_owner_id[document.root.entity_id] = str(
                 document.document_settings.get("body_color", "#B9C2CC")
             )
-            body_mesh = cached_body_mesh or triangulate_shape(
-                shape,
-                owner_id=document.root.entity_id,
-            )
+            if cached_body_mesh is not None:
+                body_mesh = cached_body_mesh
+            else:
+                imported_face_count = max(
+                    (
+                        int(child.parameters.get("face_count", 0) or 0)
+                        for obj in document.history_objects_at(boundary)
+                        for child in obj.children
+                        if child.kind == EntityKind.IMPORTED_STEP
+                    ),
+                    default=0,
+                )
+                body_mesh = triangulate_shape(
+                    shape,
+                    owner_id=document.root.entity_id,
+                    linear_deflection=(
+                        5.0 if imported_face_count > 5_000 else 0.2
+                    ),
+                    angular_deflection=(
+                        1.2 if imported_face_count > 5_000 else 0.35
+                    ),
+                    include_topology=imported_face_count <= 5_000,
+                )
             layers.append(body_mesh)
 
     reference_scene_size = _scene_diagonal(layers)
+    large_body_scene = (
+        body_mesh is not None and body_mesh.triangle_count > 100_000
+    )
     for obj in document.visible_objects():
         _append_object_sketches(
             document,
@@ -212,18 +234,19 @@ def build_document_viewer_scene_data(
             show_user_planes,
             editing_object_id,
         )
-        _append_object_origins(
-            document,
-            obj,
-            identity_transform(),
-            layers,
-            show_object_planes,
-            show_object_origins,
-            show_component_origins,
-            show_user_points,
-            editing_object_id,
-            reference_scene_size,
-        )
+        if not large_body_scene:
+            _append_object_origins(
+                document,
+                obj,
+                identity_transform(),
+                layers,
+                show_object_planes,
+                show_object_origins,
+                show_component_origins,
+                show_user_points,
+                editing_object_id,
+                reference_scene_size,
+            )
 
     if preview_coordinate_system is not None:
         preview_owner_id = CONTAINER_PREVIEW_ORIGIN_ID
@@ -278,7 +301,7 @@ def build_document_viewer_scene_data(
                 )
             )
 
-    if show_document_origin:
+    if show_document_origin and not large_body_scene:
         origin_id = _document_origin_id(document)
         layers.append(
             origin_axes_mesh(
@@ -287,7 +310,7 @@ def build_document_viewer_scene_data(
                 point_label=f"{document.root.name} · Origin",
             )
         )
-    if show_document_planes:
+    if show_document_planes and not large_body_scene:
         origin_id = _document_origin_id(document)
         for plane_index, plane_name in enumerate(
             ("xy", "yz", "xz"),

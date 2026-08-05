@@ -517,8 +517,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         surface_format.setVersion(3, 3)
         surface_format.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
         surface_format.setDepthBufferSize(24)
-        surface_format.setSamples(4)
+        # Avoid a multisampled native buffer while navigating large CAD
+        # scenes. Edge smoothing is handled independently.
+        surface_format.setSamples(0)
+        # KWin already paces the composited widget.  A second GL swap wait can
+        # throttle QOpenGLWidget to 30-45 FPS through XWayland even when the
+        # actual render takes only a fraction of a millisecond.
+        surface_format.setSwapInterval(0)
         self.setFormat(surface_format)
+        self.setUpdateBehavior(QOpenGLWidget.UpdateBehavior.PartialUpdate)
         self.camera = CameraState()
         self._background_top = QColor("#3B4654")
         self._background_bottom = QColor("#171B21")
@@ -530,6 +537,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_dragged = False
         self._middle_chorded = False
         self._middle_double_clicked = False
+        self._navigation_active = False
         self._mesh: ViewerMesh | None = None
         self._face_pick_cache_key: tuple[Any, ...] | None = None
         self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
@@ -547,6 +555,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_vao: QOpenGLVertexArrayObject | None = None
         self._surface_vertex_count = 0
         self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
+        self._owner_ranges: tuple[tuple[str, int, int], ...] = ()
         self._edge_ranges: tuple[tuple[int, int], ...] = ()
         self._silhouette_edges: tuple[SilhouetteEdge, ...] = ()
         self._silhouette_cache: list[
@@ -1106,15 +1115,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         previous_radius = self._scene_radius
         previous_zoom = self.camera.zoom
         self._mesh = mesh
-        cached_silhouettes = next(
-            (
-                silhouettes
-                for cached_mesh, silhouettes in self._silhouette_cache
-                if cached_mesh == mesh
-            ),
-            None,
+        cached_silhouettes = (
+            next(
+                (
+                    silhouettes
+                    for cached_mesh, silhouettes in self._silhouette_cache
+                    if cached_mesh == mesh
+                ),
+                None,
+            )
+            if mesh is not None and mesh.triangle_count <= 100_000
+            else None
         )
         if mesh is None:
+            self._silhouette_edges = ()
+        elif mesh.triangle_count > 100_000:
+            # Large imported STEP models already carry their exact CAD edge
+            # polylines.  Building tessellation silhouettes synchronously for
+            # hundreds of thousands of triangles delays the first frame by
+            # minutes and leaves the viewport blank in the meantime.
             self._silhouette_edges = ()
         elif cached_silhouettes is not None:
             self._silhouette_edges = cached_silhouettes
@@ -1492,6 +1511,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._gl = QOpenGLFunctions_3_3_Core()
         if not self._gl.initializeOpenGLFunctions():
             raise RuntimeError("OpenGL 3.3 core functions are unavailable")
+        def gl_text(name: int) -> str:
+            value = self._gl.glGetString(name)
+            if value is None:
+                return "unknown"
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return str(value)
+        print(
+            "ZIMA Viewer OpenGL: "
+            f"vendor={gl_text(0x1F00)}; "
+            f"renderer={gl_text(0x1F01)}; "
+            f"version={gl_text(0x1F02)}",
+            flush=True,
+        )
         self._background_program = self._create_program(
             BACKGROUND_VERTEX_SHADER,
             BACKGROUND_FRAGMENT_SHADER,
@@ -1568,7 +1601,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         gl.glEnable(GL_DEPTH_TEST)
         gl.glDepthFunc(GL_LEQUAL)
-        gl.glEnable(GL_MULTISAMPLE)
+        if self.format().samples() > 1:
+            gl.glEnable(GL_MULTISAMPLE)
         model_view, mvp = self._camera_matrices()
         surface_pass = _surface_pass_for_display_mode(self._display_mode)
         if surface_pass == "depth":
@@ -1581,13 +1615,30 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 gl.glColorMask(True, True, True, True)
         elif surface_pass == "color":
             self._draw_surfaces(model_view, mvp)
-        self._draw_edges(
-            mvp,
-            draw_base_edges=self._display_mode != "shaded",
-        )
+        if (
+            (mesh.edges or self._silhouette_edges)
+            and self._display_mode != "shaded"
+        ) or any((
+            self._hovered_edge,
+            self._selected_edge,
+            self._hovered_object_id,
+            self._selected_object_id,
+            self._selected_reference_owner_id,
+            self._constraint_reference_edges,
+            self._assembly_reference_edges,
+        )):
+            self._draw_edges(
+                mvp,
+                draw_base_edges=self._display_mode != "shaded",
+            )
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
+        # Repeating QPainter overlays for every mouse-move frame forces a GPU
+        # synchronization. They are static during navigation and are painted
+        # again immediately after it ends.
+        if self._navigation_active:
+            return
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
@@ -1928,6 +1979,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             event.button() == Qt.MouseButton.LeftButton
             and self._selection_enabled
         ):
+            if (
+                self._sketch_frame is None
+                and self._mesh is not None
+                and self._mesh.triangle_count > 100_000
+            ):
+                # Large imported STEP previews deliberately have no detailed
+                # topology.  A linear CPU ray test over every display
+                # triangle blocks the Qt event loop for seconds.  Their
+                # single display owner can be selected without that scan.
+                owner_id = next(
+                    (
+                        candidate for candidate
+                        in self._mesh.triangle_owner_ids
+                        if candidate
+                    ),
+                    "",
+                )
+                self._clear_topology_selection()
+                self._set_selected_object(owner_id or None)
+                event.accept()
+                return
             if self._interaction_mode == "object":
                 if self._selection_preview_pending:
                     self._selection_preview_pending = False
@@ -2018,7 +2090,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             if event.buttons() & Qt.MouseButton.RightButton:
                 self._suppress_next_context_menu = True
-            self.setFocus()
+            self._navigation_active = True
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
@@ -2475,6 +2547,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._set_hovered_plane(None)
             super().mouseMoveEvent(event)
             return
+        if (
+            self._sketch_frame is None
+            and self._mesh is not None
+            and self._mesh.triangle_count > 100_000
+        ):
+            # Hover picking used to project/test all 157k+ triangles for
+            # every cursor event.  While that O(N) scan was running, middle
+            # press and wheel events accumulated in Qt's queue and navigation
+            # appeared to start only after a long wait.
+            self._clear_topology_hover()
+            self._set_hovered_object(None)
+            super().mouseMoveEvent(event)
+            return
         if self._interaction_mode == "object":
             point = self._pick_point(event.position())
             plane = (
@@ -2615,6 +2700,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             event.accept()
             return
         if event.button() == Qt.MouseButton.MiddleButton:
+            self._navigation_active = False
+            self.update()
             if self._middle_double_clicked:
                 self._middle_double_clicked = False
                 self._last_mouse_position = None
@@ -2862,27 +2949,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ratio = new_zoom / old_zoom
             cursor = event.position()
             self.camera.pan_x = (
-                cursor.x()
-                - self.width() * 0.5
-                - (
-                    cursor.x()
-                    - self.width() * 0.5
-                    - self.camera.pan_x
-                )
+                cursor.x() - self.width() * 0.5
+                - (cursor.x() - self.width() * 0.5 - self.camera.pan_x)
                 * ratio
             )
             self.camera.pan_y = (
-                cursor.y()
-                - self.height() * 0.5
-                - (
-                    cursor.y()
-                    - self.height() * 0.5
-                    - self.camera.pan_y
-                )
+                cursor.y() - self.height() * 0.5
+                - (cursor.y() - self.height() * 0.5 - self.camera.pan_y)
                 * ratio
             )
             self.camera.zoom = new_zoom
-            self._buffers_dirty = True
             self.navigationChanged.emit(self.camera)
             self.update()
         event.accept()
@@ -2998,6 +3074,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         edge_buffer.release()
         self._surface_vertex_count = len(surface_values) // 6
         self._face_ranges = self._build_face_ranges(mesh)
+        self._owner_ranges = self._build_owner_ranges(mesh)
         self._edge_ranges = tuple(edge_ranges)
         self._buffers_dirty = False
 
@@ -3037,8 +3114,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         program.setAttributeBuffer(1, 0x1406, 12, 3, 24)
         gl.glEnable(GL_POLYGON_OFFSET_FILL)
         gl.glPolygonOffset(1.0, 1.0)
-        if self._face_ranges:
-            for owner_id, _face, start, count in self._face_ranges:
+        if self._owner_ranges:
+            for owner_id, start, count in self._owner_ranges:
                 owner_color = self._surface_colors_by_owner_id.get(
                     owner_id,
                     self._surface_color,
@@ -3116,6 +3193,35 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 (len(mesh.triangle_face_indices) - first_triangle) * 3,
             )
         )
+        return tuple(ranges)
+
+    @staticmethod
+    def _build_owner_ranges(
+        mesh: ViewerMesh | None,
+    ) -> tuple[tuple[str, int, int], ...]:
+        """Batch adjacent triangles with the same display colour owner."""
+        if mesh is None or not mesh.triangle_owner_ids:
+            return ()
+        ranges: list[tuple[str, int, int]] = []
+        first_triangle = 0
+        current_owner = mesh.triangle_owner_ids[0]
+        for triangle_index, owner_id in enumerate(
+            mesh.triangle_owner_ids[1:], start=1
+        ):
+            if owner_id == current_owner:
+                continue
+            ranges.append((
+                current_owner,
+                first_triangle * 3,
+                (triangle_index - first_triangle) * 3,
+            ))
+            current_owner = owner_id
+            first_triangle = triangle_index
+        ranges.append((
+            current_owner,
+            first_triangle * 3,
+            (len(mesh.triangle_owner_ids) - first_triangle) * 3,
+        ))
         return tuple(ranges)
 
     def _draw_highlighted_face(

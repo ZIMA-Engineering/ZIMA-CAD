@@ -67,7 +67,8 @@ from OCC.Core.TopAbs import (
     TopAbs_SOLID,
     TopAbs_VERTEX,
 )
-from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopExp import TopExp_Explorer, topexp
+from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
 from zima_cad.sketch_model import GeometryType, SketchModel, SketchModelError
 from zima_cad.sketch_geometry import (
@@ -259,6 +260,7 @@ class EntityKind(str, Enum):
     CONE = "cone"
     PYRAMID = "pyramid"
     WEDGE = "wedge"
+    IMPORTED_STEP = "imported_step"
 
 
 class ContainerType(str, Enum):
@@ -277,6 +279,7 @@ class ContainerType(str, Enum):
     REVOLVE = "REVOLVE"
     FILLET = "FILLET"
     COMPONENT = "COMPONENT"
+    IMPORTED_STEP = "IMPORTED_STEP"
 
 
 class TreeExposure(str, Enum):
@@ -314,6 +317,7 @@ ENTITY_KINDS = frozenset(
         EntityKind.CONE,
         EntityKind.PYRAMID,
         EntityKind.WEDGE,
+        EntityKind.IMPORTED_STEP,
     }
 )
 
@@ -325,6 +329,7 @@ SOLID_KINDS = frozenset(
         EntityKind.CONE,
         EntityKind.PYRAMID,
         EntityKind.WEDGE,
+        EntityKind.IMPORTED_STEP,
     }
 )
 
@@ -492,6 +497,7 @@ class ZimaEntity:
                 EntityKind.CONE,
                 EntityKind.PYRAMID,
                 EntityKind.WEDGE,
+                EntityKind.IMPORTED_STEP,
             )
             return any(self.can_accept_entity(candidate) for candidate in candidates)
         if kind not in ENTITY_KINDS:
@@ -525,7 +531,12 @@ def _entity_geometry_state(obj: ZimaEntity) -> dict[str, Any]:
             "z_axis": coordinate.z_axis,
         },
         "parameters": {
-            str(key): value
+            str(key): (
+                obj.parameters.get("step_sha256", "")
+                if obj.kind == EntityKind.IMPORTED_STEP
+                and key == "step_data"
+                else value
+            )
             for key, value in obj.parameters.items()
             if key != "build_status"
         },
@@ -2479,6 +2490,23 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
 def make_shape(obj: ZimaEntity):
     x, y, z = (0.0, 0.0, 0.0)
 
+    if obj.kind == EntityKind.IMPORTED_STEP:
+        cached_shape = getattr(obj, "_imported_shape_cache", None)
+        if cached_shape is not None and not cached_shape.IsNull():
+            return cached_shape
+        payload = str(obj.parameters.get("step_data", ""))
+        if not payload:
+            return None
+        try:
+            from zima_cad.step_import import shape_from_embedded_step
+            shape = shape_from_embedded_step(payload)
+        except (OSError, ValueError, RuntimeError):
+            return None
+        if shape is None or shape.IsNull():
+            return None
+        obj._imported_shape_cache = shape
+        return shape
+
     if obj.kind == EntityKind.BOX:
         length = float(obj.parameters.get("length", 100.0))
         width = float(obj.parameters.get("width", 60.0))
@@ -3934,6 +3962,44 @@ def _standalone_topology_registry(
         return protrusion_face_registry(document, container, shape)
     if container.container_type == ContainerType.REVOLVE:
         return revolve_face_registry(document, container, shape)
+    imported = next((
+        child for child in container.children
+        if child.kind == EntityKind.IMPORTED_STEP and not child.locked
+    ), None)
+    if imported is not None:
+        registry = TopologyRegistry()
+        face_shapes = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(shape, TopAbs_FACE, face_shapes)
+        # Eagerly materializing references for every face, edge and vertex of
+        # a very large imported assembly consumes substantially more memory
+        # than the Shape itself.  Keep the model/view usable; large-import
+        # topology will move to an on-demand registry in a later iteration.
+        if face_shapes.Size() > 5_000:
+            return registry
+        for shape_type, reference_type, register in (
+            (TopAbs_FACE, FaceRef, registry.register_face),
+            (TopAbs_EDGE, EdgeRef, registry.register_edge),
+            (TopAbs_VERTEX, VertexRef, registry.register_vertex),
+        ):
+            indexed_shapes = (
+                face_shapes
+                if shape_type == TopAbs_FACE
+                else TopTools_IndexedMapOfShape()
+            )
+            if shape_type != TopAbs_FACE:
+                topexp.MapShapes(shape, shape_type, indexed_shapes)
+            for index in range(1, indexed_shapes.Size() + 1):
+                subshape = indexed_shapes.FindKey(index)
+                register(
+                    reference_type(
+                        imported.entity_id,
+                        "imported",
+                        str(index),
+                    ),
+                    subshape,
+                    runtime_index=index,
+                )
+        return registry
     solid = next((
         child for child in container.children
         if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
@@ -3972,6 +4038,7 @@ def _container_boolean_feature_id(container: ZimaEntity) -> str:
         if child.kind in (
             EntityKind.PROTRUSION,
             EntityKind.REVOLVE,
+            EntityKind.IMPORTED_STEP,
             *SOLID_KINDS,
         )
         and not child.locked
@@ -4720,6 +4787,8 @@ def face_registry_at(
         return protrusion_face_registry(document, container, shape)
     if container.container_type == ContainerType.REVOLVE:
         return revolve_face_registry(document, container, shape)
+    if container.container_type == ContainerType.IMPORTED_STEP:
+        return _standalone_topology_registry(document, container, shape)
     solid = next(
         (
             child

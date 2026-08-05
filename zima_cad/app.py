@@ -8,6 +8,7 @@ import io
 import json
 import math
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -233,6 +234,7 @@ from zima_cad.storage import (
     save_part_document,
 )
 from zima_cad.versioned_io import validate_ini_file, write_text_versioned
+from zima_cad.step_import import import_step_file
 
 _RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
 
@@ -299,6 +301,7 @@ TREE_ICON_NAMES = {
     EntityKind.CONE: "cone",
     EntityKind.PYRAMID: "pyramid",
     EntityKind.WEDGE: "wedge",
+    EntityKind.IMPORTED_STEP: "part",
 }
 
 
@@ -7637,6 +7640,11 @@ class MainWindow(QMainWindow):
         self._pending_assembly_cut_targets: list[str] = []
         self._assembly_part_documents: dict[Path, PartDocument] = {}
         self._dirty_assembly_part_paths: set[Path] = set()
+        self._step_import_executor = None
+        self._step_import_future = None
+        self._step_import_timer = None
+        self._step_import_path: Path | None = None
+        self._step_import_document: PartDocument | None = None
 
         self.tree = HistoryTreeWidget()
         self.tree.setSelectionMode(
@@ -11943,6 +11951,12 @@ class MainWindow(QMainWindow):
         self.open_document_action.setIcon(resource_icon("open"))
         self.open_document_action.triggered.connect(self.open_document)
 
+        import_step_action = file_menu.addAction(
+            tr("menu.file.import_step")
+        )
+        import_step_action.setIcon(resource_icon("open"))
+        import_step_action.triggered.connect(self.import_step_into_part)
+
         close_action = file_menu.addAction(tr("menu.file.close"))
         close_action.triggered.connect(self.close_document)
 
@@ -13615,6 +13629,134 @@ class MainWindow(QMainWindow):
             return
 
         self.open_document_path(Path(file_name))
+
+    def import_step_into_part(self) -> None:
+        if self.document is None or self._document_type(self.document) != "part":
+            QMessageBox.information(
+                self,
+                tr("menu.file.import_step"),
+                tr("step.import.part_required"),
+            )
+            return
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("menu.file.import_step"),
+            str(self.working_directory),
+            tr("file.filter.step"),
+        )
+        if not file_name:
+            return
+        if self._step_import_future is not None:
+            return
+        path = Path(file_name)
+        self.statusBar().showMessage(
+            tr("step.import.loading", name=path.name)
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="zima-step-import",
+        )
+        future = executor.submit(
+            import_step_file,
+            path,
+            mesh_owner_id=self.document.root.entity_id,
+        )
+        poll_timer = QTimer(self)
+        poll_timer.setInterval(50)
+        poll_timer.timeout.connect(self._poll_step_import)
+        self._step_import_executor = executor
+        self._step_import_future = future
+        self._step_import_timer = poll_timer
+        self._step_import_path = path
+        self._step_import_document = self.document
+        poll_timer.start()
+
+    def _poll_step_import(self) -> None:
+        future = self._step_import_future
+        if future is None or not future.done():
+            return
+        timer = self._step_import_timer
+        executor = self._step_import_executor
+        path = self._step_import_path
+        target_document = self._step_import_document
+        self._step_import_future = None
+        self._step_import_timer = None
+        self._step_import_executor = None
+        self._step_import_path = None
+        self._step_import_document = None
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        if executor is not None:
+            executor.shutdown(wait=False)
+        QApplication.restoreOverrideCursor()
+        try:
+            imported = future.result()
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                tr("step.import.failed"),
+                str(error),
+            )
+            self.statusBar().clearMessage()
+            return
+
+        # The user can switch tabs while the worker is reading the file.
+        # Never append its result to a different document.
+        if (
+            path is None
+            or target_document is None
+            or self.document is not target_document
+        ):
+            self.statusBar().clearMessage()
+            return
+
+        self.statusBar().showMessage(
+            tr("step.import.triangulating", name=path.name)
+        )
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
+        imported_mesh = imported.mesh
+
+        container = self.document.create_container(
+            path.stem or tr("step.import.default_name"),
+            ContainerType.IMPORTED_STEP,
+        )
+        entity = ZimaEntity(
+            name=container.name,
+            kind=EntityKind.IMPORTED_STEP,
+            combine_mode=CombineMode.ADD,
+            parameters={
+                "step_data": imported.step_data,
+                "step_sha256": imported.step_sha256,
+                "source_name": path.name,
+                "solid_count": str(imported.solid_count),
+                "face_count": str(imported.face_count),
+                "unit": "mm",
+            },
+        )
+        entity._imported_shape_cache = imported.shape
+        container.add_child(entity)
+        self._mark_model_for_regeneration()
+        shape = self.document.build_active_shape()
+        self._populate_tree()
+        self._select_tree_object(container.entity_id)
+        self.rebuild_view(
+            fit=True,
+            rebuild_geometry=True,
+            cached_body_shape=shape,
+            cached_body_mesh=imported_mesh,
+        )
+        self.workspace.documentChanged.emit(self, self.document)
+        self.statusBar().showMessage(
+            tr(
+                "step.import.complete",
+                solids=imported.solid_count,
+                faces=imported.face_count,
+            )
+        )
 
     def open_document_path(self, file_path: Path) -> bool:
         canonical_path = canonical_document_path(file_path)
@@ -34468,6 +34610,12 @@ class MainWindow(QMainWindow):
             and not self.point_constraint_dialog.isVisible()
         ):
             self.point_constraint_dialog = None
+        if (
+            obj.kind == EntityKind.IMPORTED_STEP
+            or obj.kind == EntityKind.CONTAINER
+            and obj.container_type == ContainerType.IMPORTED_STEP
+        ):
+            return
         if obj.kind == EntityKind.CONTAINER:
             self.show_object_properties(obj)
         elif obj.kind in SOLID_KINDS:
@@ -36748,7 +36896,11 @@ class MainWindow(QMainWindow):
         )
 
     def _first_editable_solid(self, obj: ZimaEntity) -> ZimaEntity | None:
-        if obj.kind in SOLID_KINDS and not obj.locked:
+        if (
+            obj.kind in SOLID_KINDS
+            and obj.kind != EntityKind.IMPORTED_STEP
+            and not obj.locked
+        ):
             return obj
         for child in obj.children:
             solid = self._first_editable_solid(child)
@@ -37016,6 +37168,7 @@ class MainWindow(QMainWindow):
         rebuild_geometry: bool = True,
         *,
         cached_body_shape=None,
+        cached_body_mesh=None,
     ) -> None:
         if rebuild_geometry:
             self._reference_topology_registry_cache.clear()
@@ -37072,6 +37225,7 @@ class MainWindow(QMainWindow):
                 fit,
                 reuse_body_geometry=reuse_body_geometry,
                 cached_body_shape=cached_body_shape,
+                cached_body_mesh=cached_body_mesh,
             )
         else:
             self.document = display_document
@@ -37095,6 +37249,7 @@ class MainWindow(QMainWindow):
         *,
         reuse_body_geometry: bool = False,
         cached_body_shape=None,
+        cached_body_mesh=None,
     ) -> None:
         if self.document is None:
             self._native_viewer_scene = None
@@ -37182,7 +37337,9 @@ class MainWindow(QMainWindow):
             else None,
             cached_body_shape=cached_body_shape,
             cached_body_mesh=(
-                previous_scene.body_mesh
+                cached_body_mesh
+                if cached_body_mesh is not None
+                else previous_scene.body_mesh
                 if cached_body_shape is not None
                 and reuse_body_geometry
                 and previous_scene is not None
@@ -37461,6 +37618,11 @@ class MainWindow(QMainWindow):
                     else self.document.find_parent(obj.entity_id)
                 )
                 if obj.kind == EntityKind.CONTAINER:
+                    if obj.container_type == ContainerType.IMPORTED_STEP:
+                        self.native_viewer._set_selected_object(
+                            self.document.root.entity_id
+                        )
+                        return
                     source_shape = self.document.build_standalone_shape(obj)
                     if source_shape is not None:
                         self.native_viewer.set_object_overlay(

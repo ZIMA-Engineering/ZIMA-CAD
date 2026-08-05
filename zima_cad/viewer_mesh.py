@@ -105,6 +105,7 @@ def triangulate_shape(
     linear_deflection: float = 0.2,
     angular_deflection: float = 0.35,
     edge_linear_deflection: float = 0.025,
+    include_topology: bool = True,
 ) -> ViewerMesh:
     """Convert a TopoDS shape into ZIMA-CAD surface and edge buffers."""
     if shape is None or shape.IsNull():
@@ -183,6 +184,27 @@ def triangulate_shape(
                 triangle_face_indices.append(face_index)
                 triangle_owner_ids.append(owner_id)
         face_explorer.Next()
+
+    if not include_topology:
+        if not all_points:
+            return _empty_mesh()
+        return ViewerMesh(
+            triangle_positions=tuple(triangle_positions),
+            triangle_normals=tuple(triangle_normals),
+            triangle_face_indices=tuple(triangle_face_indices),
+            triangle_owner_ids=tuple(triangle_owner_ids),
+            edges=(),
+            points=(),
+            planes=(),
+            bounds_min=tuple(
+                min(point[axis] for point in all_points)
+                for axis in range(3)
+            ),
+            bounds_max=tuple(
+                max(point[axis] for point in all_points)
+                for axis in range(3)
+            ),
+        )
 
     edges: list[EdgePolyline] = []
     seen_edge_hashes: set[int] = set()
@@ -502,6 +524,10 @@ def combine_viewer_meshes(meshes: tuple[ViewerMesh, ...]) -> ViewerMesh:
     visible_meshes = tuple(mesh for mesh in meshes if not mesh.is_empty)
     if not visible_meshes:
         return _empty_mesh()
+    if len(visible_meshes) == 1:
+        # Avoid duplicating every Python float/tuple of a large imported mesh
+        # merely to wrap a one-layer scene.
+        return visible_meshes[0]
     positions: list[float] = []
     normals: list[float] = []
     face_indices: list[int] = []
