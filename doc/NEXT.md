@@ -13,8 +13,10 @@
   prefix shapes and topology registries across late-feature edits and Undo/Redo.
 - Continue using the persisted, signature-validated compressed BREP result for
   fast `.prtz` cold starts, including Parts containing embedded STEP data.
-  Add compatibility/version diagnostics and measure cache size, decoding time
-  and fallback regeneration on larger documents.
+  Interactive File/Open now decodes the document and prepares a coarse large-
+  STEP display mesh in a worker; add compatibility/version diagnostics and
+  measure cache size, decoding time and fallback regeneration on larger
+  documents.
 - Carry Shape and `TopologyRegistry` together through one central linear
   evaluator instead of allowing feature commands to reconstruct topology or
   replay earlier history independently.
@@ -108,8 +110,12 @@
     references.
 - Original-solid Assembly picks and persisted mate restoration are now lazy.
   Keep whole-result topology only for genuine Boolean intersection references;
-  add direct visual overlays for persisted original-solid references without
-  reintroducing result-body runtime indices.
+  confirmed faces now retain a transient cyan viewport overlay without storing
+  a result-body runtime index. Extend equivalent direct overlays to every
+  supported persisted edge/axis reference and after document reload.
+- Rigid parent motion now propagates through dependent mate chains. Extend this
+  to a central assembly dependency solver for multi-parent constraint graphs,
+  cycle diagnostics and deterministic recomputation after file reload.
 - Continue the central stable-topology implementation described in
   `doc/STABLE_TOPOLOGY_NAMING.md`. Box/Wedge faces and Extrusion faces, edges
   and vertices now have semantic identities; Revolve faces, edges and vertices

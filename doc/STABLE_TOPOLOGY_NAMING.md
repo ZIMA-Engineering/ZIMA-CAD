@@ -22,6 +22,13 @@ all source faces and edges. Original-solid references are resolved directly,
 and highlighting does not rebuild whole-result topology merely to obtain a
 temporary result-body index.
 
+Large imported STEP sources follow the same lazy rule. When eager topology is
+disabled for a source with more than 10,000 faces, selecting one face creates
+only its `FaceRef(feature_id, "imported", source_index)` and resolves that one
+subshape directly from the original imported solid. A confirmed Assembly face
+keeps a transient `(component_id, displayed_face_index)` solely for cyan
+viewport highlighting; this runtime pair is never serialized.
+
 Format 10 is the clean boundary for this model. Earlier experimental document
 versions and their result-body references are deliberately unsupported.
 

@@ -9720,19 +9720,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             color = plane.base_color
             if key == self._hovered_plane:
                 color = (1.0, 0.48, 0.0)
-            if (
-                key == self._selected_plane
-                or key in self._constraint_reference_planes
-                or key in self._assembly_reference_planes
-            ):
-                color = (0.0, 0.82, 1.0)
-            if (
-                plane.owner_id == self._selected_reference_owner_id
-                or plane.owner_id in self._constraint_reference_owner_ids
-            ):
-                color = (0.0, 0.82, 1.0)
-            if plane.owner_id in self._selected_container_content_ids:
-                color = (0.0, 0.82, 1.0)
             polygon = QPolygonF(
                 [
                     self._screen_point(self._camera_point(point))

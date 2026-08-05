@@ -16517,7 +16517,11 @@ class MainWindow(QMainWindow):
                 owner_id, edge_index, "axis"
             )
             return
-        self._apply_native_view_selection(owner_id, shape)
+        self._apply_native_view_selection(
+            owner_id,
+            shape,
+            topology_index=edge_index,
+        )
 
     @staticmethod
     def _register_lazy_assembly_frame(
@@ -16769,6 +16773,26 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_object_overlay(None)
         tree_object_id = owner_id
         if owner_id == self.document.root.entity_id:
+            imported_source = self._imported_source_container_at_cursor()
+            if imported_source is not None:
+                source_shape = self.document.build_standalone_shape(
+                    imported_source
+                )
+                self._select_native_tree_object(imported_source.entity_id)
+                self.native_viewer.set_object_overlay(
+                    triangulate_shape(
+                        source_shape,
+                        owner_id=imported_source.entity_id,
+                        linear_deflection=5.0,
+                        angular_deflection=1.2,
+                        include_topology=False,
+                    )
+                    if source_shape is not None
+                    else None,
+                    selected=True,
+                    anchor=self._native_object_origin(imported_source),
+                )
+                return
             self._select_result_body_tree_item()
             return
         self.selected_face = None
@@ -17257,7 +17281,11 @@ class MainWindow(QMainWindow):
             self.normal_view_action.setChecked(False)
             return
         if shape is not None:
-            self._apply_native_view_selection(owner_id, shape)
+            self._apply_native_view_selection(
+                owner_id,
+                shape,
+                topology_index=face_index,
+            )
 
     def _source_topology_reference_at_cursor(
         self,
@@ -17314,6 +17342,43 @@ class MainWindow(QMainWindow):
             if picked is not None:
                 _picked_owner, picked_index = picked
                 return source.entity_id, picked_index, shape
+        return None
+
+    def _imported_source_container_at_cursor(self) -> ZimaEntity | None:
+        """Resolve a Body click to an imported STEP history container."""
+        if self.document is None:
+            return None
+        position = getattr(self.native_viewer, "_last_click_position", None)
+        if position is None:
+            return None
+        cached_shapes = {
+            owner_id: shape
+            for shape, owner_id in self._cached_source_model_shapes
+        }
+        for source in reversed(self.document.active_history_objects()):
+            if source.container_type != ContainerType.IMPORTED_STEP:
+                continue
+            source_shape = cached_shapes.get(source.entity_id)
+            if source_shape is None:
+                source_shape = self.document.build_standalone_shape(source)
+            if source_shape is None:
+                continue
+            cache_key = f"object:{source.entity_id}"
+            mesh = self._cached_source_model_meshes.get(cache_key)
+            if mesh is None:
+                mesh = triangulate_shape(
+                    source_shape,
+                    owner_id=source.entity_id,
+                    linear_deflection=5.0,
+                    angular_deflection=1.2,
+                    include_topology=False,
+                )
+                self._cached_source_model_meshes[cache_key] = mesh
+            if self.native_viewer.mesh_is_under_cursor(
+                mesh,
+                QPointF(position),
+            ):
+                return source
         return None
 
     def _source_face_reference_for_pick(
@@ -17438,7 +17503,11 @@ class MainWindow(QMainWindow):
             )
             owner = self.document.find_entity(owner_id)
             if vertex is not None and owner is not None:
-                self._add_point_shape_constraint(owner, vertex)
+                self._add_point_shape_constraint(
+                    owner,
+                    vertex,
+                    topology_index=element_index,
+                )
             return
         selection_kind = {
             "point": SelectionKind.POINT,
@@ -17461,7 +17530,11 @@ class MainWindow(QMainWindow):
             )
             owner = self.document.find_entity(owner_id)
             if vertex is not None and owner is not None:
-                self._add_point_shape_constraint(owner, vertex)
+                self._add_point_shape_constraint(
+                    owner,
+                    vertex,
+                    topology_index=element_index,
+                )
                 return
         if (
             self.orientation_dialog is not None
@@ -17599,7 +17672,13 @@ class MainWindow(QMainWindow):
                 )
         self._select_native_tree_object(selected_id)
 
-    def _apply_native_view_selection(self, owner_id: str, shape) -> None:
+    def _apply_native_view_selection(
+        self,
+        owner_id: str,
+        shape,
+        *,
+        topology_index: int | None = None,
+    ) -> None:
         point_reference_dialog_active = (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
@@ -17627,7 +17706,14 @@ class MainWindow(QMainWindow):
             point_reference_dialog_active
             and shape.ShapeType() in (TopAbs_VERTEX, TopAbs_FACE, TopAbs_EDGE)
         ):
-            self._add_point_shape_constraint(obj, shape)
+            if topology_index is None:
+                self._add_point_shape_constraint(obj, shape)
+            else:
+                self._add_point_shape_constraint(
+                    obj,
+                    shape,
+                    topology_index=topology_index,
+                )
         if self.view_selection_mode == ViewSelectionMode.FACE:
             if shape.ShapeType() != TopAbs_FACE:
                 return
@@ -18113,12 +18199,22 @@ class MainWindow(QMainWindow):
             candidates.append((agreement, role))
         return max(candidates)[1] if candidates else None
 
-    def _add_point_shape_constraint(self, obj: ZimaEntity, shape) -> None:
+    def _add_point_shape_constraint(
+        self,
+        obj: ZimaEntity,
+        shape,
+        *,
+        topology_index: int | None = None,
+    ) -> None:
         dialog = self.point_constraint_dialog
         if dialog is None:
             return
         shape_type = shape.ShapeType()
-        topology_index = self._subshape_index(obj.entity_id, shape)
+        topology_index = (
+            int(topology_index)
+            if topology_index is not None
+            else self._subshape_index(obj.entity_id, shape)
+        )
         reference_metadata = self._shape_reference_metadata(obj)
         if shape_type == TopAbs_VERTEX:
             point = BRep_Tool.Pnt(shape)
@@ -38738,6 +38834,15 @@ class MainWindow(QMainWindow):
             self.assembly_component_dialog is not None
             and self.assembly_component_dialog.isVisible()
         )
+        if not assembly_references_active:
+            # The viewer is shared while switching Part/Assembly tabs.
+            # Component origin-plane IDs may also exist in the source Part,
+            # so stale Assembly highlights would color its datum planes cyan.
+            self.native_viewer.set_assembly_reference_highlights(
+                faces=set(),
+                planes=set(),
+                edges=set(),
+            )
         self.native_viewer.set_large_mesh_topology_enabled(
             assembly_references_active
         )

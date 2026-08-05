@@ -80,7 +80,7 @@ class DrawingViewConventionTests(unittest.TestCase):
     ) -> None:
         owner = SimpleNamespace(entity_id="Protrusion001")
         root = SimpleNamespace(entity_id="result-body")
-        selected: list[tuple[object, object]] = []
+        selected: list[tuple[object, object, int | None]] = []
 
         class VisibleDialog:
             @staticmethod
@@ -109,8 +109,13 @@ class DrawingViewConventionTests(unittest.TestCase):
                 return False
 
             @staticmethod
-            def _add_point_shape_constraint(obj, shape):
-                selected.append((obj, shape))
+            def _add_point_shape_constraint(
+                obj,
+                shape,
+                *,
+                topology_index=None,
+            ):
+                selected.append((obj, shape, topology_index))
 
             @staticmethod
             def _select_native_tree_object(_owner_id):
@@ -118,9 +123,12 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         shape = Shape()
         MainWindow._apply_native_view_selection(
-            WindowState(), owner.entity_id, shape
+            WindowState(),
+            owner.entity_id,
+            shape,
+            topology_index=17,
         )
-        self.assertEqual(selected, [(owner, shape)])
+        self.assertEqual(selected, [(owner, shape, 17)])
 
     def test_non_displayed_history_mesh_picks_edges_and_vertices(self) -> None:
         mesh = ViewerMesh(

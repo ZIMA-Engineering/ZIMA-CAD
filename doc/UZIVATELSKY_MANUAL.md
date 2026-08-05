@@ -56,6 +56,12 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - Při dosažení 0 stupňů volnosti je objekt plně určený. Geometrii lze stále
   vybrat, ale jako další reference se přijme až po odebrání některé existující
   vazby.
+- Klik na zobrazené Body v místě importovaného STEP lze mapovat zpět na jeho
+  původní kontejner a označit jej ve stromu. Při zadávání polohy nebo orientace
+  Protrusion, Revolve a dalších kontejnerů se plochy, hrany a vrcholy berou
+  přímo z původního STEP solidu. Pickerem zjištěný index se předává přímo do
+  reference, takže rychle načtený BREP nepotřebuje předem naplněnou globální
+  cache zdrojové topologie.
 - Vrchol aktuálního výsledného tělesa lze použít jako polohovou referenci bodu
   nebo kontejneru. Ukládá se stabilní `VertexRef` a odebere všechny tři
   posuvné stupně volnosti. Když vrchol zmizí, reference se označí jako
@@ -266,6 +272,13 @@ typy: rovinnou vazbu s posunutím, **Souosost** nebo **Úhel**. Hodnota použív
 osy zdrojového dílu lze vybírat ve view i ve stromu. Zakřivené plochy jako
 rovinné reference podporované nejsou.
 
+Skutečná plocha pod kurzorem se zvýrazní oranžově. Po potvrzení zůstane plocha
+ve view azurová a azurové zůstane také příslušné pole reference ve
+Vlastnostech. Toto zobrazení používá dočasný index aktuálního sestavového
+meshe, ale do `.asmz` se ukládá pouze stabilní reference původního solidu.
+Základní roviny počátku zůstávají standardně hnědé; oranžové jsou pouze při
+hoveru. Otevření Vlastností komponenty samo nezapíná zobrazení počátku.
+
 Po souososti zůstává volný posun a rotace podél společné osy. Dosednutí čelních
 ploch může uzamknout zbývající posun a následná dvojice bočních rovin pak
 automaticky nabízí úhlovou vazbu. Solver zachovává nejbližší platnou polohu a
@@ -274,6 +287,11 @@ opačnou větev volí pouze pomocí **Flip**.
 Kóty zobrazené dvojklikem na díl zahrnují také nulové rovinné a souosé vazby.
 Úhel a rovinné posunutí lze přepsat přímo v kótě a potvrdit Enterem; souosost je
 zobrazená jako zamčená informační vazba.
+
+Změna polohy nebo natočení rodičovské komponenty se okamžitě přenese na
+komponenty, jejichž cílové reference míří na rodiče, a rekurzivně na další
+potomky. Není nutné otevírat Vlastnosti každého potomka. **Zrušit** vrátí celý
+živě přesunutý řetězec do posledního potvrzeného stavu.
 
 Sestavové vazby jsou v současnosti prototyp. Plochy jednoduchých těles Box a
 Wedge a podporované plochy, hrany a vrcholy Extrusion a Revolve mají stabilní
@@ -332,6 +350,11 @@ Při uložení Partu s importovaným STEP se vedle parametrického zdroje uklád
 podpisem ověřená komprimovaná BREP cache. Starší importovaný Part je vhodné
 jednou otevřít a uložit; následující načtení a vložení pak použije rychlou
 BREP cache místo opakovaného převodu STEP.
+
+Při interaktivním otevření `.prtz` přes **Soubor → Otevřít** probíhá načtení
+BREP a příprava zobrazovacího meshe velkého vloženého STEP mimo hlavní GUI
+vlákno. Hlavní okno proto během této práce zůstává překreslované a stavový
+řádek zobrazuje načítaný soubor.
 
 ### Barvy a přejmenování
 

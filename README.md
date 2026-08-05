@@ -75,7 +75,10 @@ The Assembly workflow supports inserted part instances, live placement,
 planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
 types, editable in-view mate dimensions, expanded source-part trees,
 in-context part editing and assembly-only extruded or revolved cuts applied to
-selected components. Part geometry remains unchanged by assembly cuts. Stable
+selected components. Confirmed mate faces remain cyan in both the viewport and
+Properties rows; origin datum planes retain their standard brown color. Moving
+a parent component propagates its rigid transform through dependent mate chains.
+Part geometry remains unchanged by assembly cuts. Stable
 semantic topology naming is implemented for Box/Wedge faces, primitive
 boundary edges/vertices and for Extrusion
 and segment-profile Revolve faces, edges and vertices. External Sketch
@@ -114,7 +117,9 @@ document scenes are reused. Saving an open source Part invalidates every
 dependent assembly scene, so switching back to an assembly cannot display a
 stale component. Signature-validated compressed BREP caches are persisted for
 imported STEP Parts as well; an older imported Part gains this fast-load cache
-after it is opened and saved once.
+after it is opened and saved once. Interactive File/Open loads `.prtz` documents
+and prepares large embedded-STEP display meshes outside the Qt GUI thread, so
+the main window remains responsive during the expensive restore.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,
