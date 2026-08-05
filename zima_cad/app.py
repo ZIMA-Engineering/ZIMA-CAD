@@ -17236,6 +17236,12 @@ class MainWindow(QMainWindow):
             stable = registry.reference_for_runtime_index(topology_index)
             if stable is not None:
                 descriptor["face_ref"] = stable.to_dict()
+                # Persist the source feature, not the transient automatic
+                # Body owner.  The Body is only the pick surface in the
+                # viewport; the reference belongs to the originating
+                # Extrude/Revolve (for example its start/end cap).
+                descriptor["source_feature_id"] = stable.feature_id
+                descriptor["entity_id"] = stable.feature_id
 
     def _reference_topology_registry(self, boundary: int):
         """Reuse the displayed result when creating stable pick identities."""
