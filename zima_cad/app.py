@@ -16417,7 +16417,10 @@ class MainWindow(QMainWindow):
             for shape, owner_id in self._cached_source_model_shapes
         }
         for source in reversed(self.document.history_objects_at(boundary)):
-            if source.kind not in SOLID_KINDS:
+            if source.kind not in SOLID_KINDS and source.kind not in (
+                EntityKind.PROTRUSION,
+                EntityKind.REVOLVE,
+            ):
                 continue
             shape = shapes.get(source.entity_id)
             if shape is None:
