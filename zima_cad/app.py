@@ -15774,6 +15774,21 @@ class MainWindow(QMainWindow):
         edge_index: int,
     ) -> None:
         if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.document is not None
+            and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
+        ):
+            return
+        if (
             self._sketch_reference_mode
             and self.document is not None
             and owner_id == self.document.root.entity_id
@@ -16285,6 +16300,21 @@ class MainWindow(QMainWindow):
         face_index: int,
     ) -> None:
         if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.document is not None
+            and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
+        ):
+            return
+        if (
             self._sketch_reference_mode
             and self.document is not None
             and owner_id == self.document.root.entity_id
@@ -16404,6 +16434,21 @@ class MainWindow(QMainWindow):
         element_index: int,
         element_kind: str,
     ) -> None:
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.document is not None
+            and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
+        ):
+            return
         if (
             self._sketch_reference_mode
             and self.document is not None
