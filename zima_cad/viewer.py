@@ -591,6 +591,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._topology_owner_filter: frozenset[str] | None = None
         self._display_mode = "shaded_with_edges"
         self._selection_enabled = True
+        self._large_mesh_topology_enabled = False
         self._outline_face_highlights = False
         self._object_overlay_mesh: ViewerMesh | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
@@ -1615,6 +1616,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._set_selected_plane(None)
         self.selectionFilterChanged.emit(selection_filter)
 
+    def set_large_mesh_topology_enabled(self, enabled: bool) -> None:
+        """Allow real face picking when a large-scene reference tool needs it."""
+        self._large_mesh_topology_enabled = bool(enabled)
+
     def set_topology_owner_filter(self, owner_ids: set[str] | None) -> None:
         self._topology_owner_filter = (
             None if owner_ids is None else frozenset(owner_ids)
@@ -2151,6 +2156,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._sketch_frame is None
                 and self._mesh is not None
                 and self._mesh.triangle_count > 100_000
+                and self._interaction_mode == "object"
+                and not self._large_mesh_topology_enabled
             ):
                 # Datum points, planes and axes are a tiny overlay and must
                 # remain selectable even when detailed STEP topology is
@@ -2740,6 +2747,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._sketch_frame is None
             and self._mesh is not None
             and self._mesh.triangle_count > 100_000
+            and self._interaction_mode == "object"
+            and not self._large_mesh_topology_enabled
         ):
             # Hover picking used to project/test all 157k+ triangles for
             # every cursor event.  While that O(N) scan was running, middle
@@ -3132,6 +3141,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 return
         if (
             event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_frame is None
             and self._interaction_mode == "object"
         ):
             self.objectDoubleClicked.emit(

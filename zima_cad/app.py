@@ -123,6 +123,7 @@ from zima_cad.model import (
     protrusion_face_registry,
     revolve_face_registry,
     solid_face_frames,
+    standalone_topology_registry,
     coordinate_system_transform,
     create_empty_part,
     create_empty_assembly,
@@ -140,6 +141,8 @@ from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
     EdgeRef,
+    FaceRef,
+    TopologyResolution,
     TopologyResolutionState,
     assembly_face_descriptor,
     assembly_edge_descriptor,
@@ -234,11 +237,43 @@ from zima_cad.storage import (
     save_part_document,
 )
 from zima_cad.versioned_io import validate_ini_file, write_text_versioned
-from zima_cad.step_import import import_step_file
+from zima_cad.step_import import (
+    INTERACTIVE_TOPOLOGY_FACE_LIMIT,
+    import_step_file,
+)
 
 _RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
 FEATURE_PREVIEW_COLOR = "#00D1FF"
 FEATURE_PREVIEW_RGB = (0.0, 0.82, 1.0)
+
+
+def _load_document_for_interactive_open(file_path: Path) -> PartDocument:
+    """Load a document and prepare expensive large-STEP display data."""
+    document = load_part_document(file_path)
+    if document.document_settings.get("type", "part") != "part":
+        return document
+    for obj in document.history_objects():
+        imported = next((
+            child
+            for child in obj.children
+            if child.kind == EntityKind.IMPORTED_STEP
+            and not child.locked
+            and int(child.parameters.get("face_count", 0) or 0)
+            > INTERACTIVE_TOPOLOGY_FACE_LIMIT
+        ), None)
+        if imported is None:
+            continue
+        shape = document.build_standalone_shape(obj)
+        if shape is None:
+            continue
+        imported._imported_viewer_mesh_cache = triangulate_shape(
+            shape,
+            owner_id=document.root.entity_id,
+            linear_deflection=5.0,
+            angular_deflection=1.2,
+            include_topology=False,
+        )
+    return document
 
 
 def display_decimal_places(
@@ -4913,6 +4948,10 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         ))
         self.reference_list.verticalHeader().hide()
         self.rows = []
+        # Stable mate descriptors point to original Part solids.  Keep the
+        # current Assembly result indices separately for persistent viewport
+        # highlighting; these transient indices are never serialized.
+        self._picked_face_indices: dict[str, tuple[str, int]] = {}
         self.active_pick = (0, "source")
         self.selection_paused = False
         stored = []
@@ -5490,6 +5529,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         button.setProperty(
             "reference",
             descriptor or f"{owner_id}:face:{face_index}",
+        )
+        stored_descriptor = str(button.property("reference"))
+        self._picked_face_indices[stored_descriptor] = (
+            owner_id,
+            face_index,
         )
         button.setChecked(True)
         button.setText(label or f"{owner_name} / Face {face_index}")
@@ -7718,6 +7762,10 @@ class MainWindow(QMainWindow):
         self._step_import_timer = None
         self._step_import_path: Path | None = None
         self._step_import_document: PartDocument | None = None
+        self._document_open_executor = None
+        self._document_open_future = None
+        self._document_open_timer = None
+        self._document_open_path: Path | None = None
 
         self.tree = HistoryTreeWidget()
         self.tree.setSelectionMode(
@@ -9834,10 +9882,25 @@ class MainWindow(QMainWindow):
         self,
         candidate: SelectionCandidate,
     ) -> SelectionResolution:
-        reference = self._cached_fillet_edge_reference(
-            candidate.owner_id,
-            candidate.element_index,
-        )
+        reference = None
+        if self.document is not None:
+            source = self.document.find_entity(candidate.owner_id)
+            if (
+                source is not None
+                and source.kind == EntityKind.CONTAINER
+                and source.container_type != ContainerType.FILLET
+            ):
+                source_shape = self.document.build_standalone_shape(source)
+                reference = standalone_topology_registry(
+                    self.document,
+                    source,
+                    source_shape,
+                ).edge_reference_for_runtime_index(candidate.element_index)
+        if reference is None:
+            reference = self._cached_fillet_edge_reference(
+                candidate.owner_id,
+                candidate.element_index,
+            )
         return SelectionResolution(
             value=reference,
             error=(
@@ -12755,9 +12818,41 @@ class MainWindow(QMainWindow):
         source_document = self._component_source_document(component)
         if source_document is None:
             return None
-        reference = active_face_registry(
-            source_document
-        ).reference_for_runtime_index(face_index)
+        scene = self._native_viewer_scene
+        displayed_face = (
+            scene.resolve_topology(
+                component.entity_id,
+                "face",
+                face_index,
+            )
+            if scene is not None
+            else None
+        )
+        source_pick = self._component_source_face_from_displayed_face(
+            component,
+            source_document,
+            displayed_face,
+        )
+        if source_pick is None:
+            source_pick = self._component_source_topology_at_cursor(
+                component,
+                source_document,
+                "face",
+            )
+        if source_pick is not None:
+            source, source_index, source_shape = source_pick
+            reference = standalone_topology_registry(
+                source_document,
+                source,
+                source_shape,
+            ).reference_for_runtime_index(source_index)
+            if reference is None:
+                reference = self._lazy_imported_face_reference(
+                    source,
+                    source_index,
+                )
+        else:
+            reference = None
         if reference is None:
             return None
         return (
@@ -12767,15 +12862,121 @@ class MainWindow(QMainWindow):
             f"{component.name} / {reference.role}",
         )
 
+    @staticmethod
+    def _lazy_imported_face_reference(
+        source: ZimaEntity,
+        face_index: int,
+    ) -> FaceRef | None:
+        """Name one imported face without materializing the whole registry."""
+        imported = next((
+            child
+            for child in source.children
+            if child.kind == EntityKind.IMPORTED_STEP and not child.locked
+        ), None)
+        if imported is None or face_index <= 0:
+            return None
+        return FaceRef(imported.entity_id, "imported", str(face_index))
+
+    def _component_source_face_from_displayed_face(
+        self,
+        component: ZimaEntity,
+        source_document: PartDocument,
+        displayed_face,
+    ) -> tuple[ZimaEntity, int, Any] | None:
+        """Map an Assembly result face directly to an original Part face."""
+        if displayed_face is None:
+            return None
+        displayed_adaptor = BRepAdaptor_Surface(displayed_face)
+        if displayed_adaptor.GetType() != GeomAbs_Plane:
+            return None
+        displayed_plane = displayed_adaptor.Plane()
+        displayed_normal = displayed_plane.Axis().Direction()
+        displayed_sign = (
+            -1.0 if displayed_face.Orientation() == TopAbs_REVERSED else 1.0
+        )
+        target_normal = (
+            displayed_sign * displayed_normal.X(),
+            displayed_sign * displayed_normal.Y(),
+            displayed_sign * displayed_normal.Z(),
+        )
+        displayed_location = displayed_plane.Location()
+        target_distance = sum(
+            target_normal[index] * value
+            for index, value in enumerate((
+                displayed_location.X(),
+                displayed_location.Y(),
+                displayed_location.Z(),
+            ))
+        )
+        component_transform = coordinate_system_transform(
+            component.coordinate_system
+        )
+        for source in reversed(source_document.active_history_objects()):
+            source_shape = source_document.build_standalone_shape(source)
+            if source_shape is None:
+                continue
+            instance_shape = transform_shape(
+                source_shape,
+                component_transform,
+            )
+            explorer = TopExp_Explorer(instance_shape, TopAbs_FACE)
+            source_index = 0
+            while explorer.More():
+                source_index += 1
+                candidate = explorer.Current()
+                adaptor = BRepAdaptor_Surface(candidate)
+                if adaptor.GetType() == GeomAbs_Plane:
+                    plane = adaptor.Plane()
+                    normal = plane.Axis().Direction()
+                    sign = (
+                        -1.0
+                        if candidate.Orientation() == TopAbs_REVERSED
+                        else 1.0
+                    )
+                    candidate_normal = (
+                        sign * normal.X(),
+                        sign * normal.Y(),
+                        sign * normal.Z(),
+                    )
+                    agreement = sum(
+                        target_normal[index] * candidate_normal[index]
+                        for index in range(3)
+                    )
+                    location = plane.Location()
+                    distance = sum(
+                        target_normal[index] * value
+                        for index, value in enumerate((
+                            location.X(), location.Y(), location.Z(),
+                        ))
+                    )
+                    if (
+                        agreement > 1.0 - 1.0e-7
+                        and abs(target_distance - distance) <= 1.0e-6
+                    ):
+                        return source, source_index, source_shape
+                explorer.Next()
+        return None
+
     def _stable_component_edge_descriptor(
         self, component: ZimaEntity, edge_index: int
     ) -> tuple[str, str] | None:
         source_document = self._component_source_document(component)
         if source_document is None:
             return None
-        reference = active_face_registry(
-            source_document
-        ).edge_reference_for_runtime_index(edge_index)
+        source_pick = self._component_source_topology_at_cursor(
+            component,
+            source_document,
+            "edge",
+        )
+        if source_pick is not None:
+            source, source_index, source_shape = source_pick
+            reference = standalone_topology_registry(
+                source_document,
+                source,
+                source_shape,
+            ).edge_reference_for_runtime_index(source_index)
+        else:
+            reference = None
         if reference is None:
             return None
         return (
@@ -12784,6 +12985,49 @@ class MainWindow(QMainWindow):
             )),
             f"{component.name} / {reference.role}",
         )
+
+    def _component_source_topology_at_cursor(
+        self,
+        component: ZimaEntity,
+        source_document: PartDocument,
+        topology_kind: str,
+    ) -> tuple[ZimaEntity, int, Any] | None:
+        """Pick original Part history geometry through an Assembly instance."""
+        position = getattr(self.native_viewer, "_last_click_position", None)
+        if position is None:
+            return None
+        picker = {
+            "face": self.native_viewer.face_at_mesh,
+            "edge": self.native_viewer.edge_at_mesh,
+            "point": self.native_viewer.point_at_mesh,
+        }.get(topology_kind)
+        if picker is None:
+            return None
+        component_transform = coordinate_system_transform(
+            component.coordinate_system
+        )
+        for source in reversed(source_document.active_history_objects()):
+            source_shape = source_document.build_standalone_shape(source)
+            if source_shape is None:
+                continue
+            instance_shape = transform_shape(
+                source_shape,
+                component_transform,
+            )
+            cache_key = (
+                f"assembly:{component.entity_id}:{source.entity_id}:"
+                f"{component.coordinate_system.origin}:"
+                f"{component.coordinate_system.rotation}"
+            )
+            mesh = self._cached_source_model_meshes.get(cache_key)
+            if mesh is None:
+                mesh = triangulate_shape(instance_shape, owner_id=source.entity_id)
+                self._cached_source_model_meshes[cache_key] = mesh
+            picked = picker(mesh, QPointF(position))
+            if picked is not None:
+                _owner_id, source_index = picked
+                return source, source_index, source_shape
+        return None
 
     def _component_edge_runtime_index(self, descriptor: str) -> int | None:
         reference = parse_assembly_edge_descriptor(descriptor)
@@ -12795,9 +13039,18 @@ class MainWindow(QMainWindow):
         source_document = self._component_source_document(component)
         if source_document is None:
             return None
-        return active_face_registry(
-            source_document
-        ).edge_runtime_index_for_reference(reference.edge)
+        direct = self._direct_source_reference_resolution(
+            source_document,
+            reference.edge,
+            "edge",
+        )
+        if direct is not None and direct.shape is not None:
+            # The reference belongs to an original solid, whose runtime edge
+            # index is deliberately unrelated to the final component Body.
+            # Keep the clicked highlight instead of rebuilding global topology
+            # merely to manufacture a result-body index.
+            return None
+        return None
 
     def _component_face_runtime_index(self, descriptor: str) -> int | None:
         assembly_reference = self._assembly_face_reference_from_descriptor(
@@ -12814,9 +13067,14 @@ class MainWindow(QMainWindow):
         source_document = self._component_source_document(component)
         if source_document is None:
             return None
-        return active_face_registry(
-            source_document
-        ).runtime_index_for_reference(assembly_reference.face)
+        direct = self._direct_source_reference_resolution(
+            source_document,
+            assembly_reference.face,
+            "face",
+        )
+        if direct is not None and direct.shape is not None:
+            return None
+        return None
 
     def _assembly_face_descriptor_state(self, descriptor: str) -> str:
         reference = self._assembly_face_reference_from_descriptor(descriptor)
@@ -12831,9 +13089,14 @@ class MainWindow(QMainWindow):
             )
             if source_document is None:
                 return TopologyResolutionState.MISSING.value
-            return active_face_registry(source_document).resolve_edge(
-                edge_reference.edge
-            ).state.value
+            direct = self._direct_source_reference_resolution(
+                source_document,
+                edge_reference.edge,
+                "edge",
+            )
+            if direct is not None:
+                return direct.state.value
+            return TopologyResolutionState.MISSING.value
         if reference is None or self.document is None:
             return TopologyResolutionState.MISSING.value
         component = self.document.find_entity(reference.instance_id)
@@ -12842,9 +13105,58 @@ class MainWindow(QMainWindow):
         source_document = self._component_source_document(component)
         if source_document is None:
             return TopologyResolutionState.MISSING.value
-        return active_face_registry(source_document).resolve(
-            reference.face
-        ).state.value
+        direct = self._direct_source_reference_resolution(
+            source_document,
+            reference.face,
+            "face",
+        )
+        if direct is not None:
+            return direct.state.value
+        return TopologyResolutionState.MISSING.value
+
+    @staticmethod
+    def _direct_source_reference_resolution(
+        source_document: PartDocument,
+        reference: Any,
+        topology_kind: str,
+    ):
+        feature = source_document.find_entity(reference.feature_id)
+        source = (
+            feature
+            if feature is not None and feature.kind == EntityKind.CONTAINER
+            else source_document.find_owning_object(feature.entity_id)
+            if feature is not None
+            else None
+        )
+        if source is None or source.container_type == ContainerType.FILLET:
+            return None
+        if topology_kind == "face" and reference.role == "imported":
+            try:
+                face_index = int(reference.source_id or "0")
+            except (TypeError, ValueError):
+                face_index = 0
+            source_shape = source_document.build_standalone_shape(source)
+            face = (
+                MainWindow._subshape_from_shape(
+                    source_shape,
+                    TopAbs_FACE,
+                    face_index,
+                )
+                if source_shape is not None
+                else None
+            )
+            return TopologyResolution(
+                TopologyResolutionState.RESOLVED
+                if face is not None
+                else TopologyResolutionState.MISSING,
+                shape=face,
+            )
+        registry = standalone_topology_registry(source_document, source)
+        return (
+            registry.resolve(reference)
+            if topology_kind == "face"
+            else registry.resolve_edge(reference)
+        )
 
     @staticmethod
     def _assembly_face_reference_from_descriptor(
@@ -13891,7 +14203,81 @@ class MainWindow(QMainWindow):
         if not file_name:
             return
 
-        self.open_document_path(Path(file_name))
+        self._open_document_path_async(Path(file_name))
+
+    def _open_document_path_async(self, file_path: Path) -> None:
+        if self._document_open_future is not None:
+            return
+        canonical_path = canonical_document_path(file_path)
+        for index, session in enumerate(self.document_sessions):
+            if (
+                session.file_path is not None
+                and canonical_document_path(session.file_path)
+                == canonical_path
+            ):
+                self.document_tabs.setCurrentIndex(index)
+                if self.active_document_index != index:
+                    self._on_document_tab_changed(index)
+                return
+        self.statusBar().showMessage(
+            f"Načítání {canonical_path.name}…"
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="zima-document-open",
+        )
+        future = executor.submit(
+            _load_document_for_interactive_open,
+            canonical_path,
+        )
+        timer = QTimer(self)
+        timer.setInterval(50)
+        timer.timeout.connect(self._poll_document_open)
+        self._document_open_executor = executor
+        self._document_open_future = future
+        self._document_open_timer = timer
+        self._document_open_path = canonical_path
+        timer.start()
+
+    def _poll_document_open(self) -> None:
+        future = self._document_open_future
+        if future is None or not future.done():
+            return
+        timer = self._document_open_timer
+        executor = self._document_open_executor
+        canonical_path = self._document_open_path
+        self._document_open_future = None
+        self._document_open_timer = None
+        self._document_open_executor = None
+        self._document_open_path = None
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        if executor is not None:
+            executor.shutdown(wait=False)
+        QApplication.restoreOverrideCursor()
+        try:
+            document = future.result()
+        except ContainerEntityLimitError as exc:
+            QMessageBox.critical(
+                self,
+                tr("message.open_failed"),
+                tr(
+                    "message.container.entity_limit_details",
+                    container=exc.container_name,
+                    entities=", ".join(exc.entity_names),
+                ),
+            )
+            self.statusBar().clearMessage()
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, tr("message.open_failed"), str(exc))
+            self.statusBar().clearMessage()
+            return
+        if canonical_path is not None:
+            self._install_opened_document(document, canonical_path)
+        self.statusBar().clearMessage()
 
     def import_step_into_part(self) -> None:
         if self.document is None or self._document_type(self.document) != "part":
@@ -14049,6 +14435,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return False
 
+        self._install_opened_document(document, canonical_path)
+        return True
+
+    def _install_opened_document(
+        self,
+        document: PartDocument,
+        canonical_path: Path,
+    ) -> None:
         # A validated CachedBody already contains the last OCCT result. Keep
         # it for the initial view; replaying a long fillet history here would
         # make opening a small .prtz file needlessly expensive.
@@ -14064,7 +14458,6 @@ class MainWindow(QMainWindow):
             and not cached_body_available
         ):
             self.regenerate_model()
-        return True
 
     def save_document(self) -> bool:
         if self.document is None:
@@ -15997,11 +16390,18 @@ class MainWindow(QMainWindow):
             or self._current_definition_owns_reference(owner_id)
         ):
             return
+        fillet_source_selection = (
+            self._selection_controller.request is not None
+            and self._selection_controller.request.command_id == "fillet"
+        )
         source_edge = (
             self._source_topology_reference_at_cursor("edge")
             if owner_id == self.document.root.entity_id
-            and self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
+            and (
+                fillet_source_selection
+                or self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
             else None
         )
         if source_edge is not None:
@@ -16059,10 +16459,20 @@ class MainWindow(QMainWindow):
                 stable_edge = self._stable_component_edge_descriptor(
                     component, edge_index
                 )
-                if stable_edge is not None and assembly_dialog.accept_axis(
-                    stable_edge[0]
-                ):
-                    return
+                if stable_edge is not None:
+                    descriptor, _label = stable_edge
+                    circle = BRepAdaptor_Curve(edge).Circle()
+                    center = circle.Location()
+                    direction = circle.Axis().Direction()
+                    self._register_lazy_assembly_frame(
+                        assembly_dialog,
+                        descriptor,
+                        (center.X(), center.Y(), center.Z()),
+                        (direction.X(), direction.Y(), direction.Z()),
+                        component.entity_id == assembly_dialog.component.entity_id,
+                    )
+                    if assembly_dialog.accept_axis(descriptor):
+                        return
         if self._sketch_reference_mode:
             owner = (
                 self.document.find_entity(owner_id)
@@ -16108,6 +16518,145 @@ class MainWindow(QMainWindow):
             )
             return
         self._apply_native_view_selection(owner_id, shape)
+
+    @staticmethod
+    def _register_lazy_assembly_frame(
+        dialog: AssemblyComponentPropertiesDialog,
+        descriptor: str,
+        point: tuple[float, float, float],
+        normal: tuple[float, float, float],
+        is_source: bool,
+    ) -> None:
+        frames = getattr(dialog, "_reference_frames", None)
+        if isinstance(frames, dict):
+            frames[descriptor] = (point, normal)
+        if is_source:
+            source_keys = getattr(dialog, "_source_frame_keys", None)
+            if isinstance(source_keys, set):
+                source_keys.add(descriptor)
+
+    def _configure_assembly_reference_picking(self) -> None:
+        """Put the viewport unconditionally into Assembly mate pick mode."""
+        self.native_viewer.set_selection_enabled(True)
+        # Plane mates must not be stolen by ordinary boundary edges.  The
+        # surface filter keeps datum planes and real BREP faces selectable.
+        self.native_viewer.set_selection_filter("surface")
+        self.native_viewer.set_interaction_mode("topology")
+        self.native_viewer.set_topology_owner_filter(None)
+        self.native_viewer.set_excluded_topology_owners(set())
+        self.native_viewer.set_large_mesh_topology_enabled(True)
+        self.native_viewer.set_outline_face_highlights(True)
+
+    def _assembly_reference_pick_owner_ids(
+        self,
+        component: ZimaEntity,
+        side: str,
+    ) -> set[str]:
+        if side == "source":
+            return {component.entity_id}
+        if self.document is None:
+            return set()
+        return {
+            candidate.entity_id
+            for candidate in self.document.history_objects()
+            if candidate.container_type == ContainerType.COMPONENT
+            and candidate.entity_id != component.entity_id
+        }
+
+    @staticmethod
+    def _assembly_mate_target_component_ids(
+        component: ZimaEntity,
+    ) -> set[str]:
+        try:
+            rows = json.loads(str(
+                component.parameters.get("assembly_mates", "[]")
+            ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return set()
+        result: set[str] = set()
+        for row in rows if isinstance(rows, list) else ():
+            if not isinstance(row, dict):
+                continue
+            descriptor = str(row.get("target", ""))
+            face = parse_assembly_face_descriptor(descriptor)
+            edge = parse_assembly_edge_descriptor(descriptor)
+            if face is not None:
+                result.add(face.instance_id)
+            elif edge is not None:
+                result.add(edge.instance_id)
+            elif descriptor and not descriptor.startswith("assembly:"):
+                result.add(descriptor.split(":", 1)[0])
+        return result
+
+    @staticmethod
+    def _coordinate_system_from_transform(transform) -> CoordinateSystem:
+        rotation = np.array(transform, dtype=float)[:3, :3]
+        sy = math.sqrt(rotation[0, 0] ** 2 + rotation[1, 0] ** 2)
+        if sy > 1.0e-9:
+            rx = math.atan2(rotation[2, 1], rotation[2, 2])
+            ry = math.atan2(-rotation[2, 0], sy)
+            rz = math.atan2(rotation[1, 0], rotation[0, 0])
+        else:
+            rx = math.atan2(-rotation[1, 2], rotation[1, 1])
+            ry = math.atan2(-rotation[2, 0], sy)
+            rz = 0.0
+        return CoordinateSystem(
+            origin=tuple(float(value) for value in np.array(transform)[:3, 3]),
+            rotation=tuple(
+                math.degrees(value) for value in (rx, ry, rz)
+            ),
+        )
+
+    @staticmethod
+    def _homogeneous_transform(coordinate_system: CoordinateSystem):
+        result = np.eye(4, dtype=float)
+        result[:3, :4] = np.array(
+            coordinate_system_transform(coordinate_system),
+            dtype=float,
+        )
+        return result
+
+    def _propagate_assembly_component_transform(
+        self,
+        parent: ZimaEntity,
+        previous_transform,
+        visited: set[str] | None = None,
+    ) -> None:
+        if self.document is None:
+            return
+        visited = set() if visited is None else visited
+        if parent.entity_id in visited:
+            return
+        visited.add(parent.entity_id)
+        current_transform = self._homogeneous_transform(
+            parent.coordinate_system
+        )
+        previous = np.array(previous_transform, dtype=float)
+        try:
+            delta = current_transform @ np.linalg.inv(previous)
+        except np.linalg.LinAlgError:
+            return
+        if np.allclose(delta, np.eye(4), atol=1.0e-12):
+            return
+        for child in self.document.history_objects():
+            if (
+                child.container_type != ContainerType.COMPONENT
+                or child.entity_id in visited
+                or parent.entity_id
+                not in self._assembly_mate_target_component_ids(child)
+            ):
+                continue
+            child_previous = self._homogeneous_transform(
+                child.coordinate_system
+            )
+            child.coordinate_system = self._coordinate_system_from_transform(
+                delta @ child_previous
+            )
+            self._propagate_assembly_component_transform(
+                child,
+                child_previous,
+                visited,
+            )
 
     @staticmethod
     def _fillet_edge_reference(
@@ -16239,6 +16788,11 @@ class MainWindow(QMainWindow):
                 self._clear_dimension_overlays()
 
     def _on_native_object_double_clicked(self, owner_id: str) -> None:
+        # A left double-click inside Sketcher belongs to sketch interaction
+        # (for example dimension editing), never to the owning history
+        # container.  Do not let it reopen Protrusion/Revolve properties.
+        if self._sketch_edit_entity_id is not None:
+            return
         obj = self._selected_object()
         if (
             self.document is not None
@@ -16569,19 +17123,10 @@ class MainWindow(QMainWindow):
         # are not part of the viewer scene, so this is deliberately done only
         # while a reference dialog/Sketcher is consuming the click.
         source_face = (
-            self._source_topology_reference_at_cursor("face")
+            self._source_face_reference_for_pick(face_index)
             if owner_id == self.document.root.entity_id
             else None
         )
-        if (
-            source_face is None
-            and owner_id == self.document.root.entity_id
-            and self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
-        ):
-            source_face = self._source_face_reference_from_result_face(
-                face_index
-            )
         if source_face is not None:
             owner_id, face_index, source_shape = source_face
             shape = self._subshape_from_shape(
@@ -16659,14 +17204,30 @@ class MainWindow(QMainWindow):
                     4000,
                 )
                 return
-            if owner is not None and is_planar and assembly_dialog.accept_face(
-                owner_id,
-                face_index,
-                owner.name,
-                *(stable_face or (None, None)),
-            ):
-                self._apply_native_view_selection(owner_id, selected_shape)
-                return
+            if owner is not None and is_planar and stable_face is not None:
+                descriptor, label = stable_face
+                properties = GProp_GProps()
+                brepgprop.SurfaceProperties(selected_shape, properties)
+                center = properties.CentreOfMass()
+                direction = BRepAdaptor_Surface(
+                    selected_shape
+                ).Plane().Axis().Direction()
+                self._register_lazy_assembly_frame(
+                    assembly_dialog,
+                    descriptor,
+                    (center.X(), center.Y(), center.Z()),
+                    (direction.X(), direction.Y(), direction.Z()),
+                    owner.entity_id == assembly_dialog.component.entity_id,
+                )
+                if assembly_dialog.accept_face(
+                    owner_id,
+                    face_index,
+                    owner.name,
+                    descriptor,
+                    label,
+                ):
+                    self._apply_native_view_selection(owner_id, selected_shape)
+                    return
             if selected_shape is not None and not is_planar:
                 self.statusBar().showMessage(
                     tr("assembly.properties.planar_faces_only"), 4000
@@ -16711,8 +17272,14 @@ class MainWindow(QMainWindow):
         """
         if topology_kind not in {"face", "edge", "point"}:
             raise ValueError(f"Unsupported topology kind: {topology_kind}")
+        fillet_source_selection = (
+            self._selection_controller.request is not None
+            and self._selection_controller.request.command_id == "fillet"
+            and topology_kind == "edge"
+        )
         if self.document is None or not (
             self._sketch_reference_mode
+            or fillet_source_selection
             or (
                 self.point_constraint_dialog is not None
                 and self.point_constraint_dialog.isVisible()
@@ -16748,6 +17315,20 @@ class MainWindow(QMainWindow):
                 _picked_owner, picked_index = picked
                 return source.entity_id, picked_index, shape
         return None
+
+    def _source_face_reference_for_pick(
+        self,
+        result_face_index: int,
+    ) -> tuple[str, int, Any] | None:
+        """Prefer the clicked result face over an ambiguous source ray pick."""
+        dialog = self.point_constraint_dialog
+        if dialog is not None and dialog.isVisible():
+            exact = self._source_face_reference_from_result_face(
+                result_face_index
+            )
+            if exact is not None:
+                return exact
+        return self._source_topology_reference_at_cursor("face")
 
     def _source_face_reference_from_result_face(
         self,
@@ -17433,6 +18014,14 @@ class MainWindow(QMainWindow):
 
     def _current_definition_owns_reference(self, owner_id: str) -> bool:
         if not owner_id:
+            return False
+        # Assembly mates deliberately start on the component currently being
+        # edited and finish on another component.  The generic definition
+        # guard would classify the source component as a forbidden self
+        # reference before AssemblyComponentPropertiesDialog can enforce
+        # those source/target rules itself.
+        assembly_dialog = self.assembly_component_dialog
+        if assembly_dialog is not None and assembly_dialog.isVisible():
             return False
         dialog = self.point_constraint_dialog
         if dialog is not None and dialog.isVisible():
@@ -20337,12 +20926,83 @@ class MainWindow(QMainWindow):
         finally:
             self._end_definition_edit()
 
+    def _assembly_stored_topology_choice(
+        self,
+        descriptor: str,
+    ) -> tuple[str, str, tuple[float, float, float], tuple[float, float, float]] | None:
+        """Resolve one persisted mate from its original solid when possible."""
+        assembly_reference = parse_assembly_face_descriptor(descriptor)
+        edge_reference = parse_assembly_edge_descriptor(descriptor)
+        instance_id = (
+            assembly_reference.instance_id
+            if assembly_reference is not None
+            else edge_reference.instance_id
+            if edge_reference is not None
+            else ""
+        )
+        component = (
+            self.document.find_entity(instance_id)
+            if self.document is not None and instance_id
+            else None
+        )
+        if component is None or component.container_type != ContainerType.COMPONENT:
+            return None
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return None
+        topology_reference = (
+            assembly_reference.face
+            if assembly_reference is not None
+            else edge_reference.edge
+        )
+        feature = source_document.find_entity(topology_reference.feature_id)
+        source = (
+            feature
+            if feature is not None and feature.kind == EntityKind.CONTAINER
+            else source_document.find_owning_object(feature.entity_id)
+            if feature is not None
+            else None
+        )
+        resolution = None
+        if source is not None and source.container_type != ContainerType.FILLET:
+            registry = standalone_topology_registry(source_document, source)
+            resolution = (
+                registry.resolve(assembly_reference.face)
+                if assembly_reference is not None
+                else registry.resolve_edge(edge_reference.edge)
+            )
+        if resolution is None or resolution.shape is None:
+            return None
+        shape = transform_shape(
+            resolution.shape,
+            coordinate_system_transform(component.coordinate_system),
+        )
+        if assembly_reference is not None:
+            adaptor = BRepAdaptor_Surface(shape)
+            if adaptor.GetType() != GeomAbs_Plane:
+                return None
+            properties = GProp_GProps()
+            brepgprop.SurfaceProperties(shape, properties)
+            center = properties.CentreOfMass()
+            direction = adaptor.Plane().Axis().Direction()
+        else:
+            adaptor = BRepAdaptor_Curve(shape)
+            if adaptor.GetType() != GeomAbs_Circle:
+                return None
+            circle = adaptor.Circle()
+            center = circle.Location()
+            direction = circle.Axis().Direction()
+        return (
+            f"{component.name} / {topology_reference.role}",
+            descriptor,
+            (center.X(), center.Y(), center.Z()),
+            (direction.X(), direction.Y(), direction.Z()),
+        )
+
     def _assembly_plane_choices(
         self,
         component: ZimaEntity,
         own: bool,
-        *,
-        include_topology: bool = True,
     ):
         if self.document is None:
             return []
@@ -20374,13 +21034,7 @@ class MainWindow(QMainWindow):
                     tuple(sum(transform[i][j] * direction[j] for j in range(3)) for i in range(3)),
                 ))
             source_document = self._component_source_document(owner)
-            source_registry = None
             if source_document is not None:
-                if include_topology:
-                    # Building the semantic topology registry evaluates the
-                    # Part history. Do it once per component, not once for
-                    # every face and circular edge offered by the dialog.
-                    source_registry = active_face_registry(source_document)
                 pending = list(source_document.root.children)
                 while pending:
                     source_entity = pending.pop()
@@ -20427,75 +21081,6 @@ class MainWindow(QMainWindow):
                             for i in range(3)
                         ),
                     ))
-            if not include_topology:
-                continue
-            shape = self.document.build_standalone_shape(owner)
-            if shape is None:
-                continue
-            explorer = TopExp_Explorer(shape, TopAbs_FACE)
-            face_index = 0
-            while explorer.More():
-                face_index += 1
-                face = explorer.Current()
-                adaptor = BRepAdaptor_Surface(face)
-                if adaptor.GetType() == GeomAbs_Plane:
-                    props = GProp_GProps()
-                    brepgprop.SurfaceProperties(face, props)
-                    center = props.CentreOfMass()
-                    axis = adaptor.Plane().Axis().Direction()
-                    reference = (
-                        source_registry.reference_for_runtime_index(face_index)
-                        if source_registry is not None
-                        else None
-                    )
-                    if reference is not None:
-                        descriptor = assembly_face_descriptor(AssemblyFaceRef(
-                            owner.entity_id,
-                            reference,
-                        ))
-                        label = f"{owner.name} / {reference.role}"
-                        choices.append((
-                            label,
-                            descriptor,
-                            (center.X(), center.Y(), center.Z()),
-                            (axis.X(), axis.Y(), axis.Z()),
-                        ))
-                explorer.Next()
-            edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
-            edge_index = 0
-            seen_edges = []
-            while edge_explorer.More():
-                edge = edge_explorer.Current()
-                if any(edge.IsSame(existing) for existing in seen_edges):
-                    edge_explorer.Next()
-                    continue
-                seen_edges.append(edge)
-                edge_index += 1
-                adaptor = BRepAdaptor_Curve(edge)
-                if adaptor.GetType() == GeomAbs_Circle:
-                    reference = (
-                        source_registry.edge_reference_for_runtime_index(
-                            edge_index
-                        )
-                        if source_registry is not None
-                        else None
-                    )
-                    if reference is not None:
-                        circle = adaptor.Circle()
-                        center = circle.Location()
-                        direction = circle.Axis().Direction()
-                        descriptor = assembly_edge_descriptor(AssemblyEdgeRef(
-                            owner.entity_id,
-                            reference,
-                        ))
-                        label = f"{owner.name} / {reference.role}"
-                        choices.append((
-                            label,
-                            descriptor,
-                            (center.X(), center.Y(), center.Z()),
-                            (direction.X(), direction.Y(), direction.Z()),
-                        ))
-                edge_explorer.Next()
         return choices
 
     def _edit_assembly_component(
@@ -20512,6 +21097,14 @@ class MainWindow(QMainWindow):
             "origin": tuple(component.coordinate_system.origin),
             "rotation": tuple(component.coordinate_system.rotation),
             "mates": str(component.parameters.get("assembly_mates", "[]")),
+            "component_transforms": {
+                candidate.entity_id: (
+                    tuple(candidate.coordinate_system.origin),
+                    tuple(candidate.coordinate_system.rotation),
+                )
+                for candidate in self.document.history_objects()
+                if candidate.container_type == ContainerType.COMPONENT
+            },
         }
         try:
             stored_mates = json.loads(str(
@@ -20519,22 +21112,36 @@ class MainWindow(QMainWindow):
             ))
         except (TypeError, ValueError, json.JSONDecodeError):
             stored_mates = []
-        # New/unconstrained components are positioned by picking directly in
-        # the viewport. Enumerating stable topology for every face and edge
-        # up front can take minutes on a large imported STEP and provides no
-        # value before the first pick. Existing mates still request the full
-        # set so their labels and editable dimension frames are restored.
-        include_topology = bool(stored_mates)
+        # Components are positioned by picking directly in the viewport.
+        # Never enumerate every face/edge up front; restore only descriptors
+        # that are actually persisted in the three mate rows below.
         source_choices = self._assembly_plane_choices(
             component,
             True,
-            include_topology=include_topology,
         )
         target_choices = self._assembly_plane_choices(
             component,
             False,
-            include_topology=include_topology,
         )
+        source_descriptors = {
+            str(row.get("source", ""))
+            for row in stored_mates
+            if isinstance(row, dict)
+        }
+        target_descriptors = {
+            str(row.get("target", ""))
+            for row in stored_mates
+            if isinstance(row, dict)
+        }
+        for choices, descriptors in (
+            (source_choices, source_descriptors),
+            (target_choices, target_descriptors),
+        ):
+            known = {choice[1] for choice in choices}
+            for descriptor in descriptors - known:
+                choice = self._assembly_stored_topology_choice(descriptor)
+                if choice is not None:
+                    choices.append(choice)
         dialog = AssemblyComponentPropertiesDialog(
             self._solve_point_constraints,
             component,
@@ -20552,6 +21159,8 @@ class MainWindow(QMainWindow):
             descriptor
             for _label, descriptor, _point, _normal in source_choices
         }
+        dialog._reference_frames = frames
+        dialog._source_frame_keys = source_frame_keys
 
         def commit_mate_value(row_index: int, raw_value: str) -> None:
             try:
@@ -20711,11 +21320,20 @@ class MainWindow(QMainWindow):
                         descriptor_text
                     )
                     if assembly_face is not None:
-                        face_index = self._component_face_runtime_index(
+                        picked_face = dialog._picked_face_indices.get(
                             descriptor_text
                         )
-                        if face_index is not None:
-                            faces.add((assembly_face.instance_id, face_index))
+                        if picked_face is not None:
+                            faces.add(picked_face)
+                        else:
+                            face_index = self._component_face_runtime_index(
+                                descriptor_text
+                            )
+                            if face_index is not None:
+                                faces.add((
+                                    assembly_face.instance_id,
+                                    face_index,
+                                ))
                         continue
                     assembly_edge = parse_assembly_edge_descriptor(
                         descriptor_text
@@ -20782,7 +21400,10 @@ class MainWindow(QMainWindow):
                 if dialog.active_pick[1] == "source"
                 else dialog.target_choices
             )
-            allowed_owner_ids: set[str] = set()
+            allowed_owner_ids = self._assembly_reference_pick_owner_ids(
+                component,
+                dialog.active_pick[1],
+            )
             if not dialog.selection_paused:
                 for _label, reference, _point, _normal in choices:
                     parts = reference.split(":")
@@ -20833,7 +21454,7 @@ class MainWindow(QMainWindow):
                         )
                         if origin is not None:
                             allowed_owner_ids.add(origin.entity_id)
-            self.native_viewer.set_selection_filter("all")
+            self.native_viewer.set_selection_filter("surface")
             self.native_viewer.set_topology_owner_filter(allowed_owner_ids)
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
@@ -20913,6 +21534,9 @@ class MainWindow(QMainWindow):
                 self.native_viewer.update()
 
         def apply_mates(rows) -> None:
+            previous_component_transform = self._homogeneous_transform(
+                component.coordinate_system
+            )
             valid = [row for row in rows if row["source"] in frames and row["target"] in frames]
             if not valid:
                 component.parameters["assembly_mates"] = "[]"
@@ -21116,6 +21740,10 @@ class MainWindow(QMainWindow):
             component.coordinate_system.origin = tuple(float(value) for value in translation)
             component.coordinate_system.rotation = tuple(math.degrees(value) for value in (rx, ry, rz))
             component.parameters["assembly_mates"] = json.dumps(rows, ensure_ascii=False)
+            self._propagate_assembly_component_transform(
+                component,
+                previous_component_transform,
+            )
             for edit, value in zip(dialog.coordinate_edits, component.coordinate_system.origin):
                 edit.blockSignals(True)
                 edit.setValue(value)
@@ -21151,14 +21779,29 @@ class MainWindow(QMainWindow):
                 "origin": tuple(component.coordinate_system.origin),
                 "rotation": tuple(component.coordinate_system.rotation),
                 "mates": str(component.parameters.get("assembly_mates", "[]")),
+                "component_transforms": {
+                    candidate.entity_id: (
+                        tuple(candidate.coordinate_system.origin),
+                        tuple(candidate.coordinate_system.rotation),
+                    )
+                    for candidate in self.document.history_objects()
+                    if candidate.container_type == ContainerType.COMPONENT
+                },
             })
 
         def preview_component_placement() -> None:
+            previous_component_transform = self._homogeneous_transform(
+                component.coordinate_system
+            )
             component.coordinate_system.origin = tuple(
                 edit.value() for edit in dialog.coordinate_edits
             )
             component.coordinate_system.rotation = tuple(
                 edit.value() for edit in dialog.rotation_edits
+            )
+            self._propagate_assembly_component_transform(
+                component,
+                previous_component_transform,
             )
             self.rebuild_view(fit=False)
 
@@ -21176,7 +21819,6 @@ class MainWindow(QMainWindow):
         previous_axes_visible = self.show_axes_action.isChecked()
         previous_planes_visible = self.show_planes_action.isChecked()
         if show_dialog:
-            self.show_origins_action.setChecked(True)
             self.show_points_action.setChecked(True)
             self.show_axes_action.setChecked(True)
             self.show_planes_action.setChecked(True)
@@ -21200,6 +21842,14 @@ class MainWindow(QMainWindow):
                 component.parameters["assembly_mates"] = str(
                     committed_state["mates"]
                 )
+                for entity_id, transform in committed_state[
+                    "component_transforms"
+                ].items():
+                    candidate = self.document.find_entity(entity_id)
+                    if candidate is None:
+                        continue
+                    candidate.coordinate_system.origin = tuple(transform[0])
+                    candidate.coordinate_system.rotation = tuple(transform[1])
             if self.assembly_component_dialog is dialog:
                 self.assembly_component_dialog = None
             self.native_viewer.set_assembly_reference_highlights(
@@ -21224,6 +21874,10 @@ class MainWindow(QMainWindow):
             dialog.show()
             position_dialog_top_right_after_show(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        if show_dialog:
+            # Do this after rebuild_view: generic selection synchronization
+            # may otherwise restore object mode before Qt exposes the dialog.
+            self._configure_assembly_reference_picking()
         update_mate_dimensions(dialog.mate_rows())
         highlight_active_reference(dialog.active_reference_descriptor())
 
@@ -22342,6 +22996,30 @@ class MainWindow(QMainWindow):
                 ).resolve_edge(stable_edge).shape
             if stable_shape is None:
                 return None
+        # Reference picking maps hits on the displayed Boolean result back to
+        # the original history solid.  That solid is intentionally absent
+        # from the viewer scene, so its face cannot be resolved through the
+        # scene owner below.  Read only the selected face from the original
+        # standalone feature; edges and vertices already have their working
+        # selection/projection paths and must remain unchanged.
+        if (
+            stable_shape is None
+            and source_kind == "face"
+            and descriptor.get("reference_scope") != "assembly_component"
+            and owner is not None
+            and owner.kind == EntityKind.CONTAINER
+            and owner.entity_id != self.document.root.entity_id
+        ):
+            try:
+                source_shape = self.document.build_standalone_shape(owner)
+            except (RuntimeError, ValueError):
+                source_shape = None
+            if source_shape is not None:
+                stable_shape = self._subshape_from_shape(
+                    source_shape,
+                    TopAbs_FACE,
+                    element_index,
+                )
         scene = self._native_viewer_scene
         if (
             stable_shape is None
@@ -35060,6 +35738,12 @@ class MainWindow(QMainWindow):
 
     def _definition_reference_excluded_ids(self) -> set[str]:
         """Return the complete subtree that cannot reference itself."""
+        assembly_dialog = self.assembly_component_dialog
+        if assembly_dialog is not None and assembly_dialog.isVisible():
+            # Assembly mate source selection must see the topology of the
+            # component being edited.  Source/target ownership is validated
+            # by AssemblyComponentPropertiesDialog after the pick.
+            return set()
         editing = self._definition_edit_object()
         excluded = (
             {"__container_preview_origin__"}
@@ -37924,6 +38608,7 @@ class MainWindow(QMainWindow):
                 (
                     self.assembly_component_dialog is not None
                     and self.assembly_component_dialog.isVisible()
+                    and self.show_origins_action.isChecked()
                 )
                 or (
                     self.orientation_dialog is not None
@@ -38025,17 +38710,17 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.set_selection_filter(
             "all"
-            if self._container_orientation_selection_is_active()
-            else "surface"
             if (
-                (
+                self._container_orientation_selection_is_active()
+                or (
                     self.assembly_component_dialog is not None
                     and self.assembly_component_dialog.isVisible()
                 )
-                or (
-                    self.orientation_dialog is not None
-                    and self.orientation_dialog.isVisible()
-                )
+            )
+            else "surface"
+            if (
+                self.orientation_dialog is not None
+                and self.orientation_dialog.isVisible()
             )
             else {
                 ViewSelectionFilter.ALL: "all",
@@ -38052,6 +38737,9 @@ class MainWindow(QMainWindow):
         assembly_references_active = (
             self.assembly_component_dialog is not None
             and self.assembly_component_dialog.isVisible()
+        )
+        self.native_viewer.set_large_mesh_topology_enabled(
+            assembly_references_active
         )
         orientation_references_visible = (
             self.orientation_dialog is not None

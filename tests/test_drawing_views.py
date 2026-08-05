@@ -20,6 +20,7 @@ from zima_cad.app import (
     MainWindow,
     ViewSelectionMode,
 )
+from zima_cad.topology import FaceRef
 from zima_cad.drawing import (
     DrawingCanvas,
     cosmetic_pen,
@@ -40,11 +41,13 @@ from zima_cad.model import (
     CoordinateSystem,
     ContainerType,
     EntityKind,
+    create_empty_assembly,
     create_empty_drawing,
     create_empty_part,
     make_sketch_shape,
     coordinate_system_transform,
     multiply_transforms,
+    transform_shape,
 )
 from zima_cad.sketch_model import SketchModel
 from zima_cad.viewer import (
@@ -400,6 +403,177 @@ class DrawingViewConventionTests(unittest.TestCase):
             )
         )
 
+    def test_original_solid_reference_resolves_without_result_body(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        document.create_primitive(container.entity_id, EntityKind.BOX)
+        reference = active_face_registry(
+            document
+        ).edge_reference_for_runtime_index(1)
+        self.assertIsNotNone(reference)
+
+        resolution = MainWindow._direct_source_reference_resolution(
+            document,
+            reference,
+            "edge",
+        )
+        self.assertIsNotNone(resolution)
+        self.assertIsNotNone(resolution.shape)
+
+    def test_lazy_assembly_pick_registers_only_selected_frame(self) -> None:
+        dialog = SimpleNamespace(
+            _reference_frames={},
+            _source_frame_keys=set(),
+        )
+        MainWindow._register_lazy_assembly_frame(
+            dialog,
+            "selected-face",
+            (1.0, 2.0, 3.0),
+            (0.0, 0.0, 1.0),
+            True,
+        )
+        self.assertEqual(
+            dialog._reference_frames,
+            {"selected-face": ((1.0, 2.0, 3.0), (0.0, 0.0, 1.0))},
+        )
+        self.assertEqual(dialog._source_frame_keys, {"selected-face"})
+
+    def test_assembly_displayed_face_maps_to_original_solid(self) -> None:
+        source_document = create_empty_part()
+        source = source_document.create_container("Box", ContainerType.BOX)
+        source_document.create_primitive(source.entity_id, EntityKind.BOX)
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component",
+            ContainerType.COMPONENT,
+        )
+        component.coordinate_system.origin = (35.0, -12.0, 8.0)
+        source_shape = source_document.build_standalone_shape(source)
+        instance_shape = transform_shape(
+            source_shape,
+            coordinate_system_transform(component.coordinate_system),
+        )
+        explorer = TopExp_Explorer(instance_shape, TopAbs_FACE)
+        self.assertTrue(explorer.More())
+
+        window = MainWindow.__new__(MainWindow)
+        match = window._component_source_face_from_displayed_face(
+            component,
+            source_document,
+            explorer.Current(),
+        )
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match[0].entity_id, source.entity_id)
+        self.assertGreater(match[1], 0)
+
+    def test_assembly_mate_allows_edited_component_as_source(self) -> None:
+        class VisibleDialog:
+            @staticmethod
+            def isVisible():
+                return True
+
+        window = MainWindow.__new__(MainWindow)
+        window.assembly_component_dialog = VisibleDialog()
+        window._definition_edit_objects = [
+            SimpleNamespace(
+                entity_id="edited-component",
+                kind=EntityKind.CONTAINER,
+                children=[],
+            )
+        ]
+
+        self.assertFalse(
+            window._current_definition_owns_reference("edited-component")
+        )
+        self.assertEqual(window._definition_reference_excluded_ids(), set())
+
+    def test_large_mesh_face_pick_can_be_enabled_for_assembly_mates(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._large_mesh_topology_enabled = False
+
+        viewer.set_large_mesh_topology_enabled(True)
+
+        self.assertTrue(viewer._large_mesh_topology_enabled)
+
+    def test_imported_face_reference_is_created_lazily(self) -> None:
+        imported = SimpleNamespace(
+            entity_id="imported-step",
+            kind=EntityKind.IMPORTED_STEP,
+            locked=False,
+        )
+        source = SimpleNamespace(children=[imported])
+
+        reference = MainWindow._lazy_imported_face_reference(source, 12001)
+
+        self.assertEqual(
+            reference,
+            FaceRef("imported-step", "imported", "12001"),
+        )
+
+    def test_assembly_properties_forces_viewport_reference_mode(self) -> None:
+        calls = []
+
+        class Viewer:
+            def __getattr__(self, name):
+                return lambda value=None: calls.append((name, value))
+
+        window = MainWindow.__new__(MainWindow)
+        window.native_viewer = Viewer()
+
+        window._configure_assembly_reference_picking()
+
+        self.assertIn(("set_selection_enabled", True), calls)
+        self.assertIn(("set_selection_filter", "surface"), calls)
+        self.assertIn(("set_interaction_mode", "topology"), calls)
+        self.assertIn(("set_excluded_topology_owners", set()), calls)
+        self.assertIn(("set_large_mesh_topology_enabled", True), calls)
+
+    def test_lazy_assembly_pick_filter_contains_real_components(self) -> None:
+        assembly = create_empty_assembly()
+        source = assembly.create_container("Source", ContainerType.COMPONENT)
+        target = assembly.create_container("Target", ContainerType.COMPONENT)
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+
+        self.assertEqual(
+            window._assembly_reference_pick_owner_ids(source, "source"),
+            {source.entity_id},
+        )
+        self.assertEqual(
+            window._assembly_reference_pick_owner_ids(source, "target"),
+            {target.entity_id},
+        )
+
+    def test_parent_transform_propagates_through_assembly_mate_chain(self) -> None:
+        assembly = create_empty_assembly()
+        parent = assembly.create_container("Parent", ContainerType.COMPONENT)
+        child = assembly.create_container("Child", ContainerType.COMPONENT)
+        grandchild = assembly.create_container(
+            "Grandchild",
+            ContainerType.COMPONENT,
+        )
+        child.coordinate_system.origin = (10.0, 0.0, 0.0)
+        grandchild.coordinate_system.origin = (20.0, 0.0, 0.0)
+        child.parameters["assembly_mates"] = json.dumps([{
+            "target": f"{parent.entity_id}:plane:XY",
+        }])
+        grandchild.parameters["assembly_mates"] = json.dumps([{
+            "target": f"{child.entity_id}:plane:XY",
+        }])
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        previous = window._homogeneous_transform(parent.coordinate_system)
+
+        parent.coordinate_system.origin = (5.0, 3.0, 0.0)
+        window._propagate_assembly_component_transform(parent, previous)
+
+        self.assertEqual(child.coordinate_system.origin, (15.0, 3.0, 0.0))
+        self.assertEqual(
+            grandchild.coordinate_system.origin,
+            (25.0, 3.0, 0.0),
+        )
+
     def test_standalone_sketch_edit_uses_its_own_history_boundary(self) -> None:
         document = create_empty_part()
         before = document.create_container("Before", ContainerType.BOX)
@@ -414,6 +588,65 @@ class DrawingViewConventionTests(unittest.TestCase):
         window._sketch_edit_entity_id = sketch.entity_id
 
         self.assertEqual(window._definition_history_boundary(), 1)
+
+    def test_sketch_projects_face_from_original_history_solid(self) -> None:
+        document = create_empty_part()
+        source = document.create_container("Box", ContainerType.BOX)
+        document.create_primitive(source.entity_id, EntityKind.BOX)
+        sketch_owner = document.create_container(
+            "Sketch",
+            ContainerType.SKETCH,
+        )
+        sketch = document.create_sketch(sketch_owner.entity_id)
+
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._native_viewer_scene = None
+        window._active_component_return_document = None
+        window._active_component_entity_id = None
+
+        projection = window._project_sketch_external_reference(
+            sketch,
+            {
+                "source_kind": "face",
+                "owner_id": source.entity_id,
+                "element_index": 1,
+            },
+        )
+
+        self.assertIsNotNone(projection)
+        self.assertEqual(projection["type"], "polylines")
+
+    def test_view_double_click_does_not_open_container_in_sketcher(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._sketch_edit_entity_id = "active-sketch"
+        window._selected_object = lambda: self.fail(
+            "Sketcher double-click reached container editing"
+        )
+
+        window._on_native_object_double_clicked("owning-protrusion")
+
+    def test_sketch_placement_prefers_exact_clicked_result_face(self) -> None:
+        exact = ("source-solid", 4, object())
+
+        class VisibleDialog:
+            @staticmethod
+            def isVisible():
+                return True
+
+        window = MainWindow.__new__(MainWindow)
+        window.point_constraint_dialog = VisibleDialog()
+        window._source_face_reference_from_result_face = (
+            lambda face_index: exact if face_index == 7 else None
+        )
+        window._source_topology_reference_at_cursor = lambda _kind: self.fail(
+            "Ambiguous source ray pick replaced an exact result-face match"
+        )
+
+        self.assertIs(
+            window._source_face_reference_for_pick(7),
+            exact,
+        )
 
     def test_stored_external_sketch_points_are_always_visible(self) -> None:
         reference = {"id": "external-point"}

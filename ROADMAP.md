@@ -100,6 +100,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - profile validation
 - independent profile-plane offset, including correctly offset in-view length
   dimensions
+- staged Apply/OK evaluation: cyan standalone preview remains live across
+  direction and extent changes, while the final Boolean runs only on OK
 
 ## 4. Revolve
 
@@ -111,6 +113,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - shared line, arc and spline profile builder with Protrusion
 - independent profile-plane offset used by both geometry and angular dimensions
 - revolved thin features
+- staged Apply/OK evaluation equivalent to Protrusion, including persistent
+  cyan preview for forward, reverse and two-sided angle changes
 
 ## 5. Sweep
 
@@ -185,11 +189,17 @@ as the document model, geometric kernel integration and user workflows evolve.
 - uncut source-part geometry displayed while a component is active
 - live component movement while placement values are edited
 - synchronized saving of edited source parts from the assembly workflow
+- dependent assembly scene invalidation after an open source Part changes
+- per-tab camera preservation without automatic fit on tab switching
+- source-document, evaluated-shape and persisted imported-STEP BREP caches
+- separate component shapes collected in an OCCT compound instead of an
+  assembly-wide Fuse
 - component colors stored per instance rather than globally
 - rename workflow updates component and external-reference file links
 - remaining work:
   - add diagnostics and recovery for invalid, conflicting and redundant mates
-  - replace temporary face-index references with stable semantic topology IDs
+  - extend stable semantic topology IDs to the remaining unsupported geometry
+    and dependency workflows
   - extend explicit tree selection to every supported reference type
   - add component grounding controls
   - insertion and nesting of subassemblies

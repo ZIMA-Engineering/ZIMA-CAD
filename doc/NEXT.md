@@ -12,11 +12,17 @@
   explicit and starts only at the earliest changed feature. Preserve cached
   prefix shapes and topology registries across late-feature edits and Undo/Redo.
 - Continue using the persisted, signature-validated compressed BREP result for
-  fast `.prtz` cold starts. Add compatibility/version diagnostics and measure
-  cache size, decoding time and fallback regeneration on larger documents.
+  fast `.prtz` cold starts, including Parts containing embedded STEP data.
+  Add compatibility/version diagnostics and measure cache size, decoding time
+  and fallback regeneration on larger documents.
 - Carry Shape and `TopologyRegistry` together through one central linear
   evaluator instead of allowing feature commands to reconstruct topology or
   replay earlier history independently.
+- Continue replacing whole-result topology references with original-solid
+  identities and Boolean intersection-curve provenance. Fillet now prefers an
+  original history-solid edge and uses result topology only for a newly picked
+  genuine Boolean intersection; apply the same rule to Chamfer and remaining
+  persistent clients.
 - Add central `entity_id -> entity`, `entity_id -> parent` and
   `entity_id -> owning history object` indexes. Replace repeated recursive tree
   searches in visibility, selection, attachment and scene-building hot paths.
@@ -87,6 +93,11 @@
 ## Assembly Stabilization
 
 - Exercise the new `.asmz` workflow on real two- and three-component examples.
+- Add regression timings for insertion of cached and uncached imported Parts.
+  Preserve the current single scene rebuild, lazy topology enumeration,
+  per-source document cache and compound-based component result.
+- Add integration coverage for dependent-scene invalidation when an open Part
+  changes, including simultaneous Part/Assembly tabs and multiple windows.
 - Continue refining the three paired mate rows now that plane/offset,
   concentric-axis and angular mates, nearest-pose solving and editable in-view
   dimensions are available:
@@ -95,6 +106,10 @@
   - robust recovery after a referenced entity disappears;
   - wider coverage of axis-to-plane angular combinations and non-origin datum
     references.
+- Original-solid Assembly picks and persisted mate restoration are now lazy.
+  Keep whole-result topology only for genuine Boolean intersection references;
+  add direct visual overlays for persisted original-solid references without
+  reintroducing result-body runtime indices.
 - Continue the central stable-topology implementation described in
   `doc/STABLE_TOPOLOGY_NAMING.md`. Box/Wedge faces and Extrusion faces, edges
   and vertices now have semantic identities; Revolve faces, edges and vertices

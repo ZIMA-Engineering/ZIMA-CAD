@@ -88,7 +88,7 @@ from zima_cad.topology import (
 
 
 ORIGIN_WIDGET_SIZE = 320.0
-DOCUMENT_FORMAT_VERSION = "9"
+DOCUMENT_FORMAT_VERSION = "10"
 
 
 def default_document_settings() -> dict[str, str]:
@@ -595,6 +595,12 @@ class PartDocument:
         default_factory=default_user_parameter_values
     )
     _shape_history_cache: dict[str, Any] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _topology_history_cache: dict[str, TopologyRegistry] = field(
         default_factory=dict,
         init=False,
         repr=False,
@@ -1227,9 +1233,41 @@ class PartDocument:
             result_shape = cached_shape
             _clear_entity_build_status(objects[index - 1])
         snapshots: dict[int, TopologyRegistry] | None = None
-        if is_history_prefix and any(
-            obj.container_type == ContainerType.FILLET for obj in objects
-        ):
+        fillets_need_boolean_topology = False
+        for index, candidate in enumerate(objects):
+            if candidate.container_type != ContainerType.FILLET:
+                continue
+            fillet_feature = next((
+                child for child in candidate.children
+                if child.kind == EntityKind.FILLET and not child.locked
+            ), None)
+            fillet_reference = (
+                parse_edge_reference(fillet_feature.parameters.get("edge_ref"))
+                if fillet_feature is not None
+                else None
+            )
+            source_entity = (
+                self.find_entity(fillet_reference.feature_id)
+                if fillet_reference is not None
+                else None
+            )
+            source_owner = (
+                source_entity
+                if source_entity is not None
+                and source_entity.kind == EntityKind.CONTAINER
+                else self.find_owning_object(source_entity.entity_id)
+                if source_entity is not None
+                else None
+            )
+            source_index = (
+                self.history_index(source_owner.entity_id)
+                if source_owner is not None
+                else None
+            )
+            if not (index == 1 and source_index == 0):
+                fillets_need_boolean_topology = True
+                break
+        if is_history_prefix and fillets_need_boolean_topology:
             snapshots = {}
             boolean_topology_registry_at(
                 self,
@@ -1544,13 +1582,34 @@ def apply_object_to_shape(
             "_active_topology_registry_snapshots",
             None,
         )
-        registry = (
-            snapshots.get(history_index, TopologyRegistry())
-            if history_index is not None and snapshots is not None
-            else boolean_topology_registry_at(document, history_index)
-            if history_index is not None
-            else TopologyRegistry()
+        source_entity = (
+            document.find_entity(reference.feature_id)
+            if reference is not None
+            else None
         )
+        source_owner = (
+            source_entity
+            if source_entity is not None
+            and source_entity.kind == EntityKind.CONTAINER
+            else document.find_owning_object(source_entity.entity_id)
+            if source_entity is not None
+            else None
+        )
+        source_index = (
+            document.history_index(source_owner.entity_id)
+            if source_owner is not None
+            else None
+        )
+        if history_index == 1 and source_index == 0 and source_owner is not None:
+            registry = standalone_topology_registry(document, source_owner)
+        else:
+            registry = (
+                snapshots.get(history_index, TopologyRegistry())
+                if history_index is not None and snapshots is not None
+                else boolean_topology_registry_at(document, history_index)
+                if history_index is not None
+                else TopologyRegistry()
+            )
         registry = _rebind_registry_to_shape(registry, result_shape)
         if reference is not None and reference.role == "geometric":
             # On-demand fallback references are intentionally not added to
@@ -4832,44 +4891,77 @@ def face_registry_at(
     """Return semantic faces for a single-feature history snapshot."""
 
     objects = document.history_objects_at(cursor)
+    cache_keys = document._shape_history_cache_keys(objects)
+    cache_key = cache_keys[-1] if cache_keys else ""
+    if cache_key:
+        cached_registry = document._topology_history_cache.get(cache_key)
+        if cached_registry is not None:
+            return cached_registry
     if len(objects) > 1:
         registry = boolean_topology_registry_at(document, cursor)
         live_shape = document.build_shape_at(cursor)
-        return (
+        registry = (
             _rebind_registry_to_shape(registry, live_shape)
             if live_shape is not None
             else registry
         )
+        if cache_key:
+            document._topology_history_cache[cache_key] = registry
+            while len(document._topology_history_cache) > 32:
+                document._topology_history_cache.pop(
+                    next(iter(document._topology_history_cache))
+                )
+        return registry
     if len(objects) != 1:
         return TopologyRegistry()
     container = objects[0]
     shape = document.build_shape_at(cursor)
     if container.container_type == ContainerType.PROTRUSION:
-        return protrusion_face_registry(document, container, shape)
-    if container.container_type == ContainerType.REVOLVE:
-        return revolve_face_registry(document, container, shape)
-    if container.container_type == ContainerType.IMPORTED_STEP:
-        return _standalone_topology_registry(document, container, shape)
-    solid = next(
-        (
-            child
-            for child in container.children
-            if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
-            and not child.locked
-        ),
-        None,
-    )
-    return (
-        semantic_face_registry(document, solid, shape)
-        if solid is not None
-        else TopologyRegistry()
-    )
+        registry = protrusion_face_registry(document, container, shape)
+    elif container.container_type == ContainerType.REVOLVE:
+        registry = revolve_face_registry(document, container, shape)
+    elif container.container_type == ContainerType.IMPORTED_STEP:
+        registry = _standalone_topology_registry(document, container, shape)
+    else:
+        solid = next(
+            (
+                child
+                for child in container.children
+                if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
+                and not child.locked
+            ),
+            None,
+        )
+        registry = (
+            semantic_face_registry(document, solid, shape)
+            if solid is not None
+            else TopologyRegistry()
+        )
+    if cache_key:
+        document._topology_history_cache[cache_key] = registry
+    return registry
 
 
 def active_face_registry(document: PartDocument) -> TopologyRegistry:
     """Return semantic faces when the active result has unambiguous provenance."""
 
     return face_registry_at(document, document.history_cursor())
+
+
+def standalone_topology_registry(
+    document: PartDocument,
+    container: ZimaEntity,
+    shape=None,
+) -> TopologyRegistry:
+    """Name one original history solid without replaying the result Body."""
+    source_shape = (
+        shape
+        if shape is not None
+        else document.build_standalone_shape(container)
+    )
+    if source_shape is None:
+        return TopologyRegistry()
+    return _standalone_topology_registry(document, container, source_shape)
 
 
 def resolve_entity_attachments(document: PartDocument, obj: ZimaEntity) -> None:

@@ -69,6 +69,32 @@ class StableTopologyTests(unittest.TestCase):
             explorer.Next()
         return count
 
+    def test_topology_registry_is_reused_until_geometry_changes(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        solid = document.create_primitive(container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(solid)
+
+        first = active_face_registry(document)
+        second = active_face_registry(document)
+        self.assertIs(first, second)
+
+        solid.parameters["length"] = "125"
+        changed = active_face_registry(document)
+        self.assertIsNot(first, changed)
+
+    def test_format_9_is_deliberately_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.prtz"
+            save_part_document(create_empty_part(), path)
+            contents = path.read_text(encoding="utf-8")
+            path.write_text(
+                contents.replace("format_version = 10", "format_version = 9"),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "expected format 10"):
+                load_part_document(path)
+
     def test_face_reference_round_trip(self) -> None:
         reference = FaceRef(
             feature_id="extrusion-1",

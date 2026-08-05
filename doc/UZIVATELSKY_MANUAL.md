@@ -1,12 +1,21 @@
 # ZIMA-CAD – uživatelský manuál
 
+## Kompatibilita dokumentů
+
+Soubory `.prtz`, `.asmz` a `.drwz` musí odpovídat aktuální hodnotě
+`format_version` (nyní `10`). ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší
+experimentální formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní
+změna formátu musí zvýšit jeho verzi a případně nabídnout samostatnou řízenou
+migraci.
+
 ## Ovládání 3D pohledu
 
 | Ovládání | Funkce |
 | --- | --- |
 | Prostřední tlačítko + pohyb myši | Otáčení pohledu |
 | Prostřední + pravé tlačítko + pohyb myši | Posun pohledu |
-| Kolečko myši | Přiblížení a oddálení |
+| Kolečko dopředu | Oddálení |
+| Kolečko dozadu | Přiblížení |
 | Jeden klik prostředním tlačítkem | Použít změny v aktivním dialogu, pokud nabízí tlačítko Použít |
 | Dvojklik prostředním tlačítkem | Potvrzení aktivního dialogu tlačítkem OK |
 | F2 | Zavřít aktivní dokumentový tab |
@@ -16,6 +25,9 @@ neotevře.
 
 Příkazy **Obnovit pohled** a základní pohledy (izometrický, přední, zadní,
 levý, pravý, horní a dolní) používají plynulý animovaný přechod kamery.
+Směr kolečka je shodný v Partu, sestavě i ve výkresu. Každý dokumentový tab si
+uchovává vlastní natočení, posun a přiblížení; přepnutí tabu pohled automaticky
+nepřizpůsobuje ani neresetuje.
 
 ## Pohled kolmo
 
@@ -90,6 +102,12 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - **Zrušit** obnoví stav při otevření okna nebo stav naposledy potvrzený
   tlačítkem **Použít**.
 - Dvojklik prostředním tlačítkem odpovídá tlačítku **OK** v aktivním dialogu.
+
+U Protrusion a Revolve má **Použít** zvláštní rychlý režim: vytvoří samostatný
+azurový náhled prvku bez operace Fuse/Cut a ponechá Vlastnosti otevřené. Náhled
+zůstává azurový také při změně směru, délky nebo úhlu, jednostranného,
+oboustranného či symetrického rozsahu a operace. Teprve **OK** zavře dialog a
+provede skutečný booleovský výpočet výsledného tělesa.
 
 ### Operace solidu
 
@@ -258,10 +276,12 @@ Kóty zobrazené dvojklikem na díl zahrnují také nulové rovinné a souosé v
 zobrazená jako zamčená informační vazba.
 
 Sestavové vazby jsou v současnosti prototyp. Plochy jednoduchých těles Box a
-Wedge a plochy Extrusion mají stabilní sémantickou identitu; nepodporovaná
-plocha se nesmí tiše nahradit plochou se stejným pořadovým číslem. Stabilní
-pojmenování zatím není dokončené pro Revolve ani pro plochy změněné
-booleovskými operacemi a sestavovými řezy.
+Wedge a podporované plochy, hrany a vrcholy Extrusion a Revolve mají stabilní
+sémantickou identitu. Sestavová reference ukládá identitu konkrétní instance a
+zdrojovou referenci Partu, nikoliv pořadové číslo plochy výsledného compoundu.
+Podporované booleovské plochy a kruhové hrany se po změně zdrojového Partu
+obnoví; chybějící nebo nejednoznačná reference zůstane výslovně nevyřešená a
+nesmí se tiše nahradit jinou geometrií se stejným indexem.
 
 ### Aktivace dílu v sestavě
 
@@ -278,6 +298,11 @@ Je-li stejný díl otevřený také v samostatném tabu, aplikace používá spo
 aktuální dokumentový stav. Externí reference vytvořená v sestavě uchovává
 identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
 označí jako ztracená reference místo použití nesprávné geometrie.
+
+Po změně a uložení otevřeného Partu se zneplatní geometrická cache všech
+otevřených sestav, které tento soubor používají. Právě zobrazená sestava se
+obnoví ihned, ostatní při aktivaci svého tabu. Nezměněné komponenty zůstávají
+cacheované.
 
 Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
 ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
@@ -299,6 +324,14 @@ původní soubory dílů.
 Při hoveru se pro každou instanci střídá její sestavově upravený a původní
 stav, potom se pokračuje další instancí. Po aktivaci dílu se hover řídí
 pravidly Partu.
+
+Komponenty se ve výsledku sestavy uchovávají jako samostatné tvary v OCCT
+compoundu; běžné zobrazení je neslučuje operací Fuse. Zdrojové `.prtz`
+dokumenty se načítají jednou a jejich již vytvořená geometrie se znovu používá.
+Při uložení Partu s importovaným STEP se vedle parametrického zdroje ukládá
+podpisem ověřená komprimovaná BREP cache. Starší importovaný Part je vhodné
+jednou otevřít a uložit; následující načtení a vložení pak použije rychlou
+BREP cache místo opakovaného převodu STEP.
 
 ### Barvy a přejmenování
 

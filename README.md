@@ -56,6 +56,12 @@ The application opens one main window with multiple document tabs:
 Current mouse controls, reference selection and the Properties workflow are
 described in the Czech [user manual](doc/UZIVATELSKY_MANUAL.md).
 
+Document tabs retain independent model cameras. Wheel zoom uses the same
+direction in Part, Assembly and Drawing: forward zooms out and backward zooms
+in. Protrusion and Revolve use a staged workflow: Apply keeps the properties
+open and shows a cyan standalone feature preview without a Boolean operation;
+OK performs the final Fuse/Cut and closes the properties.
+
 Part containers use one shared placement model: up to three positional
 references determine the local origin, two optional orientation slots map
 model geometry to FRONT/BACK and TOP/BOTTOM/LEFT/RIGHT, and RX/RY/RZ remain
@@ -101,6 +107,14 @@ Canonical per-instance `AssemblyEdgeRef` serialization and resolution is also
 used by circular feature-edge selection, highlighting and concentric mates.
 Those mates survive source diameter regeneration and recover after temporary
 feature suppression.
+
+Assembly components are rendered as separate shapes in an OCCT compound rather
+than being fused into one result. Loaded source Parts, evaluated shapes and
+document scenes are reused. Saving an open source Part invalidates every
+dependent assembly scene, so switching back to an assembly cannot display a
+stale component. Signature-validated compressed BREP caches are persisted for
+imported STEP Parts as well; an older imported Part gains this fast-load cache
+after it is opened and saved once.
 
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,
@@ -164,6 +178,17 @@ and settings should stay platform-independent.
 During prototype development the Python package still lives in `zima_cad/`.
 The `app/` directory is reserved for the packaged application layout and for a
 possible future C++ implementation.
+
+## Document Format Policy
+
+Prototype document compatibility is explicit rather than best-effort. A
+`.prtz`, `.asmz` or `.drwz` file must carry the current `format_version`;
+unsupported versions are rejected instead of being interpreted through silent
+legacy fallbacks. A future incompatible format change must increment the
+version and either provide a deliberate one-shot converter or clearly report
+that the older document is unsupported. The current clean original-solid
+reference model is document format `10`; format-9 result-body references are
+not migrated.
 
 ## Configuration
 

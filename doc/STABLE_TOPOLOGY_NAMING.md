@@ -1,5 +1,36 @@
 # Stable Topology Naming
 
+## Performance boundary
+
+Stable topology is not a rendering requirement. Opening a document, inserting
+a component, switching tabs, triangulating a shape and drawing visible edge
+curves must use the evaluated BREP/mesh directly and must not enumerate a full
+`FaceRef`/`EdgeRef`/`VertexRef` registry.
+
+The preferred persistent sources are the original parametric solid, its own
+declared faces/edges and Boolean intersection curves with known operands.
+Fillet selection first maps a click on the result Body back to an original
+history solid and names that solid's edge. Whole-result topology is permitted
+only when the newly selected edge is a genuine Boolean intersection with no
+original-solid owner. Legacy result-body references are not restored.
+
+Assembly face and circular-edge picks follow the same rule. The picker tests
+the original Part history solids through the component transform and registers
+only the selected plane/axis frame in the mate solver. Reopening a component
+restores only descriptors actually stored in its mate rows; it never enumerates
+all source faces and edges. Original-solid references are resolved directly,
+and highlighting does not rebuild whole-result topology merely to obtain a
+temporary result-body index.
+
+Format 10 is the clean boundary for this model. Earlier experimental document
+versions and their result-body references are deliberately unsupported.
+
+`PartDocument` caches a requested topology registry by the cumulative geometry
+signature. Repeated consumers therefore share one result, while editing a
+feature produces a different signature and cannot reuse stale topology. This
+cache limits transitional cost; it is not permission to restore eager registry
+creation in the viewer or Assembly insertion path.
+
 ## Current implementation status (August 2026)
 
 The central implementation is active, not only a design proposal:
