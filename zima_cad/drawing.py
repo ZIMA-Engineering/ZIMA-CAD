@@ -2129,7 +2129,7 @@ class DrawingCanvas(QWidget):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         before = self._sheet_point(event.position())
-        factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
+        factor = 1.0 / 1.15 if event.angleDelta().y() > 0 else 1.15
         self._pixels_per_mm = max(0.05, min(100.0, self._pixels_per_mm * factor))
         after_screen = self._screen_point(*before)
         self._pan += event.position() - after_screen

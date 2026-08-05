@@ -88,11 +88,12 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
         if cache_keys
         else None
     )
-    has_embedded_step = any(
-        entity.kind == EntityKind.IMPORTED_STEP
-        for entity in walk_entities(document.root)
-    )
-    if cached_shape is not None and not has_embedded_step:
+    # Imported STEP payloads are intentionally kept as editable source data,
+    # but parsing and transferring a large STEP on every open is far slower
+    # than restoring the already validated OCCT result.  Persist the BREP
+    # cache for imported models too; its document signature prevents stale
+    # geometry after any history or parameter change.
+    if cached_shape is not None:
         brep_text = breptools.WriteToString(cached_shape)
         config["CachedBody"] = {
             "document_signature": _config_model_signature(config),

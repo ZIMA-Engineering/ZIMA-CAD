@@ -858,6 +858,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.navigationChanged.emit(self.camera)
         self.update()
 
+    def set_camera_state(self, camera: CameraState) -> None:
+        """Restore an independent camera snapshot owned by a document tab."""
+        self._stop_camera_animation()
+        self.camera = CameraState(
+            yaw_degrees=camera.yaw_degrees,
+            pitch_degrees=camera.pitch_degrees,
+            roll_degrees=camera.roll_degrees,
+            pan_x=camera.pan_x,
+            pan_y=camera.pan_y,
+            zoom=camera.zoom,
+        )
+        self._buffers_dirty = True
+        self.navigationChanged.emit(self.camera)
+        self.update()
+
     def set_standard_view(self, view_name: str) -> None:
         if view_name not in STANDARD_VIEW_ORIENTATIONS:
             raise ValueError(f"Unknown standard view: {view_name}")
@@ -1170,6 +1185,82 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return None
         selected = max(hits)
         return selected[1], selected[2]
+
+    def edge_at_mesh(
+        self,
+        mesh: ViewerMesh,
+        position: QPointF,
+    ) -> TopologyKey | None:
+        """Pick an edge from a non-displayed history mesh."""
+        if mesh is None or mesh.is_empty:
+            return None
+        candidates: list[tuple[float, float, str, int]] = []
+        threshold = 8.0 * float(self.devicePixelRatioF())
+        for edge in mesh.edges:
+            camera_points = [
+                self._camera_point(point)
+                for point in self._display_edge_points(edge)
+            ]
+            screen_points = [self._screen_point(point) for point in camera_points]
+            for index in range(1, len(screen_points)):
+                distance, fraction = self._point_segment_distance(
+                    position,
+                    screen_points[index - 1],
+                    screen_points[index],
+                )
+                if distance > threshold:
+                    continue
+                depth = (
+                    camera_points[index - 1][2] * (1.0 - fraction)
+                    + camera_points[index][2] * fraction
+                )
+                candidates.append(
+                    (distance, -depth, edge.owner_id, edge.edge_index)
+                )
+        if not candidates:
+            return None
+        candidates.sort()
+        nearest_distance = candidates[0][0]
+        depth_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate[0] <= nearest_distance + 1.5
+        ]
+        selected = min(depth_candidates, key=lambda candidate: candidate[1])
+        return selected[2], selected[3]
+
+    def point_at_mesh(
+        self,
+        mesh: ViewerMesh,
+        position: QPointF,
+    ) -> TopologyKey | None:
+        """Pick a topological vertex from a non-displayed history mesh."""
+        if mesh is None or mesh.is_empty:
+            return None
+        hits: list[tuple[float, float, str, int]] = []
+        threshold = 9.0 * float(self.devicePixelRatioF())
+        for marker in mesh.points:
+            if marker.element_kind != "vertex":
+                continue
+            camera_point = self._camera_point(marker.position)
+            screen = self._screen_point(camera_point)
+            distance = hypot(
+                position.x() - screen.x(),
+                position.y() - screen.y(),
+            )
+            if distance <= threshold:
+                hits.append(
+                    (
+                        distance,
+                        -camera_point[2],
+                        marker.owner_id,
+                        marker.point_index,
+                    )
+                )
+        if not hits:
+            return None
+        selected = min(hits)
+        return selected[2], selected[3]
 
     def point_at(self, position: QPointF) -> TopologyKey | None:
         return self._pick_point(position)
@@ -3054,7 +3145,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         self._stop_camera_animation()
-        wheel_steps = event.angleDelta().y() / 120.0
+        # CAD navigation convention requested by the application: rolling
+        # the wheel forward zooms out and rolling it backward zooms in.
+        wheel_steps = -event.angleDelta().y() / 120.0
         if wheel_steps:
             old_zoom = self.camera.zoom
             new_zoom = max(

@@ -126,9 +126,13 @@ def build_document_viewer_scene_data(
                     coordinate_system_transform(obj.coordinate_system),
                 )
             else:
+                source_document = (component_documents or {}).get(
+                    obj.entity_id
+                )
                 shape = document.build_assembly_component_shape(
                     obj,
                     assembly_objects,
+                    source_document=source_document,
                 )
             if shape is not None:
                 shapes_by_owner_id[obj.entity_id] = shape

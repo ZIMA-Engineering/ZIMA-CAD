@@ -3,7 +3,9 @@ import json
 import tempfile
 from math import cos, radians, sin
 from pathlib import Path
+from types import SimpleNamespace
 
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
@@ -16,6 +18,7 @@ from zima_cad.app import (
     AxisConstraintDialog,
     FamilyTableDialog,
     MainWindow,
+    ViewSelectionMode,
 )
 from zima_cad.drawing import (
     DrawingCanvas,
@@ -57,7 +60,9 @@ from zima_cad.viewer import (
 )
 from zima_cad.viewer_mesh import (
     EdgePolyline,
+    PointMarker,
     SilhouetteEdge,
+    ViewerMesh,
     edge_visible_in_display,
     silhouette_segments,
     silhouette_segments_from_edges,
@@ -67,6 +72,106 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_properties_dialog_consumes_face_when_general_selection_is_disabled(
+        self,
+    ) -> None:
+        owner = SimpleNamespace(entity_id="Protrusion001")
+        root = SimpleNamespace(entity_id="result-body")
+        selected: list[tuple[object, object]] = []
+
+        class VisibleDialog:
+            @staticmethod
+            def isVisible():
+                return True
+
+        class Shape:
+            @staticmethod
+            def ShapeType():
+                return TopAbs_FACE
+
+        class WindowState:
+            document = SimpleNamespace(
+                root=root,
+                find_entity=lambda _owner_id: owner,
+            )
+            point_constraint_dialog = VisibleDialog()
+            view_selection_enabled = False
+            _sketch_reference_mode = False
+            _active_component_entity_id = None
+            _active_component_document = None
+            view_selection_mode = ViewSelectionMode.CONTAINER
+
+            @staticmethod
+            def _try_pick_protrusion_profile(_obj):
+                return False
+
+            @staticmethod
+            def _add_point_shape_constraint(obj, shape):
+                selected.append((obj, shape))
+
+            @staticmethod
+            def _select_native_tree_object(_owner_id):
+                return None
+
+        shape = Shape()
+        MainWindow._apply_native_view_selection(
+            WindowState(), owner.entity_id, shape
+        )
+        self.assertEqual(selected, [(owner, shape)])
+
+    def test_non_displayed_history_mesh_picks_edges_and_vertices(self) -> None:
+        mesh = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                edge_index=7,
+                points=((0.0, 0.0, 2.0), (10.0, 0.0, 2.0)),
+                owner_id="Protrusion001",
+            ),),
+            points=(PointMarker(
+                point_index=3,
+                position=(0.0, 0.0, 2.0),
+                owner_id="Protrusion001",
+                element_kind="vertex",
+            ),),
+            planes=(),
+            bounds_min=(0.0, 0.0, 2.0),
+            bounds_max=(10.0, 0.0, 2.0),
+        )
+
+        class ViewerState:
+            @staticmethod
+            def devicePixelRatioF():
+                return 1.0
+
+            @staticmethod
+            def _camera_point(point):
+                return point
+
+            @staticmethod
+            def _screen_point(point):
+                return QPointF(point[0], point[1])
+
+            @staticmethod
+            def _display_edge_points(edge):
+                return edge.points
+
+            _point_segment_distance = staticmethod(
+                ZimaOpenGLViewer._point_segment_distance
+            )
+
+        viewer = ViewerState()
+        self.assertEqual(
+            ZimaOpenGLViewer.edge_at_mesh(viewer, mesh, QPointF(5.0, 0.0)),
+            ("Protrusion001", 7),
+        )
+        self.assertEqual(
+            ZimaOpenGLViewer.point_at_mesh(viewer, mesh, QPointF(0.0, 0.0)),
+            ("Protrusion001", 3),
+        )
+
     def test_container_frame_slots_expand_into_position_and_orientation(self):
         primary = {"type": "face", "key": "face", "label": "Face"}
         secondary = {"type": "edge", "key": "edge", "label": "Edge"}

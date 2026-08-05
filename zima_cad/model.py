@@ -1185,18 +1185,19 @@ class PartDocument:
         if self.body_is_suppressed():
             return None
         if self.document_settings.get("type") == "assembly":
-            result_shape = None
+            builder = BRep_Builder()
+            result_shape = TopoDS_Compound()
+            builder.MakeCompound(result_shape)
+            has_shape = False
             for obj in objects:
                 if obj.container_type != ContainerType.COMPONENT:
                     continue
                 shape = self.build_assembly_component_shape(obj, objects)
                 if shape is None:
                     continue
-                result_shape = (
-                    shape if result_shape is None
-                    else BRepAlgoAPI_Fuse(result_shape, shape).Shape()
-                )
-            return result_shape
+                builder.Add(result_shape, shape)
+                has_shape = True
+            return result_shape if has_shape else None
         # Fillets need both the incoming shape and its topology registry.  A
         # fillet used to reconstruct that registry from the beginning of the
         # history independently for every step, producing triangular work as
@@ -1309,9 +1310,22 @@ class PartDocument:
         self,
         component: ZimaEntity,
         objects: list[ZimaEntity] | None = None,
+        source_document: PartDocument | None = None,
     ):
         """Evaluate one component with later assembly-only cuts applied."""
-        shape = self.build_standalone_shape(component)
+        source_shape = (
+            source_document.build_active_shape()
+            if source_document is not None
+            else None
+        )
+        shape = (
+            transform_shape(
+                source_shape,
+                coordinate_system_transform(component.coordinate_system),
+            )
+            if source_shape is not None
+            else self.build_standalone_shape(component)
+        )
         if shape is None:
             return None
         history = self.history_objects() if objects is None else objects
@@ -1459,7 +1473,18 @@ def make_component_shape(
         # module import time.
         from zima_cad.storage import load_part_document
 
-        source_document = load_part_document(source_path.resolve())
+        resolved_path = source_path.resolve()
+        document_cache = (
+            document.__dict__.setdefault(
+                "_assembly_component_document_cache", {}
+            )
+            if document is not None
+            else {}
+        )
+        source_document = document_cache.get(resolved_path)
+        if source_document is None:
+            source_document = load_part_document(resolved_path)
+            document_cache[resolved_path] = source_document
         if source_document.document_settings.get("type", "part") != "part":
             return None
         return source_document.build_active_shape()
