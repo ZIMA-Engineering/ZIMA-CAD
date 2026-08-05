@@ -3869,6 +3869,15 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         buttons = self.findChild(QDialogButtonBox)
         dialog_layout = self.layout()
         if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
+            # Extrude/Revolve are committed only by OK. Applying midway
+            # would execute the real Fuse/Cut and defeat the lightweight
+            # wire-only preview used while editing the definition.
+            apply_button = buttons.button(
+                QDialogButtonBox.StandardButton.Apply
+            )
+            if apply_button is not None:
+                apply_button.hide()
+                apply_button.setEnabled(False)
             dialog_layout.insertLayout(1, operation_form)
             dialog_layout.insertLayout(dialog_layout.indexOf(buttons), feature_form)
         self.extent_mode_combo.currentIndexChanged.connect(
