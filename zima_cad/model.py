@@ -1611,7 +1611,14 @@ def apply_object_to_shape(
             return len(unique_solids(candidate))
 
         def unique_solids(candidate) -> list[Any]:
-            explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
+            if candidate is None:
+                return []
+            try:
+                if candidate.IsNull():
+                    return []
+                explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
+            except (AttributeError, RuntimeError, TypeError):
+                return []
             solids = []
             while explorer.More():
                 solid = explorer.Current()
@@ -1687,19 +1694,32 @@ def apply_object_to_shape(
             if result_shape is None:
                 result_shape = shape
             else:
+                # A Part is allowed to contain multiple bodies. This is
+                # essential after STEP import, which commonly contributes
+                # hundreds of disconnected solids. Never feed the complete
+                # compound to OCCT Fuse: on disjoint compound inputs some
+                # builds return a null/invalid shape and the newly created
+                # container then appears to vanish.
+                existing_solids = unique_solids(result_shape)
+                added_solids = unique_solids(shape)
                 fused = (
-                    fuse_preserving_disconnected(result_shape, shape)
-                    if is_protrusion or is_revolve
-                    else BRepAlgoAPI_Fuse(result_shape, shape).Shape()
+                    _compound_shapes([*existing_solids, *added_solids])
+                    if len(existing_solids) > 64
+                    else fuse_preserving_disconnected(result_shape, shape)
                 )
-                # A sketch feature may intentionally contain several closed
-                # profiles and therefore produce a multi-solid Part.  Keep
-                # rejecting accidentally disconnected primitive containers,
-                # but preserve every solid made by Protrusion/Revolve.
-                if solid_count(fused) == 1 or is_protrusion or is_revolve:
+                if (
+                    solid_count(fused) == 1
+                    or is_protrusion
+                    or is_revolve
+                    or len(existing_solids) > 64
+                ):
                     result_shape = fused
                 elif record_build_status:
-                    status_owner.parameters["build_status"] = "disconnected"
+                    status_owner.parameters["build_status"] = (
+                        "disconnected"
+                        if solid_count(fused) > 1
+                        else "boolean_failed"
+                    )
         elif (
             shape is not None
             and operation == CombineMode.SUBTRACT

@@ -535,21 +535,41 @@ def combine_viewer_meshes(meshes: tuple[ViewerMesh, ...]) -> ViewerMesh:
     edges: list[EdgePolyline] = []
     points: list[PointMarker] = []
     planes: list[PlanePatch] = []
+    triangle_meshes = tuple(
+        mesh for mesh in visible_meshes if mesh.triangle_positions
+    )
     all_bounds_min = [mesh.bounds_min for mesh in visible_meshes]
     all_bounds_max = [mesh.bounds_max for mesh in visible_meshes]
     for mesh in visible_meshes:
-        positions.extend(mesh.triangle_positions)
-        normals.extend(mesh.triangle_normals)
-        face_indices.extend(mesh.triangle_face_indices)
-        owner_ids.extend(mesh.triangle_owner_ids)
+        if len(triangle_meshes) != 1:
+            positions.extend(mesh.triangle_positions)
+            normals.extend(mesh.triangle_normals)
+            face_indices.extend(mesh.triangle_face_indices)
+            owner_ids.extend(mesh.triangle_owner_ids)
         edges.extend(mesh.edges)
         points.extend(mesh.points)
         planes.extend(mesh.planes)
+    # Datum/sketch overlays contain no triangles. Preserve the large body's
+    # immutable tuples by identity so changing a tiny overlay neither copies
+    # hundreds of thousands of vertices nor invalidates the GPU surface VBO.
+    triangle_source = triangle_meshes[0] if len(triangle_meshes) == 1 else None
     return ViewerMesh(
-        triangle_positions=tuple(positions),
-        triangle_normals=tuple(normals),
-        triangle_face_indices=tuple(face_indices),
-        triangle_owner_ids=tuple(owner_ids),
+        triangle_positions=(
+            triangle_source.triangle_positions
+            if triangle_source is not None else tuple(positions)
+        ),
+        triangle_normals=(
+            triangle_source.triangle_normals
+            if triangle_source is not None else tuple(normals)
+        ),
+        triangle_face_indices=(
+            triangle_source.triangle_face_indices
+            if triangle_source is not None else tuple(face_indices)
+        ),
+        triangle_owner_ids=(
+            triangle_source.triangle_owner_ids
+            if triangle_source is not None else tuple(owner_ids)
+        ),
         edges=tuple(edges),
         points=tuple(points),
         planes=tuple(planes),

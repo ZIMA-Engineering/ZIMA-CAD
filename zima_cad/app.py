@@ -9102,7 +9102,7 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._show_protrusion_profile_overlay(obj)
 
     def _edit_protrusion(self, obj: ZimaEntity) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
@@ -9151,7 +9151,7 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._show_protrusion_profile_overlay(obj)
 
     def _connect_feature_direction_preview(
         self,
@@ -9225,12 +9225,31 @@ class MainWindow(QMainWindow):
     ) -> None:
         if obj is None:
             return
+        previous_definition = self._entity_definition_signature(obj)
         if self._set_protrusion_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
             extent_mode, direction, result_type, operation,
         ):
+            if self._entity_definition_signature(obj) == previous_definition:
+                return
             self._refresh_object_properties(obj)
+
+    @staticmethod
+    def _entity_definition_signature(obj: ZimaEntity) -> tuple[Any, ...]:
+        """Serializable feature state, excluding transient OCCT caches."""
+        return (
+            obj.name,
+            obj.coordinate_system.origin,
+            obj.coordinate_system.rotation,
+            obj.show_internal_entities,
+            obj.show_auxiliary_geometry,
+            tuple(sorted((str(key), str(value)) for key, value in obj.parameters.items())),
+            tuple(
+                MainWindow._entity_definition_signature(child)
+                for child in obj.children
+            ),
+        )
 
     def _set_protrusion_definition(
         self, obj, references, fallback, name, show_internal, show_auxiliary,
@@ -9364,11 +9383,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         if obj is None:
             return
+        previous_definition = self._entity_definition_signature(obj)
         if self._set_revolve_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
             extent_mode, direction, result_type, operation,
         ):
+            if self._entity_definition_signature(obj) == previous_definition:
+                return
             self._refresh_object_properties(obj)
 
     def _set_revolve_definition(
@@ -11846,6 +11868,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.document is None:
             return
+        previous_scene = self._native_viewer_scene
         solution, _dof, _status, _constrained = self._solve_point_constraints(
             references, fallback
         )
@@ -11871,7 +11894,20 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, sketch)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        self.rebuild_view(fit=False)
+        self.rebuild_view(
+            fit=False,
+            rebuild_geometry=True,
+            cached_body_shape=(
+                previous_scene.shapes_by_owner_id.get(
+                    self.document.root.entity_id
+                )
+                if previous_scene is not None else None
+            ),
+            cached_body_mesh=(
+                previous_scene.body_mesh
+                if previous_scene is not None else None
+            ),
+        )
 
     def _update_sketch_object(
         self,
@@ -19725,7 +19761,11 @@ class MainWindow(QMainWindow):
             self._select_tree_object(target.entity_id)
         finally:
             self.tree.blockSignals(signals_were_blocked)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        # Activating Properties changes only selection and overlays. The
+        # underlying 3D scene is untouched; rebuilding it here made a simple
+        # double-click replay the complete large STEP display pipeline before
+        # the properties window or Sketcher could appear.
+        self.native_viewer.update()
         return target
 
     def show_object_properties(self, obj: ZimaEntity) -> None:
@@ -23699,7 +23739,6 @@ class MainWindow(QMainWindow):
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
         self.native_viewer.set_selection_enabled(False)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
         self._align_view_to_active_sketch()
         self.native_viewer.set_sketch_overlay(
             frame,
@@ -33093,7 +33132,6 @@ class MainWindow(QMainWindow):
         # regenerated state.  Only the lightweight sketch overlay changed;
         # rebuilding the full OCCT history and triangulation after every
         # point/rectangle made editing progressively slower as the Part grew.
-        self.rebuild_view(fit=False, rebuild_geometry=False)
         self._refresh_sketch_overlay()
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
@@ -34220,7 +34258,6 @@ class MainWindow(QMainWindow):
             return
         sketch_id = self._sketch_edit_entity_id
         return_camera = self._sketch_previous_camera
-        previous_body_shape = self._sketch_previous_body_shape
         active_sketch = (
             self.document.find_entity(sketch_id)
             if self.document is not None
@@ -34249,6 +34286,7 @@ class MainWindow(QMainWindow):
             # finished.  This handles both directions: closing a contour
             # creates a solid, reopening it returns the dependent feature to
             # a surface instead of preserving a stale earlier choice.
+            sketch_affects_solid = False
             for owner in self.document.history_objects():
                 for feature in owner.children:
                     if (
@@ -34259,9 +34297,12 @@ class MainWindow(QMainWindow):
                         and str(feature.parameters.get("sketch_id", ""))
                         == sketch_id
                     ):
+                        sketch_affects_solid = True
                         feature.parameters["result_type"] = (
                             evaluated_result_type
                         )
+        else:
+            sketch_affects_solid = False
         self._clear_dimension_overlays()
         self.native_viewer.set_sketch_overlay(None)
         self._set_sketch_reference_mode(False)
@@ -34300,25 +34341,42 @@ class MainWindow(QMainWindow):
         self._sketch_selected_external_reference_id = None
         self._populate_tree()
         self._rebuild_application_toolbar()
-        if self.document is not None and not restore and sketch_changed:
+        if (
+            self.document is not None
+            and not restore
+            and sketch_changed
+            and sketch_affects_solid
+        ):
             # Finishing a sketch is always a history change from the user's
             # point of view.  Do not depend on a dirty flag that may have been
             # consumed by an intermediate preview rebuild: recompute the
             # parent and all external-reference descendants unconditionally.
             self.document.regeneration_required = True
             self.regenerate_model()
-        elif self.document is not None and not restore:
-            # Merely opening and closing Sketcher must not replay every
-            # downstream fillet.  Restore the final Body captured on entry;
-            # its mesh/silhouette are also recovered by the viewer caches.
+        elif self.document is not None and sketch_changed and not restore:
+            # A standalone Sketch contributes only display edges. Rebuild
+            # that tiny scene layer while explicitly retaining the existing
+            # body shape and GPU mesh; no solid feature depends on it.
+            scene = self._native_viewer_scene
             self.document.regeneration_required = False
             self.rebuild_view(
                 fit=False,
                 rebuild_geometry=True,
-                cached_body_shape=previous_body_shape,
+                cached_body_shape=(
+                    scene.shapes_by_owner_id.get(self.document.root.entity_id)
+                    if scene is not None else None
+                ),
+                cached_body_mesh=(
+                    scene.body_mesh if scene is not None else None
+                ),
             )
-        else:
-            self.rebuild_view(fit=False)
+        elif self.document is not None:
+            # Opening, cancelling or finishing an unchanged sketch only
+            # removes a 2D overlay and restores the camera. The 3D scene was
+            # never modified, so rebuilding it here is both redundant and
+            # disastrous for large imported STEP bodies.
+            self.document.regeneration_required = False
+            self.native_viewer.update()
         if return_camera is not None:
             self.native_viewer.animate_camera_state(
                 return_camera,

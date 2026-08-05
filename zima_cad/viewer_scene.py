@@ -182,6 +182,7 @@ def build_document_viewer_scene_data(
                     triangulate_shape(shape, owner_id=obj.entity_id)
                 )
     else:
+        history_objects = document.history_objects_at(boundary)
         shape = (
             cached_body_shape
             if cached_body_shape is not None
@@ -198,23 +199,117 @@ def build_document_viewer_scene_data(
                 imported_face_count = max(
                     (
                         int(child.parameters.get("face_count", 0) or 0)
-                        for obj in document.history_objects_at(boundary)
+                        for obj in history_objects
                         for child in obj.children
                         if child.kind == EntityKind.IMPORTED_STEP
                     ),
                     default=0,
                 )
-                body_mesh = triangulate_shape(
-                    shape,
-                    owner_id=document.root.entity_id,
-                    linear_deflection=(
-                        5.0 if imported_face_count > 5_000 else 0.2
+                imported_index = next(
+                    (
+                        index
+                        for index, obj in enumerate(history_objects)
+                        if obj.container_type == ContainerType.IMPORTED_STEP
+                        and any(
+                            child.kind == EntityKind.IMPORTED_STEP
+                            and int(child.parameters.get("face_count", 0) or 0)
+                            > 5_000
+                            for child in obj.children
+                        )
                     ),
-                    angular_deflection=(
-                        1.2 if imported_face_count > 5_000 else 0.35
-                    ),
-                    include_topology=imported_face_count <= 5_000,
+                    None,
                 )
+
+                def is_layerable_addition(obj: ZimaEntity) -> bool:
+                    if obj.container_type in (
+                        ContainerType.POINT,
+                        ContainerType.AXIS,
+                        ContainerType.PLANE,
+                        ContainerType.SKETCH,
+                    ):
+                        return True
+                    if obj.container_type in (
+                        ContainerType.PROTRUSION,
+                        ContainerType.REVOLVE,
+                    ):
+                        feature = next(
+                            (
+                                child for child in obj.children
+                                if child.kind in (
+                                    EntityKind.PROTRUSION,
+                                    EntityKind.REVOLVE,
+                                )
+                                and not child.locked
+                            ),
+                            None,
+                        )
+                        return (
+                            feature is not None
+                            and str(feature.parameters.get("operation", "+"))
+                            == "+"
+                        )
+                    return (
+                        obj.container_type != ContainerType.FILLET
+                        and str(obj.combine_mode.value) == "+"
+                    )
+
+                layered_large_import = (
+                    imported_index is not None
+                    and all(
+                        is_layerable_addition(obj)
+                        for obj in history_objects[imported_index + 1:]
+                    )
+                )
+                if layered_large_import:
+                    imported_container = history_objects[imported_index]
+                    imported_entity = next(
+                        child for child in imported_container.children
+                        if child.kind == EntityKind.IMPORTED_STEP
+                    )
+                    imported_mesh = getattr(
+                        imported_entity,
+                        "_imported_viewer_mesh_cache",
+                        None,
+                    )
+                    if imported_mesh is None:
+                        imported_shape = document.build_standalone_shape(
+                            imported_container
+                        )
+                        imported_mesh = triangulate_shape(
+                            imported_shape,
+                            owner_id=document.root.entity_id,
+                            linear_deflection=5.0,
+                            angular_deflection=1.2,
+                            include_topology=False,
+                        )
+                        imported_entity._imported_viewer_mesh_cache = (
+                            imported_mesh
+                        )
+                    body_layers = [imported_mesh]
+                    for addition in history_objects[imported_index + 1:]:
+                        addition_shape = document.build_standalone_shape(
+                            addition
+                        )
+                        if addition_shape is not None:
+                            body_layers.append(
+                                triangulate_shape(
+                                    addition_shape,
+                                    owner_id=document.root.entity_id,
+                                )
+                            )
+                    body_mesh = combine_viewer_meshes(tuple(body_layers))
+                else:
+                    body_mesh = triangulate_shape(
+                        shape,
+                        owner_id=document.root.entity_id,
+                        linear_deflection=(
+                            5.0 if imported_face_count > 5_000 else 0.2
+                        ),
+                        angular_deflection=(
+                            1.2 if imported_face_count > 5_000 else 0.35
+                        ),
+                        include_topology=imported_face_count <= 5_000,
+                    )
             layers.append(body_mesh)
 
     reference_scene_size = _scene_diagonal(layers)

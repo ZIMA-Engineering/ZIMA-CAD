@@ -562,6 +562,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._edge_vao: QOpenGLVertexArrayObject | None = None
         self._background_vao: QOpenGLVertexArrayObject | None = None
         self._surface_vertex_count = 0
+        self._uploaded_surface_key: tuple[int, int, int, int] | None = None
         self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
         self._owner_ranges: tuple[tuple[str, int, int], ...] = ()
         self._edge_ranges: tuple[tuple[int, int], ...] = ()
@@ -1999,20 +2000,41 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and self._mesh is not None
                 and self._mesh.triangle_count > 100_000
             ):
-                # Large imported STEP previews deliberately have no detailed
-                # topology.  A linear CPU ray test over every display
-                # triangle blocks the Qt event loop for seconds.  Their
-                # single display owner can be selected without that scan.
-                owner_id = next(
-                    (
-                        candidate for candidate
-                        in self._mesh.triangle_owner_ids
-                        if candidate
-                    ),
-                    "",
+                # Datum points, planes and axes are a tiny overlay and must
+                # remain selectable even when detailed STEP topology is
+                # disabled. Test those first without touching the triangle
+                # array; only a click on the body falls back to its owner.
+                point = self._pick_point(event.position())
+                plane = (
+                    None
+                    if point is not None
+                    else self._pick_plane(event.position())
+                )
+                axis = (
+                    None
+                    if point is not None or plane is not None
+                    else self._pick_axis(event.position())
                 )
                 self._clear_topology_selection()
-                self._set_selected_object(owner_id or None)
+                if point is not None:
+                    self._set_selected_point(point)
+                elif plane is not None:
+                    self._set_selected_plane(plane)
+                elif axis is not None:
+                    self._set_selected_edge(axis)
+                elif self._interaction_mode == "object":
+                    # A linear CPU ray test over every display triangle
+                    # blocks the event loop for seconds. Select the single
+                    # display owner without that scan.
+                    owner_id = next(
+                        (
+                            candidate for candidate
+                            in self._mesh.triangle_owner_ids
+                            if candidate
+                        ),
+                        "",
+                    )
+                    self._set_selected_object(owner_id or None)
                 event.accept()
                 return
             if self._interaction_mode == "object":
@@ -2571,8 +2593,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             # every cursor event.  While that O(N) scan was running, middle
             # press and wheel events accumulated in Qt's queue and navigation
             # appeared to start only after a long wait.
+            point = self._pick_point(event.position())
+            plane = (
+                None
+                if point is not None
+                else self._pick_plane(event.position())
+            )
+            axis = (
+                None
+                if point is not None or plane is not None
+                else self._pick_axis(event.position())
+            )
             self._clear_topology_hover()
             self._set_hovered_object(None)
+            if point is not None:
+                self._set_hovered_point(point)
+            elif plane is not None:
+                self._set_hovered_plane(plane)
+            elif axis is not None:
+                self._set_hovered_edge(axis)
             super().mouseMoveEvent(event)
             return
         if self._interaction_mode == "object":
@@ -3062,14 +3101,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         surface_values = array("f")
         edge_values = array("f")
         edge_ranges: list[tuple[int, int]] = []
+        surface_key = (
+            (
+                id(mesh.triangle_positions),
+                id(mesh.triangle_normals),
+                id(mesh.triangle_face_indices),
+                id(mesh.triangle_owner_ids),
+            )
+            if mesh is not None else None
+        )
+        surface_changed = surface_key != self._uploaded_surface_key
         if mesh is not None:
-            for offset in range(0, len(mesh.triangle_positions), 3):
-                surface_values.extend(
-                    mesh.triangle_positions[offset:offset + 3]
-                )
-                surface_values.extend(
-                    mesh.triangle_normals[offset:offset + 3]
-                )
+            if surface_changed:
+                for offset in range(0, len(mesh.triangle_positions), 3):
+                    surface_values.extend(
+                        mesh.triangle_positions[offset:offset + 3]
+                    )
+                    surface_values.extend(
+                        mesh.triangle_normals[offset:offset + 3]
+                    )
             edge_vertex_start = 0
             for edge in mesh.edges:
                 display_points = self._display_edge_points(edge)
@@ -3079,17 +3129,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     (edge_vertex_start, len(display_points))
                 )
                 edge_vertex_start += len(display_points)
-        surface_data = surface_values.tobytes()
         edge_data = edge_values.tobytes()
-        surface_buffer.bind()
-        surface_buffer.allocate(surface_data, len(surface_data))
-        surface_buffer.release()
+        if surface_changed:
+            surface_data = surface_values.tobytes()
+            surface_buffer.bind()
+            surface_buffer.allocate(surface_data, len(surface_data))
+            surface_buffer.release()
         edge_buffer.bind()
         edge_buffer.allocate(edge_data, len(edge_data))
         edge_buffer.release()
-        self._surface_vertex_count = len(surface_values) // 6
-        self._face_ranges = self._build_face_ranges(mesh)
-        self._owner_ranges = self._build_owner_ranges(mesh)
+        if surface_changed:
+            self._surface_vertex_count = len(surface_values) // 6
+            self._face_ranges = self._build_face_ranges(mesh)
+            self._owner_ranges = self._build_owner_ranges(mesh)
+            self._uploaded_surface_key = surface_key
         self._edge_ranges = tuple(edge_ranges)
         self._buffers_dirty = False
 
