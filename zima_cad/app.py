@@ -38,8 +38,12 @@ from PySide6.QtGui import (
     QIcon,
     QPalette,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
+    QFont,
+    QFontDatabase,
+    QTransform,
 )
 from PySide6.QtCore import (
     QByteArray,
@@ -245,10 +249,9 @@ def display_decimal_places(
 
 
 def resource_icon(name: str) -> QIcon:
-    path = app_path("resources", "icons", f"{name}.svg")
     application = QApplication.instance()
     if application is None:
-        return QIcon(str(path))
+        return QIcon(str(app_path("resources", "icons", f"{name}.svg")))
 
     # Qt does not consistently resolve SVG currentColor against the widget
     # palette. Render the icon with an explicit palette colour so transparent
@@ -257,6 +260,7 @@ def resource_icon(name: str) -> QIcon:
     cache_key = (name, color)
     if cache_key in _RESOURCE_ICON_CACHE:
         return _RESOURCE_ICON_CACHE[cache_key]
+    path = app_path("resources", "icons", f"{name}.svg")
     svg = path.read_text(encoding="utf-8").replace("currentColor", color)
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     if not renderer.isValid():
@@ -7498,6 +7502,50 @@ class DimensionPropertiesDialog(QDialog):
         }
 
 
+class SketchTextPropertiesDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("sketch.text.dialog.title"))
+        self.setModal(False)
+        form = QFormLayout(self)
+        self.text_edit = QLineEdit()
+        self.text_edit.setText("TEXT")
+        form.addRow(tr("sketch.text.dialog.value"), self.text_edit)
+        self.height_spin = QDoubleSpinBox()
+        self.height_spin.setRange(0.01, 1_000_000.0)
+        self.height_spin.setDecimals(3)
+        self.height_spin.setValue(10.0)
+        self.height_spin.setSuffix(" mm")
+        form.addRow(tr("sketch.text.dialog.height"), self.height_spin)
+        self.horizontal_combo = QComboBox()
+        for key, value in (
+            ("sketch.text.align.left", "left"),
+            ("sketch.text.align.center", "center"),
+            ("sketch.text.align.right", "right"),
+        ):
+            self.horizontal_combo.addItem(tr(key), value)
+        form.addRow(
+            tr("sketch.text.dialog.horizontal"),
+            self.horizontal_combo,
+        )
+        self.vertical_combo = QComboBox()
+        for key, value in (
+            ("sketch.text.align.bottom", "bottom"),
+            ("sketch.text.align.middle", "middle"),
+            ("sketch.text.align.top", "top"),
+        ):
+            self.vertical_combo.addItem(tr(key), value)
+        form.addRow(tr("sketch.text.dialog.vertical"), self.vertical_combo)
+
+    def values(self) -> tuple[str, float, str, str]:
+        return (
+            self.text_edit.text(),
+            self.height_spin.value(),
+            str(self.horizontal_combo.currentData()),
+            str(self.vertical_combo.currentData()),
+        )
+
+
 class MainWindow(QMainWindow):
     def _install_qt_translations(
         self,
@@ -7631,6 +7679,7 @@ class MainWindow(QMainWindow):
         self._cached_history_boundary: int | None = None
         self._cached_model_shapes: list[tuple[Any, str]] = []
         self._cached_source_model_shapes: list[tuple[Any, str]] = []
+        self._cached_source_model_meshes: dict[str, ViewerMesh] = {}
         self._reference_topology_registry_cache: dict[
             tuple[int, int], Any
         ] = {}
@@ -7666,6 +7715,11 @@ class MainWindow(QMainWindow):
         self._sketch_polyline_arc_center_reference_id: str | None = None
         self._sketch_polyline_arc_reverse = False
         self._sketch_polygon_sides = 4
+        self._sketch_text_value = ""
+        self._sketch_text_height = 10.0
+        self._sketch_text_horizontal = "left"
+        self._sketch_text_vertical = "bottom"
+        self._sketch_text_dialog: SketchTextPropertiesDialog | None = None
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id: str | None = None
         self._sketch_midpoint_point_id: str | None = None
@@ -8424,6 +8478,7 @@ class MainWindow(QMainWindow):
                 ("polyline", "sketch.tool.polyline", "sketch-polyline"),
                 ("rectangle", "sketch.tool.rectangle", "sketch-rectangle"),
                 ("hexagon", "sketch.tool.polygon", "sketch-hexagon"),
+                ("text", "sketch.tool.text", "sketch-text"),
                 ("circle", "sketch.tool.circle", "sketch-circle"),
                 ("arc", "sketch.tool.arc", "sketch-arc"),
                 ("ellipse", "sketch.tool.ellipse", "sketch-ellipse"),
@@ -9932,9 +9987,10 @@ class MainWindow(QMainWindow):
         enable_live_preview()
         dialog.show()
         position_dialog_top_right_after_show(dialog)
-        # Opening properties also activates the edited container's local
-        # origin, independently of the global Origin visibility toggle.
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        # Every caller performs the single view rebuild required to activate
+        # the edited container's local origin.  Rebuilding here as well used
+        # to evaluate and triangulate the complete history twice, which is
+        # particularly expensive for outline text.
 
     def _activate_point_reference(self, descriptor: dict[str, Any]) -> None:
         if self.document is None:
@@ -18117,8 +18173,14 @@ class MainWindow(QMainWindow):
                         0,
                     ))
                 candidates = paired_candidates or candidates
+            cached_source_shapes = {
+                owner_id: shape
+                for shape, owner_id in self._cached_source_model_shapes
+            }
             for source in ([] if is_assembly else history_objects):
-                source_shape = self.document.build_standalone_shape(source)
+                source_shape = cached_source_shapes.get(source.entity_id)
+                if source_shape is None:
+                    source_shape = self.document.build_standalone_shape(source)
                 if source_shape is None:
                     continue
                 if active_component_transform is not None:
@@ -18126,10 +18188,22 @@ class MainWindow(QMainWindow):
                         source_shape,
                         active_component_transform,
                     )
-                source_mesh = triangulate_shape(
-                    source_shape,
-                    owner_id=source.entity_id,
-                )
+                    source_mesh = triangulate_shape(
+                        source_shape,
+                        owner_id=source.entity_id,
+                    )
+                else:
+                    source_mesh = self._cached_source_model_meshes.get(
+                        source.entity_id
+                    )
+                    if source_mesh is None:
+                        source_mesh = triangulate_shape(
+                            source_shape,
+                            owner_id=source.entity_id,
+                        )
+                        self._cached_source_model_meshes[
+                            source.entity_id
+                        ] = source_mesh
                 source_candidate = ("object", source.entity_id, 0)
                 if (
                     source_candidate not in candidates
@@ -22649,19 +22723,31 @@ class MainWindow(QMainWindow):
         self,
         sketch: ZimaEntity,
         point: dict[str, Any],
+        *,
+        resolved_by_id: dict[str, dict[str, Any]] | None = None,
+        local_points: dict[str, dict[str, Any]] | None = None,
     ) -> None:
+        constraints = point.get("constraints", ())
+        if not isinstance(constraints, list) or not any(
+            isinstance(constraint, dict)
+            and constraint.get("type") in ("point_on_line", "point_on_reference")
+            for constraint in constraints
+        ):
+            return
         x, y = self._sketch_point_position(point)
-        resolved_by_id = {
-            str(reference.get("id", "")): reference
-            for reference in self._resolved_sketch_external_references(
-                sketch
-            )
-        }
-        local_points = {
-            str(entity.get("id", "")): entity
-            for entity in self._stored_sketch_entities(sketch)
-            if entity.get("type") == "point"
-        }
+        if resolved_by_id is None:
+            resolved_by_id = {
+                str(reference.get("id", "")): reference
+                for reference in self._resolved_sketch_external_references(
+                    sketch
+                )
+            }
+        if local_points is None:
+            local_points = {
+                str(entity.get("id", "")): entity
+                for entity in self._stored_sketch_entities(sketch)
+                if entity.get("type") == "point"
+            }
 
         def project_to_line(
             raw_line,
@@ -22692,9 +22778,6 @@ class MainWindow(QMainWindow):
                 factor = max(0.0, min(1.0, factor))
             return px + factor * dx, py + factor * dy
 
-        constraints = point.get("constraints", ())
-        if not isinstance(constraints, list):
-            constraints = ()
         for constraint in constraints:
             if (
                 isinstance(constraint, dict)
@@ -23207,6 +23290,28 @@ class MainWindow(QMainWindow):
     def _set_sketch_tool(self, tool: str) -> None:
         if self._sketch_edit_entity_id is None:
             return
+        if tool == "text":
+            if self._sketch_text_dialog is None:
+                dialog = SketchTextPropertiesDialog(self)
+                dialog.text_edit.setText(self._sketch_text_value or "TEXT")
+                dialog.height_spin.setValue(self._sketch_text_height)
+                dialog.horizontal_combo.setCurrentIndex(max(
+                    0,
+                    dialog.horizontal_combo.findData(
+                        self._sketch_text_horizontal
+                    ),
+                ))
+                dialog.vertical_combo.setCurrentIndex(max(
+                    0,
+                    dialog.vertical_combo.findData(self._sketch_text_vertical),
+                ))
+                dialog.finished.connect(
+                    lambda _result: setattr(self, "_sketch_text_dialog", None)
+                )
+                self._sketch_text_dialog = dialog
+            self._sketch_text_dialog.show()
+            self._sketch_text_dialog.raise_()
+            self._sketch_text_dialog.activateWindow()
         previous_tool = self._sketch_tool
         if (
             tool == "trim"
@@ -23807,6 +23912,28 @@ class MainWindow(QMainWindow):
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
         if sketch is None:
+            return
+        if self._sketch_tool == "text":
+            if self._sketch_text_dialog is None:
+                self._set_sketch_tool("text")
+                return
+            if not self._sketch_pending_points:
+                self._sketch_pending_points[:] = [(x, y)]
+                self._refresh_sketch_overlay()
+                return
+            anchor = self._sketch_pending_points[0]
+            if math.dist(anchor, (x, y)) <= 1.0e-9:
+                return
+            (
+                self._sketch_text_value,
+                self._sketch_text_height,
+                self._sketch_text_horizontal,
+                self._sketch_text_vertical,
+            ) = self._sketch_text_dialog.values()
+            if not self._sketch_text_value:
+                return
+            self._commit_sketch_text(sketch, anchor, (x, y))
+            self._sketch_pending_points.clear()
             return
         if (
             self._sketch_tool == "polyline_arc"
@@ -31347,6 +31474,144 @@ class MainWindow(QMainWindow):
         """
         return valid_automatic_tangent(entities, constraint)
 
+    @staticmethod
+    def _iso_text_outline_polygons(
+        value: str,
+        height: float,
+    ) -> tuple[tuple[tuple[float, float], ...], ...]:
+        font_id = QFontDatabase.addApplicationFont(
+            str(app_path("config", "fonts", "osifont-lgpl3fe.ttf"))
+        )
+        families = (
+            QFontDatabase.applicationFontFamilies(font_id)
+            if font_id >= 0
+            else []
+        )
+        font = QFont(families[0] if families else "osifont")
+        font.setPixelSize(1000)
+        path = QPainterPath()
+        path.addText(QPointF(0.0, 0.0), font, value)
+        bounds = path.boundingRect()
+        if bounds.height() <= 1.0e-9 or height <= 1.0e-9:
+            return ()
+        scale = height / bounds.height()
+        polygons: list[tuple[tuple[float, float], ...]] = []
+        flatten_transform = QTransform.fromScale(scale, scale)
+        scaled_left = bounds.left() * scale
+        scaled_bottom = bounds.bottom() * scale
+        for raw_polygon in path.toSubpathPolygons(flatten_transform):
+            points = [
+                (
+                    point.x() - scaled_left,
+                    scaled_bottom - point.y(),
+                )
+                for point in raw_polygon
+            ]
+            if len(points) >= 2 and math.dist(points[0], points[-1]) <= 1.0e-9:
+                points.pop()
+            compact: list[tuple[float, float]] = []
+            for point in points:
+                if not compact or math.dist(compact[-1], point) > 1.0e-9:
+                    compact.append(point)
+            if len(compact) >= 3:
+                polygons.append(tuple(compact))
+        return tuple(polygons)
+
+    def _commit_sketch_text(
+        self,
+        sketch: ZimaEntity,
+        origin: tuple[float, float],
+        direction_point: tuple[float, float],
+    ) -> None:
+        polygons = self._iso_text_outline_polygons(
+            self._sketch_text_value,
+            self._sketch_text_height,
+        )
+        if not polygons:
+            self.statusBar().showMessage(tr("sketch.text.status.empty"))
+            return
+        dx = direction_point[0] - origin[0]
+        dy = direction_point[1] - origin[1]
+        direction_length = math.hypot(dx, dy)
+        if direction_length <= 1.0e-12:
+            return
+        ux, uy = dx / direction_length, dy / direction_length
+        vx, vy = -uy, ux
+        width = max(point[0] for polygon in polygons for point in polygon)
+        horizontal_offset = {
+            "left": 0.0,
+            "center": -width * 0.5,
+            "right": -width,
+        }.get(self._sketch_text_horizontal, 0.0)
+        vertical_offset = {
+            "bottom": 0.0,
+            "middle": -self._sketch_text_height * 0.5,
+            "top": -self._sketch_text_height,
+        }.get(self._sketch_text_vertical, 0.0)
+        entities = self._stored_sketch_entities(sketch)
+        group_id = f"text:{uuid4().hex}"
+        # Allocate the whole text block in one pass.  Calling the generic
+        # helpers for every outline vertex repeatedly scanned the complete
+        # sketch, which made insertion quadratic on larger sketches.
+        used_point_ids = {
+            str(entity.get("id", ""))
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        used_geometry_ids = {
+            str(entity.get("id", ""))
+            for entity in entities
+            if entity.get("type") != "point"
+        }
+        next_point_index = 1
+        while f"p{next_point_index}" in used_point_ids:
+            next_point_index += 1
+        next_geometry_index = 1
+        while f"g{next_geometry_index}" in used_geometry_ids:
+            next_geometry_index += 1
+        for contour_index, polygon in enumerate(polygons):
+            point_ids: list[str] = []
+            for local_x, local_y in polygon:
+                aligned_x = local_x + horizontal_offset
+                aligned_y = local_y + vertical_offset
+                while f"p{next_point_index}" in used_point_ids:
+                    next_point_index += 1
+                point_id = f"p{next_point_index}"
+                used_point_ids.add(point_id)
+                next_point_index += 1
+                entities.append({
+                    "id": point_id,
+                    "type": "point",
+                    "x": origin[0] + aligned_x * ux + aligned_y * vx,
+                    "y": origin[1] + aligned_x * uy + aligned_y * vy,
+                    "text_group": group_id,
+                })
+                point_ids.append(point_id)
+            for index, first_id in enumerate(point_ids):
+                while f"g{next_geometry_index}" in used_geometry_ids:
+                    next_geometry_index += 1
+                geometry_id = f"g{next_geometry_index}"
+                used_geometry_ids.add(geometry_id)
+                next_geometry_index += 1
+                entities.append({
+                    "id": geometry_id,
+                    "type": "segment",
+                    "point_ids": [
+                        first_id,
+                        point_ids[(index + 1) % len(point_ids)],
+                    ],
+                    "text_group": group_id,
+                    "text_contour": contour_index,
+                    "text_value": self._sketch_text_value,
+                    "text_height": self._sketch_text_height,
+                })
+        sketch.parameters["profile"] = "entities"
+        self._store_sketch_entities(sketch, entities)
+        self._mark_model_for_regeneration()
+        self.rebuild_view(fit=False)
+        self._refresh_sketch_overlay()
+        self.statusBar().showMessage(tr("sketch.text.status.created"))
+
     def _commit_pending_sketch_entity(self) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
             return
@@ -32196,6 +32461,29 @@ class MainWindow(QMainWindow):
         for overlay in self._dimension_overlays.values():
             overlay.set_selected(False)
         entities = self._stored_sketch_entities(sketch)
+        local_points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        has_point_reference_constraints = any(
+            isinstance(constraint, dict)
+            and constraint.get("type") in ("point_on_line", "point_on_reference")
+            for point in local_points.values()
+            for constraint in (
+                point.get("constraints", ())
+                if isinstance(point.get("constraints", ()), list)
+                else ()
+            )
+        )
+        resolved_by_id = (
+            {
+                str(reference.get("id", "")): reference
+                for reference in self._resolved_sketch_external_references(sketch)
+            }
+            if has_point_reference_constraints
+            else {}
+        )
         for _pass in range(3):
             self._apply_sketch_midpoint_constraints(entities)
             for point in entities:
@@ -32203,6 +32491,8 @@ class MainWindow(QMainWindow):
                     self._apply_sketch_point_reference_constraints(
                         sketch,
                         point,
+                        resolved_by_id=resolved_by_id,
+                        local_points=local_points,
                     )
             self._apply_sketch_geometry_constraints(entities, sketch)
             self._apply_sketch_distance_dimensions(sketch, entities)
@@ -32219,6 +32509,8 @@ class MainWindow(QMainWindow):
                     self._apply_sketch_point_reference_constraints(
                         sketch,
                         point,
+                        resolved_by_id=resolved_by_id,
+                        local_points=local_points,
                     )
         dimensions = self._stored_sketch_dimensions(sketch)
         candidate = SketchModel.from_editor_data(entities, dimensions)
@@ -36320,10 +36612,21 @@ class MainWindow(QMainWindow):
 
         editing_document = self.document
         display_document = self._active_component_return_document or editing_document
+        reuse_body_geometry = (
+            not rebuild_geometry
+            and display_document is editing_document
+            and self._cached_document is editing_document
+            and self._cached_history_boundary == history_boundary
+            and self._native_viewer_scene is not None
+        )
         self._cached_document = editing_document
         self._cached_history_boundary = history_boundary
         if display_document is editing_document:
-            self._rebuild_native_view(history_boundary, fit)
+            self._rebuild_native_view(
+                history_boundary,
+                fit,
+                reuse_body_geometry=reuse_body_geometry,
+            )
         else:
             self.document = display_document
             try:
@@ -36343,6 +36646,8 @@ class MainWindow(QMainWindow):
         self,
         history_boundary: int,
         fit: bool,
+        *,
+        reuse_body_geometry: bool = False,
     ) -> None:
         if self.document is None:
             self._native_viewer_scene = None
@@ -36360,6 +36665,12 @@ class MainWindow(QMainWindow):
                 editing_object = self.document.find_owning_object(
                     active_sketch.entity_id
                 )
+        previous_scene = self._native_viewer_scene
+        cached_body_shape = (
+            previous_scene.shapes_by_owner_id.get(self.document.root.entity_id)
+            if reuse_body_geometry and previous_scene is not None
+            else None
+        )
         self._native_viewer_scene = build_document_viewer_scene_data(
             self.document,
             history_boundary=history_boundary,
@@ -36419,6 +36730,12 @@ class MainWindow(QMainWindow):
             }
             if self.document.document_settings.get("type") == "assembly"
             else None,
+            cached_body_shape=cached_body_shape,
+            cached_body_mesh=(
+                previous_scene.body_mesh
+                if reuse_body_geometry and previous_scene is not None
+                else None
+            ),
         )
         self.native_viewer.set_surface_colors(
             self._native_viewer_scene.surface_colors_by_owner_id
@@ -36437,13 +36754,15 @@ class MainWindow(QMainWindow):
             in self._native_viewer_scene.shapes_by_owner_id.items()
             if owner_id == self.document.root.entity_id
         ]
-        self._cached_source_model_shapes = []
-        for source in self.document.history_objects_at(history_boundary):
-            source_shape = self.document.build_standalone_shape(source)
-            if source_shape is not None:
-                self._cached_source_model_shapes.append(
-                    (source_shape, source.entity_id)
-                )
+        if not reuse_body_geometry:
+            self._cached_source_model_shapes = []
+            self._cached_source_model_meshes.clear()
+            for source in self.document.history_objects_at(history_boundary):
+                source_shape = self.document.build_standalone_shape(source)
+                if source_shape is not None:
+                    self._cached_source_model_shapes.append(
+                        (source_shape, source.entity_id)
+                    )
         self.native_viewer.set_mesh(
             self._native_viewer_scene.mesh,
             fit=fit,

@@ -25,6 +25,7 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.GeomAbs import (
@@ -36,6 +37,7 @@ from OCC.Core.GeomAbs import (
 from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
     BRepPrimAPI_MakeCone,
@@ -66,7 +68,7 @@ from OCC.Core.TopAbs import (
 )
 from OCC.Core.TopExp import TopExp_Explorer
 
-from zima_cad.sketch_model import SketchModel, SketchModelError
+from zima_cad.sketch_model import GeometryType, SketchModel, SketchModelError
 from zima_cad.sketch_geometry import (
     center_arc_points,
     ellipse_points,
@@ -1405,7 +1407,6 @@ def apply_object_to_shape(
             and str(solid_feature.parameters.get("result_type", "solid"))
             == "surface"
         )
-
         if surface_result:
             if record_build_status:
                 status_owner.parameters.pop("build_status", None)
@@ -1415,6 +1416,9 @@ def apply_object_to_shape(
             shape = None
 
         def solid_count(candidate) -> int:
+            return len(unique_solids(candidate))
+
+        def unique_solids(candidate) -> list[Any]:
             explorer = TopExp_Explorer(candidate, TopAbs_SOLID)
             solids = []
             while explorer.More():
@@ -1422,7 +1426,57 @@ def apply_object_to_shape(
                 if not any(solid.IsSame(existing) for existing in solids):
                     solids.append(solid)
                 explorer.Next()
-            return len(solids)
+            return solids
+
+        def fuse_preserving_disconnected(first, second):
+            """Fuse touching solids without dropping disconnected members.
+
+            OCCT can discard the disconnected members when a compound is
+            passed directly to BRepAlgoAPI_Fuse.  Process individual solids
+            and rebuild the compound explicitly instead.
+            """
+            components = unique_solids(first)
+            for tool_solid in unique_solids(second):
+                merged = tool_solid
+                index = 0
+                while index < len(components):
+                    component_box = Bnd_Box()
+                    merged_box = Bnd_Box()
+                    brepbndlib.Add(components[index], component_box)
+                    brepbndlib.Add(merged, merged_box)
+                    component_bounds = component_box.Get()
+                    merged_bounds = merged_box.Get()
+                    tolerance = 1.0e-7
+                    if any(
+                        component_bounds[axis + 3]
+                        < merged_bounds[axis] - tolerance
+                        or merged_bounds[axis + 3]
+                        < component_bounds[axis] - tolerance
+                        for axis in range(3)
+                    ):
+                        index += 1
+                        continue
+                    distance = BRepExtrema_DistShapeShape(
+                        components[index], merged
+                    )
+                    # Do not trust Common/Fuse for disjoint inputs: some OCCT
+                    # builds return the first operand rather than an empty or
+                    # two-solid result.  The distance query reliably tells us
+                    # whether a boolean merge should be attempted.
+                    if not distance.IsDone() or distance.Value() > 1.0e-7:
+                        index += 1
+                        continue
+                    fused_candidate = BRepAlgoAPI_Fuse(
+                        components[index], merged
+                    ).Shape()
+                    if solid_count(fused_candidate) == 1:
+                        merged = unique_solids(fused_candidate)[0]
+                        components.pop(index)
+                        index = 0
+                    else:
+                        index += 1
+                components.append(merged)
+            return _compound_shapes(components)
 
         shape_solids = solid_count(shape) if shape is not None else 0
         if (
@@ -1441,11 +1495,16 @@ def apply_object_to_shape(
             if result_shape is None:
                 result_shape = shape
             else:
-                fused = BRepAlgoAPI_Fuse(result_shape, shape).Shape()
-                # An additive Part feature must join the existing body. OCCT
-                # otherwise returns a compound of disconnected solids, which
-                # looks deceptively like a successful or even surface result.
-                if solid_count(fused) == 1:
+                fused = (
+                    fuse_preserving_disconnected(result_shape, shape)
+                    if is_protrusion or is_revolve
+                    else BRepAlgoAPI_Fuse(result_shape, shape).Shape()
+                )
+                # A sketch feature may intentionally contain several closed
+                # profiles and therefore produce a multi-solid Part.  Keep
+                # rejecting accidentally disconnected primitive containers,
+                # but preserve every solid made by Protrusion/Revolve.
+                if solid_count(fused) == 1 or is_protrusion or is_revolve:
                     result_shape = fused
                 elif record_build_status:
                     status_owner.parameters["build_status"] = "disconnected"
@@ -1863,10 +1922,71 @@ def _make_sketch_profile_wires(
 
 def sketch_profile_status(sketch: ZimaEntity) -> str:
     """Return ``closed``, ``open``, ``mixed`` or ``invalid`` for a sketch."""
-    wires = _make_sketch_profile_wires(sketch, include_open=True)
-    if not wires:
+    if sketch.parameters.get("profile") == "circle":
+        return "closed"
+    if sketch.parameters.get("profile") != "entities":
         return "invalid"
-    closed = [bool(wire.Closed()) for wire in wires]
+    try:
+        model = SketchModel.from_dict(
+            json.loads(str(sketch.parameters.get("sketch_data", "{}")))
+        )
+    except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+        return "invalid"
+
+    # Profile validity is a graph property; constructing OCCT edges and wires
+    # merely to answer it made every properties dialog rebuild all text
+    # outlines.  Closed circles/ellipses form components on their own.  The
+    # remaining curve components are closed exactly when every endpoint has
+    # degree two (a self-closing spline contributes degree two at one point).
+    closed: list[bool] = []
+    adjacency: dict[str, list[str]] = {}
+    degrees: dict[str, int] = {}
+    for geometry in model.geometry.values():
+        if geometry.attributes.get("role") == "construction":
+            continue
+        point_ids = geometry.point_ids
+        if geometry.geometry_type in (GeometryType.CIRCLE, GeometryType.ELLIPSE):
+            closed.append(True)
+            continue
+        endpoints: tuple[str, str] | None = None
+        if geometry.geometry_type in (GeometryType.SEGMENT, GeometryType.SPLINE):
+            if len(point_ids) >= 2:
+                endpoints = (point_ids[0], point_ids[-1])
+        elif geometry.geometry_type == GeometryType.ARC and len(point_ids) >= 3:
+            endpoints = (
+                (point_ids[1], point_ids[2])
+                if geometry.attributes.get("arc_mode") == "center"
+                else (point_ids[0], point_ids[-1])
+            )
+        elif (
+            geometry.geometry_type == GeometryType.ELLIPTICAL_ARC
+            and len(point_ids) >= 5
+        ):
+            endpoints = (point_ids[3], point_ids[4])
+        if endpoints is None:
+            continue
+        first, second = endpoints
+        adjacency.setdefault(first, []).append(second)
+        adjacency.setdefault(second, []).append(first)
+        degrees[first] = degrees.get(first, 0) + 1
+        degrees[second] = degrees.get(second, 0) + 1
+
+    unseen = set(adjacency)
+    while unseen:
+        seed = unseen.pop()
+        component = {seed}
+        pending = [seed]
+        while pending:
+            point_id = pending.pop()
+            for neighbour in adjacency.get(point_id, ()):
+                if neighbour not in component:
+                    component.add(neighbour)
+                    unseen.discard(neighbour)
+                    pending.append(neighbour)
+        closed.append(all(degrees.get(point_id, 0) == 2 for point_id in component))
+
+    if not closed:
+        return "invalid"
     if all(closed):
         return "closed"
     if any(closed):
@@ -1892,7 +2012,70 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
             continue
         if not face.IsNull():
             faces.append(face)
-    return faces
+    if len(faces) < 2:
+        return faces
+
+    def surface_area(shape) -> float:
+        properties = GProp_GProps()
+        brepgprop.SurfaceProperties(shape, properties)
+        return abs(float(properties.Mass()))
+
+    areas = [surface_area(face) for face in faces]
+    bounds = []
+    for face in faces:
+        box = Bnd_Box()
+        brepbndlib.Add(face, box)
+        bounds.append(box.Get())
+    parents: list[int | None] = [None] * len(faces)
+    for inner_index, inner in enumerate(faces):
+        containers: list[tuple[float, int]] = []
+        for outer_index, outer in enumerate(faces):
+            if outer_index == inner_index or areas[outer_index] <= areas[inner_index]:
+                continue
+            outer_bounds = bounds[outer_index]
+            inner_bounds = bounds[inner_index]
+            tolerance = 1.0e-7
+            if not (
+                outer_bounds[0] <= inner_bounds[0] + tolerance
+                and outer_bounds[1] <= inner_bounds[1] + tolerance
+                and outer_bounds[3] >= inner_bounds[3] - tolerance
+                and outer_bounds[4] >= inner_bounds[4] - tolerance
+            ):
+                continue
+            common = BRepAlgoAPI_Common(outer, inner).Shape()
+            common_area = surface_area(common)
+            if math.isclose(
+                common_area,
+                areas[inner_index],
+                rel_tol=1.0e-7,
+                abs_tol=1.0e-9,
+            ):
+                containers.append((areas[outer_index], outer_index))
+        if containers:
+            parents[inner_index] = min(containers)[1]
+
+    depths: list[int] = []
+    for index in range(len(faces)):
+        depth = 0
+        parent = parents[index]
+        visited = {index}
+        while parent is not None and parent not in visited:
+            visited.add(parent)
+            depth += 1
+            parent = parents[parent]
+        depths.append(depth)
+
+    profiles = []
+    for outer_index, outer in enumerate(faces):
+        if depths[outer_index] % 2:
+            continue
+        profile = outer
+        for hole_index, parent in enumerate(parents):
+            if parent == outer_index and depths[hole_index] == depths[outer_index] + 1:
+                profile = BRepAlgoAPI_Cut(profile, faces[hole_index]).Shape()
+        if not profile.IsNull():
+            profiles.append(profile)
+    return profiles
 
 
 def _compound_shapes(shapes: list[Any]):
@@ -1979,34 +2162,10 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         generated.append(transform_shape(local, translated))
     if result_type == "surface":
         return _compound_shapes(generated)
-    def solid_volume(shape) -> float:
-        properties = GProp_GProps()
-        brepgprop.VolumeProperties(shape, properties)
-        return abs(float(properties.Mass()))
-
-    profiled_solids = sorted(
-        ((solid_volume(solid), solid) for solid in generated),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    result = None
-    for index, (volume, solid) in enumerate(profiled_solids):
-        nesting_depth = 0
-        if volume > 1.0e-12:
-            for outer_volume, outer_solid in profiled_solids[:index]:
-                if outer_volume <= volume:
-                    continue
-                common = BRepAlgoAPI_Common(outer_solid, solid).Shape()
-                common_volume = solid_volume(common)
-                if common_volume >= volume - max(volume * 1.0e-7, 1.0e-9):
-                    nesting_depth += 1
-        if result is None:
-            result = solid
-        elif nesting_depth % 2:
-            result = BRepAlgoAPI_Cut(result, solid).Shape()
-        else:
-            result = BRepAlgoAPI_Fuse(result, solid).Shape()
-    return result
+    # Hole nesting has already been resolved while constructing profile
+    # faces.  Comparing every extruded solid with every other solid repeated
+    # O(N²) expensive OCCT booleans and did no additional useful work.
+    return _compound_shapes(generated)
 
 
 def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
@@ -2128,36 +2287,7 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
             coordinate_system_transform(obj.coordinate_system),
         )
 
-    def solid_volume(shape) -> float:
-        properties = GProp_GProps()
-        brepgprop.VolumeProperties(shape, properties)
-        return abs(float(properties.Mass()))
-
-    profiled_solids = sorted(
-        ((solid_volume(solid), solid) for solid in local_solids),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    result = None
-    for index, (volume, solid) in enumerate(profiled_solids):
-        nesting_depth = 0
-        if volume > 1.0e-12:
-            for outer_volume, outer_solid in profiled_solids[:index]:
-                if outer_volume <= volume:
-                    continue
-                common = BRepAlgoAPI_Common(outer_solid, solid).Shape()
-                common_volume = solid_volume(common)
-                if common_volume >= volume - max(
-                    volume * 1.0e-7,
-                    1.0e-9,
-                ):
-                    nesting_depth += 1
-        if result is None:
-            result = solid
-        elif nesting_depth % 2:
-            result = BRepAlgoAPI_Cut(result, solid).Shape()
-        else:
-            result = BRepAlgoAPI_Fuse(result, solid).Shape()
+    result = _compound_shapes(local_solids)
     return (
         transform_shape(result, coordinate_system_transform(obj.coordinate_system))
         if result is not None
@@ -2824,6 +2954,21 @@ def protrusion_face_registry(
     while explorer.More():
         runtime_index += 1
         face = explorer.Current()
+        face_box = Bnd_Box()
+        brepbndlib.Add(face, face_box)
+        face_bounds = face_box.Get()
+
+        def point_within_face_bounds(
+            point: tuple[float, float, float],
+            tolerance: float = 1.0e-6,
+        ) -> bool:
+            return all(
+                face_bounds[axis] - tolerance
+                <= point[axis]
+                <= face_bounds[axis + 3] + tolerance
+                for axis in range(3)
+            )
+
         adaptor = BRepAdaptor_Surface(face)
         if (
             adaptor.GetType() == GeomAbs_Cylinder
@@ -2842,6 +2987,8 @@ def protrusion_face_registry(
             continue
         matching_curves = []
         for source_id, midpoint in curve_sources:
+            if not point_within_face_bounds(midpoint):
+                continue
             distance = BRepExtrema_DistShapeShape(
                 BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(), face
             )

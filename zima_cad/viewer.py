@@ -805,8 +805,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hovered_reference_id: str | None,
         _reference_mode_active: bool,
     ) -> bool:
-        reference_id = str(reference.get("id", ""))
-        return bool(reference_id and reference_id == hovered_reference_id)
+        del reference, hovered_reference_id
+        return True
 
     def center_on_world_point(self, point: Point3) -> None:
         camera_point = self._camera_point(point)
@@ -4308,6 +4308,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     or self._sketch_reference_selection_mode,
                 ):
                     continue
+                point_color = (
+                    QColor("#FF7A00")
+                    if reference_hovered
+                    else QColor("#B34A3C")
+                    if reference.get("broken")
+                    else brown
+                )
+                painter.setPen(QPen(point_color, base_centerline_width))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
                 point = geometry.get("point", ())
                 if isinstance(point, (list, tuple)) and len(point) >= 2:
                     center = self._screen_point(
@@ -4464,6 +4473,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     or self._sketch_reference_selection_mode,
                 ):
                     continue
+                point_color = (
+                    QColor("#FF7A00")
+                    if reference_hovered
+                    else QColor("#B34A3C")
+                    if reference.get("broken")
+                    else brown
+                )
+                painter.setPen(QPen(point_color, base_centerline_width))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
                 point = geometry.get("point", (0.0, 0.0))
                 if isinstance(point, (list, tuple)) and len(point) >= 2:
                     screen = self._screen_point(
@@ -4473,7 +4491,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             )
                         )
                     )
-                    painter.drawEllipse(screen, 4.0, 4.0)
+                    marker_radius = 6.0 if reference.get("selected") else 5.0
+                    painter.drawLine(
+                        QPointF(
+                            screen.x() - marker_radius,
+                            screen.y() - marker_radius,
+                        ),
+                        QPointF(
+                            screen.x() + marker_radius,
+                            screen.y() + marker_radius,
+                        ),
+                    )
+                    painter.drawLine(
+                        QPointF(
+                            screen.x() - marker_radius,
+                            screen.y() + marker_radius,
+                        ),
+                        QPointF(
+                            screen.x() + marker_radius,
+                            screen.y() - marker_radius,
+                        ),
+                    )
             elif geometry_type == "polyline":
                 raw_points = geometry.get("points", ())
                 if isinstance(raw_points, (list, tuple)):
@@ -5998,9 +6036,29 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         )
                     )
                     orange = QColor("#FF7A00")
-                    painter.setPen(QPen(orange, 2.5))
-                    painter.setBrush(QBrush(orange))
-                    painter.drawEllipse(screen, 6.0, 6.0)
+                    painter.setPen(QPen(orange, 2.0))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    marker_radius = 6.0
+                    painter.drawLine(
+                        QPointF(
+                            screen.x() - marker_radius,
+                            screen.y() - marker_radius,
+                        ),
+                        QPointF(
+                            screen.x() + marker_radius,
+                            screen.y() + marker_radius,
+                        ),
+                    )
+                    painter.drawLine(
+                        QPointF(
+                            screen.x() - marker_radius,
+                            screen.y() + marker_radius,
+                        ),
+                        QPointF(
+                            screen.x() + marker_radius,
+                            screen.y() - marker_radius,
+                        ),
+                    )
         painter.end()
 
     def _sketch_entity_candidates(self, position: QPointF) -> tuple[str, ...]:
@@ -9171,7 +9229,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 for index in range(len(projected))
             ):
                 candidates.append(("plane", plane.owner_id, plane.plane_index))
-        positions = mesh.triangle_positions
         sample_offsets = (
             (0.0, 0.0),
             (-4.0, 0.0),
@@ -9179,20 +9236,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             (0.0, -4.0),
             (0.0, 4.0),
         )
-        for triangle_index, face_index in enumerate(mesh.triangle_face_indices):
-            offset = triangle_index * 9
-            camera_points = [
-                self._camera_point(
-                    tuple(
-                        positions[offset + vertex * 3 + axis]
-                        for axis in range(3)
-                    )
-                )
-                for vertex in range(3)
-            ]
-            screen_points = tuple(
-                self._screen_point(point) for point in camera_points
-            )
+        # Populate/reuse the camera projection cache maintained by face
+        # picking.  Reprojecting every triangle here on every click made
+        # topology selection scale with the complete tessellation.
+        self._pick_face(position)
+        for (
+            min_x, max_x, min_y, max_y,
+            screen_points, _depths, owner_id, face_index,
+        ) in self._face_pick_cache:
+            if not (
+                min_x - 4.0 <= position.x() <= max_x + 4.0
+                and min_y - 4.0 <= position.y() <= max_y + 4.0
+            ):
+                continue
             if any(
                 self._triangle_weights(
                     QPointF(
@@ -9206,7 +9262,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 candidates.append(
                     (
                         "face",
-                        mesh.triangle_owner_ids[triangle_index],
+                        owner_id,
                         face_index,
                     )
                 )

@@ -184,24 +184,26 @@ def triangulate_shape(
         face_explorer.Next()
 
     edges: list[EdgePolyline] = []
-    seen_edges: list[Any] = []
+    seen_edge_hashes: set[int] = set()
     faces: list[Any] = []
+    edge_faces: dict[int, list[Any]] = {}
     face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while face_explorer.More():
-        faces.append(face_explorer.Current())
+        face = face_explorer.Current()
+        faces.append(face)
+        face_edge_explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        face_edge_hashes: set[int] = set()
+        while face_edge_explorer.More():
+            edge_hash = hash(face_edge_explorer.Current())
+            if edge_hash not in face_edge_hashes:
+                edge_faces.setdefault(edge_hash, []).append(face)
+                face_edge_hashes.add(edge_hash)
+            face_edge_explorer.Next()
         face_explorer.Next()
 
-    def topology_role(edge: Any) -> str:
+    def topology_role(edge: Any, adjacent_faces: list[Any]) -> str:
         if edge_kind != "edge":
             return "auxiliary"
-        adjacent_faces: list[Any] = []
-        for face in faces:
-            explorer = TopExp_Explorer(face, TopAbs_EDGE)
-            while explorer.More():
-                if edge.IsSame(explorer.Current()):
-                    adjacent_faces.append(face)
-                    break
-                explorer.Next()
         for face in adjacent_faces:
             try:
                 if BRep_Tool.IsClosed(edge, face):
@@ -223,13 +225,15 @@ def triangulate_shape(
     edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
     while edge_explorer.More():
         edge = edge_explorer.Current()
-        if any(edge.IsSame(existing) for existing in seen_edges):
+        edge_hash = hash(edge)
+        if edge_hash in seen_edge_hashes:
             edge_explorer.Next()
             continue
-        seen_edges.append(edge)
+        seen_edge_hashes.add(edge_hash)
         edge_index += 1
+        adjacent_faces = edge_faces.get(edge_hash, [])
         points = (
-            _triangulation_edge_points(edge, faces)
+            _triangulation_edge_points(edge, adjacent_faces)
             or _sample_edge(edge, edge_linear_deflection)
         )
         if len(points) >= 2:
@@ -241,22 +245,23 @@ def triangulate_shape(
                     element_kind=edge_kind,
                     base_color=edge_color,
                     label=edge_label,
-                    topology_role=topology_role(edge),
+                    topology_role=topology_role(edge, adjacent_faces),
                 )
             )
             all_points.extend(points)
         edge_explorer.Next()
 
     vertices: list[PointMarker] = []
-    seen_vertices: list[Any] = []
+    seen_vertex_hashes: set[int] = set()
     vertex_index = 0
     vertex_explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
     while vertex_explorer.More():
         vertex = vertex_explorer.Current()
-        if any(vertex.IsSame(existing) for existing in seen_vertices):
+        vertex_hash = hash(vertex)
+        if vertex_hash in seen_vertex_hashes:
             vertex_explorer.Next()
             continue
-        seen_vertices.append(vertex)
+        seen_vertex_hashes.add(vertex_hash)
         vertex_index += 1
         try:
             position = _point_tuple(BRep_Tool.Pnt(vertex))

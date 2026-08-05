@@ -39,6 +39,7 @@ class DocumentViewerScene:
     mesh: ViewerMesh
     shapes_by_owner_id: dict[str, Any]
     surface_colors_by_owner_id: dict[str, str]
+    body_mesh: ViewerMesh | None = None
 
     def resolve_topology(
         self,
@@ -91,6 +92,8 @@ def build_document_viewer_scene_data(
     uncut_component_id: str | None = None,
     uncut_component_shape: Any | None = None,
     component_documents: dict[str, PartDocument] | None = None,
+    cached_body_shape: Any | None = None,
+    cached_body_mesh: ViewerMesh | None = None,
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -103,6 +106,7 @@ def build_document_viewer_scene_data(
     layers: list[ViewerMesh] = []
     shapes_by_owner_id: dict[str, Any] = {}
     surface_colors_by_owner_id: dict[str, str] = {}
+    body_mesh: ViewerMesh | None = None
 
     is_assembly = document.document_settings.get("type") == "assembly"
     if is_assembly:
@@ -178,18 +182,21 @@ def build_document_viewer_scene_data(
                     triangulate_shape(shape, owner_id=obj.entity_id)
                 )
     else:
-        shape = document.build_shape_at(boundary)
+        shape = (
+            cached_body_shape
+            if cached_body_shape is not None
+            else document.build_shape_at(boundary)
+        )
         if shape is not None and document.body_is_visible():
             shapes_by_owner_id[document.root.entity_id] = shape
             surface_colors_by_owner_id[document.root.entity_id] = str(
                 document.document_settings.get("body_color", "#B9C2CC")
             )
-            layers.append(
-                triangulate_shape(
-                    shape,
-                    owner_id=document.root.entity_id,
-                )
+            body_mesh = cached_body_mesh or triangulate_shape(
+                shape,
+                owner_id=document.root.entity_id,
             )
+            layers.append(body_mesh)
 
     reference_scene_size = _scene_diagonal(layers)
     for obj in document.visible_objects():
@@ -300,6 +307,7 @@ def build_document_viewer_scene_data(
         mesh=combine_viewer_meshes(tuple(layers)),
         shapes_by_owner_id=shapes_by_owner_id,
         surface_colors_by_owner_id=surface_colors_by_owner_id,
+        body_mesh=body_mesh,
     )
 
 
