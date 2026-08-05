@@ -17268,6 +17268,7 @@ class MainWindow(QMainWindow):
                 # viewport; the reference belongs to the originating
                 # Extrude/Revolve (for example its start/end cap).
                 descriptor["source_feature_id"] = stable.feature_id
+                descriptor["entity_id"] = stable.feature_id
 
     def _reference_topology_registry(self, boundary: int):
         """Reuse the displayed result when creating stable pick identities."""
