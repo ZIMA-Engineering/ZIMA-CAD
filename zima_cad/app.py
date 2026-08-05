@@ -10552,6 +10552,7 @@ class MainWindow(QMainWindow):
         # stored equation is authoritative until the next regeneration.
         if (
             shape_reference_type == "face"
+            and not descriptor.get("face_ref")
             and isinstance(descriptor.get("equations"), list)
             and descriptor["equations"]
         ):
