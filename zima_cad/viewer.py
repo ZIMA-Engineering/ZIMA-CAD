@@ -541,6 +541,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._surface_colors_by_owner_id: dict[str, QColor] = {}
         self._edge_color_override: QColor | None = None
         self._last_mouse_position: QPoint | None = None
+        self._last_click_position: QPoint | None = None
         self._middle_press_position: QPoint | None = None
         self._middle_dragged = False
         self._middle_chorded = False
@@ -1800,6 +1801,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._stop_camera_animation()
+        if event.button() in (
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.RightButton,
+        ) and not (event.buttons() & Qt.MouseButton.MiddleButton):
+            self._last_click_position = event.position().toPoint()
         if (
             self._sketch_frame is not None
             and event.button() == Qt.MouseButton.LeftButton

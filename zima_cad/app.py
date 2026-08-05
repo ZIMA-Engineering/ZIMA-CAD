@@ -16413,7 +16413,7 @@ class MainWindow(QMainWindow):
             )
         ):
             return None
-        position = getattr(self.native_viewer, "_last_mouse_position", None)
+        position = getattr(self.native_viewer, "_last_click_position", None)
         if position is None:
             return None
         position = QPointF(position)
