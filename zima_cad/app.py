@@ -17142,37 +17142,17 @@ class MainWindow(QMainWindow):
                 ),
             ]
             stable_metadata = dict(reference_metadata)
-            # Resolve only this selected face so the dialog can show the
-            # originating Extrude/Revolve instead of the automatic Body.
-            self._stabilize_shape_references([stable_metadata])
-            label_owner = obj
-            source_feature_id = stable_metadata.get("source_feature_id")
-            if source_feature_id and self.document is not None:
-                source_feature = self.document.find_entity(
-                    str(source_feature_id)
-                )
-                if source_feature is not None:
-                    label_owner = source_feature
-            reference_label = self._topology_reference_label(
-                label_owner,
-                "face",
-                topology_index,
-            )
-            stable_face = stable_metadata.get("face_ref")
-            if isinstance(stable_face, dict):
-                suffix = "/".join(
-                    str(value).strip()
-                    for value in (
-                        stable_face.get("role", ""),
-                        stable_face.get("source_id", ""),
-                    )
-                    if str(value).strip()
-                )
-                if suffix:
-                    reference_label = f"{label_owner.name} / {suffix}"
+            # The current face, its plane equation and the history boundary
+            # are sufficient while picking. Resolve semantic provenance lazily
+            # during regeneration instead of blocking the click on a full
+            # historical OCCT topology pass.
             dialog.add_shape_reference(
                 obj.entity_id,
-                reference_label,
+                self._topology_reference_label(
+                    obj,
+                    "face",
+                    topology_index,
+                ),
                 "face",
                 [equation],
                 str(topology_index),
