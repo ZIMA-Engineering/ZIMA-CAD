@@ -16276,7 +16276,10 @@ class MainWindow(QMainWindow):
         if (
             not owner_id
             or face_index <= 0
-            or self._current_definition_owns_reference(owner_id)
+            or (
+                owner_id != self.document.root.entity_id
+                and self._current_definition_owns_reference(owner_id)
+            )
         ):
             return
         # The displayed root is the final Boolean result.  In reference
