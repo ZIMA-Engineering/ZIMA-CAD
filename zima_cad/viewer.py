@@ -1404,7 +1404,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_selection_filter(self, selection_filter: str) -> None:
         if selection_filter not in {
-            "all", "face", "point", "axis", "plane", "normal", "surface",
+            "all", "face", "edge", "point", "axis", "plane", "normal",
+            "surface",
         }:
             raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
         if selection_filter == self._selection_filter:
@@ -9529,7 +9530,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if self._selection_filter == "axis":
                 if edge.element_kind not in {"axis", "centerline"}:
                     continue
-            elif self._selection_filter != "all":
+            elif self._selection_filter not in {"all", "edge"}:
                 continue
             camera_points = [
                 self._camera_point(point)

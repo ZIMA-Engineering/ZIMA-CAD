@@ -2798,6 +2798,19 @@ def protrusion_face_registry(
         for entity in sketch_entities
         if isinstance(entity, dict) and entity.get("type") == "point"
     }
+    circle_sources = {
+        str(entity.get("id", "")): (
+            str(entity.get("point_ids", ("",))[0]),
+            float(entity.get("radius", 0.0)),
+        )
+        for entity in sketch_entities
+        if isinstance(entity, dict)
+        and entity.get("type") == "circle"
+        and entity.get("role") != "construction"
+        and len(entity.get("point_ids", ())) == 1
+        and str(entity.get("point_ids", ("",))[0]) in sketch_points
+        and float(entity.get("radius", 0.0)) > 1.0e-9
+    }
     plane = str(sketch.parameters.get("plane", "xz"))
     plane_transform = multiply_transforms(
         sketch_plane_offset_transform(
@@ -2847,18 +2860,29 @@ def protrusion_face_registry(
     closed_curve_seam_ids: set[str] = set()
     for entity in sketch_entities:
         if not isinstance(entity, dict) or entity.get("type") not in (
-            "segment", "arc", "spline", "ellipse", "elliptical_arc"
+            "segment", "arc", "spline", "circle", "ellipse",
+            "elliptical_arc",
         ):
             continue
         if entity.get("role") == "construction":
             continue
         point_ids = tuple(map(str, entity.get("point_ids", ())))
-        if len(point_ids) < 2 or any(
+        entity_type = str(entity.get("type", ""))
+        minimum_points = 1 if entity_type == "circle" else 2
+        if len(point_ids) < minimum_points or any(
             point_id not in sketch_points for point_id in point_ids
         ):
             continue
         source_id = str(entity.get("id", ""))
-        if entity.get("type") == "segment" and len(point_ids) == 2:
+        if entity_type == "circle" and len(point_ids) == 1:
+            radius = float(entity.get("radius", 0.0))
+            if radius <= 1.0e-9:
+                continue
+            center_2d = sketch_points[point_ids[0]]
+            midpoint_2d = (center_2d[0] + radius, center_2d[1])
+            endpoint_ids = (point_ids[0], point_ids[0])
+            closed_curve_seam_ids.add(point_ids[0])
+        elif entity_type == "segment" and len(point_ids) == 2:
             first_2d, second_2d = (
                 sketch_points[point_id] for point_id in point_ids
             )
@@ -2867,7 +2891,7 @@ def protrusion_face_registry(
                 (first_2d[1] + second_2d[1]) * 0.5,
             )
             endpoint_ids = (point_ids[0], point_ids[1])
-        elif entity.get("type") == "arc" and len(point_ids) >= 3:
+        elif entity_type == "arc" and len(point_ids) >= 3:
             if entity.get("arc_mode") == "center":
                 endpoint_ids = (point_ids[1], point_ids[2])
                 sampled = center_arc_points(
@@ -2883,7 +2907,7 @@ def protrusion_face_registry(
             else:
                 endpoint_ids = (point_ids[0], point_ids[-1])
                 midpoint_2d = sketch_points[point_ids[len(point_ids) // 2]]
-        elif entity.get("type") == "spline":
+        elif entity_type == "spline":
             endpoint_ids = (point_ids[0], point_ids[-1])
             interpolation_ids = point_ids[:-1] if (
                 len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
@@ -2904,7 +2928,7 @@ def protrusion_face_registry(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
             midpoint_2d = (point.X(), point.Y())
-        elif entity.get("type") == "ellipse" and len(point_ids) == 3:
+        elif entity_type == "ellipse" and len(point_ids) == 3:
             sampled = ellipse_points(
                 sketch_points[point_ids[0]],
                 sketch_points[point_ids[1]],
@@ -2913,7 +2937,7 @@ def protrusion_face_registry(
             endpoint_ids = (point_ids[1], point_ids[1])
             closed_curve_seam_ids.add(point_ids[1])
             midpoint_2d = sampled[len(sampled) // 2]
-        elif entity.get("type") == "elliptical_arc" and len(point_ids) == 5:
+        elif entity_type == "elliptical_arc" and len(point_ids) == 5:
             sampled = elliptical_arc_points(
                 sketch_points[point_ids[0]],
                 sketch_points[point_ids[1]],
@@ -3179,7 +3203,59 @@ def protrusion_face_registry(
             edge_explorer.Next()
             continue
         matched_reference = None
+        if adaptor.GetType() == GeomAbs_Circle and circle_sources:
+            circle = adaptor.Circle()
+            center_position = point_tuple(circle.Location())
+            radius = float(circle.Radius())
+            for source_id, (center_id, expected_radius) in circle_sources.items():
+                role = next((
+                    candidate_role
+                    for candidate_role in ("start", "end")
+                    if points_match(
+                        center_position,
+                        point_positions[center_id][candidate_role],
+                    )
+                ), None)
+                if (
+                    role is not None
+                    and math.isclose(
+                        radius,
+                        expected_radius,
+                        rel_tol=1.0e-7,
+                        abs_tol=1.0e-7,
+                    )
+                ):
+                    matched_reference = EdgeRef(
+                        feature.entity_id, role, source_id
+                    )
+                    break
+        if matched_reference is None:
+            for source_id in circle_sources:
+                rim_midpoint = curve_midpoints.get(source_id)
+                if rim_midpoint is None:
+                    continue
+                expected = tuple(
+                    tuple(
+                        rim_midpoint[axis]
+                        + extrusion_direction[axis] * distance
+                        for axis in range(3)
+                    )
+                    for distance in (start, end)
+                )
+                if (
+                    points_match(endpoints[0], expected[0])
+                    and points_match(endpoints[1], expected[1])
+                ) or (
+                    points_match(endpoints[0], expected[1])
+                    and points_match(endpoints[1], expected[0])
+                ):
+                    matched_reference = EdgeRef(
+                        feature.entity_id, "generated", source_id
+                    )
+                    break
         if (
+            matched_reference is None
+            and
             adaptor.GetType() == GeomAbs_Circle
             and circular_source_id is not None
         ):
@@ -3737,35 +3813,101 @@ def _rebind_registry_to_shape(
     registry: TopologyRegistry,
     shape,
 ) -> TopologyRegistry:
-    """Bind one evaluation's semantic refs to an equivalent live shape."""
+    """Bind semantic refs to the actual final-result topology.
+
+    Separate OCCT evaluations do not share ``IsSame`` identities and boolean
+    operations freely reorder subshapes.  Runtime indices from a source
+    container therefore cannot be copied onto the final body by position.
+    Match equivalent geometry instead.
+    """
 
     rebound = TopologyRegistry()
     kinds = (
         (
+            TopAbs_FACE,
             _unique_subshapes(shape, TopAbs_FACE),
-            registry.references,
-            registry.runtime_index_for_reference,
+            registry.face_entries,
             rebound.register_face,
         ),
         (
+            TopAbs_EDGE,
             _unique_subshapes(shape, TopAbs_EDGE),
-            registry.edge_references,
-            registry.edge_runtime_index_for_reference,
+            registry.edge_entries,
             rebound.register_edge,
         ),
         (
+            TopAbs_VERTEX,
             _unique_subshapes(shape, TopAbs_VERTEX),
-            registry.vertex_references,
-            registry.vertex_runtime_index_for_reference,
+            registry.vertex_entries,
             rebound.register_vertex,
         ),
     )
-    for shapes, references, runtime_index, register in kinds:
-        for reference in references:
-            index = runtime_index(reference)
-            if index is not None and 0 < index <= len(shapes):
-                register(reference, shapes[index - 1], runtime_index=index)
+    for shape_type, final_shapes, entries, register in kinds:
+        final_by_key: dict[tuple[Any, ...], list[int]] = {}
+        for index, final_shape in enumerate(final_shapes, 1):
+            final_by_key.setdefault(
+                _topology_rebind_key(final_shape, shape_type), []
+            ).append(index)
+        for reference, source_shapes in entries:
+            matching_indices = {
+                index
+                for source_shape in source_shapes
+                for index in final_by_key.get(
+                    _topology_rebind_key(source_shape, shape_type), ()
+                )
+            }
+            for index in sorted(matching_indices):
+                register(reference, final_shapes[index - 1], runtime_index=index)
     return rebound
+
+
+def _topology_rebind_key(shape, shape_type: int) -> tuple[Any, ...]:
+    """Stable geometric fingerprint for equivalent OCCT evaluations."""
+
+    def rounded(values) -> tuple[float, ...]:
+        return tuple(round(float(value), 7) for value in values)
+
+    if shape_type == TopAbs_VERTEX:
+        point = BRep_Tool.Pnt(shape)
+        return (shape_type, *rounded((point.X(), point.Y(), point.Z())))
+    base = _topology_fragment_key(shape, shape_type)
+    if shape_type == TopAbs_EDGE:
+        try:
+            adaptor = BRepAdaptor_Curve(shape)
+            endpoints = sorted((
+                rounded(point_tuple)
+                for point_tuple in (
+                    (
+                        adaptor.Value(adaptor.FirstParameter()).X(),
+                        adaptor.Value(adaptor.FirstParameter()).Y(),
+                        adaptor.Value(adaptor.FirstParameter()).Z(),
+                    ),
+                    (
+                        adaptor.Value(adaptor.LastParameter()).X(),
+                        adaptor.Value(adaptor.LastParameter()).Y(),
+                        adaptor.Value(adaptor.LastParameter()).Z(),
+                    ),
+                )
+            ))
+            return (
+                shape_type,
+                int(adaptor.GetType()),
+                *rounded(base),
+                *endpoints[0],
+                *endpoints[1],
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+    if shape_type == TopAbs_FACE:
+        try:
+            return (
+                shape_type,
+                int(BRepAdaptor_Surface(shape).GetType()),
+                *rounded(base),
+            )
+        except (RuntimeError, TypeError, ValueError):
+            pass
+    return (shape_type, *rounded(base))
 
 
 def _boolean_history_shapes(builder, source_shape) -> list[Any]:
@@ -3926,12 +4068,37 @@ def make_fillet_shape(
             f"Fillet edge is {resolution.state.value}: "
             f"{edge_reference.serialize()}"
         )
-    builder = BRepFilletAPI_MakeFillet(shape)
+    input_solids = _unique_subshapes(shape, TopAbs_SOLID)
+    owning_solids = []
+    for solid in input_solids:
+        explorer = TopExp_Explorer(solid, TopAbs_EDGE)
+        while explorer.More():
+            if resolution.shape.IsSame(explorer.Current()):
+                owning_solids.append(solid)
+                break
+            explorer.Next()
+    fillet_input = (
+        owning_solids[0]
+        if len(input_solids) > 1 and len(owning_solids) == 1
+        else shape
+    )
+    builder = BRepFilletAPI_MakeFillet(fillet_input)
     builder.Add(float(radius), resolution.shape)
     builder.Build()
     if not builder.IsDone():
         raise ValueError("Fillet could not be built with the requested radius")
-    result_shape = builder.Shape()
+    filleted_shape = builder.Shape()
+    result_shape = (
+        _compound_shapes([
+            filleted_shape,
+            *(
+                solid for solid in input_solids
+                if not solid.IsSame(fillet_input)
+            ),
+        ])
+        if fillet_input is not shape
+        else filleted_shape
+    )
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Fillet did not produce a solid")
 
@@ -4280,7 +4447,13 @@ def face_registry_at(
 
     objects = document.history_objects_at(cursor)
     if len(objects) > 1:
-        return boolean_topology_registry_at(document, cursor)
+        registry = boolean_topology_registry_at(document, cursor)
+        live_shape = document.build_shape_at(cursor)
+        return (
+            _rebind_registry_to_shape(registry, live_shape)
+            if live_shape is not None
+            else registry
+        )
     if len(objects) != 1:
         return TopologyRegistry()
     container = objects[0]

@@ -9594,7 +9594,7 @@ class MainWindow(QMainWindow):
             wrong_kind_message=tr("fillet.status.select_edge"),
             on_cancel=self._restore_default_selection,
         ))
-        self.native_viewer.set_selection_filter("all")
+        self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self.statusBar().showMessage(self._selection_controller.prompt)
 
