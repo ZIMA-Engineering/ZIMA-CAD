@@ -9165,7 +9165,7 @@ class MainWindow(QMainWindow):
         obj: ZimaEntity,
         feature_kind: EntityKind,
     ) -> None:
-        """Regenerate an edited extrusion/revolve as direction is switched."""
+        """Preview direction without evaluating the solid operation."""
 
         feature = next((
             child for child in obj.children
@@ -9173,34 +9173,13 @@ class MainWindow(QMainWindow):
         ), None)
         if feature is None:
             return
-        baseline = {
-            "direction": str(feature.parameters.get("direction", "forward"))
-        }
-
         def preview(direction: str) -> None:
-            if str(feature.parameters.get("direction", "forward")) == direction:
-                return
-            feature.parameters["direction"] = direction
-            self._mark_model_for_regeneration()
-            self.regenerate_model()
-
-        def accept_baseline() -> None:
-            baseline["direction"] = str(
-                feature.parameters.get("direction", "forward")
-            )
-
-        def restore_baseline() -> None:
-            direction = baseline["direction"]
-            if str(feature.parameters.get("direction", "forward")) == direction:
-                return
-            feature.parameters["direction"] = direction
-            self._mark_model_for_regeneration()
-            self.regenerate_model()
+            # The combo box is already the preview state. Keep the committed
+            # feature untouched; the actual Fuse/Cut is performed by the
+            # normal OK path, after the dialog has collected all parameters.
+            self._show_protrusion_profile_overlay(obj)
 
         dialog.directionChanged.connect(preview)
-        dialog.applied.connect(accept_baseline)
-        dialog.accepted.connect(accept_baseline)
-        dialog.rejected.connect(restore_baseline)
 
     def _apply_new_protrusion(
         self, dialog, references, fallback, name, show_internal,
