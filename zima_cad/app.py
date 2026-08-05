@@ -9117,6 +9117,7 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
+        self._begin_feature_wire_preview()
         self._show_protrusion_profile_overlay(obj)
 
     def _edit_protrusion(self, obj: ZimaEntity) -> None:
@@ -9166,6 +9167,7 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
+        self._begin_feature_wire_preview()
         self._show_protrusion_profile_overlay(obj)
 
     def _connect_feature_direction_preview(
@@ -9991,11 +9993,27 @@ class MainWindow(QMainWindow):
             # new window's edit state.
             return
         self.point_constraint_dialog = None
+        self._end_feature_wire_preview()
         self._pending_assembly_cut_targets = []
         self._point_constraint_cycle_keys = ()
         self._point_constraint_cycle_index = -1
         self._point_constraint_preview = None
         self.rebuild_view(fit=False, rebuild_geometry=False)
+
+    def _begin_feature_wire_preview(self) -> None:
+        """Show the edited feature as wireframe without changing geometry."""
+        if not hasattr(self, "_feature_preview_display_mode"):
+            self._feature_preview_display_mode = (
+                self.native_viewer.display_mode
+            )
+        self.native_viewer.set_display_mode("wire")
+
+    def _end_feature_wire_preview(self) -> None:
+        previous = getattr(self, "_feature_preview_display_mode", None)
+        if previous is None:
+            return
+        self._feature_preview_display_mode = None
+        self.native_viewer.set_display_mode(previous)
 
     def _create_constrained_point(
         self,
