@@ -9293,6 +9293,7 @@ class MainWindow(QMainWindow):
             return False
         else:
             base_rotation = self._plane_reference_rotation(references)
+        self._stabilize_shape_references(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = self._rotation_with_local_offset(
@@ -9438,6 +9439,7 @@ class MainWindow(QMainWindow):
             return False
         else:
             base_rotation = self._plane_reference_rotation(references)
+        self._stabilize_shape_references(references)
         obj.name = name
         obj.coordinate_system.origin = solution
         obj.coordinate_system.rotation = self._rotation_with_local_offset(
@@ -17205,6 +17207,35 @@ class MainWindow(QMainWindow):
                 str(topology_index),
                 reference_metadata,
             )
+
+    def _stabilize_shape_references(
+        self,
+        references: list[dict[str, Any]],
+    ) -> None:
+        """Attach semantic face IDs when a feature is actually committed."""
+        for descriptor in references:
+            if not isinstance(descriptor, dict):
+                continue
+            nested = descriptor.get("reference")
+            if isinstance(nested, dict):
+                self._stabilize_shape_references([nested])
+            if (
+                descriptor.get("type") != "face"
+                or descriptor.get("face_ref")
+                or descriptor.get("reference_scope") != "history_result"
+            ):
+                continue
+            try:
+                boundary = int(descriptor.get("history_cursor", 0))
+                topology_index = int(descriptor.get("topology_key", 0))
+            except (TypeError, ValueError):
+                continue
+            registry = self._reference_topology_registry(boundary)
+            if registry is None:
+                continue
+            stable = registry.reference_for_runtime_index(topology_index)
+            if stable is not None:
+                descriptor["face_ref"] = stable.to_dict()
 
     def _reference_topology_registry(self, boundary: int):
         """Reuse the displayed result when creating stable pick identities."""
