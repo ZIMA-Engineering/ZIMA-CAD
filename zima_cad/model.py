@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import json
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -508,6 +509,60 @@ class ZimaEntity:
             self.children.pop()
 
 
+def _entity_geometry_state(obj: ZimaEntity) -> dict[str, Any]:
+    """Serialize only state which can affect evaluated OCCT geometry."""
+    coordinate = obj.coordinate_system
+    attachment = obj.attachment
+    return {
+        "id": obj.entity_id,
+        "kind": obj.kind.value,
+        "combine": obj.combine_mode.value,
+        "coordinate": {
+            "origin": coordinate.origin,
+            "rotation": coordinate.rotation,
+            "x_axis": coordinate.x_axis,
+            "y_axis": coordinate.y_axis,
+            "z_axis": coordinate.z_axis,
+        },
+        "parameters": {
+            str(key): value
+            for key, value in obj.parameters.items()
+            if key != "build_status"
+        },
+        "locked": obj.locked,
+        "suppressed": obj.suppressed,
+        "attachment": (
+            {
+                "source_plane": attachment.source_plane,
+                "target_object_id": attachment.target_object_id,
+                "target_face_role": attachment.target_face_role,
+                "primary_axis": attachment.primary_axis,
+                "secondary_axis": attachment.secondary_axis,
+                "active_axis": attachment.active_axis,
+                "switch_angle": attachment.switch_angle,
+                "flip_normal": attachment.flip_normal,
+            }
+            if attachment is not None
+            else None
+        ),
+        "children": tuple(
+            _entity_geometry_state(child) for child in obj.children
+        ),
+    }
+
+
+def _clear_entity_build_status(obj: ZimaEntity) -> None:
+    obj.parameters.pop("build_status", None)
+    for child in obj.children:
+        _clear_entity_build_status(child)
+
+
+def _entity_has_build_status(obj: ZimaEntity) -> bool:
+    return bool(obj.parameters.get("build_status")) or any(
+        _entity_has_build_status(child) for child in obj.children
+    )
+
+
 @dataclass
 class PartDocument:
     regeneration_required: bool = False
@@ -527,6 +582,12 @@ class PartDocument:
     )
     user_parameter_values: dict[str, dict[str, str]] = field(
         default_factory=default_user_parameter_values
+    )
+    _shape_history_cache: dict[str, Any] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
     )
     root: ZimaEntity = field(
         default_factory=lambda: ZimaEntity(
@@ -1125,16 +1186,113 @@ class PartDocument:
                     else BRepAlgoAPI_Fuse(result_shape, shape).Shape()
                 )
             return result_shape
+        # Fillets need both the incoming shape and its topology registry.  A
+        # fillet used to reconstruct that registry from the beginning of the
+        # history independently for every step, producing triangular work as
+        # blends accumulated.  Prepare all prefix registries in one linear
+        # pass and share them for this shape evaluation.
+        history = self.history_objects()
+        is_history_prefix = all(
+            index < len(history) and obj is history[index]
+            for index, obj in enumerate(objects)
+        )
+        cache_keys = (
+            self._shape_history_cache_keys(objects)
+            if is_history_prefix
+            else ()
+        )
+        if cache_keys and cache_keys[-1] in self._shape_history_cache:
+            for obj in objects:
+                _clear_entity_build_status(obj)
+            return self._shape_history_cache[cache_keys[-1]]
+        cached_prefix = 0
         result_shape = None
-        for obj in objects:
-            result_shape = apply_object_to_shape(
-                result_shape,
-                obj,
-                identity_transform(),
-                document=self,
+        for index, cache_key in enumerate(cache_keys, 1):
+            cached_shape = self._shape_history_cache.get(cache_key)
+            if cached_shape is None:
+                break
+            cached_prefix = index
+            result_shape = cached_shape
+            _clear_entity_build_status(objects[index - 1])
+        snapshots: dict[int, TopologyRegistry] | None = None
+        if is_history_prefix and any(
+            obj.container_type == ContainerType.FILLET for obj in objects
+        ):
+            snapshots = {}
+            boolean_topology_registry_at(
+                self,
+                len(objects),
+                snapshots=snapshots,
             )
+            self._active_topology_registry_snapshots = snapshots
+        try:
+            for index, obj in enumerate(
+                objects[cached_prefix:],
+                cached_prefix,
+            ):
+                result_shape = apply_object_to_shape(
+                    result_shape,
+                    obj,
+                    identity_transform(),
+                    document=self,
+                )
+                if (
+                    cache_keys
+                    and result_shape is not None
+                    and not _entity_has_build_status(obj)
+                ):
+                    self._shape_history_cache[cache_keys[index]] = result_shape
+            # Bound memory while retaining recent alternative/undo states.
+            while len(self._shape_history_cache) > 128:
+                self._shape_history_cache.pop(
+                    next(iter(self._shape_history_cache))
+                )
+            return result_shape
+        finally:
+            if snapshots is not None:
+                self.__dict__.pop(
+                    "_active_topology_registry_snapshots",
+                    None,
+                )
 
-        return result_shape
+    def _shape_history_cache_keys(
+        self,
+        objects: list[ZimaEntity],
+    ) -> tuple[str, ...]:
+        """Return cumulative geometry signatures for history prefixes."""
+        document_state = json.dumps(
+            {
+                "units": self.document_units,
+                "precision": self.document_precision,
+                "parameters": self.user_parameters,
+                "parameter_values": self.user_parameter_values,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        digest = hashlib.sha256(document_state.encode("utf-8")).hexdigest()
+        keys: list[str] = []
+        for obj in objects:
+            entity_state = json.dumps(
+                _entity_geometry_state(obj),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            # The automatic Body/Part root receives a fresh runtime ID when a
+            # document is loaded.  History-result references are reconnected
+            # to that ID, but the geometry is unchanged; normalize it so a
+            # persisted BREP cache remains valid across sessions.
+            entity_state = entity_state.replace(
+                self.root.entity_id,
+                "__ZIMA_BODY__",
+            )
+            digest = hashlib.sha256(
+                (digest + entity_state).encode("utf-8")
+            ).hexdigest()
+            keys.append(digest)
+        return tuple(keys)
 
     def build_assembly_component_shape(
         self,
@@ -1339,11 +1497,34 @@ def apply_object_to_shape(
             return result_shape
         reference = parse_edge_reference(feature.parameters.get("edge_ref"))
         history_index = document.history_index(obj.entity_id)
+        # Do not call ``face_registry_at`` here.  For multi-feature history it
+        # also builds a fresh live shape, whose fillet evaluation recursively
+        # asks for another face registry.  Successive fillets therefore caused
+        # a rapidly growing tree of duplicate OCCT evaluations.  The Boolean
+        # evaluator already returns the required registry in one linear pass;
+        # bind that pass to the result shape currently being built below.
+        snapshots = getattr(
+            document,
+            "_active_topology_registry_snapshots",
+            None,
+        )
         registry = (
-            face_registry_at(document, history_index)
-            if history_index is not None else TopologyRegistry()
+            snapshots.get(history_index, TopologyRegistry())
+            if history_index is not None and snapshots is not None
+            else boolean_topology_registry_at(document, history_index)
+            if history_index is not None
+            else TopologyRegistry()
         )
         registry = _rebind_registry_to_shape(registry, result_shape)
+        if reference is not None and reference.role == "geometric":
+            # On-demand fallback references are intentionally not added to
+            # every normal topology registry.  Register them only while
+            # evaluating the fillet that actually persisted such a pick.
+            _register_geometric_fallback_edges(
+                registry,
+                result_shape,
+                reference.feature_id,
+            )
         try:
             radius = float(feature.parameters.get("radius", 1.0))
             if reference is None:
@@ -4367,18 +4548,73 @@ def _register_boolean_intersections(
         vertex_references,
         final_vertices,
         registry.register_vertex,
+            )
+
+
+def _register_geometric_fallback_edges(
+    registry: TopologyRegistry,
+    shape,
+    feature_id: str,
+) -> None:
+    """Give otherwise-unmapped result edges a reproducible identity.
+
+    Boolean and fillet history normally derives edge identity from semantic
+    face ancestry.  OCCT does not report complete ancestry for every blend
+    edge, however, which previously left many perfectly valid visible edges
+    impossible to select for a following fillet.  A compact geometric digest
+    is a safe final fallback: it is deterministic across equivalent document
+    evaluations and is propagated normally by subsequent OCCT history.
+    """
+    edges = _unique_subshapes(shape, TopAbs_EDGE)
+    fallback: dict[EdgeRef, list[int]] = {}
+    for index, edge in enumerate(edges):
+        fallback.setdefault(
+            _geometric_edge_reference(edge, feature_id),
+            [],
+        ).append(index)
+    _register_derived_references(
+        registry,
+        fallback,
+        edges,
+        registry.register_edge,
     )
+
+
+def _geometric_edge_reference(edge, feature_id: str) -> EdgeRef:
+    key = _topology_rebind_key(edge, TopAbs_EDGE)
+    digest = hashlib.sha256(
+        json.dumps(key, separators=(",", ":")).encode("ascii")
+    ).hexdigest()[:24]
+    return EdgeRef(feature_id, "geometric", digest)
+
+
+def geometric_edge_reference(
+    shape,
+    edge_index: int,
+    feature_id: str,
+) -> EdgeRef | None:
+    """Create an on-demand stable fallback for one displayed result edge."""
+    edges = _unique_subshapes(shape, TopAbs_EDGE)
+    if edge_index <= 0 or edge_index > len(edges):
+        return None
+    return _geometric_edge_reference(edges[edge_index - 1], feature_id)
 
 
 def boolean_topology_registry_at(
     document: PartDocument,
     cursor: int,
+    *,
+    snapshots: dict[int, TopologyRegistry] | None = None,
 ) -> TopologyRegistry:
     """Evaluate supported feature ancestry through the Part Boolean history."""
 
     result_shape = None
     result_registry = TopologyRegistry()
-    for container in document.history_objects_at(cursor):
+    for history_index, container in enumerate(
+        document.history_objects_at(cursor)
+    ):
+        if snapshots is not None:
+            snapshots[history_index] = result_registry
         if container.container_type == ContainerType.FILLET:
             feature = next((
                 child for child in container.children
@@ -4391,6 +4627,12 @@ def boolean_topology_registry_at(
             if result_shape is None or feature is None or reference is None:
                 continue
             try:
+                if reference.role == "geometric":
+                    _register_geometric_fallback_edges(
+                        result_registry,
+                        result_shape,
+                        reference.feature_id,
+                    )
                 result_shape, result_registry = make_fillet_shape(
                     result_shape,
                     result_registry,
@@ -4436,7 +4678,23 @@ def boolean_topology_registry_at(
             _container_boolean_feature_id(container),
         )
         result_shape = combined
+    if snapshots is not None:
+        snapshots[cursor] = result_registry
     return result_registry
+
+
+def topology_registry_at_shape(
+    document: PartDocument,
+    cursor: int,
+    shape,
+) -> TopologyRegistry:
+    """Evaluate topology once and bind it to an already displayed shape."""
+    registry = boolean_topology_registry_at(document, cursor)
+    return (
+        _rebind_registry_to_shape(registry, shape)
+        if shape is not None
+        else registry
+    )
 
 
 def face_registry_at(

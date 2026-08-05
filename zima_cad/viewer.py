@@ -549,6 +549,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
         self._edge_ranges: tuple[tuple[int, int], ...] = ()
         self._silhouette_edges: tuple[SilhouetteEdge, ...] = ()
+        self._silhouette_cache: list[
+            tuple[ViewerMesh, tuple[SilhouetteEdge, ...]]
+        ] = []
         self._buffers_dirty = False
         self._gpu_ready = False
         self._hovered_edge: TopologyKey | None = None
@@ -1103,9 +1106,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         previous_radius = self._scene_radius
         previous_zoom = self.camera.zoom
         self._mesh = mesh
-        self._silhouette_edges = (
-            build_silhouette_edges(mesh) if mesh is not None else ()
+        cached_silhouettes = next(
+            (
+                silhouettes
+                for cached_mesh, silhouettes in self._silhouette_cache
+                if cached_mesh == mesh
+            ),
+            None,
         )
+        if mesh is None:
+            self._silhouette_edges = ()
+        elif cached_silhouettes is not None:
+            self._silhouette_edges = cached_silhouettes
+        else:
+            self._silhouette_edges = build_silhouette_edges(mesh)
+            self._silhouette_cache.insert(
+                0,
+                (mesh, self._silhouette_edges),
+            )
+            del self._silhouette_cache[4:]
         self._set_hovered_edge(None)
         self._set_selected_edge(None)
         self._set_hovered_face(None)
@@ -9023,7 +9042,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if (
                     edge.owner_id != owner_id
                     or edge.element_kind not in {"edge", "sketch"}
-                    or not edge_visible_in_display(edge, self._display_mode)
+                    # Object selection deliberately reveals tangent blend
+                    # boundaries which the normal shaded-with-edges mode
+                    # hides.  On a filleted cylinder these are the circular
+                    # curves at both ends of the radius and provide the only
+                    # clear visual description of the selected Body.
+                    or edge.topology_role in {"seam", "periodic_tangent"}
                 ):
                     continue
                 projected = [
@@ -9035,6 +9059,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         projected[index - 1],
                         projected[index],
                     )
+            # A fully blended body may have no sharp topology edge on its
+            # visible outline.  In that case an object highlight made only
+            # from CAD edges disappears completely.  Include the owner-scoped
+            # tessellation silhouette so Body remains highlightable even when
+            # every boundary has been filleted smooth.
+            view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
+            silhouettes = tuple(
+                edge
+                for edge in self._silhouette_edges
+                if edge.owner_id == owner_id
+            )
+            for first, second in silhouette_segments_from_edges(
+                silhouettes,
+                view_direction,
+            ):
+                painter.drawLine(
+                    self._screen_point(self._camera_point(first)),
+                    self._screen_point(self._camera_point(second)),
+                )
         painter.end()
 
     def _paint_reference_highlights(self) -> None:

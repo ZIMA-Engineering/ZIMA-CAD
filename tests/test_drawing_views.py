@@ -295,6 +295,21 @@ class DrawingViewConventionTests(unittest.TestCase):
             )
         )
 
+    def test_standalone_sketch_edit_uses_its_own_history_boundary(self) -> None:
+        document = create_empty_part()
+        before = document.create_container("Before", ContainerType.BOX)
+        document.create_primitive(before.entity_id, EntityKind.BOX)
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id)
+        after = document.create_container("After", ContainerType.BOX)
+        document.create_primitive(after.entity_id, EntityKind.BOX)
+
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._sketch_edit_entity_id = sketch.entity_id
+
+        self.assertEqual(window._definition_history_boundary(), 1)
+
     def test_stored_external_sketch_points_are_always_visible(self) -> None:
         reference = {"id": "external-point"}
         visible = ZimaOpenGLViewer._external_point_marker_visible
@@ -478,6 +493,22 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertIsNotNone(geometry)
         self.assertEqual(geometry["type"], "line")
+
+    def test_model_edge_reference_remains_a_finite_segment(self) -> None:
+        projected_edge = {
+            "type": "polyline",
+            "points": [[0.0, 0.0], [2.0, 0.0]],
+        }
+
+        edge = MainWindow._normalized_sketch_reference_geometry(
+            "edge", projected_edge
+        )
+        plane = MainWindow._normalized_sketch_reference_geometry(
+            "plane", projected_edge
+        )
+
+        self.assertEqual(edge, projected_edge)
+        self.assertEqual(plane["type"], "line")
 
     def test_axis_crossing_sketch_is_kept_as_axis_point(self) -> None:
         geometry = MainWindow._infinite_sketch_reference_geometry({

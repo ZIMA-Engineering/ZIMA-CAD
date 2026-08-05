@@ -1,5 +1,43 @@
 # Next Work
 
+## Performance and Scaling
+
+- Keep performance work as a continuing project priority and test routinely on
+  real Parts with dense sketches, long feature histories and many successive
+  fillets; small demonstration models are not sufficient performance tests.
+- Add repeatable timing/regression benchmarks for document open/save, history
+  evaluation, Fillet creation/editing, Sketcher entry/finish, dimension editing,
+  topology naming, triangulation, silhouette generation and GPU scene upload.
+- Extend the implemented per-history-step OCCT Shape cache so invalidation is
+  explicit and starts only at the earliest changed feature. Preserve cached
+  prefix shapes and topology registries across late-feature edits and Undo/Redo.
+- Continue using the persisted, signature-validated compressed BREP result for
+  fast `.prtz` cold starts. Add compatibility/version diagnostics and measure
+  cache size, decoding time and fallback regeneration on larger documents.
+- Carry Shape and `TopologyRegistry` together through one central linear
+  evaluator instead of allowing feature commands to reconstruct topology or
+  replay earlier history independently.
+- Add central `entity_id -> entity`, `entity_id -> parent` and
+  `entity_id -> owning history object` indexes. Replace repeated recursive tree
+  searches in visibility, selection, attachment and scene-building hot paths.
+- Keep Sketcher editing isolated at its history boundary. Later features must
+  be absent both visually and computationally until the sketch is finished;
+  displaying a 2D sketch or its dimensions must never evaluate downstream
+  solids or fillets.
+- Keep the live `SketchModel` in memory during an editing session and batch
+  compound operations such as Rectangle. Avoid repeated full JSON
+  parse/serialize cycles and solve constraints only when the operation requires
+  it.
+- Make tree selection, dimension interaction and ordinary highlight changes
+  update only UI state. They must not rebuild geometry, recombine the viewer
+  scene, re-upload unchanged buffers or recalculate silhouettes.
+- Retain bounded caches for triangulation, silhouettes and GPU-ready buffers at
+  multiple recently used history boundaries so entering and leaving Sketcher
+  remains fast on fully filleted bodies.
+- Show optional developer performance diagnostics with per-stage timings and
+  entity/face/edge/triangle counts, making new quadratic or repeated work
+  visible before it becomes a user-facing regression.
+
 ## Current Priority: Complete the Technical Drawing Foundation
 
 - Exercise `.drwz` creation from both `.prtz` and `.asmz` documents on real
@@ -103,6 +141,13 @@
 
 ## Basic Sketcher Completion
 
+- Treat the current Sketcher feature set as the first functionally complete
+  version. Keep further work focused on editing polish, solver quality,
+  performance and regression fixes instead of expanding the basic tool set.
+- Complete editing of Sketch text after creation: reopen its text properties,
+  change content, font/height, alignment and placement, regenerate the contour
+  geometry without losing its stable Sketch entity ownership, and support
+  Undo/Redo plus save/reload.
 - Add intelligent entity input: inference, snapping, continuation and clear
   previews while creating connected geometry.
 - External Sketch point references stay hidden until the cursor enters their
@@ -120,6 +165,10 @@
 - Continue stabilization of centre arcs and spline editing.
 - Improve the solver's numerical stability, branch preservation, diagnostics
   and recovery for redundant, conflicting and under-constrained systems.
+- Continue solver development as an ongoing Sketcher project: report remaining
+  degrees of freedom clearly, identify redundant/conflicting relations, keep
+  the selected solution branch during edits and add regression cases for dense
+  real-world sketches.
 - Make constraint records selectable in both tree and view. Selection must
   highlight every participating entity and dependency; Delete must remove the
   selected relation cleanly.

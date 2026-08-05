@@ -48,6 +48,7 @@ from PySide6.QtGui import (
 from PySide6.QtCore import (
     QByteArray,
     QEvent,
+    QEventLoop,
     QLibraryInfo,
     QObject,
     QPoint,
@@ -116,6 +117,8 @@ from zima_cad.model import (
     ZimaEntity,
     active_face_registry,
     face_registry_at,
+    geometric_edge_reference,
+    topology_registry_at_shape,
     protrusion_face_registry,
     revolve_face_registry,
     solid_face_frames,
@@ -6054,7 +6057,9 @@ class UserParametersDialog(QDialog):
 
     def _commit_pending_table_edit(self) -> None:
         self.table.clearFocus()
-        QApplication.processEvents()
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
 
     def _apply_to_document(self) -> bool:
         if not self._read_table():
@@ -6645,7 +6650,9 @@ class MaterialDialog(QDialog):
 
     def _apply_to_document(self) -> bool:
         self.table.clearFocus()
-        QApplication.processEvents()
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
 
         physical_parameters: dict[str, str] = {}
         physical_parameter_units: dict[str, str] = {}
@@ -7706,6 +7713,7 @@ class MainWindow(QMainWindow):
         self._sketch_edit_entity_id: str | None = None
         self._sketch_return_properties_id: str | None = None
         self._sketch_previous_camera = None
+        self._sketch_previous_body_shape = None
         self._sketch_baseline_parameters: dict[str, str] | None = None
         self._sketch_tool: str | None = None
         self._sketch_pending_points: list[tuple[float, float]] = []
@@ -8418,6 +8426,20 @@ class MainWindow(QMainWindow):
                 self._toggle_sketch_reference_mode
             )
             self._mark_application_command(reference_action)
+            external_segment_action = self.tools_toolbar.addAction(
+                f"{tr('sketch.command.reference')} → "
+                f"{tr('sketch.tool.segment')}"
+            )
+            external_segment_action.setIcon(
+                resource_icon("sketch-segment")
+            )
+            external_segment_action.setToolTip(
+                tr("sketch.command.reference.tooltip")
+            )
+            external_segment_action.triggered.connect(
+                self._start_external_segment_command
+            )
+            self._mark_application_command(external_segment_action)
             self._add_sketch_command_menu(
                 "sketch.constraints",
                 "sketch-constraints",
@@ -9598,6 +9620,53 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_interaction_mode("topology")
         self.statusBar().showMessage(self._selection_controller.prompt)
 
+    def _start_external_segment_command(self) -> None:
+        """Create profile geometry from one selected external model edge."""
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        self._set_sketch_reference_mode(False)
+        self._selection_controller.begin(SelectionRequest(
+            command_id="sketch_external_segment",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(
+                value=(candidate.owner_id, candidate.element_index)
+            ),
+            on_complete=self._finish_external_segment_command,
+            prompt=tr("sketch.status.reference_mode"),
+            wrong_kind_message=tr("sketch.status.reference_unsupported"),
+            on_cancel=self._restore_sketch_selection_after_command,
+        ))
+        self.native_viewer.set_sketch_reference_selection_mode(True)
+        self.native_viewer.set_outline_face_highlights(True)
+        self.native_viewer.set_selection_enabled(True)
+        self.native_viewer.set_selection_filter("edge")
+        self.native_viewer.set_interaction_mode("topology")
+        self.statusBar().showMessage(self._selection_controller.prompt)
+
+    def _finish_external_segment_command(
+        self,
+        values: tuple[Any, ...],
+    ) -> None:
+        owner_id, edge_index = values[0]
+        self._add_sketch_external_reference(
+            "edge",
+            str(owner_id),
+            int(edge_index),
+            create_profile_segment=True,
+        )
+        self._restore_sketch_selection_after_command()
+
+    def _restore_sketch_selection_after_command(self) -> None:
+        self.native_viewer.set_sketch_reference_selection_mode(False)
+        self.native_viewer.set_outline_face_highlights(False)
+        self.native_viewer.set_selection_enabled(False)
+        self.native_viewer.set_selection_filter(
+            self.view_selection_filter.value
+        )
+        self.native_viewer.set_interaction_mode("object")
+        self.statusBar().showMessage(tr("sketch.status.editing"))
+        self._rebuild_application_toolbar()
+
     def keyPressEvent(self, event) -> None:
         if (
             event.key() == Qt.Key.Key_Escape
@@ -9615,8 +9684,7 @@ class MainWindow(QMainWindow):
         self,
         candidate: SelectionCandidate,
     ) -> SelectionResolution:
-        reference = self._fillet_edge_reference(
-            self.document,
+        reference = self._cached_fillet_edge_reference(
             candidate.owner_id,
             candidate.element_index,
         )
@@ -9627,6 +9695,55 @@ class MainWindow(QMainWindow):
                 if reference is not None
                 else tr("fillet.status.edge_unsupported")
             ),
+        )
+
+    def _cached_fillet_edge_reference(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> EdgeRef | None:
+        """Resolve a picked body edge without rebuilding displayed history.
+
+        The viewer already owns the live result shape.  Going through
+        ``active_face_registry`` here rebuilt the entire OCCT history before
+        the radius dialog could even be shown.  The shared reference cache
+        reuses that displayed shape for the common single-feature case and
+        retains the registry for subsequent selections.
+        """
+        document = self.document
+        if (
+            document is None
+            or owner_id != document.root.entity_id
+            or edge_index <= 0
+        ):
+            return None
+        registry = self._reference_topology_registry(
+            document.history_cursor()
+        )
+        reference = (
+            registry.edge_reference_for_runtime_index(edge_index)
+            if registry is not None
+            else None
+        )
+        if reference is not None:
+            return reference
+        scene = self._native_viewer_scene
+        displayed_shape = (
+            scene.shapes_by_owner_id.get(document.root.entity_id)
+            if scene is not None
+            else None
+        )
+        history = document.history_objects_at(document.history_cursor())
+        if displayed_shape is None or not history:
+            return None
+        # Some valid OCCT edges (especially Boolean/blend intersections) have
+        # no usable ancestry.  Persist a deterministic descriptor of the
+        # selected live edge; model evaluation registers the same fallback on
+        # demand immediately before applying this fillet.
+        return geometric_edge_reference(
+            displayed_shape,
+            edge_index,
+            history[-1].entity_id,
         )
 
     def _submit_command_selection(
@@ -9657,7 +9774,11 @@ class MainWindow(QMainWindow):
             self,
             tr("fillet.command"),
             tr("fillet.radius"),
-            4.0,
+            # A fixed 4 mm suggestion is invalid even for every edge of
+            # small, otherwise perfectly filletable parts (for example
+            # part2).  Start conservatively; users can still request a larger
+            # value and OCCT validates it against the selected edge below.
+            0.5,
             0.001,
             1_000_000.0,
             3,
@@ -9677,18 +9798,26 @@ class MainWindow(QMainWindow):
         )
         obj.add_child(feature)
         self._mark_model_for_regeneration()
-        self.document.build_active_shape()
+        built_shape = self.document.build_active_shape()
         error = str(feature.parameters.get("build_status", "")).strip()
         if error:
             self.document.delete_container(obj.entity_id)
-            self.statusBar().showMessage(
-                tr("fillet.status.failed", error=error)
+            message = tr("fillet.status.failed", error=error)
+            self.statusBar().showMessage(message)
+            QMessageBox.warning(
+                self,
+                tr("fillet.command"),
+                message,
             )
             self.rebuild_view(fit=False, rebuild_geometry=False)
             return
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        self.rebuild_view(fit=False, rebuild_geometry=True)
+        self.rebuild_view(
+            fit=False,
+            rebuild_geometry=True,
+            cached_body_shape=built_shape,
+        )
 
     def _edit_fillet(self, obj: ZimaEntity) -> None:
         feature = next((
@@ -13350,7 +13479,17 @@ class MainWindow(QMainWindow):
         # Drawing geometry was registered above.  Rebuilding it again here
         # doubles the tab-switch cost and clears the freshly prepared shaded
         # image caches.  Model/assembly tabs still need their normal rebuild.
-        self.rebuild_view(fit=True, rebuild_geometry=not is_drawing)
+        # A freshly loaded model is regenerated immediately by
+        # ``open_document_path``.  Building its complete OCCT history here
+        # would do the same expensive work once for this initial view and
+        # then again during regeneration (fillet histories make that pause
+        # particularly noticeable).  Leave the previous scene cleared and
+        # let regeneration perform the single authoritative rebuild.
+        if not is_drawing and self.document.regeneration_required:
+            self._native_viewer_scene = None
+            self.native_viewer.clear_scene()
+        else:
+            self.rebuild_view(fit=True, rebuild_geometry=not is_drawing)
         self._update_window_title()
         self._refresh_window_menu()
 
@@ -13505,6 +13644,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return False
 
+        # Stored coordinates are only the last evaluated state.  Mark the
+        # document before activating its tab so tab activation does not build
+        # a throwaway view of geometry that is about to be regenerated.
+        if self._document_type(document) != "drawing":
+            document.regeneration_required = True
         self._add_document_session(document, canonical_path)
         # Stored coordinates are only the last evaluated state.  Always
         # resolve parametric references against the freshly built geometry
@@ -15113,7 +15257,22 @@ class MainWindow(QMainWindow):
             self._document_type(self.document) == "drawing"
         )
         if hasattr(self, "_viewer_initialized"):
-            self.rebuild_view(fit=False, rebuild_geometry=False)
+            boundary = self._definition_history_boundary()
+            if (
+                self._cached_document is self.document
+                and self._cached_history_boundary == boundary
+                and self._native_viewer_scene is not None
+            ):
+                # A tree click changes only selection/highlights.  Rebuilding
+                # and re-uploading the complete final scene here made the
+                # first half of a double-click on an early Sketch depend on
+                # all downstream fillets.
+                self._sync_native_tree_selection()
+            else:
+                self.rebuild_view(
+                    fit=False,
+                    rebuild_geometry=False,
+                )
 
     def _sync_display_mode_actions(self, is_drawing: bool) -> None:
         actions = self.display_mode_actions.actions()
@@ -16862,7 +17021,11 @@ class MainWindow(QMainWindow):
                     self.document, container, displayed_shape
                 )
         if registry is None:
-            registry = face_registry_at(self.document, boundary)
+            registry = topology_registry_at_shape(
+                self.document,
+                boundary,
+                displayed_shape,
+            )
         self._reference_topology_registry_cache[cache_key] = registry
         return registry
 
@@ -19390,7 +19553,13 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._view_selection_confirmed = True
         self._populate_tree()
-        self._select_tree_object(target.entity_id)
+        # Programmatic synchronization must not emit a second selection
+        # change and rebuild the same viewer mesh twice.
+        signals_were_blocked = self.tree.blockSignals(True)
+        try:
+            self._select_tree_object(target.entity_id)
+        finally:
+            self.tree.blockSignals(signals_were_blocked)
         self.rebuild_view(fit=False, rebuild_geometry=False)
         return target
 
@@ -20730,6 +20899,8 @@ class MainWindow(QMainWindow):
         source_kind: str,
         owner_id: str,
         element_index: int,
+        *,
+        create_profile_segment: bool = False,
     ) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
             return
@@ -20814,7 +20985,10 @@ class MainWindow(QMainWindow):
             sketch,
             descriptor,
         )
-        geometry = self._infinite_sketch_reference_geometry(geometry)
+        geometry = self._normalized_sketch_reference_geometry(
+            source_kind,
+            geometry,
+        )
         geometry = self._deduplicate_external_reference_geometry(geometry)
         if geometry is None:
             self.statusBar().showMessage(
@@ -20823,10 +20997,20 @@ class MainWindow(QMainWindow):
             return
         references = self._stored_sketch_external_references(sketch)
         descriptor_key = self._external_reference_key(descriptor)
-        if any(
-            self._external_reference_key(reference) == descriptor_key
+        existing_reference = next((
+            reference
             for reference in references
-        ):
+            if self._external_reference_key(reference) == descriptor_key
+        ), None)
+        if existing_reference is not None:
+            if create_profile_segment and source_kind == "edge":
+                self._create_external_profile_segment(
+                    sketch,
+                    str(existing_reference.get("id", descriptor["id"])),
+                    geometry,
+                )
+                self._mark_model_for_regeneration()
+                self._refresh_sketch_overlay()
             return
         descriptor["cached_geometry"] = geometry
         references.append(descriptor)
@@ -20834,6 +21018,12 @@ class MainWindow(QMainWindow):
             references,
             ensure_ascii=False,
         )
+        if create_profile_segment and source_kind == "edge":
+            self._create_external_profile_segment(
+                sketch,
+                str(descriptor["id"]),
+                geometry,
+            )
         self._sketch_selected_external_reference_id = str(
             descriptor["id"]
         )
@@ -20884,7 +21074,10 @@ class MainWindow(QMainWindow):
                 sketch,
                 reference,
             )
-            geometry = self._infinite_sketch_reference_geometry(geometry)
+            geometry = self._normalized_sketch_reference_geometry(
+                str(reference.get("source_kind", "")),
+                geometry,
+            )
             geometry = self._deduplicate_external_reference_geometry(
                 geometry
             )
@@ -20902,7 +21095,8 @@ class MainWindow(QMainWindow):
                 continue
             broken = geometry is None
             if geometry is None:
-                geometry = self._infinite_sketch_reference_geometry(
+                geometry = self._normalized_sketch_reference_geometry(
+                    str(reference.get("source_kind", "")),
                     reference.get("cached_geometry")
                     if isinstance(
                         reference.get("cached_geometry"),
@@ -20970,7 +21164,119 @@ class MainWindow(QMainWindow):
                 references,
                 ensure_ascii=False,
             )
+        self._sync_external_profile_segments(sketch, resolved)
         return resolved
+
+    @staticmethod
+    def _normalized_sketch_reference_geometry(
+        source_kind: str,
+        geometry: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        # Model edges are bounded objects.  Planes and datum axes remain
+        # infinite references, which is the useful Sketcher convention.
+        if source_kind == "edge":
+            return geometry
+        return MainWindow._infinite_sketch_reference_geometry(geometry)
+
+    def _create_external_profile_segment(
+        self,
+        sketch: ZimaEntity,
+        reference_id: str,
+        geometry: dict[str, Any],
+    ) -> bool:
+        points = geometry.get("points", ())
+        if geometry.get("type") != "polyline" or len(points) < 2:
+            self.statusBar().showMessage(
+                tr("sketch.status.reference_unsupported")
+            )
+            return False
+        first = (float(points[0][0]), float(points[0][1]))
+        last = (float(points[-1][0]), float(points[-1][1]))
+        dx, dy = last[0] - first[0], last[1] - first[1]
+        length = math.hypot(dx, dy)
+        if length <= 1.0e-10 or any(
+            abs(dx * (float(point[1]) - first[1])
+                - dy * (float(point[0]) - first[0]))
+            > max(1.0, length) * 1.0e-7
+            for point in points[1:-1]
+        ):
+            self.statusBar().showMessage(
+                tr("sketch.status.reference_unsupported")
+            )
+            return False
+        entities = self._stored_sketch_entities(sketch)
+        if any(
+            str(entity.get("external_profile_reference_id", ""))
+            == reference_id
+            for entity in entities
+        ):
+            return False
+        point_ids = []
+        for endpoint, (x, y) in enumerate((first, last)):
+            point_id = self._next_sketch_point_id(entities)
+            point_ids.append(point_id)
+            entities.append({
+                "id": point_id,
+                "type": "point",
+                "x": x,
+                "y": y,
+                "external_profile_reference_id": reference_id,
+                "external_profile_endpoint": endpoint,
+            })
+        entities.append({
+            "id": self._next_sketch_geometry_id(entities),
+            "type": "segment",
+            "point_ids": point_ids,
+            "role": "profile",
+            "external_profile_reference_id": reference_id,
+        })
+        sketch.parameters["profile"] = "entities"
+        self._store_sketch_entities(sketch, entities)
+        return True
+
+    def _sync_external_profile_segments(
+        self,
+        sketch: ZimaEntity,
+        references: list[dict[str, Any]],
+    ) -> None:
+        endpoints: dict[
+            str,
+            tuple[tuple[float, float], tuple[float, float]],
+        ] = {}
+        for reference in references:
+            geometry = reference.get("geometry", {})
+            points = (
+                geometry.get("points", ())
+                if isinstance(geometry, dict)
+                else ()
+            )
+            if geometry.get("type") == "polyline" and len(points) >= 2:
+                endpoints[str(reference.get("id", ""))] = (
+                    (float(points[0][0]), float(points[0][1])),
+                    (float(points[-1][0]), float(points[-1][1])),
+                )
+        if not endpoints:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        changed = False
+        for entity in entities:
+            reference_id = str(
+                entity.get("external_profile_reference_id", "")
+            )
+            endpoint = entity.get("external_profile_endpoint")
+            if (
+                entity.get("type") != "point"
+                or reference_id not in endpoints
+            ):
+                continue
+            if endpoint not in (0, 1):
+                continue
+            x, y = endpoints[reference_id][endpoint]
+            if entity.get("x") != x or entity.get("y") != y:
+                entity["x"], entity["y"] = x, y
+                changed = True
+        if changed:
+            self._store_sketch_entities(sketch, entities)
 
     @staticmethod
     def _external_reference_key(reference: dict[str, Any]) -> tuple[Any, ...]:
@@ -23030,6 +23336,28 @@ class MainWindow(QMainWindow):
         position: tuple[float, float],
     ) -> tuple[dict[str, Any], tuple[float, float], bool]:
         entities = self._stored_sketch_entities(sketch)
+        point, snapped, created = self._ensure_sketch_point_in_entities(
+            sketch,
+            entities,
+            position,
+        )
+        if created:
+            sketch.parameters["profile"] = "entities"
+            self._store_sketch_entities(sketch, entities)
+        return point, snapped, created
+
+    def _ensure_sketch_point_in_entities(
+        self,
+        sketch: ZimaEntity,
+        entities: list[dict[str, Any]],
+        position: tuple[float, float],
+    ) -> tuple[dict[str, Any], tuple[float, float], bool]:
+        """Ensure a point in an already loaded editor model.
+
+        Compound tools such as Rectangle add several points at once.  Keeping
+        their working entity list in memory avoids parsing and serialising the
+        complete sketch once for every corner.
+        """
         snapped, existing = self._snap_sketch_position(
             entities,
             position,
@@ -23055,8 +23383,6 @@ class MainWindow(QMainWindow):
             ensure_ascii=False,
         )
         entities.append(point)
-        sketch.parameters["profile"] = "entities"
-        self._store_sketch_entities(sketch, entities)
         return point, snapped, True
 
     def _sketch_frame(
@@ -23120,6 +23446,14 @@ class MainWindow(QMainWindow):
         if frame is None:
             return
         self._sketch_return_properties_id = return_properties_id
+        previous_scene = self._native_viewer_scene
+        self._sketch_previous_body_shape = (
+            previous_scene.shapes_by_owner_id.get(
+                self.document.root.entity_id
+            )
+            if previous_scene is not None
+            else None
+        )
         self._clear_dimension_overlays()
         self._ensure_sketch_entity_ids(sketch)
         self._remove_redundant_sketch_curve_dimensions(sketch)
@@ -23231,6 +23565,10 @@ class MainWindow(QMainWindow):
             view_direction,
             frame[0],
             roll_degrees=roll_degrees,
+            # Sketcher is a mode transition, not a cinematic view command.
+            # The former one-second animation made an already prepared sketch
+            # feel as if it were still loading.
+            duration_ms=180,
         )
 
     @classmethod
@@ -30886,6 +31224,24 @@ class MainWindow(QMainWindow):
         if line_index is None and len(remaining) == len(references):
             return
         entities = self._stored_sketch_entities(sketch)
+        if line_index is None:
+            removed_point_ids = {
+                str(entity.get("id", ""))
+                for entity in entities
+                if entity.get("type") == "point"
+                and str(entity.get("external_profile_reference_id", ""))
+                == reference_id
+            }
+            entities = [
+                entity
+                for entity in entities
+                if str(entity.get("external_profile_reference_id", ""))
+                != reference_id
+                and not removed_point_ids.intersection(
+                    str(point_id)
+                    for point_id in entity.get("point_ids", ())
+                )
+            ]
         for entity in entities:
             constraints = entity.get("constraints", ())
             if not isinstance(constraints, list):
@@ -31953,12 +32309,15 @@ class MainWindow(QMainWindow):
         *,
         automatic_constraint: str | None = None,
     ) -> None:
-        second, _position, _created = self._ensure_sketch_point(
+        entities = self._stored_sketch_entities(sketch)
+        second, _position, _created = self._ensure_sketch_point_in_entities(
             sketch,
+            entities,
             (opposite[0], first[1]),
         )
-        fourth, _position, _created = self._ensure_sketch_point(
+        fourth, _position, _created = self._ensure_sketch_point_in_entities(
             sketch,
+            entities,
             (first[0], opposite[1]),
         )
         point_ids = (
@@ -31984,7 +32343,6 @@ class MainWindow(QMainWindow):
                         point_ids[corner_index],
                         f"sketch_circle:{parts[2]}",
                     )
-        entities = self._stored_sketch_entities(sketch)
         for start_id, end_id, constraint_type in (
             (point_ids[0], point_ids[1], "horizontal"),
             (point_ids[1], point_ids[2], "vertical"),
@@ -32460,6 +32818,16 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_selected_dimension(None)
         for overlay in self._dimension_overlays.values():
             overlay.set_selected(False)
+        # Resolve before loading the editable entity list.  Resolution also
+        # synchronizes profile segments created from external edges.  Loading
+        # entities first used to overwrite those new endpoint coordinates at
+        # the end of this method, and references without point-on-reference
+        # constraints were not resolved here at all.
+        resolved_references = (
+            self._resolved_sketch_external_references(sketch)
+            if self._stored_sketch_external_references(sketch)
+            else []
+        )
         entities = self._stored_sketch_entities(sketch)
         local_points = {
             str(entity.get("id", "")): entity
@@ -32479,7 +32847,7 @@ class MainWindow(QMainWindow):
         resolved_by_id = (
             {
                 str(reference.get("id", "")): reference
-                for reference in self._resolved_sketch_external_references(sketch)
+                for reference in resolved_references
             }
             if has_point_reference_constraints
             else {}
@@ -32556,7 +32924,11 @@ class MainWindow(QMainWindow):
             self._apply_sketch_curve_attachments(entities)
         self._store_sketch_editor_data(sketch, entities, dimensions)
         self._mark_model_for_regeneration()
-        self.rebuild_view(fit=False)
+        # During Sketcher editing the solid intentionally remains at its last
+        # regenerated state.  Only the lightweight sketch overlay changed;
+        # rebuilding the full OCCT history and triangulation after every
+        # point/rectangle made editing progressively slower as the Part grew.
+        self.rebuild_view(fit=False, rebuild_geometry=False)
         self._refresh_sketch_overlay()
         if self._sketch_show_all_dimensions:
             self._show_all_sketch_dimensions(sketch)
@@ -33683,6 +34055,17 @@ class MainWindow(QMainWindow):
             return
         sketch_id = self._sketch_edit_entity_id
         return_camera = self._sketch_previous_camera
+        previous_body_shape = self._sketch_previous_body_shape
+        active_sketch = (
+            self.document.find_entity(sketch_id)
+            if self.document is not None
+            else None
+        )
+        sketch_changed = (
+            active_sketch is not None
+            and self._sketch_baseline_parameters is not None
+            and active_sketch.parameters != self._sketch_baseline_parameters
+        )
         if self.document is not None and restore:
             sketch = self.document.find_entity(self._sketch_edit_entity_id)
             if sketch is not None and self._sketch_baseline_parameters is not None:
@@ -33720,6 +34103,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_selection_enabled(self.view_selection_enabled)
         self._sketch_edit_entity_id = None
         self._sketch_previous_camera = None
+        self._sketch_previous_body_shape = None
         self._sketch_baseline_parameters = None
         self._sketch_tool = None
         self._sketch_pending_points.clear()
@@ -33751,17 +34135,30 @@ class MainWindow(QMainWindow):
         self._sketch_selected_external_reference_id = None
         self._populate_tree()
         self._rebuild_application_toolbar()
-        if self.document is not None and not restore:
+        if self.document is not None and not restore and sketch_changed:
             # Finishing a sketch is always a history change from the user's
             # point of view.  Do not depend on a dirty flag that may have been
             # consumed by an intermediate preview rebuild: recompute the
             # parent and all external-reference descendants unconditionally.
             self.document.regeneration_required = True
             self.regenerate_model()
+        elif self.document is not None and not restore:
+            # Merely opening and closing Sketcher must not replay every
+            # downstream fillet.  Restore the final Body captured on entry;
+            # its mesh/silhouette are also recovered by the viewer caches.
+            self.document.regeneration_required = False
+            self.rebuild_view(
+                fit=False,
+                rebuild_geometry=True,
+                cached_body_shape=previous_body_shape,
+            )
         else:
             self.rebuild_view(fit=False)
         if return_camera is not None:
-            self.native_viewer.animate_camera_state(return_camera)
+            self.native_viewer.animate_camera_state(
+                return_camera,
+                duration_ms=180,
+            )
         self.statusBar().showMessage(
             tr(
                 "sketch.status.cancelled"
@@ -34013,6 +34410,27 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return 0
         if self._sketch_edit_entity_id is not None:
+            # The owning history container is the authoritative edit
+            # boundary for both standalone sketches and sketches embedded in
+            # a protrusion/revolve.  The older lookup below only recognised a
+            # feature carrying ``sketch_id``; a standalone SKETCH therefore
+            # fell through to the final history cursor and rebuilt every
+            # downstream fillet while its early sketch was being edited.
+            sketch = self.document.find_entity(
+                self._sketch_edit_entity_id
+            )
+            owner = (
+                self.document.find_owning_object(sketch.entity_id)
+                if sketch is not None
+                else None
+            )
+            owner_index = (
+                self.document.history_index(owner.entity_id)
+                if owner is not None
+                else None
+            )
+            if owner_index is not None:
+                return min(self.document.history_cursor(), owner_index)
             for index, obj in enumerate(self.document.history_objects()):
                 if (
                     obj.kind == EntityKind.CONTAINER
@@ -35498,11 +35916,18 @@ class MainWindow(QMainWindow):
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
         if entity.kind == EntityKind.SKETCH:
-            # A committed parent-sketch dimension changes the feature
-            # history immediately.  Recompute external-reference descendants
-            # now, while keeping the parent sketch editor active, instead of
-            # waiting for Finish or an explicit Regenerate command.
-            self.regenerate_model()
+            if self._sketch_edit_entity_id == entity.entity_id:
+                # While Sketcher is active, keep the scene at its history
+                # boundary.  Full regeneration evaluates the owning Revolve
+                # and all downstream features, making the finished solid pop
+                # into the editor after every dimension change (and replaying
+                # all later fillets).  Only solve the active 2D sketch here;
+                # descendants are regenerated when Sketcher is finished.
+                self._regenerate_active_sketch_constraints(entity)
+            else:
+                # A committed parent-sketch dimension outside Sketcher changes
+                # the feature history immediately.
+                self.regenerate_model()
         else:
             self.rebuild_view(fit=False)
         preview_owner = (
@@ -36372,6 +36797,14 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
 
+        # Regeneration is synchronous because OCCT shapes belong to this
+        # document/thread.  Still service paint and window-system events
+        # between its coarse stages so the OS does not report the application
+        # as unresponsive while a costly fillet history is being rebuilt.
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
+
         regenerated_entities = 0
         unresolved_entities = 0
         for obj in self.document.active_history_objects():
@@ -36508,6 +36941,7 @@ class MainWindow(QMainWindow):
             regenerated_entities += 1
 
         self.document.resolve_attachments()
+        QApplication.processEvents()
 
         # Sketch references are dependencies of the feature history just as
         # datum attachments are.  Reproject them after their parent geometry
@@ -36546,7 +36980,8 @@ class MainWindow(QMainWindow):
         self.document.regeneration_required = False
         # Evaluate once before reporting/tree refresh so feature build errors
         # produced by the model kernel are visible immediately.
-        self.document.build_active_shape()
+        built_shape = self.document.build_active_shape()
+        QApplication.processEvents()
         invalid_features = [
             child
             for obj in self.document.active_history_objects()
@@ -36559,7 +36994,11 @@ class MainWindow(QMainWindow):
         self._populate_tree()
         if selected_id is not None:
             self._select_tree_object(selected_id)
-        self.rebuild_view(fit=False, rebuild_geometry=True)
+        self.rebuild_view(
+            fit=False,
+            rebuild_geometry=True,
+            cached_body_shape=built_shape,
+        )
         self.statusBar().showMessage(
             tr(
                 "status.regeneration.complete"
@@ -36571,7 +37010,13 @@ class MainWindow(QMainWindow):
             5000,
         )
 
-    def rebuild_view(self, fit: bool = True, rebuild_geometry: bool = True) -> None:
+    def rebuild_view(
+        self,
+        fit: bool = True,
+        rebuild_geometry: bool = True,
+        *,
+        cached_body_shape=None,
+    ) -> None:
         if rebuild_geometry:
             self._reference_topology_registry_cache.clear()
         if self.document is not None and self._document_type(self.document) == "drawing":
@@ -36626,6 +37071,7 @@ class MainWindow(QMainWindow):
                 history_boundary,
                 fit,
                 reuse_body_geometry=reuse_body_geometry,
+                cached_body_shape=cached_body_shape,
             )
         else:
             self.document = display_document
@@ -36648,6 +37094,7 @@ class MainWindow(QMainWindow):
         fit: bool,
         *,
         reuse_body_geometry: bool = False,
+        cached_body_shape=None,
     ) -> None:
         if self.document is None:
             self._native_viewer_scene = None
@@ -36666,11 +37113,14 @@ class MainWindow(QMainWindow):
                     active_sketch.entity_id
                 )
         previous_scene = self._native_viewer_scene
-        cached_body_shape = (
-            previous_scene.shapes_by_owner_id.get(self.document.root.entity_id)
-            if reuse_body_geometry and previous_scene is not None
-            else None
-        )
+        if (
+            cached_body_shape is None
+            and reuse_body_geometry
+            and previous_scene is not None
+        ):
+            cached_body_shape = previous_scene.shapes_by_owner_id.get(
+                self.document.root.entity_id
+            )
         self._native_viewer_scene = build_document_viewer_scene_data(
             self.document,
             history_boundary=history_boundary,
@@ -36733,7 +37183,9 @@ class MainWindow(QMainWindow):
             cached_body_shape=cached_body_shape,
             cached_body_mesh=(
                 previous_scene.body_mesh
-                if reuse_body_geometry and previous_scene is not None
+                if cached_body_shape is not None
+                and reuse_body_geometry
+                and previous_scene is not None
                 else None
             ),
         )

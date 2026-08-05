@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import configparser
+import base64
+import gzip
+import hashlib
 import io
 import json
 import math
 from pathlib import Path
+
+from OCC.Core.BRepTools import breptools
 
 from zima_cad.model import (
     CombineMode,
@@ -72,6 +77,26 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
 
     for container in containers:
         write_entity(config, container)
+
+    # Persist the last validated OCCT result alongside the parametric model.
+    # The cumulative signature prevents stale BREP data from surviving any
+    # parameter/history edit, while gzip keeps the text-based .prtz compact.
+    history = document.history_objects()
+    cache_keys = document._shape_history_cache_keys(history)
+    cached_shape = (
+        document._shape_history_cache.get(cache_keys[-1])
+        if cache_keys
+        else None
+    )
+    if cached_shape is not None:
+        brep_text = breptools.WriteToString(cached_shape)
+        config["CachedBody"] = {
+            "document_signature": _config_model_signature(config),
+            "encoding": "brep-gzip-base64",
+            "data": base64.b64encode(
+                gzip.compress(brep_text.encode("utf-8"), compresslevel=6)
+            ).decode("ascii"),
+        }
 
     buffer = io.StringIO()
     config.write(buffer)
@@ -181,7 +206,55 @@ def load_part_document(file_path: Path) -> PartDocument:
     migrate_missing_system_references(document)
     validate_container_entities(document)
     validate_sketch_data(document)
+    _load_cached_body(config, document)
     return document
+
+
+def _load_cached_body(
+    config: configparser.ConfigParser,
+    document: PartDocument,
+) -> None:
+    if not config.has_section("CachedBody"):
+        return
+    history = document.history_objects()
+    cache_keys = document._shape_history_cache_keys(history)
+    if not cache_keys or config.get(
+        "CachedBody", "document_signature", fallback=""
+    ) != _config_model_signature(config):
+        return
+    if config.get("CachedBody", "encoding", fallback="") != (
+        "brep-gzip-base64"
+    ):
+        return
+    try:
+        payload = base64.b64decode(
+            config.get("CachedBody", "data", fallback=""),
+            validate=True,
+        )
+        brep_text = gzip.decompress(payload).decode("utf-8")
+        shape = breptools.ReadFromString(brep_text)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        return
+    if shape is None or shape.IsNull():
+        return
+    document._shape_history_cache[cache_keys[-1]] = shape
+
+
+def _config_model_signature(
+    config: configparser.ConfigParser,
+) -> str:
+    """Hash the persisted parametric document, excluding its BREP cache."""
+    canonical = tuple(
+        (
+            section,
+            tuple(sorted(config.items(section))),
+        )
+        for section in sorted(config.sections())
+        if section != "CachedBody"
+    )
+    return hashlib.sha256(
+        repr(canonical).encode("utf-8")
+    ).hexdigest()
 
 
 def reconnect_history_result_references(document: PartDocument) -> None:
@@ -291,6 +364,24 @@ def reconnect_history_result_references(document: PartDocument) -> None:
             except (TypeError, ValueError, json.JSONDecodeError):
                 sketch_data = None
             if isinstance(sketch_data, dict):
+                # Profile geometry created from an external edge owns the
+                # same persisted reference id on both its endpoint records
+                # and segment record.  Keep those links in step with the
+                # runtime Part-id remap performed above.
+                for section_name in ("points", "geometry"):
+                    records = sketch_data.get(section_name, {})
+                    if not isinstance(records, dict):
+                        continue
+                    for record in records.values():
+                        if not isinstance(record, dict):
+                            continue
+                        reference_id = str(
+                            record.get("external_profile_reference_id", "")
+                        )
+                        if reference_id in reference_id_remap:
+                            record["external_profile_reference_id"] = (
+                                reference_id_remap[reference_id]
+                            )
                 constraints = sketch_data.get("constraints", {})
                 if isinstance(constraints, dict):
                     for constraint in constraints.values():

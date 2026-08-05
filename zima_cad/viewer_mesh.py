@@ -92,6 +92,7 @@ class SilhouetteEdge:
     first: Point3
     second: Point3
     adjacent_normals: tuple[Point3, ...]
+    owner_id: str = ""
 
 
 def triangulate_shape(
@@ -425,6 +426,7 @@ def build_silhouette_edges(mesh: ViewerMesh) -> tuple[SilhouetteEdge, ...]:
         if len({record[3] for record in records}) != 1:
             continue
         result.append(SilhouetteEdge(
+            owner_id=key[0],
             first=records[0][0],
             second=records[0][1],
             adjacent_normals=tuple(record[2] for record in records),
