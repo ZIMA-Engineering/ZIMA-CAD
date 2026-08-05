@@ -15777,6 +15777,14 @@ class MainWindow(QMainWindow):
             self._sketch_reference_mode
             and self.document is not None
             and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
         ):
             return
         if (
@@ -16280,6 +16288,14 @@ class MainWindow(QMainWindow):
             self._sketch_reference_mode
             and self.document is not None
             and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
         ):
             return
         if (
@@ -16392,6 +16408,14 @@ class MainWindow(QMainWindow):
             self._sketch_reference_mode
             and self.document is not None
             and owner_id == self.document.root.entity_id
+            and any(
+                item.container_type in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                    ContainerType.FILLET,
+                )
+                for item in self.document.history_objects()
+            )
         ):
             return
         if (
