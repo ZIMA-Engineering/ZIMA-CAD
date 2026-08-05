@@ -4020,6 +4020,10 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             )
 
     def _submit_and_edit_sketch(self) -> None:
+        # The feature is only a provisional owner for the sketch editor.
+        # Set this before submit: the create signal is synchronous and the
+        # handler must see it before it decides whether to rebuild the Part.
+        self._defer_feature_rebuild_for_sketch = True
         if self._submit():
             self.editSketchRequested.emit(
                 self._profile_sketch_id
@@ -4027,6 +4031,8 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
                 else ""
             )
             self.accept()
+        else:
+            self._defer_feature_rebuild_for_sketch = False
 
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
@@ -9216,7 +9222,10 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, obj)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        self.rebuild_view(fit=False)
+        if getattr(dialog, "_defer_feature_rebuild_for_sketch", False):
+            self.native_viewer.update()
+        else:
+            self.rebuild_view(fit=False)
 
     def _update_protrusion(
         self, obj, references, fallback, name, show_internal, show_auxiliary,
@@ -9374,7 +9383,10 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, obj)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        self.rebuild_view(fit=False)
+        if getattr(dialog, "_defer_feature_rebuild_for_sketch", False):
+            self.native_viewer.update()
+        else:
+            self.rebuild_view(fit=False)
 
     def _update_revolve(
         self, obj, references, fallback, name, show_internal,
