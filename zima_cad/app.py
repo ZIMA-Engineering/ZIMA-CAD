@@ -15774,12 +15774,6 @@ class MainWindow(QMainWindow):
         edge_index: int,
     ) -> None:
         if (
-            self._sketch_reference_mode
-            and self.document is not None
-            and owner_id == self.document.root.entity_id
-        ):
-            return
-        if (
             not owner_id
             or edge_index <= 0
             or self._current_definition_owns_reference(owner_id)
@@ -16277,12 +16271,6 @@ class MainWindow(QMainWindow):
         face_index: int,
     ) -> None:
         if (
-            self._sketch_reference_mode
-            and self.document is not None
-            and owner_id == self.document.root.entity_id
-        ):
-            return
-        if (
             not owner_id
             or face_index <= 0
             or self._current_definition_owns_reference(owner_id)
@@ -16388,12 +16376,6 @@ class MainWindow(QMainWindow):
         element_index: int,
         element_kind: str,
     ) -> None:
-        if (
-            self._sketch_reference_mode
-            and self.document is not None
-            and owner_id == self.document.root.entity_id
-        ):
-            return
         if (
             not owner_id
             or self.document is None
