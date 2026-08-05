@@ -29,6 +29,7 @@ class ApplicationSettings:
     templates_path: Path = Path("config/templates")
     formats_path: Path = Path("config/formats")
     localization_path: Path = Path("config/localization")
+    part_template_path: Path = Path("config/templates/start_part.prtz")
     path_sources: dict[str, Path] = field(default_factory=dict)
     units: dict[str, str] = field(default_factory=dict)
 
@@ -157,6 +158,20 @@ def load_application_settings(
             }
         )
 
+    part_template_text, _ = _layered_value(
+        base,
+        local,
+        "Templates",
+        "Part",
+        "start_part.prtz",
+        base_path,
+        local_path,
+    )
+    templates_directory = resolved_paths["Templates"]
+    part_template = Path(part_template_text.strip().replace("\\", "/"))
+    if not part_template.is_absolute():
+        part_template = templates_directory / part_template
+
     active_path = local_path or base_path
     return ApplicationSettings(
         language=language,
@@ -167,6 +182,7 @@ def load_application_settings(
         templates_path=resolved_paths["Templates"],
         formats_path=resolved_paths["Formats"],
         localization_path=resolved_paths["Localization"],
+        part_template_path=part_template.resolve(),
         path_sources=path_sources,
         units=units,
     )

@@ -26,6 +26,10 @@ as the document model, geometric kernel integration and user workflows evolve.
   spheres, exposed through the common Axes visibility control
 - unified native model display modes with topology-aware boundary, sharp,
   tangent, seam and view-dependent silhouette handling
+- model-owned safe relations that write evaluated results into ordinary user
+  parameters; the first system values expose volume, area, material density
+  and mass without executing arbitrary Python
+- configurable `start_part.prtz` template used for every newly created Part
 
 ## 2. Sketcher
 

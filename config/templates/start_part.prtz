@@ -1,0 +1,154 @@
+[Document]
+document_id = 37e30d48-e606-42dc-8dcd-88d6886b1501
+type = part
+format_version = 10
+body_visible = true
+body_suppressed = false
+history_cursor = 1
+
+[DocumentUnits]
+Length = mm
+Angle = deg
+Mass = kg
+Time = s
+Temperature = C
+Stress = MPa
+
+[DocumentPrecision]
+linear_tolerance = 0.001
+angular_tolerance = 0.001
+mesh_deflection = 0.1
+decimal_places = 3
+
+[Material]
+Name = S235JR
+
+[MaterialProperties]
+MASS_DENSITY = 7.850000E-06
+
+[MaterialUnits]
+MASS_DENSITY = kg/mm^3
+
+[UserParameters]
+Order = nazev, norma, polotovar, material, mnozstvi, kreslil, schvalil, verze, datum, presnost, tolerovani, hmotnost_sestavy, mnozstvi_sestav, hmotnost
+
+[UserParameterLabels]
+datum\cs = Datum
+datum\de = Datum
+datum\en = Date
+datum\fr = Date
+kreslil\cs = Kreslil
+kreslil\de = Gezeichnet von
+kreslil\en = Drew
+kreslil\fr = Dessiné par
+hmotnost_sestavy\cs = Hmotnost sestavy
+hmotnost_sestavy\de = Baugruppengewicht
+hmotnost_sestavy\en = Assembly weight
+hmotnost_sestavy\fr = Masse de l'assemblage
+hmotnost\cs = Hmotnost
+hmotnost\de = Gewicht
+hmotnost\en = Weight
+hmotnost\fr = Masse
+material\cs = Materiál
+material\de = Material
+material\en = Material
+material\fr = Matériau
+mnozstvi\cs = Množství
+mnozstvi\de = Menge
+mnozstvi\en = Quantity
+mnozstvi\fr = Quantité
+mnozstvi_sestav\cs = Množství sestav
+mnozstvi_sestav\de = Baugruppenmenge
+mnozstvi_sestav\en = Assembly quantity
+mnozstvi_sestav\fr = Quantité d'assemblages
+nazev\cs = Název
+nazev\de = Name
+nazev\en = Name
+nazev\fr = Nom
+presnost\cs = Přesnost
+presnost\de = Genauigkeit
+presnost\en = Accuracy
+presnost\fr = Précision
+norma\cs = Norma
+norma\de = Norm
+norma\en = Standard
+norma\fr = Norme
+polotovar\cs = Polotovar
+polotovar\de = Rohteil
+polotovar\en = Stock
+polotovar\fr = Ébauche
+schvalil\cs = Schvalil
+schvalil\de = Genehmigt von
+schvalil\en = Approved
+schvalil\fr = Approuvé par
+verze\cs = Verze
+verze\de = Version
+verze\en = Version
+verze\fr = Version
+tolerovani\cs = Tolerování
+tolerovani\de = Tolerierung
+tolerovani\en = Tolerancing
+tolerovani\fr = Tolérancement
+
+[UserParameterValues]
+nazev = Vzor relace hmotnosti
+norma = 
+polotovar = 
+material = S235JR
+mnozstvi = 1
+kreslil = 
+schvalil = 
+verze = 00
+datum = 
+presnost = ISO 2768-mK
+tolerovani = ISO 8015
+hmotnost_sestavy = 
+mnozstvi_sestav = 
+hmotnost = 0.188
+
+[Relations]
+Data = [{"target":"hmotnost","expression":"model.mass"}]
+
+[Containers]
+items = f809181ec9444edabd9fe44c8bb002e8
+
+[Container.f809181ec9444edabd9fe44c8bb002e8]
+id = f809181ec9444edabd9fe44c8bb002e8
+name = Vzorový kvádr001
+kind = container
+combine_mode = 0
+x = 0
+y = 0
+z = 0
+rx = 0
+ry = 0
+rz = 0
+user_visible = true
+suppressed = false
+tree_exposure = public
+show_auxiliary_geometry = false
+TYPE = BOX
+param.container_type = BOX
+
+[Children.f809181ec9444edabd9fe44c8bb002e8]
+items = 2f4bb2e7d18e4f23b87767b6dc65e4ba
+
+[Entity.2f4bb2e7d18e4f23b87767b6dc65e4ba]
+id = 2f4bb2e7d18e4f23b87767b6dc65e4ba
+name = Cube001
+kind = box
+combine_mode = +
+x = 0
+y = 0
+z = 0
+rx = 0
+ry = 0
+rz = 0
+user_visible = true
+suppressed = false
+tree_exposure = public
+show_auxiliary_geometry = false
+param.length = 40
+param.width = 30
+param.height = 20
+param.unit = mm

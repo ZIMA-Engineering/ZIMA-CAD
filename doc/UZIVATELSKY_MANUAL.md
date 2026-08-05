@@ -8,6 +8,52 @@ experimentální formáty: nepodporovanou verzi odmítne. Budoucí nekompatibiln
 změna formátu musí zvýšit jeho verzi a případně nabídnout samostatnou řízenou
 migraci.
 
+## Výchozí šablona dílu
+
+Nový dokument typu **Díl** se nezakládá jako pevně naprogramovaný prázdný
+model. Načte se ze šablony `config/templates/start_part.prtz`, která je
+zvolená v hlavní konfiguraci:
+
+```ini
+[Templates]
+Part = start_part.prtz
+```
+
+Nový díl převezme geometrii, materiál, uživatelské parametry a relace ze
+šablony, ale dostane nové ID dokumentu a název zadaný v dialogu nového
+souboru. Projektový `config.ini` může sekci `[Templates]` přepsat a používat
+vlastní startovací díl. Relativní název se hledá v adresáři určeném hodnotou
+`Paths/Templates`.
+
+## Parametry, relace a hmotnost
+
+**Nástroje → Parametry** obsahují pouze uložené výsledné hodnoty. Vzorce se
+v tabulce parametrů nezobrazují. **Nástroje → Relace** patří modelu dílu nebo
+sestavy a přiřazuje bezpečný výraz jednomu cílovému parametru. Výchozí
+startovací díl obsahuje:
+
+```text
+hmotnost = model.mass
+```
+
+`model.mass` je hmotnost v kilogramech vypočítaná ze skutečného objemu
+výsledného OCCT tělesa a z `MASS_DENSITY` přiřazeného materiálu. Podporované
+jednotky hustoty jsou `kg/mm^3`, `kg/m^3`, `g/cm^3` a `lb/in^3`. Výsledek se
+zapíše jako obyčejný text do parametru `hmotnost`; razítko ani další uživatel
+parametru nemusí znát jeho vzorec.
+
+Výrazy používají omezený pythonovský zápis, nikoliv spustitelný Python.
+Podporují čísla, odkazy na dříve dostupné parametry, operátory
+`+ - * / ** %`, porovnání, podmíněný výraz a funkce `abs`, `min`, `max`,
+`round`, `sqrt`, `sin`, `cos` a `tan`. Systémové hodnoty první verze jsou
+`model.volume`, `model.area`, `model.mass` a `material.density`. Importy,
+přístup k souborům a volání jiných funkcí jsou zakázané. Více relací se
+vyhodnocuje shora dolů a pozdější relace smí použít výsledek předchozí.
+
+Relace se neukládají do `.drwz`. Ve výkresu otevře **Nástroje → Parametry**
+parametry jeho zdrojového `.prtz` nebo `.asmz`, změny uloží do zdrojového
+modelu a následně obnoví geometrii, varianty a razítko výkresu.
+
 ## Ovládání 3D pohledu
 
 | Ovládání | Funkce |
@@ -162,6 +208,13 @@ Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
 prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze určí
 poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
 rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
+
+Název **Konstrukční čára** označuje konkrétní čárový prvek určený dvěma
+řídicími body. Může nést vazby a kóty, ale nevstupuje do profilu Protrusion.
+První konstrukční čára skici se u Revolve používá jako osa rotace; její směr
+je pro rotační výpočet matematicky prodloužený. Obecné přepnutí kružnice,
+oblouku nebo jiné geometrie mimo výsledný profil se terminologicky označuje
+jako **konstrukční geometrie**. Tvar takového prvku se přepnutím nemění.
 
 Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
 prostředním tlačítkem nadále pouze otáčí pohled a zadání nepotvrdí.

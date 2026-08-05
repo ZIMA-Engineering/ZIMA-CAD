@@ -138,3 +138,23 @@ pojmenováním plochy.
 - Je implementovaný první asociativní lineární rozměr ve výkresu. Zbývá
   dokončit ISO kóty, tolerance, pozice, popisky, technické symboly a ISO font,
   rámečky a zóny listu, parametrická razítka, řezy, detaily a kusovník.
+
+## Parametry a relace
+
+- Uživatelský parametr je vždy materializovaná hodnota použitelná beze znalosti
+  jejího původu ve featurech, sestavě, rodinné tabulce, razítku a výkresu.
+- Relace patří pouze modelovému dokumentu Part nebo Assembly. Ukládá dvojici
+  `target + expression`; vyhodnocený výsledek zapisuje do běžného
+  `user_parameters[target]` a jazykově sdílené hodnoty parametru.
+- Výraz se parsuje přes Python AST, ale vyhodnocuje se vlastním allow-list
+  interpretem. Soubor modelu proto nemůže importovat moduly, přistupovat k
+  souborům ani volat aplikační Python.
+- První systémový kontext poskytuje `model.volume`, `model.area`, `model.mass`
+  a `material.density`. Objem a plocha vycházejí z výsledného OCCT shape;
+  hustota se normalizuje na `kg/mm^3` a hmotnost se ukládá v kilogramech.
+- Drawing relace nevlastní. Dialog Parametry otevřený z Drawingu pracuje se
+  zdrojovým Partem nebo Assembly a po uložení obnoví výkresovou geometrii i
+  razítko.
+- Nový Part se klonuje z nakonfigurovaného `start_part.prtz`, přičemž dostane
+  nové ID dokumentu a cílový název. Tím zůstávají výchozí relace součástí
+  běžného souborového modelu a nejsou natvrdo zapsané v aplikačním kódu.

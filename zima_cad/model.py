@@ -594,6 +594,7 @@ class PartDocument:
     user_parameter_values: dict[str, dict[str, str]] = field(
         default_factory=default_user_parameter_values
     )
+    relations: list[dict[str, str]] = field(default_factory=list)
     _shape_history_cache: dict[str, Any] = field(
         default_factory=dict,
         init=False,

@@ -69,6 +69,14 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     config["UserParameters"] = {"Order": ", ".join(document.user_parameter_order)}
     config["UserParameterLabels"] = flatten_language_map(document.user_parameter_labels)
     config["UserParameterValues"] = flatten_language_map(document.user_parameter_values)
+    if document.relations:
+        config["Relations"] = {
+            "Data": json.dumps(
+                document.relations,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        }
 
     containers = document.visible_objects()
     config["Containers"] = {
@@ -186,6 +194,21 @@ def load_part_document(file_path: Path) -> PartDocument:
         )
     if config.has_section("UserParameters"):
         load_user_parameters(config, document)
+    if config.has_section("Relations"):
+        try:
+            relations = json.loads(config.get("Relations", "Data", fallback="[]"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid model relations") from exc
+        if not isinstance(relations, list):
+            raise ValueError("Invalid model relations")
+        document.relations = [
+            {
+                "target": str(item.get("target", "")),
+                "expression": str(item.get("expression", "")),
+            }
+            for item in relations
+            if isinstance(item, dict)
+        ]
 
     container_ids = [
         item.strip()

@@ -232,7 +232,10 @@ opened `.prtz` file therefore does not depend on or search the material library.
 The concrete cards contain representative values at 20 °C for CAD defaults and
 preliminary calculations; the supplier certificate remains authoritative.
 `config/templates` is intended for starter documents with prepared user
-parameters and document defaults.
+parameters and document defaults. `config/templates/start_part.prtz` is the
+current default Part template. New Parts are cloned from it with a fresh
+document ID and file name; its initial material, parameters, relations and
+geometry are retained.
 
 Current language setting:
 
@@ -243,7 +246,17 @@ Language=cs
 [Paths]
 Materials=materials
 Templates=templates
+
+[Templates]
+Part=start_part.prtz
 ```
+
+Model Relations are stored only in `.prtz` and `.asmz`. They map a safe,
+restricted expression to a target user parameter. The starter Part uses
+`hmotnost = model.mass`; the evaluated numeric text is written into the normal
+`hmotnost` parameter, so drawings and title blocks never need to evaluate or
+store the expression. In a Drawing, **Tools → Parameters** edits and saves the
+linked source model parameters instead of creating Drawing-owned parameters.
 
 Paths may be absolute or relative, but relative paths with `/` are recommended
 for projects shared between Windows and Linux. Global Settings can export the

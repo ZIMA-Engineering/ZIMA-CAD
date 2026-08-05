@@ -29,7 +29,7 @@ reserved for a three-dimensional body.
 In the Czech user interface, use:
 
 - **Profilová geometrie**
-- **Pomocná geometrie**
+- **Konstrukční geometrie**
 
 Changing the role must not change the underlying geometry type. For example,
 an arc remains an `arc` when switched between `profile` and `construction`.
@@ -38,7 +38,14 @@ dashed line and is excluded from profiles consumed by 3D features.
 
 ## Construction line
 
-**Konstrukční čára** is a separate infinite line geometry. It is currently
-stored as the legacy geometry type `construction`. Converting a `segment` to
-a construction line deliberately changes the geometry type and converting it
+**Konstrukční čára** is a specific line entity defined by two controlling
+points. It is currently stored as the legacy geometry type `construction`.
+It participates in constraints and dimensions but is excluded from profile
+wires. Revolve uses the first construction line as an axis and mathematically
+extends its direction for the rotational operation. Converting a `segment` to
+a construction line deliberately changes the geometry type; converting it
 back creates an ordinary profile segment.
+
+Do not call an arbitrary arc, circle or spline a construction line. Switching
+those entities out of the profile changes only their role and is described in
+the Czech UI and documentation as **konstrukční geometrie**.

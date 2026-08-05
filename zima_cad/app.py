@@ -165,6 +165,7 @@ from zima_cad.sketch_model import (
     SketchPoint,
     classify_linear_dimension,
 )
+from zima_cad.relations import RelationError, evaluate_document_relations
 from zima_cad.selection import (
     SelectionCandidate,
     SelectionController,
@@ -6210,6 +6211,148 @@ class UserParametersDialog(QDialog):
         super().accept()
 
 
+class RelationsDialog(QDialog):
+    """Structured target/expression editor for model-owned relations."""
+
+    def __init__(
+        self,
+        document: PartDocument,
+        parent=None,
+        save_callback: Callable[[], bool] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.document = document
+        self.save_callback = save_callback
+        self.setWindowTitle(tr("dialog.relations.title"))
+        self.resize(820, 440)
+        layout = QVBoxLayout(self)
+        explanation = QLabel(tr("dialog.relations.explanation"))
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels([
+            tr("column.relation.target"),
+            tr("column.relation.expression"),
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        layout.addWidget(self.table)
+        rows = document.relations or [{
+            "target": "hmotnost",
+            "expression": "model.mass",
+        }]
+        for relation in rows:
+            self._add_row(
+                str(relation.get("target", "")),
+                str(relation.get("expression", "")),
+            )
+        row_actions = QHBoxLayout()
+        add_button = QPushButton(tr("button.add"))
+        delete_button = QPushButton(tr("button.delete"))
+        add_button.clicked.connect(lambda: self._add_row("", ""))
+        delete_button.clicked.connect(self._delete_selected_rows)
+        row_actions.addWidget(add_button)
+        row_actions.addWidget(delete_button)
+        row_actions.addStretch(1)
+        layout.addLayout(row_actions)
+        self.saved_status = create_saved_status_label()
+        layout.addWidget(self.saved_status)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.apply_changes
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _add_row(self, target: str, expression: str) -> None:
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        target_box = QComboBox()
+        target_box.setEditable(True)
+        target_box.addItems(self.document.user_parameter_order)
+        target_box.setCurrentText(target)
+        self.table.setCellWidget(row, 0, target_box)
+        self.table.setItem(row, 1, QTableWidgetItem(expression))
+
+    def _delete_selected_rows(self) -> None:
+        for row in sorted(
+            {index.row() for index in self.table.selectedIndexes()},
+            reverse=True,
+        ):
+            self.table.removeRow(row)
+
+    def _relations(self) -> list[dict[str, str]] | None:
+        relations: list[dict[str, str]] = []
+        targets: set[str] = set()
+        for row in range(self.table.rowCount()):
+            target_box = self.table.cellWidget(row, 0)
+            target = (
+                target_box.currentText().strip()
+                if isinstance(target_box, QComboBox)
+                else ""
+            )
+            expression_item = self.table.item(row, 1)
+            expression = (
+                expression_item.text().strip()
+                if expression_item is not None
+                else ""
+            )
+            if not target and not expression:
+                continue
+            if not target or not target.isidentifier() or not expression:
+                QMessageBox.warning(
+                    self,
+                    tr("dialog.relations.title"),
+                    tr("message.relations.invalid"),
+                )
+                return None
+            if target in targets:
+                QMessageBox.warning(
+                    self,
+                    tr("dialog.relations.title"),
+                    tr("message.relations.duplicate", target=target),
+                )
+                return None
+            targets.add(target)
+            relations.append({"target": target, "expression": expression})
+        return relations
+
+    def apply_changes(self) -> bool:
+        self.saved_status.clear()
+        relations = self._relations()
+        if relations is None:
+            return False
+        previous = self.document.relations
+        self.document.relations = relations
+        try:
+            evaluate_document_relations(self.document)
+        except (RelationError, ArithmeticError, ValueError) as exc:
+            self.document.relations = previous
+            QMessageBox.warning(
+                self, tr("dialog.relations.title"), str(exc)
+            )
+            return False
+        if self.save_callback is not None and not self.save_callback():
+            return False
+        self.saved_status.setText(tr("status.changes_saved"))
+        return True
+
+    def accept(self) -> None:
+        if self.apply_changes():
+            super().accept()
+
+
 class FileSettingsDialog(QDialog):
     UNIT_CHOICES = {
         "Length": ("mm", "cm", "m", "in"),
@@ -6351,6 +6494,15 @@ class OptionsDialog(QDialog):
         config = configparser.ConfigParser()
         config.optionxform = str
         config.read(config_path, encoding="utf-8-sig")
+        self.part_template_text = config.get(
+            "Templates",
+            "Part",
+            fallback=(
+                settings.part_template_path.name
+                if settings is not None
+                else "start_part.prtz"
+            ),
+        )
 
         form = QFormLayout()
         self.language_combo = NoWheelComboBox()
@@ -6457,6 +6609,7 @@ class OptionsDialog(QDialog):
             path_name: portable_config_path(path_edit.text())
             for path_name, path_edit in self.path_edits.items()
         }
+        config["Templates"] = {"Part": self.part_template_text}
         config["Units"] = {
             unit_name: combo.currentText()
             for unit_name, combo in self.unit_combos.items()
@@ -12358,6 +12511,9 @@ class MainWindow(QMainWindow):
         self.parameters_action = tools_menu.addAction(tr("menu.tools.parameters"))
         self.parameters_action.triggered.connect(self.show_user_parameters_dialog)
 
+        self.relations_action = tools_menu.addAction(tr("menu.tools.relations"))
+        self.relations_action.triggered.connect(self.show_relations_dialog)
+
         self.family_table_action = tools_menu.addAction(
             tr("menu.tools.family_table")
         )
@@ -13864,6 +14020,7 @@ class MainWindow(QMainWindow):
         for action_name in (
             "material_action",
             "parameters_action",
+            "relations_action",
             "family_table_action",
             "file_settings_action",
         ):
@@ -13873,6 +14030,12 @@ class MainWindow(QMainWindow):
         family_action = getattr(self, "family_table_action", None)
         if family_action is not None:
             family_action.setEnabled(
+                has_document
+                and self._document_type(self.document) in ("part", "assembly")
+            )
+        relations_action = getattr(self, "relations_action", None)
+        if relations_action is not None:
+            relations_action.setEnabled(
                 has_document
                 and self._document_type(self.document) in ("part", "assembly")
             )
@@ -14136,13 +14299,26 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-        document = (
-            create_empty_assembly()
-            if document_type == "assembly"
-            else create_empty_drawing()
-            if document_type == "drawing"
-            else create_empty_part()
-        )
+        if document_type == "assembly":
+            document = create_empty_assembly()
+        elif document_type == "drawing":
+            document = create_empty_drawing()
+        else:
+            template_path = self.settings.part_template_path
+            try:
+                document = (
+                    load_part_document(template_path)
+                    if template_path.is_file()
+                    else create_empty_part()
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self, tr("message.open_failed"), str(exc)
+                )
+                return
+            document.document_settings["document_id"] = str(uuid4())
+            document.source_file_path = None
+            document.root.name = file_stem
         if document_type == "drawing":
             source_path = self._choose_drawing_source_path()
             if source_path is None:
@@ -15136,6 +15312,18 @@ class MainWindow(QMainWindow):
         )
 
     def _apply_and_save_document(self) -> bool:
+        if (
+            self.document is not None
+            and self._document_type(self.document) in ("part", "assembly")
+            and self.document.relations
+        ):
+            try:
+                evaluate_document_relations(self.document)
+            except (RelationError, ArithmeticError, ValueError) as exc:
+                QMessageBox.warning(
+                    self, tr("dialog.relations.title"), str(exc)
+                )
+                return False
         self._store_active_session()
         return self.save_document()
 
@@ -15288,9 +15476,84 @@ class MainWindow(QMainWindow):
             )
             return
 
+        parameter_document = self.document
+        save_callback = self._apply_and_save_document
+        if self._document_type(self.document) == "drawing":
+            source_path = self._drawing_source_path()
+            if source_path is None or not source_path.is_file():
+                QMessageBox.critical(
+                    self,
+                    tr("message.open_failed"),
+                    tr("drawing.source.missing"),
+                )
+                return
+            source_session = next(
+                (
+                    session
+                    for session in self.document_sessions
+                    if session.file_path is not None
+                    and canonical_document_path(session.file_path)
+                    == source_path
+                ),
+                None,
+            )
+            try:
+                parameter_document = (
+                    source_session.document
+                    if source_session is not None
+                    else load_part_document(source_path)
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self, tr("message.open_failed"), str(exc)
+                )
+                return
+
+            def save_drawing_source_parameters() -> bool:
+                parameter_document.regeneration_required = True
+                try:
+                    if parameter_document.relations:
+                        evaluate_document_relations(parameter_document)
+                    save_part_document(parameter_document, source_path)
+                except (RelationError, ArithmeticError, ValueError) as exc:
+                    QMessageBox.warning(
+                        self, tr("dialog.relations.title"), str(exc)
+                    )
+                    return False
+                except Exception as exc:
+                    QMessageBox.critical(
+                        self, tr("message.save_failed"), str(exc)
+                    )
+                    return False
+                if source_session is not None:
+                    source_session.viewer_scene = None
+                    source_session.history_boundary = None
+                self._refresh_drawing_geometry(
+                    self.document, self.current_file_path
+                )
+                self._refresh_drawing_family_instances()
+                self._refresh_drawing_title_block_context()
+                return True
+
+            save_callback = save_drawing_source_parameters
+
         dialog = UserParametersDialog(
-            self.document,
+            parameter_document,
             self.settings.language,
+            self,
+            save_callback=save_callback,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._store_active_session()
+
+    def show_relations_dialog(self) -> None:
+        if (
+            self.document is None
+            or self._document_type(self.document) not in ("part", "assembly")
+        ):
+            return
+        dialog = RelationsDialog(
+            self.document,
             self,
             save_callback=self._apply_and_save_document,
         )
