@@ -10545,25 +10545,10 @@ class MainWindow(QMainWindow):
         )
         if reference is None:
             return None
-        # A freshly picked planar face already carries its equation. Avoid
-        # rebuilding even the boundary Shape while solving the dialog; the
-        # stored equation is authoritative until the next regeneration.
-        if (
-            shape_reference_type == "face"
-            and not descriptor.get("face_ref")
-            and isinstance(descriptor.get("equations"), list)
-            and descriptor["equations"]
-        ):
-            return [
-                [float(value) for value in row[:4]]
-                for row in descriptor["equations"]
-                if isinstance(row, (list, tuple)) and len(row) >= 4
-            ]
         stable_subshape = None
         if (
             shape_reference_type == "face"
             and descriptor.get("reference_scope") == "history_result"
-            and descriptor.get("face_ref")
         ):
             try:
                 boundary = int(descriptor.get("history_cursor", 0))
@@ -17140,10 +17125,18 @@ class MainWindow(QMainWindow):
                 ),
             ]
             stable_metadata = dict(reference_metadata)
-            # The current face, its plane equation and the history boundary
-            # are sufficient while picking. Resolve semantic provenance lazily
-            # during regeneration instead of blocking the click on a full
-            # historical OCCT topology pass.
+            if (
+                obj.kind == EntityKind.PART
+                and stable_metadata.get("reference_scope")
+                == "history_result"
+            ):
+                boundary = int(stable_metadata.get("history_cursor", 0))
+                registry = self._reference_topology_registry(boundary)
+                reference = registry.reference_for_runtime_index(
+                    topology_index
+                )
+                if reference is not None:
+                    stable_metadata["face_ref"] = reference.to_dict()
             dialog.add_shape_reference(
                 obj.entity_id,
                 self._topology_reference_label(
