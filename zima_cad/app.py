@@ -16292,6 +16292,15 @@ class MainWindow(QMainWindow):
             if owner_id == self.document.root.entity_id
             else None
         )
+        if (
+            source_face is None
+            and owner_id == self.document.root.entity_id
+            and self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            source_face = self._source_face_reference_from_result_face(
+                face_index
+            )
         if source_face is not None:
             owner_id, face_index, source_shape = source_face
             shape = self._subshape_from_shape(
@@ -16302,6 +16311,16 @@ class MainWindow(QMainWindow):
             if shape is None:
                 return
         else:
+            if (
+                owner_id == self.document.root.entity_id
+                and self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            ):
+                self.statusBar().showMessage(
+                    tr("dialog.point_constraints.unsupported_curved_face"),
+                    3000,
+                )
+                return
             scene = self._native_viewer_scene
             shape = (
                 scene.resolve_topology(owner_id, "face", face_index)
@@ -16441,6 +16460,90 @@ class MainWindow(QMainWindow):
             if picked is not None:
                 _picked_owner, picked_index = picked
                 return source.entity_id, picked_index, shape
+        return None
+
+    def _source_face_reference_from_result_face(
+        self,
+        face_index: int,
+    ) -> tuple[str, int, Any] | None:
+        """Map a result-body planar face to an identical history face."""
+        if self.document is None or self._native_viewer_scene is None:
+            return None
+        result_face = self._native_viewer_scene.resolve_topology(
+            self.document.root.entity_id,
+            "face",
+            face_index,
+        )
+        if result_face is None:
+            return None
+        result_adaptor = BRepAdaptor_Surface(result_face)
+        if result_adaptor.GetType() != GeomAbs_Plane:
+            return None
+        result_plane = result_adaptor.Plane()
+        result_normal = result_plane.Axis().Direction()
+        result_location = result_plane.Location()
+        result_sign = -1.0 if result_face.Orientation() == TopAbs_REVERSED else 1.0
+        target_normal = tuple(
+            result_sign * value
+            for value in (
+                result_normal.X(),
+                result_normal.Y(),
+                result_normal.Z(),
+            )
+        )
+        target_distance = sum(
+            target_normal[index] * value
+            for index, value in enumerate(
+                (result_location.X(), result_location.Y(), result_location.Z())
+            )
+        )
+        shapes = {
+            owner_id: shape
+            for shape, owner_id in self._cached_source_model_shapes
+        }
+        for source in reversed(
+            self.document.history_objects_at(self._definition_history_boundary())
+        ):
+            if source.kind not in SOLID_KINDS and source.kind not in (
+                EntityKind.PROTRUSION,
+                EntityKind.REVOLVE,
+            ):
+                continue
+            source_shape = shapes.get(source.entity_id)
+            if source_shape is None:
+                source_shape = self.document.build_standalone_shape(source)
+            if source_shape is None:
+                continue
+            explorer = TopExp_Explorer(source_shape, TopAbs_FACE)
+            index = 0
+            while explorer.More():
+                index += 1
+                candidate = explorer.Current()
+                adaptor = BRepAdaptor_Surface(candidate)
+                if adaptor.GetType() == GeomAbs_Plane:
+                    plane = adaptor.Plane()
+                    normal = plane.Axis().Direction()
+                    sign = -1.0 if candidate.Orientation() == TopAbs_REVERSED else 1.0
+                    candidate_normal = tuple(
+                        sign * value
+                        for value in (normal.X(), normal.Y(), normal.Z())
+                    )
+                    agreement = sum(
+                        target_normal[axis] * candidate_normal[axis]
+                        for axis in range(3)
+                    )
+                    location = plane.Location()
+                    distance = sum(
+                        target_normal[axis] * value
+                        for axis, value in enumerate(
+                            (location.X(), location.Y(), location.Z())
+                        )
+                    )
+                    if agreement > 1.0 - 1.0e-7 and abs(
+                        target_distance - distance
+                    ) <= 1.0e-6:
+                        return source.entity_id, index, source_shape
+                explorer.Next()
         return None
 
     def _on_native_coordinate_selected(
