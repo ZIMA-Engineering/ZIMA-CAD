@@ -295,13 +295,13 @@ class DrawingViewConventionTests(unittest.TestCase):
             )
         )
 
-    def test_external_sketch_points_only_appear_on_hover_or_selection(self) -> None:
+    def test_external_sketch_points_only_appear_on_hover(self) -> None:
         reference = {"id": "external-point"}
         visible = ZimaOpenGLViewer._external_point_marker_visible
         self.assertFalse(visible(reference, None, True))
         self.assertTrue(visible(reference, "external-point", True))
-        self.assertTrue(visible({**reference, "selected": True}, None, True))
-        self.assertTrue(visible(reference, None, False))
+        self.assertFalse(visible({**reference, "selected": True}, None, True))
+        self.assertFalse(visible(reference, None, False))
 
     def test_solid_vertices_are_selectable_only_in_topology_mode(self) -> None:
         class ViewerState:

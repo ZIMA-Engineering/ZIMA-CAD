@@ -112,6 +112,8 @@ from zima_cad.model import (
     ZimaEntity,
     active_face_registry,
     face_registry_at,
+    protrusion_face_registry,
+    revolve_face_registry,
     solid_face_frames,
     coordinate_system_transform,
     create_empty_part,
@@ -173,6 +175,7 @@ from zima_cad.sketch_geometry import (
     evaluate_corner_radius,
     outward_minor_arc_endpoint,
     polyline_arc_start_context,
+    regular_polygon_vertices,
     valid_automatic_tangent,
 )
 from zima_cad.sketch_trim import (
@@ -3069,21 +3072,27 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self._assign_container_orientation_reference(reference)
             return
         before = len(self.references)
-        super()._add_reference(reference)
-        if len(self.references) > before:
-            added = next(
-                (
-                    item
-                    for item in self.references
-                    if str(item.get("key", ""))
-                    == str(reference.get("key", ""))
-                ),
-                reference,
-            )
-            self._record_automatic_container_orientation(added)
-            self._ensure_automatic_orientation_roles()
-            self._refresh_reference_orientation_combos()
-            self._update_solution()
+        signals_were_blocked = self.blockSignals(True)
+        try:
+            super()._add_reference(reference)
+            if len(self.references) > before:
+                added = next(
+                    (
+                        item
+                        for item in self.references
+                        if str(item.get("key", ""))
+                        == str(reference.get("key", ""))
+                    ),
+                    reference,
+                )
+                self._record_automatic_container_orientation(added)
+                self._ensure_automatic_orientation_roles()
+                self._refresh_reference_orientation_combos()
+                self._update_solution()
+        finally:
+            self.blockSignals(signals_were_blocked)
+        if len(self.references) > before and not signals_were_blocked:
+            self.definitionChanged.emit()
 
     def _remove_reference_at(self, row: int) -> None:
         if type(self) is not PlaneConstraintDialog:
@@ -7622,6 +7631,9 @@ class MainWindow(QMainWindow):
         self._cached_history_boundary: int | None = None
         self._cached_model_shapes: list[tuple[Any, str]] = []
         self._cached_source_model_shapes: list[tuple[Any, str]] = []
+        self._reference_topology_registry_cache: dict[
+            tuple[int, int], Any
+        ] = {}
         self.selected_face = None
         self.selected_face_object_id: str | None = None
         self._view_selection_confirmed = False
@@ -7653,6 +7665,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_constraint: str | list[dict[str, str]] | None = None
         self._sketch_polyline_arc_center_reference_id: str | None = None
         self._sketch_polyline_arc_reverse = False
+        self._sketch_polygon_sides = 4
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id: str | None = None
         self._sketch_midpoint_point_id: str | None = None
@@ -8410,7 +8423,7 @@ class MainWindow(QMainWindow):
                 ("segment", "sketch.tool.segment", "sketch-segment"),
                 ("polyline", "sketch.tool.polyline", "sketch-polyline"),
                 ("rectangle", "sketch.tool.rectangle", "sketch-rectangle"),
-                ("hexagon", "sketch.tool.hexagon", "sketch-hexagon"),
+                ("hexagon", "sketch.tool.polygon", "sketch-hexagon"),
                 ("circle", "sketch.tool.circle", "sketch-circle"),
                 ("arc", "sketch.tool.arc", "sketch-arc"),
                 ("ellipse", "sketch.tool.ellipse", "sketch-ellipse"),
@@ -9041,9 +9054,6 @@ class MainWindow(QMainWindow):
             )
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
-        dialog.definitionChanged.connect(
-            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
-        )
         self._connect_feature_direction_preview(
             dialog, obj, EntityKind.PROTRUSION
         )
@@ -10323,7 +10333,7 @@ class MainWindow(QMainWindow):
                 boundary = int(descriptor.get("history_cursor", 0))
             except (TypeError, ValueError):
                 boundary = 0
-            registry = face_registry_at(self.document, boundary)
+            registry = self._reference_topology_registry(boundary)
             stable_reference = parse_face_reference(
                 descriptor.get("face_ref")
             )
@@ -16638,9 +16648,10 @@ class MainWindow(QMainWindow):
                 == "history_result"
             ):
                 boundary = int(stable_metadata.get("history_cursor", 0))
-                reference = face_registry_at(
-                    self.document, boundary
-                ).vertex_reference_for_runtime_index(topology_index)
+                registry = self._reference_topology_registry(boundary)
+                reference = registry.vertex_reference_for_runtime_index(
+                    topology_index
+                )
                 if reference is not None:
                     stable_metadata["point_ref"] = reference.to_dict()
             dialog.add_shape_reference(
@@ -16700,9 +16711,10 @@ class MainWindow(QMainWindow):
                 == "history_result"
             ):
                 boundary = int(stable_metadata.get("history_cursor", 0))
-                reference = face_registry_at(
-                    self.document, boundary
-                ).reference_for_runtime_index(topology_index)
+                registry = self._reference_topology_registry(boundary)
+                reference = registry.reference_for_runtime_index(
+                    topology_index
+                )
                 if reference is not None:
                     stable_metadata["face_ref"] = reference.to_dict()
             dialog.add_shape_reference(
@@ -16718,6 +16730,7 @@ class MainWindow(QMainWindow):
                 stable_metadata,
             )
             return
+
         if shape_type == TopAbs_EDGE:
             adaptor = BRepAdaptor_Curve(shape)
             if adaptor.GetType() != GeomAbs_Line:
@@ -16765,6 +16778,37 @@ class MainWindow(QMainWindow):
                 str(topology_index),
                 reference_metadata,
             )
+
+    def _reference_topology_registry(self, boundary: int):
+        """Reuse the displayed result when creating stable pick identities."""
+        if self.document is None:
+            return None
+        cache_key = (id(self.document), boundary)
+        cached = self._reference_topology_registry_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        objects = self.document.history_objects_at(boundary)
+        scene = self._native_viewer_scene
+        displayed_shape = (
+            scene.shapes_by_owner_id.get(self.document.root.entity_id)
+            if scene is not None
+            else None
+        )
+        registry = None
+        if len(objects) == 1 and displayed_shape is not None:
+            container = objects[0]
+            if container.container_type == ContainerType.PROTRUSION:
+                registry = protrusion_face_registry(
+                    self.document, container, displayed_shape
+                )
+            elif container.container_type == ContainerType.REVOLVE:
+                registry = revolve_face_registry(
+                    self.document, container, displayed_shape
+                )
+        if registry is None:
+            registry = face_registry_at(self.document, boundary)
+        self._reference_topology_registry_cache[cache_key] = registry
+        return registry
 
     @staticmethod
     def _topology_reference_label(
@@ -23195,6 +23239,8 @@ class MainWindow(QMainWindow):
         ):
             self._commit_pending_sketch_entity()
         self._sketch_tool = tool
+        if tool == "hexagon" and previous_tool != "hexagon":
+            self._sketch_polygon_sides = 4
         if tool == "mirror":
             if self._sketch_selected_entity_id is not None:
                 self._sketch_selected_entity_ids.add(
@@ -23501,6 +23547,73 @@ class MainWindow(QMainWindow):
             self._clear_sketch_view_selection()
             return
         if (
+            self._sketch_tool == "parallel"
+            and reference_id in ("sketch_axis:x", "sketch_axis:y")
+        ):
+            geometry_id = self._sketch_parallel_first_geometry_id
+            if (
+                geometry_id is None
+                or self.document is None
+                or self._sketch_edit_entity_id is None
+            ):
+                self.statusBar().showMessage(
+                    tr("sketch.status.parallel.line_required")
+                )
+                return
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is None:
+                return
+            entities = self._stored_sketch_entities(sketch)
+            geometry = next(
+                (
+                    entity for entity in entities
+                    if str(entity.get("id", "")) == geometry_id
+                    and entity.get("type") in ("segment", "construction")
+                ),
+                None,
+            )
+            points = {
+                str(entity.get("id", "")): entity
+                for entity in entities if entity.get("type") == "point"
+            }
+            if geometry is None or not self._valid_sketch_line(geometry, points):
+                self._sketch_parallel_first_geometry_id = None
+                self.statusBar().showMessage(
+                    tr("sketch.status.parallel.invalid_first")
+                )
+                return
+            constraints = geometry.get("constraints", [])
+            if not isinstance(constraints, list):
+                constraints = []
+            if any(
+                isinstance(constraint, dict)
+                and constraint.get("type") in (
+                    "horizontal", "vertical", "parallel", "perpendicular",
+                )
+                for constraint in constraints
+            ):
+                self.statusBar().showMessage(
+                    tr("sketch.status.parallel.conflict")
+                )
+                return
+            constraints.append({
+                "type": (
+                    "horizontal"
+                    if reference_id == "sketch_axis:x"
+                    else "vertical"
+                ),
+                "display_as": "parallel",
+            })
+            geometry["constraints"] = constraints
+            self._store_sketch_entities(sketch, entities)
+            self._sketch_parallel_first_geometry_id = None
+            self._sketch_selected_entity_id = None
+            self._regenerate_active_sketch_constraints(sketch)
+            self.statusBar().showMessage(
+                tr("sketch.status.parallel.created")
+            )
+            return
+        if (
             self._sketch_tool != "perpendicular"
             or not reference_id
         ):
@@ -23743,6 +23856,7 @@ class MainWindow(QMainWindow):
                 self._sketch_pending_point_ids[0],
                 centre,
                 (x, y),
+                sides=self._sketch_polygon_sides,
             )
             return
         if self._sketch_tool == "coincident":
@@ -25027,6 +25141,15 @@ class MainWindow(QMainWindow):
         self._refresh_sketch_overlay()
 
     def _alternate_current_sketch_entity(self) -> None:
+        if self._sketch_tool == "hexagon":
+            if len(self._sketch_pending_points) == 1:
+                self._sketch_polygon_sides = {
+                    4: 6,
+                    6: 8,
+                    8: 4,
+                }[self._sketch_polygon_sides]
+            self._refresh_sketch_overlay()
+            return
         if self._sketch_tool in ("polyline", "polyline_arc"):
             if len(self._sketch_pending_points) == 1:
                 if self._sketch_tool == "polyline_arc":
@@ -31904,24 +32027,23 @@ class MainWindow(QMainWindow):
         centre_id: str,
         centre: tuple[float, float],
         rim: tuple[float, float],
+        *,
+        sides: int = 6,
     ) -> None:
-        """Create a regular hexagon supported by an auxiliary circle."""
+        """Create a regular polygon supported by an auxiliary circle."""
         radius = math.dist(centre, rim)
-        if not centre_id or radius <= 1.0e-12 or not math.isfinite(radius):
+        vertices = regular_polygon_vertices(centre, rim, sides)
+        if not centre_id or not vertices:
             return
         start_angle = math.atan2(rim[1] - centre[1], rim[0] - centre[0])
         vertex_ids: list[str] = []
-        for index in range(6):
-            angle = start_angle + index * math.tau / 6.0
+        for position in vertices:
             point, _position, _created = self._ensure_sketch_point(
                 sketch,
-                (
-                    centre[0] + radius * math.cos(angle),
-                    centre[1] + radius * math.sin(angle),
-                ),
+                position,
             )
             vertex_ids.append(str(point.get("id", "")))
-        if not all(vertex_ids) or len(set(vertex_ids)) != 6:
+        if not all(vertex_ids) or len(set(vertex_ids)) != sides:
             return
 
         # _ensure_sketch_point stores immediately, so reload before appending
@@ -31953,7 +32075,7 @@ class MainWindow(QMainWindow):
                 vertex["curve_attachment"] = {
                     "type": "circle",
                     "geometry_id": circle_id,
-                    "angle": start_angle + index * math.tau / 6.0,
+                    "angle": start_angle + index * math.tau / sides,
                 }
         first_segment_id = ""
         for index, start_id in enumerate(vertex_ids):
@@ -31967,7 +32089,7 @@ class MainWindow(QMainWindow):
             segment = {
                 "id": segment_id,
                 "type": "segment",
-                "point_ids": [start_id, vertex_ids[(index + 1) % 6]],
+                "point_ids": [start_id, vertex_ids[(index + 1) % sides]],
             }
             if constraints:
                 segment["constraints"] = constraints
@@ -32055,6 +32177,7 @@ class MainWindow(QMainWindow):
                 "dimension",
             ),
             sketch_tool=self._sketch_tool,
+            polygon_sides=self._sketch_polygon_sides,
         )
         if populate_tree:
             self._populate_tree()
@@ -32099,8 +32222,24 @@ class MainWindow(QMainWindow):
                     )
         dimensions = self._stored_sketch_dimensions(sketch)
         candidate = SketchModel.from_editor_data(entities, dimensions)
+        attached_regular_profile = any(
+            entity.get("type") == "point"
+            and isinstance(entity.get("curve_attachment"), dict)
+            and entity["curve_attachment"].get("type") == "circle"
+            for entity in entities
+        )
+        direction_changes_attached_profile = (
+            attached_regular_profile
+            and any(
+                constraint.constraint_type in {
+                    "horizontal", "vertical", "parallel", "perpendicular",
+                }
+                for constraint in candidate.constraints.values()
+            )
+        )
         requires_numeric_solve = (
-            any(
+            direction_changes_attached_profile
+            or any(
                 constraint.constraint_type == "tangent"
                 for constraint in candidate.constraints.values()
             )
@@ -36141,6 +36280,8 @@ class MainWindow(QMainWindow):
         )
 
     def rebuild_view(self, fit: bool = True, rebuild_geometry: bool = True) -> None:
+        if rebuild_geometry:
+            self._reference_topology_registry_cache.clear()
         if self.document is not None and self._document_type(self.document) == "drawing":
             self.native_viewer.hide()
             self.drawing_workspace.show()

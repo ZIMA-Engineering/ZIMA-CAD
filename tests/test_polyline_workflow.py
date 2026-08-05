@@ -6,11 +6,69 @@ from zima_cad.sketch_geometry import (
     elliptical_arc_cardinal_keypoints,
     outward_minor_arc_endpoint,
     polyline_arc_start_context,
+    regular_polygon_vertices,
     valid_automatic_tangent,
 )
+from zima_cad.sketch_model import SketchModel
 
 
 class PolylineArcWorkflowTests(unittest.TestCase):
+    def test_regular_polygon_supports_four_six_and_eight_sides(self):
+        for sides in (4, 6, 8):
+            vertices = regular_polygon_vertices((0.0, 0.0), (10.0, 0.0), sides)
+            self.assertEqual(len(vertices), sides)
+            for vertex in vertices:
+                self.assertAlmostEqual(math.dist((0.0, 0.0), vertex), 10.0)
+            side_lengths = [
+                math.dist(vertices[index], vertices[(index + 1) % sides])
+                for index in range(sides)
+            ]
+            self.assertTrue(all(
+                math.isclose(length, side_lengths[0], abs_tol=1.0e-9)
+                for length in side_lengths
+            ))
+
+    def test_regular_polygon_rejects_unsupported_side_count(self):
+        with self.assertRaises(ValueError):
+            regular_polygon_vertices((0.0, 0.0), (10.0, 0.0), 5)
+
+    def test_horizontal_constraint_rotates_attached_regular_octagon(self):
+        vertices = regular_polygon_vertices((0.0, 0.0), (10.0, 3.0), 8)
+        start_angle = math.atan2(3.0, 10.0)
+        entities = [{"id": "c", "type": "point", "x": 0.0, "y": 0.0}]
+        for index, position in enumerate(vertices):
+            entities.append({
+                "id": f"p{index}", "type": "point",
+                "x": position[0], "y": position[1],
+                "curve_attachment": {
+                    "type": "circle", "geometry_id": "support",
+                    "angle": start_angle + index * math.tau / 8.0,
+                },
+            })
+        entities.append({
+            "id": "support", "type": "circle", "point_ids": ["c"],
+            "radius": math.sqrt(109.0), "role": "construction",
+        })
+        for index in range(8):
+            segment = {
+                "id": f"s{index}", "type": "segment",
+                "point_ids": [f"p{index}", f"p{(index + 1) % 8}"],
+            }
+            constraints = []
+            if index:
+                constraints.append({"type": "equal_length", "geometry_id": "s0"})
+            if index == 2:
+                constraints.append({"type": "horizontal"})
+            if constraints:
+                segment["constraints"] = constraints
+            entities.append(segment)
+        model = SketchModel.from_editor_data(entities)
+        self.assertTrue(model.solve())
+        first = model.points["p2"].position()
+        second = model.points["p3"].position()
+        self.assertAlmostEqual(first[1], second[1], places=7)
+        self.assertEqual(model.violated_equations(), ())
+
     def test_arc_offers_only_cardinal_points_inside_its_domain(self):
         center = (0.0, 0.0)
         start = (math.sqrt(0.5) * 10.0, -math.sqrt(0.5) * 10.0)

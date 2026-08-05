@@ -52,6 +52,7 @@ from zima_cad.sketch_geometry import (
     evaluate_corner_radius,
     outward_minor_arc_endpoint,
     polyline_arc_start_context,
+    regular_polygon_vertices,
 )
 from zima_cad.viewer_mesh import (
     Point3,
@@ -530,6 +531,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_chorded = False
         self._middle_double_clicked = False
         self._mesh: ViewerMesh | None = None
+        self._face_pick_cache_key: tuple[Any, ...] | None = None
+        self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
         self._gl: QOpenGLFunctions_3_3_Core | None = None
@@ -613,6 +616,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_arc_last_angle: float | None = None
         self._sketch_arc_accumulated_sweep = 0.0
         self._sketch_polyline_arc_reverse = False
+        self._sketch_polygon_sides = 4
         self._selected_sketch_entity_id: str | None = None
         self._selected_sketch_entity_ids: frozenset[str] = frozenset()
         self._selected_sketch_corner_radius: tuple[str, str, str] | None = None
@@ -686,6 +690,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         | list[dict[str, Any]] = (),
         snap_to_external_references: bool = False,
         sketch_tool: str | None = None,
+        polygon_sides: int = 4,
     ) -> None:
         self._sketch_frame = frame
         self._sketch_entities = tuple(entities)
@@ -713,6 +718,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_external_references = tuple(external_references)
         self._sketch_reference_snapping = snap_to_external_references
         self._sketch_tool = sketch_tool
+        self._sketch_polygon_sides = (
+            polygon_sides if polygon_sides in (4, 6, 8) else 4
+        )
         if sketch_tool != "trim":
             self._sketch_trim_path.clear()
             self._sketch_trim_preview_paths = ()
@@ -795,15 +803,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def _external_point_marker_visible(
         reference: dict[str, Any],
         hovered_reference_id: str | None,
-        hide_idle_points: bool,
+        _reference_mode_active: bool,
     ) -> bool:
-        if not hide_idle_points:
-            return True
         reference_id = str(reference.get("id", ""))
-        return bool(
-            reference.get("selected")
-            or (reference_id and reference_id == hovered_reference_id)
-        )
+        return bool(reference_id and reference_id == hovered_reference_id)
 
     def center_on_world_point(self, point: Point3) -> None:
         camera_point = self._camera_point(point)
@@ -1730,7 +1733,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 else:
                     self._cycle_sketch_entity(event.position())
             else:
-                if self._sketch_tool in ("polyline", "polyline_arc"):
+                if self._sketch_tool in (
+                    "polyline", "polyline_arc", "hexagon",
+                ):
                     self.sketchAlternateCurrentRequested.emit()
                     snapped, reference_id, constraint = (
                         self._sketch_placement_candidate(event.position())
@@ -5034,11 +5039,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     continue
                 constraint_type = str(constraint.get("type", ""))
                 if constraint_type == "horizontal":
-                    add_marker(geometry_id, "H", constraint_index)
+                    add_marker(
+                        geometry_id,
+                        "//" if constraint.get("display_as") == "parallel" else "H",
+                        constraint_index,
+                    )
                 elif constraint_type == "vertical":
-                    add_marker(geometry_id, "V", constraint_index)
+                    add_marker(
+                        geometry_id,
+                        "//" if constraint.get("display_as") == "parallel" else "V",
+                        constraint_index,
+                    )
                 elif constraint_type == "parallel":
-                    add_marker(geometry_id, "∥", constraint_index)
+                    add_marker(geometry_id, "//", constraint_index)
                 elif constraint_type == "equal_length":
                     add_marker(geometry_id, "=", constraint_index)
                     add_marker(
@@ -5706,37 +5719,34 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self._sketch_preview_position[0] - center[0],
                         self._sketch_preview_position[1] - center[1],
                     )
-                    start_angle = atan2(
-                        self._sketch_preview_position[1] - center[1],
-                        self._sketch_preview_position[0] - center[0],
+                    local_vertices = regular_polygon_vertices(
+                        center,
+                        self._sketch_preview_position,
+                        self._sketch_polygon_sides,
                     )
-                    local_vertices = [
-                        (
-                            center[0] + radius * cos(start_angle + i * pi / 3),
-                            center[1] + radius * sin(start_angle + i * pi / 3),
-                        )
-                        for i in range(6)
-                    ]
-                    polygon = QPolygonF([
-                        self._screen_point(
-                            self._camera_point(self._sketch_world_point(point))
-                        )
-                        for point in (*local_vertices, local_vertices[0])
-                    ])
-                    circle = QPolygonF([
-                        self._screen_point(
-                            self._camera_point(self._sketch_world_point((
-                                center[0] + radius * cos(angle),
-                                center[1] + radius * sin(angle),
-                            )))
-                        )
-                        for angle in (2.0 * pi * i / 96.0 for i in range(97))
-                    ])
-                    painter.setPen(highlighted_auxiliary(QColor("#FF7A00")))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawPolyline(circle)
-                    painter.setPen(QPen(QColor("#FF7A00"), 1.5))
-                    painter.drawPolyline(polygon)
+                    if local_vertices:
+                        polygon = QPolygonF([
+                            self._screen_point(
+                                self._camera_point(self._sketch_world_point(point))
+                            )
+                            for point in (*local_vertices, local_vertices[0])
+                        ])
+                        circle = QPolygonF([
+                            self._screen_point(
+                                self._camera_point(self._sketch_world_point((
+                                    center[0] + radius * cos(angle),
+                                    center[1] + radius * sin(angle),
+                                )))
+                            )
+                            for angle in (
+                                2.0 * pi * i / 96.0 for i in range(97)
+                            )
+                        ])
+                        painter.setPen(highlighted_auxiliary(QColor("#FF7A00")))
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawPolyline(circle)
+                        painter.setPen(QPen(QColor("#FF7A00"), 1.5))
+                        painter.drawPolyline(polygon)
                 elif self._sketch_tool == "construction":
                     painter.setPen(highlighted_centerline(QColor("#FF7A00")))
                     infinite_line(pending[-1], preview)
@@ -5751,7 +5761,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self._sketch_preview_constraint is not None
                     and self._sketch_preview_constraint.startswith("parallel:")
                 ):
-                    preview_labels.append("∥")
+                    preview_labels.append("//")
                 elif (
                     self._sketch_preview_constraint is not None
                     and self._sketch_preview_constraint.startswith(
@@ -9326,7 +9336,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             key = (marker.owner_id, marker.point_index)
             if (
                 marker.element_kind == "vertex"
-                and not self._sketch_reference_selection_mode
                 and key not in (self._hovered_point, self._selected_point)
             ):
                 continue
@@ -9506,39 +9515,76 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         mesh = self._mesh
         if mesh is None or not mesh.triangle_face_indices:
             return None
-        hits: list[tuple[float, str, int]] = []
-        positions = mesh.triangle_positions
-        for triangle_index, face_index in enumerate(
-            mesh.triangle_face_indices
-        ):
-            if not self._topology_owner_is_selectable(
-                mesh.triangle_owner_ids[triangle_index]
+        cache_key = (
+            id(mesh),
+            self.width(),
+            self.height(),
+            self.camera.yaw_degrees,
+            self.camera.pitch_degrees,
+            self.camera.roll_degrees,
+            self.camera.pan_x,
+            self.camera.pan_y,
+            self.camera.zoom,
+            self._scene_center,
+            self._scene_radius,
+            self._topology_owner_filter,
+            self._excluded_topology_owner_ids,
+        )
+        if cache_key != self._face_pick_cache_key:
+            cached: list[tuple[Any, ...]] = []
+            positions = mesh.triangle_positions
+            for triangle_index, face_index in enumerate(
+                mesh.triangle_face_indices
             ):
-                continue
-            offset = triangle_index * 9
-            camera_points = [
-                self._camera_point(
-                    (
+                owner_id = mesh.triangle_owner_ids[triangle_index]
+                if not self._topology_owner_is_selectable(owner_id):
+                    continue
+                offset = triangle_index * 9
+                camera_points = tuple(
+                    self._camera_point((
                         positions[offset + vertex * 3],
                         positions[offset + vertex * 3 + 1],
                         positions[offset + vertex * 3 + 2],
-                    )
+                    ))
+                    for vertex in range(3)
                 )
-                for vertex in range(3)
-            ]
+                screen_points = tuple(
+                    self._screen_point(point) for point in camera_points
+                )
+                cached.append((
+                    min(point.x() for point in screen_points),
+                    max(point.x() for point in screen_points),
+                    min(point.y() for point in screen_points),
+                    max(point.y() for point in screen_points),
+                    screen_points,
+                    tuple(point[2] for point in camera_points),
+                    owner_id,
+                    face_index,
+                ))
+            self._face_pick_cache_key = cache_key
+            self._face_pick_cache = tuple(cached)
+
+        hits: list[tuple[float, str, int]] = []
+        for (
+            min_x, max_x, min_y, max_y,
+            screen_points, depths, owner_id, face_index,
+        ) in self._face_pick_cache:
+            if not (
+                min_x <= position.x() <= max_x
+                and min_y <= position.y() <= max_y
+            ):
+                continue
             weights = self._triangle_weights(
                 position,
-                *(self._screen_point(point) for point in camera_points),
+                *screen_points,
             )
             if weights is None:
                 continue
             depth = sum(
-                weight * point[2]
-                for weight, point in zip(weights, camera_points)
+                weight * point_depth
+                for weight, point_depth in zip(weights, depths)
             )
-            hits.append(
-                (depth, mesh.triangle_owner_ids[triangle_index], face_index)
-            )
+            hits.append((depth, owner_id, face_index))
         if not hits:
             return None
         selected = max(hits)

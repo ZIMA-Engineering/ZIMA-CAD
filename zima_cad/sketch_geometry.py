@@ -148,6 +148,27 @@ def outward_minor_arc_endpoint(
     )
 
 
+def regular_polygon_vertices(
+    center: Point2,
+    rim: Point2,
+    sides: int,
+) -> tuple[Point2, ...]:
+    """Vertices of a regular 4/6/8-sided polygon on its support circle."""
+    if sides not in (4, 6, 8):
+        raise ValueError("polygon sides must be 4, 6, or 8")
+    radius = math.dist(center, rim)
+    if radius <= 1.0e-12 or not math.isfinite(radius):
+        return ()
+    start_angle = math.atan2(rim[1] - center[1], rim[0] - center[0])
+    return tuple(
+        (
+            center[0] + radius * math.cos(start_angle + index * math.tau / sides),
+            center[1] + radius * math.sin(start_angle + index * math.tau / sides),
+        )
+        for index in range(sides)
+    )
+
+
 def polyline_arc_start_context(
     entities: list[dict[str, Any]], start_point_id: str,
 ) -> tuple[Point2, str | None, str | None] | None:
