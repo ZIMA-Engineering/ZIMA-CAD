@@ -17142,13 +17142,6 @@ class MainWindow(QMainWindow):
                 ),
             ]
             stable_metadata = dict(reference_metadata)
-            stable_metadata.update(
-                {
-                    "entity_id": obj.entity_id,
-                    "type": "face",
-                    "topology_key": str(topology_index),
-                }
-            )
             # Resolve only this selected face so the dialog can show the
             # originating Extrude/Revolve instead of the automatic Body.
             self._stabilize_shape_references([stable_metadata])
