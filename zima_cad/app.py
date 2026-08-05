@@ -9690,7 +9690,10 @@ class MainWindow(QMainWindow):
             int(edge_index),
             create_profile_segment=True,
         )
-        self._restore_sketch_selection_after_command()
+        # Keep the external-line picker armed.  The user can add several
+        # reference segments in succession; a double middle-click is the
+        # explicit gesture that exits this mode.
+        self._start_external_segment_command()
 
     def _restore_sketch_selection_after_command(self) -> None:
         self.native_viewer.set_sketch_reference_selection_mode(False)
@@ -26042,6 +26045,14 @@ class MainWindow(QMainWindow):
 
     def _finish_current_sketch_tool(self) -> None:
         if self._sketch_edit_entity_id is None:
+            return
+        if (
+            self._selection_controller.active
+            and self._selection_controller.request is not None
+            and self._selection_controller.request.command_id
+            == "sketch_external_segment"
+        ):
+            self._selection_controller.cancel()
             return
         self._remove_pending_sketch_points()
         self._sketch_pending_points.clear()
