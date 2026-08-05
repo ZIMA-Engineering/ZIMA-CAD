@@ -15,6 +15,12 @@ from OCC.Core.STEPControl import STEPControl_Reader
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import topexp
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
+from zima_cad.viewer_mesh import triangulate_shape
+
+
+# Imports just above this size can still be edited interactively. ZE0026 has
+# 5,478 faces; the old 5,000 cut-off accidentally made it non-selectable.
+INTERACTIVE_TOPOLOGY_FACE_LIMIT = 10_000
 
 
 @dataclass(frozen=True)
@@ -69,14 +75,17 @@ def import_step_file(
         # Keep OCCT translation and meshing in the same worker thread.  Some
         # large transferred Shapes block inside BRepMesh when handed to a
         # different worker after the STEP reader thread has already exited.
-        from zima_cad.viewer_mesh import triangulate_shape
         mesh = triangulate_shape(
             shape,
             owner_id=mesh_owner_id,
-            linear_deflection=5.0 if face_count > 5_000 else 1.0,
-            angular_deflection=1.2 if face_count > 5_000 else 0.7,
+            linear_deflection=(
+                5.0 if face_count > INTERACTIVE_TOPOLOGY_FACE_LIMIT else 1.0
+            ),
+            angular_deflection=(
+                1.2 if face_count > INTERACTIVE_TOPOLOGY_FACE_LIMIT else 0.7
+            ),
             edge_linear_deflection=0.2,
-            include_topology=face_count <= 5_000,
+            include_topology=face_count <= INTERACTIVE_TOPOLOGY_FACE_LIMIT,
         )
     return StepImportResult(
         step_data=encoded_step,

@@ -3994,7 +3994,9 @@ def _standalone_topology_registry(
         # a very large imported assembly consumes substantially more memory
         # than the Shape itself.  Keep the model/view usable; large-import
         # topology will move to an on-demand registry in a later iteration.
-        if face_shapes.Size() > 5_000:
+        # Keep medium STEP imports (e.g. ZE0026, 5,478 faces) selectable in
+        # Part. Only genuinely large imports should skip eager topology.
+        if face_shapes.Size() > 10_000:
             return registry
         for shape_type, reference_type, register in (
             (TopAbs_FACE, FaceRef, registry.register_face),

@@ -28,6 +28,7 @@ from zima_cad.viewer_mesh import (
     topology_subshape,
     triangulate_shape,
 )
+from zima_cad.step_import import INTERACTIVE_TOPOLOGY_FACE_LIMIT
 
 
 SKETCH_COLOR = (1.0, 0.843, 0.251)
@@ -213,7 +214,7 @@ def build_document_viewer_scene_data(
                         and any(
                             child.kind == EntityKind.IMPORTED_STEP
                             and int(child.parameters.get("face_count", 0) or 0)
-                            > 5_000
+                            > INTERACTIVE_TOPOLOGY_FACE_LIMIT
                             for child in obj.children
                         )
                     ),
@@ -303,12 +304,19 @@ def build_document_viewer_scene_data(
                         shape,
                         owner_id=document.root.entity_id,
                         linear_deflection=(
-                            5.0 if imported_face_count > 5_000 else 0.2
+                            5.0
+                            if imported_face_count > INTERACTIVE_TOPOLOGY_FACE_LIMIT
+                            else 0.2
                         ),
                         angular_deflection=(
-                            1.2 if imported_face_count > 5_000 else 0.35
+                            1.2
+                            if imported_face_count > INTERACTIVE_TOPOLOGY_FACE_LIMIT
+                            else 0.35
                         ),
-                        include_topology=imported_face_count <= 5_000,
+                        include_topology=(
+                            imported_face_count
+                            <= INTERACTIVE_TOPOLOGY_FACE_LIMIT
+                        ),
                     )
             layers.append(body_mesh)
 
