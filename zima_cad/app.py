@@ -13878,16 +13878,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return False
 
-        # Stored coordinates are only the last evaluated state.  Mark the
-        # document before activating its tab so tab activation does not build
-        # a throwaway view of geometry that is about to be regenerated.
+        # A validated CachedBody already contains the last OCCT result. Keep
+        # it for the initial view; replaying a long fillet history here would
+        # make opening a small .prtz file needlessly expensive.
+        cached_body_available = bool(document._shape_history_cache)
         if self._document_type(document) != "drawing":
-            document.regeneration_required = True
+            document.regeneration_required = not cached_body_available
         self._add_document_session(document, canonical_path)
-        # Stored coordinates are only the last evaluated state.  Always
-        # resolve parametric references against the freshly built geometry
-        # before the opened document is used.
-        if self._document_type(document) != "drawing":
+        # If no validated cache was persisted, perform the authoritative
+        # regeneration now. Cached documents are rebuilt lazily only when a
+        # later edit actually invalidates their geometry.
+        if (
+            self._document_type(document) != "drawing"
+            and not cached_body_available
+        ):
             self.regenerate_model()
         return True
 
