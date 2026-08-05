@@ -1115,6 +1115,61 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def face_at(self, position: QPointF) -> TopologyKey | None:
         return self._pick_face(position)
 
+    def face_at_mesh(
+        self,
+        mesh: ViewerMesh,
+        position: QPointF,
+    ) -> TopologyKey | None:
+        """Pick a face from a non-displayed mesh using the current camera.
+
+        Source/history meshes are kept out of the displayed scene so they do
+        not become selectable result-body owners.  Reference picking still
+        needs to resolve the face the user pointed at on one of those meshes.
+        """
+        if mesh is None or not mesh.triangle_face_indices:
+            return None
+        positions = mesh.triangle_positions
+        hits: list[tuple[float, str, int]] = []
+        for triangle_index, face_index in enumerate(mesh.triangle_face_indices):
+            offset = triangle_index * 9
+            camera_points = tuple(
+                self._camera_point((
+                    positions[offset + vertex * 3],
+                    positions[offset + vertex * 3 + 1],
+                    positions[offset + vertex * 3 + 2],
+                ))
+                for vertex in range(3)
+            )
+            screen_points = tuple(
+                self._screen_point(point) for point in camera_points
+            )
+            if not (
+                min(point.x() for point in screen_points)
+                <= position.x()
+                <= max(point.x() for point in screen_points)
+                and min(point.y() for point in screen_points)
+                <= position.y()
+                <= max(point.y() for point in screen_points)
+            ):
+                continue
+            weights = self._triangle_weights(position, *screen_points)
+            if weights is None:
+                continue
+            depth = sum(
+                weight * point[2]
+                for weight, point in zip(weights, camera_points)
+            )
+            owner_id = (
+                mesh.triangle_owner_ids[triangle_index]
+                if triangle_index < len(mesh.triangle_owner_ids)
+                else ""
+            )
+            hits.append((depth, owner_id, face_index))
+        if not hits:
+            return None
+        selected = max(hits)
+        return selected[1], selected[2]
+
     def point_at(self, position: QPointF) -> TopologyKey | None:
         return self._pick_point(position)
 

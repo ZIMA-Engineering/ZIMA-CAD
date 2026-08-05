@@ -16276,11 +16276,31 @@ class MainWindow(QMainWindow):
             or self._current_definition_owns_reference(owner_id)
         ):
             return
-        scene = self._native_viewer_scene
-        shape = (
-            scene.resolve_topology(owner_id, "face", face_index)
-            if scene is not None else None
+        # The displayed root is the final Boolean result.  In reference
+        # picking it must never become the persisted owner: resolve the hit
+        # against the original history feature meshes instead.  Those meshes
+        # are not part of the viewer scene, so this is deliberately done only
+        # while a reference dialog/Sketcher is consuming the click.
+        source_face = (
+            self._source_face_reference_at_cursor()
+            if owner_id == self.document.root.entity_id
+            else None
         )
+        if source_face is not None:
+            owner_id, face_index, source_shape = source_face
+            shape = self._subshape_from_shape(
+                source_shape,
+                TopAbs_FACE,
+                face_index,
+            )
+            if shape is None:
+                return
+        else:
+            scene = self._native_viewer_scene
+            shape = (
+                scene.resolve_topology(owner_id, "face", face_index)
+                if scene is not None else None
+            )
         if self._container_orientation_selection_is_active():
             owner = self.document.find_entity(owner_id) if self.document else None
             if owner is not None and shape is not None:
@@ -16369,6 +16389,50 @@ class MainWindow(QMainWindow):
             return
         if shape is not None:
             self._apply_native_view_selection(owner_id, shape)
+
+    def _source_face_reference_at_cursor(
+        self,
+    ) -> tuple[str, int, Any] | None:
+        """Return the original feature face under the last click.
+
+        Result-body faces remain usable for fillet/chamfer selection, but
+        placement references and external Sketch references are intentionally
+        anchored to a historical Extrude/Revolve/primitive shape.
+        """
+        if self.document is None or not (
+            self._sketch_reference_mode
+            or (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+        ):
+            return None
+        position = getattr(self.native_viewer, "_last_mouse_position", None)
+        if position is None:
+            return None
+        position = QPointF(position)
+        boundary = self._definition_history_boundary()
+        shapes = {
+            owner_id: shape
+            for shape, owner_id in self._cached_source_model_shapes
+        }
+        for source in reversed(self.document.history_objects_at(boundary)):
+            if source.kind not in SOLID_KINDS:
+                continue
+            shape = shapes.get(source.entity_id)
+            if shape is None:
+                shape = self.document.build_standalone_shape(source)
+            if shape is None:
+                continue
+            mesh = self._cached_source_model_meshes.get(source.entity_id)
+            if mesh is None:
+                mesh = triangulate_shape(shape, owner_id=source.entity_id)
+                self._cached_source_model_meshes[source.entity_id] = mesh
+            picked = self.native_viewer.face_at_mesh(mesh, position)
+            if picked is not None:
+                _picked_owner, picked_index = picked
+                return source.entity_id, picked_index, shape
+        return None
 
     def _on_native_coordinate_selected(
         self,
