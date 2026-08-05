@@ -4047,7 +4047,14 @@ def _container_boolean_feature_id(container: ZimaEntity) -> str:
 
 
 def _unique_subshapes(shape, shape_type: int) -> list[Any]:
-    explorer = TopExp_Explorer(shape, shape_type)
+    if shape is None:
+        return []
+    try:
+        if shape.IsNull():
+            return []
+        explorer = TopExp_Explorer(shape, shape_type)
+    except (AttributeError, RuntimeError, TypeError):
+        return []
     result = []
     while explorer.More():
         candidate = explorer.Current()
@@ -4726,7 +4733,14 @@ def boolean_topology_registry_at(
             if operation == CombineMode.SUBTRACT
             else BRepAlgoAPI_Fuse(result_shape, tool_shape)
         )
-        combined = builder.Shape()
+        try:
+            combined = builder.Shape()
+            boolean_succeeded = builder.IsDone() and not combined.IsNull()
+        except (AttributeError, RuntimeError, TypeError):
+            boolean_succeeded = False
+            combined = None
+        if not boolean_succeeded:
+            continue
         if operation == CombineMode.ADD and len(
             _unique_subshapes(combined, TopAbs_SOLID)
         ) != 1:

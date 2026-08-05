@@ -218,9 +218,6 @@ def build_document_viewer_scene_data(
             layers.append(body_mesh)
 
     reference_scene_size = _scene_diagonal(layers)
-    large_body_scene = (
-        body_mesh is not None and body_mesh.triangle_count > 100_000
-    )
     for obj in document.visible_objects():
         _append_object_sketches(
             document,
@@ -234,19 +231,18 @@ def build_document_viewer_scene_data(
             show_user_planes,
             editing_object_id,
         )
-        if not large_body_scene:
-            _append_object_origins(
-                document,
-                obj,
-                identity_transform(),
-                layers,
-                show_object_planes,
-                show_object_origins,
-                show_component_origins,
-                show_user_points,
-                editing_object_id,
-                reference_scene_size,
-            )
+        _append_object_origins(
+            document,
+            obj,
+            identity_transform(),
+            layers,
+            show_object_planes,
+            show_object_origins,
+            show_component_origins,
+            show_user_points,
+            editing_object_id,
+            reference_scene_size,
+        )
 
     if preview_coordinate_system is not None:
         preview_owner_id = CONTAINER_PREVIEW_ORIGIN_ID
@@ -301,7 +297,7 @@ def build_document_viewer_scene_data(
                 )
             )
 
-    if show_document_origin and not large_body_scene:
+    if show_document_origin:
         origin_id = _document_origin_id(document)
         layers.append(
             origin_axes_mesh(
@@ -310,7 +306,7 @@ def build_document_viewer_scene_data(
                 point_label=f"{document.root.name} · Origin",
             )
         )
-    if show_document_planes and not large_body_scene:
+    if show_document_planes:
         origin_id = _document_origin_id(document)
         for plane_index, plane_name in enumerate(
             ("xy", "yz", "xz"),

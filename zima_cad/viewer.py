@@ -1648,7 +1648,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # synchronization. They are static during navigation and are painted
         # again immediately after it ends.
         if self._navigation_active:
+            self._paint_screen_constant_edges()
+            if self._object_overlay_persistent:
+                self._paint_object_overlay()
+            self._paint_edge_labels(screen_constant_only=True)
             return
+        self._paint_screen_constant_edges()
         self._paint_centerlines()
         self._paint_object_highlights()
         self._paint_reference_highlights()
@@ -3299,7 +3304,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             mesh.edges if mesh is not None else (),
             self._edge_ranges,
         ):
-            if edge.element_kind == "centerline":
+            if edge.element_kind == "centerline" or edge.screen_constant:
                 continue
             if not draw_base_edges and edge.element_kind == "edge":
                 continue
@@ -3454,7 +3459,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         first_vertex, vertex_count = self._edge_ranges[range_index]
         edge = mesh.edges[range_index]
-        if edge.element_kind == "centerline":
+        if edge.element_kind == "centerline" or edge.screen_constant:
             return
         if not edge_visible_in_display(edge, self._display_mode):
             return
@@ -3513,7 +3518,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             mesh.edges,
             self._edge_ranges,
         ):
-            if edge.owner_id == owner_id and edge.element_kind == "axis":
+            if (
+                edge.owner_id == owner_id
+                and edge.element_kind == "axis"
+                and not edge.screen_constant
+            ):
                 gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
         gl.glEnable(GL_DEPTH_TEST)
 
@@ -3547,11 +3556,48 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             for point in plane.corners
         )
 
-    def _paint_edge_labels(self) -> None:
+    def _paint_screen_constant_edges(self) -> None:
+        """Draw datum axes at a camera-independent on-screen length."""
         mesh = self._mesh
         if mesh is None:
             return
-        labelled_edges = tuple(edge for edge in mesh.edges if edge.label)
+        edges = tuple(edge for edge in mesh.edges if edge.screen_constant)
+        if not edges:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for edge in edges:
+            color = edge.base_color
+            key = (edge.owner_id, edge.edge_index)
+            width = 1.5
+            if key == self._hovered_edge:
+                color = (1.0, 0.48, 0.0)
+                width = 3.0
+            if (
+                key == self._selected_edge
+                or edge.owner_id == self._selected_reference_owner_id
+                or edge.owner_id in self._selected_container_content_ids
+            ):
+                color = (0.0, 0.82, 1.0)
+                width = 3.0
+            painter.setPen(QPen(QColor.fromRgbF(*color, 1.0), width))
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in self._display_edge_points(edge)
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+        painter.end()
+
+    def _paint_edge_labels(self, *, screen_constant_only: bool = False) -> None:
+        mesh = self._mesh
+        if mesh is None:
+            return
+        labelled_edges = tuple(
+            edge for edge in mesh.edges
+            if edge.label and (not screen_constant_only or edge.screen_constant)
+        )
         if not labelled_edges:
             return
         painter = QPainter(self)

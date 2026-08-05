@@ -650,15 +650,19 @@ class HistoryTreeWidget(QTreeWidget):
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
-        super().mousePressEvent(event)
-        if (
-            event.button() == Qt.MouseButton.LeftButton
+        # The base handler emits selectionChanged and that callback may
+        # rebuild the whole tree. Never dereference ``item`` afterwards: its
+        # underlying QTreeWidgetItem can already have been deleted by Qt.
+        pending_history_object_id = (
+            item.data(0, Qt.ItemDataRole.UserRole)
+            if event.button() == Qt.MouseButton.LeftButton
             and item is not None
             and item.data(0, self.HISTORY_OBJECT_ROLE)
-        ):
-            self._pending_history_object_id = item.data(
-                0, Qt.ItemDataRole.UserRole
-            )
+            else None
+        )
+        super().mousePressEvent(event)
+        if pending_history_object_id is not None:
+            self._pending_history_object_id = pending_history_object_id
             self._drag_start = event.position().toPoint()
 
     def mouseMoveEvent(self, event) -> None:
@@ -765,6 +769,8 @@ class DocumentSession:
     file_path: Path | None
     selected_object_id: str | None = None
     active_application: ApplicationMode = ApplicationMode.MODELING
+    viewer_scene: DocumentViewerScene | None = None
+    history_boundary: int | None = None
 
 
 class ApplicationWorkspace(QObject):
@@ -13358,6 +13364,8 @@ class MainWindow(QMainWindow):
             session.file_path = self.current_file_path
             session.selected_object_id = self.selected_object_id
             session.active_application = self.active_application
+            session.viewer_scene = self._native_viewer_scene
+            session.history_boundary = self._cached_history_boundary
 
     def _sync_workspace_sessions(self, source_window) -> None:
         if source_window is self:
@@ -13468,6 +13476,7 @@ class MainWindow(QMainWindow):
             self.current_file_path = session.file_path
             self.selected_object_id = session.selected_object_id
             self.active_application = session.active_application
+            self._native_viewer_scene = session.viewer_scene
 
         is_drawing = self._document_type(self.document) == "drawing"
         self.native_viewer.setVisible(not is_drawing)
@@ -13502,6 +13511,20 @@ class MainWindow(QMainWindow):
         if not is_drawing and self.document.regeneration_required:
             self._native_viewer_scene = None
             self.native_viewer.clear_scene()
+        elif (
+            not is_drawing
+            and self._native_viewer_scene is not None
+            and 0 <= index < len(self.document_sessions)
+            and self.document_sessions[index].history_boundary is not None
+        ):
+            # A tab switch does not change model geometry. Reuse the complete
+            # tessellated scene saved with that document instead of asking
+            # OCCT to rebuild and remesh a large imported STEP body.
+            self._cached_document = self.document
+            self._cached_history_boundary = self.document_sessions[
+                index
+            ].history_boundary
+            self.rebuild_view(fit=True, rebuild_geometry=False)
         else:
             self.rebuild_view(fit=True, rebuild_geometry=not is_drawing)
         self._update_window_title()
