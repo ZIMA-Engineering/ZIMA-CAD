@@ -15774,6 +15774,13 @@ class MainWindow(QMainWindow):
         edge_index: int,
     ) -> None:
         if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.document is not None
+            and owner_id == self.document.root.entity_id
+        ):
+            return
+        if (
             not owner_id
             or edge_index <= 0
             or self._current_definition_owns_reference(owner_id)
@@ -15883,6 +15890,12 @@ class MainWindow(QMainWindow):
 
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
+            return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and owner_id == self.document.root.entity_id
+        ):
             return
         if owner_id and self._current_definition_owns_reference(owner_id):
             return
@@ -16270,6 +16283,13 @@ class MainWindow(QMainWindow):
         owner_id: str,
         face_index: int,
     ) -> None:
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.document is not None
+            and owner_id == self.document.root.entity_id
+        ):
+            return
         if (
             not owner_id
             or face_index <= 0
