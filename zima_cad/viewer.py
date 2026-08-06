@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     QPoint,
     QPointF,
     QRectF,
+    QTimer,
     Qt,
     QVariantAnimation,
     Signal,
@@ -543,6 +544,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_chorded = False
         self._middle_double_clicked = False
         self._navigation_active = False
+        self._navigation_repaint_pending = False
         self._mesh: ViewerMesh | None = None
         self._face_pick_cache_key: tuple[Any, ...] | None = None
         self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
@@ -560,6 +562,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_vao: QOpenGLVertexArrayObject | None = None
         self._surface_vertex_count = 0
         self._uploaded_surface_key: tuple[int, int, int, int] | None = None
+        self._surface_data_cache_key: tuple[int, int, int, int] | None = None
+        self._surface_data_cache = b""
+        self._surface_face_ranges_cache: tuple[
+            tuple[str, int, int, int], ...
+        ] = ()
+        self._surface_owner_ranges_cache: tuple[
+            tuple[str, int, int], ...
+        ] = ()
         self._base_edge_cache_key: int | None = None
         self._base_edge_cache_data = b""
         self._base_edge_cache_ranges: tuple[tuple[int, int], ...] = ()
@@ -1288,6 +1298,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         base_edge_mesh: ViewerMesh | None = None,
     ) -> None:
         previous_mesh = self._mesh
+        previous_base_edge_mesh = self._base_edge_mesh
         previous_center = self._scene_center
         previous_radius = self._scene_radius
         previous_zoom = self.camera.zoom
@@ -1330,7 +1341,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._set_selected_point(None)
         self._set_hovered_plane(None)
         self._set_selected_plane(None)
-        self._buffers_dirty = True
+        same_surface_buffers = (
+            previous_mesh is not None
+            and mesh is not None
+            and previous_mesh.triangle_positions is mesh.triangle_positions
+            and previous_mesh.triangle_normals is mesh.triangle_normals
+            and previous_mesh.triangle_face_indices is mesh.triangle_face_indices
+            and previous_mesh.triangle_owner_ids is mesh.triangle_owner_ids
+        )
+        same_base_edges = (
+            previous_base_edge_mesh is not None
+            and base_edge_mesh is not None
+            and previous_base_edge_mesh.edges is base_edge_mesh.edges
+        )
+
+        def has_gpu_overlay_edges(
+            candidate: ViewerMesh | None,
+            base: ViewerMesh | None,
+        ) -> bool:
+            if candidate is None:
+                return False
+            base_count = len(base.edges) if base is not None else 0
+            return any(
+                not edge.screen_constant
+                and edge.element_kind != "centerline"
+                for edge in candidate.edges[base_count:]
+            )
+
+        # Origin axes and datum planes are painted as screen-constant Qt
+        # overlays.  Toggling only those layers must not defer a complete edge
+        # buffer upload until the next window activation/repaint.
+        overlay_only_change = (
+            same_surface_buffers
+            and same_base_edges
+            and not has_gpu_overlay_edges(
+                previous_mesh, previous_base_edge_mesh
+            )
+            and not has_gpu_overlay_edges(mesh, base_edge_mesh)
+        )
+        if not overlay_only_change:
+            self._buffers_dirty = True
         if mesh is not None and not mesh.is_empty:
             self._scene_center = tuple(
                 (mesh.bounds_min[axis] + mesh.bounds_max[axis]) * 0.5
@@ -1746,6 +1796,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ):
             raise RuntimeError("Unable to create Viewer OpenGL vertex arrays")
         self._gpu_ready = True
+        # A newly created context owns empty buffers even when their source
+        # mesh is unchanged. The retained CPU byte cache makes this upload
+        # cheap without incorrectly treating the new buffer as populated.
+        self._uploaded_surface_key = None
         self._buffers_dirty = True
         self.context().aboutToBeDestroyed.connect(
             self._release_graphics_resources
@@ -2418,7 +2472,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     float(delta.y()) * self.rotation_degrees_per_pixel,
                 )
             self.navigationChanged.emit(self.camera)
-            self.update()
+            self._request_navigation_repaint()
             event.accept()
             return
         if self._sketch_frame is not None and self._sketch_tool == "trim":
@@ -2905,14 +2959,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if point is not None or plane is not None
                 else self._pick_axis(event.position())
             )
-            self._clear_topology_hover()
             self._set_hovered_object(None)
-            if point is not None:
-                self._set_hovered_point(point)
-            elif plane is not None:
-                self._set_hovered_plane(plane)
-            elif axis is not None:
-                self._set_hovered_edge(axis)
+            # Update the resolved hover state directly. Clearing every kind
+            # first and then restoring the same datum under the cursor emits
+            # several redundant signals and can create a self-sustaining
+            # repaint storm on a large imported STEP view.
+            self._set_hovered_face(None)
+            self._set_hovered_point(point)
+            self._set_hovered_plane(plane)
+            self._set_hovered_edge(axis)
             super().mouseMoveEvent(event)
             return
         if self._interaction_mode == "object":
@@ -2961,6 +3016,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             else self._pick_face(event.position())
         )
         super().mouseMoveEvent(event)
+
+    def _request_navigation_repaint(self) -> None:
+        if self._navigation_repaint_pending:
+            return
+        self._navigation_repaint_pending = True
+
+        def repaint_latest_camera() -> None:
+            self._navigation_repaint_pending = False
+            self.update()
+
+        # High-polling mice can deliver hundreds of orbit events per second.
+        # Render only the latest camera state at roughly display cadence so
+        # navigation cannot starve clicks, toolbar toggles or window events.
+        QTimer.singleShot(16, repaint_latest_camera)
 
     def leaveEvent(self, event) -> None:
         if self._hovered_sketch_corner_radius is not None:
@@ -3459,7 +3528,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if surface_buffer is None or edge_buffer is None:
             return
         mesh = self._mesh
-        surface_values = array("f")
         edge_values = array("f")
         edge_ranges: list[tuple[int, int]] = []
         surface_key = (
@@ -3474,12 +3542,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         surface_changed = surface_key != self._uploaded_surface_key
         if mesh is not None:
             if surface_changed:
-                for offset in range(0, len(mesh.triangle_positions), 3):
-                    surface_values.extend(
-                        mesh.triangle_positions[offset:offset + 3]
+                if surface_key != self._surface_data_cache_key:
+                    surface_values = array("f")
+                    for offset in range(0, len(mesh.triangle_positions), 3):
+                        surface_values.extend(
+                            mesh.triangle_positions[offset:offset + 3]
+                        )
+                        surface_values.extend(
+                            mesh.triangle_normals[offset:offset + 3]
+                        )
+                    self._surface_data_cache_key = surface_key
+                    self._surface_data_cache = surface_values.tobytes()
+                    self._surface_face_ranges_cache = (
+                        self._build_face_ranges(mesh)
                     )
-                    surface_values.extend(
-                        mesh.triangle_normals[offset:offset + 3]
+                    self._surface_owner_ranges_cache = (
+                        self._build_owner_ranges(mesh)
                     )
             base_edge_mesh = self._base_edge_mesh
             base_edge_count = (
@@ -3521,17 +3599,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 edge_vertex_start += len(display_points)
         edge_data = self._base_edge_cache_data + edge_values.tobytes()
         if surface_changed:
-            surface_data = surface_values.tobytes()
             surface_buffer.bind()
-            surface_buffer.allocate(surface_data, len(surface_data))
+            surface_buffer.allocate(
+                self._surface_data_cache,
+                len(self._surface_data_cache),
+            )
             surface_buffer.release()
         edge_buffer.bind()
         edge_buffer.allocate(edge_data, len(edge_data))
         edge_buffer.release()
         if surface_changed:
-            self._surface_vertex_count = len(surface_values) // 6
-            self._face_ranges = self._build_face_ranges(mesh)
-            self._owner_ranges = self._build_owner_ranges(mesh)
+            self._surface_vertex_count = len(self._surface_data_cache) // 24
+            self._face_ranges = self._surface_face_ranges_cache
+            self._owner_ranges = self._surface_owner_ranges_cache
             self._uploaded_surface_key = surface_key
         self._edge_ranges = tuple(edge_ranges)
         self._buffers_dirty = False
@@ -11360,13 +11440,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         tolerance = self._scene_radius * 1e-5
         return camera_point[2] >= front_depth - tolerance
 
-    def _pick_edge(self, position: QPointF) -> TopologyKey | None:
+    def _pick_edge(
+        self,
+        position: QPointF,
+        *,
+        allowed_element_kinds: frozenset[str] | None = None,
+    ) -> TopologyKey | None:
         mesh = self._mesh
         if mesh is None or mesh.is_empty:
             return None
         candidates: list[tuple[float, float, str, int]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for edge in mesh.edges:
+            if (
+                allowed_element_kinds is not None
+                and edge.element_kind not in allowed_element_kinds
+            ):
+                continue
             if not self._topology_owner_is_selectable(edge.owner_id):
                 continue
             if (
@@ -11506,18 +11596,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return edge[0] if edge is not None else None
 
     def _pick_axis(self, position: QPointF) -> TopologyKey | None:
-        edge = self._pick_edge(position)
-        if edge is None or self._mesh is None:
-            return None
-        return (
-            edge
-            if any(
-                item.owner_id == edge[0]
-                and item.edge_index == edge[1]
-                and item.element_kind in {"axis", "centerline"}
-                for item in self._mesh.edges
-            )
-            else None
+        # Do not call the unrestricted edge picker and filter its result
+        # afterwards.  On a large imported STEP that needlessly projects
+        # every model edge for each mouse-enter/move event.
+        return self._pick_edge(
+            position,
+            allowed_element_kinds=frozenset({"axis", "centerline"}),
         )
 
     @staticmethod
