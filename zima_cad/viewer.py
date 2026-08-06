@@ -6419,8 +6419,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if label:
                 orange = QColor("#FF7A00")
                 painter.setPen(QPen(orange, 2.0))
-                painter.setBrush(QBrush(orange))
-                painter.drawEllipse(preview, 5.0, 5.0)
                 painter.drawText(QPointF(preview.x() + 8.0, preview.y() - 8.0), label)
 
         if self._sketch_pending_points:
@@ -7730,6 +7728,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         position: QPointF,
     ) -> tuple[tuple[tuple[float, float], str | None, str | None], ...]:
         base = self._base_sketch_placement_candidate(position)
+        if (
+            base[1] == "sketch_axis:x||sketch_axis:y"
+            and base[2] == "intersection"
+        ):
+            return (base,)
         points = {
             str(entity.get("id", "")): (
                 float(entity.get("x", 0.0)), float(entity.get("y", 0.0))
@@ -9103,6 +9106,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if constraint is None and self._sketch_pending_points:
                     constraint = self._sketch_inferred_direction_constraint(snapped)
                 return snapped, None, constraint
+        origin_screen = self._screen_point(
+            self._camera_point(self._sketch_world_point((0.0, 0.0)))
+        )
+        if hypot(
+            position.x() - origin_screen.x(),
+            position.y() - origin_screen.y(),
+        ) <= 12.0:
+            return (
+                (0.0, 0.0),
+                "sketch_axis:x||sketch_axis:y",
+                "intersection",
+            )
         if self._sketch_reference_snapping:
             sketch_curve = self._sketch_curve_reference_candidate(position)
             if sketch_curve is not None:

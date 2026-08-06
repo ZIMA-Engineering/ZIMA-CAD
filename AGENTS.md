@@ -40,3 +40,14 @@
   container, never the cached final body. Picking resolves against this input.
   Apply may replace it with a transient preview; OK or Cancel restores normal
   full-history display, selection mode, and highlights.
+
+## File-format compatibility
+
+- Backward compatibility with legacy Part and Assembly files is not required.
+  This includes old `.prt`, `.prtz`, `.asm`, and `.asmz` documents.
+- Do not add migration branches, legacy topology fallbacks, compatibility
+  adapters, or duplicate old/new execution paths for those formats.
+- Prefer the simplest, fastest, and most reliable current data model even when
+  that intentionally makes legacy documents unsupported.
+- When redesigning topology or serialization, remove obsolete compatibility
+  code instead of preserving it behind conditionals.

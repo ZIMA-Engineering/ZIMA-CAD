@@ -3966,6 +3966,8 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             reference_exists_callback=reference_exists_callback,
             reference_kind_callback=reference_kind_callback,
         )
+        self._defer_sketch_rebuild = False
+        self._entering_sketch = False
         self._set_container_type(ContainerType.SKETCH)
         self.length_spin.setVisible(False)
         if self.length_label is not None:
@@ -4053,10 +4055,26 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             )
 
     def _submit_and_enter_sketch(self) -> None:
-        if not self._submit():
-            return
-        self.enterSketchRequested.emit()
-        self.accept()
+        self._defer_sketch_rebuild = True
+        self._entering_sketch = True
+        try:
+            if not self._submit():
+                self._entering_sketch = False
+                return
+            self.enterSketchRequested.emit()
+            self.accept()
+        finally:
+            self._defer_sketch_rebuild = False
+
+    def _submit_and_accept(self) -> None:
+        """Store the sketch definition; closing performs the only rebuild."""
+        self._defer_sketch_rebuild = True
+        try:
+            if not self._submit():
+                return
+            self.accept()
+        finally:
+            self._defer_sketch_rebuild = False
 
     def _update_window_title(self, _name: str | None = None) -> None:
         self.setWindowTitle(
@@ -4354,6 +4372,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self._defer_feature_rebuild = False
         self._commit_deferred_feature = False
         self._provisional_apply_pending = False
+        self._defer_feature_rebuild_for_sketch = False
 
     def _direction_changed(self, _index: int = -1) -> None:
         direction = str(self.protrusion_direction_combo.currentData() or "")
@@ -4506,28 +4525,16 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self._defer_feature_rebuild = False
 
     def _submit_and_accept(self) -> None:
-        """Commit the feature history only when OK is confirmed."""
-        if self.edit_mode and not self._provisional_apply_pending:
-            # OK must be exactly Apply + close. Running the shared Apply path
-            # first also advances the live-preview baseline, so the dialog's
-            # teardown cannot restore the definition that was active when
-            # Properties opened.
-            self._apply()
-            if not self._provisional_apply_pending:
-                return
-        # Live preview may already have copied the edited values into the
-        # feature, making the final submit look unchanged. OK must still
-        # invalidate and rebuild the complete downstream history; otherwise
-        # restoring the rollback boundary can display an older cached solid.
-        self._commit_deferred_feature = (
-            self.edit_mode or self._provisional_apply_pending
-        )
+        """Store the feature; closing Properties performs the only rebuild."""
+        self._commit_deferred_feature = True
+        self._defer_feature_rebuild = True
         try:
             if not self._submit():
                 return
             self._provisional_apply_pending = False
             self.accept()
         finally:
+            self._defer_feature_rebuild = False
             self._commit_deferred_feature = False
 
     def _submit(self) -> bool:
@@ -10046,7 +10053,12 @@ class MainWindow(QMainWindow):
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
-    def _edit_revolve(self, obj: ZimaEntity) -> None:
+    def _edit_revolve(
+        self,
+        obj: ZimaEntity,
+        *,
+        rebuild_rollback: bool = True,
+    ) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
             return
         is_assembly_cut = (
@@ -10109,10 +10121,16 @@ class MainWindow(QMainWindow):
         # enters topology mode and displays/selects only valid source
         # geometry; otherwise clicks remain ordinary object selections and
         # never reach the reference table.
-        self.rebuild_view(fit=False, rebuild_geometry=True)
+        if rebuild_rollback:
+            self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
 
-    def _edit_protrusion(self, obj: ZimaEntity) -> None:
+    def _edit_protrusion(
+        self,
+        obj: ZimaEntity,
+        *,
+        rebuild_rollback: bool = True,
+    ) -> None:
         if self.document is None or self.point_constraint_dialog is not None:
             return
         is_assembly_cut = (
@@ -10165,7 +10183,8 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
-        self.rebuild_view(fit=False, rebuild_geometry=True)
+        if rebuild_rollback:
+            self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
 
     def _connect_feature_direction_preview(
@@ -10591,6 +10610,7 @@ class MainWindow(QMainWindow):
             rotation, diameter: self._update_sketch_object(
                 dialog.point_object, dialog.point_entity, references, fallback,
                 name, show_internal, show_auxiliary, rotation, diameter,
+                defer_rebuild=dialog._defer_sketch_rebuild,
             )
             if dialog.point_object is not None
             and dialog.point_entity is not None
@@ -10781,11 +10801,13 @@ class MainWindow(QMainWindow):
                 preview_shape, _registry = make_fillet_shape(
                     input_shape, preview_registry, references,
                     dialog.size, "__edge_treatment_preview__",
+                    build_result_registry=False,
                 )
             else:
                 preview_shape, _registry = make_chamfer_shape(
                     input_shape, preview_registry, references,
                     dialog.size, "__edge_treatment_preview__",
+                    build_result_registry=False,
                 )
         except (RuntimeError, TypeError, ValueError) as error:
             self.statusBar().showMessage(
@@ -11113,7 +11135,6 @@ class MainWindow(QMainWindow):
             name=tr(command_key),
             kind=feature_kind,
             parameters={
-                "edge_ref": references[0].serialize(),
                 "edge_refs": json.dumps([
                     reference.to_dict() for reference in references
                 ], separators=(",", ":")),
@@ -11221,10 +11242,8 @@ class MainWindow(QMainWindow):
             operation = dialog.operation
             size_key = "radius" if operation == ContainerType.FILLET else "distance"
             previous_parameters = dict(feature.parameters)
-            previous_reference = feature.parameters.get("edge_ref")
             previous_references = feature.parameters.get("edge_refs")
             feature.parameters[size_key] = str(dialog.size)
-            feature.parameters["edge_ref"] = editable_references[0].serialize()
             feature.parameters["edge_refs"] = json.dumps([
                 reference.to_dict() for reference in editable_references
             ], separators=(",", ":"))
@@ -11246,10 +11265,6 @@ class MainWindow(QMainWindow):
                 error = str(feature.parameters["build_status"])
                 feature.parameters.clear()
                 feature.parameters.update(previous_parameters)
-                if previous_reference is None:
-                    feature.parameters.pop("edge_ref", None)
-                else:
-                    feature.parameters["edge_ref"] = previous_reference
                 if previous_references is None:
                     feature.parameters.pop("edge_refs", None)
                 else:
@@ -11401,6 +11416,14 @@ class MainWindow(QMainWindow):
             # properties window has already opened.  It must not clear the
             # new window's edit state.
             return
+        entering_sketch = bool(
+            getattr(finished_dialog, "_entering_sketch", False)
+            or getattr(
+                finished_dialog,
+                "_defer_feature_rebuild_for_sketch",
+                False,
+            )
+        )
         self.point_constraint_dialog = None
         self._pending_assembly_cut_targets = []
         self._point_constraint_cycle_keys = ()
@@ -11410,18 +11433,15 @@ class MainWindow(QMainWindow):
         self._populate_tree()
         if selected_id is not None:
             self._select_tree_object_without_reference_event(selected_id)
-        # Closing Properties restores the full history after its temporary
-        # rollback. Downstream features must be regenerated from the newly
-        # committed definition; reusing the rollback mesh makes values such
-        # as protrusion length appear to revert even though they were stored.
-        if self.document is not None:
-            self.document._shape_history_cache.clear()
-            self.document._topology_history_cache.clear()
-        self._reference_topology_registry_cache.clear()
-        self._cached_model_shapes.clear()
-        self._cached_source_model_shapes.clear()
-        self._cached_source_model_meshes.clear()
-        self._cached_history_boundary = None
+        if entering_sketch:
+            # The queued Sketcher entry only needs the newly stored sketch.
+            # Rebuilding the complete Part between Properties and Sketcher
+            # creates a frame that is immediately discarded again.
+            self.native_viewer.update()
+            return
+        # Closing Properties is the single commit boundary. Shape/topology
+        # history caches are signature-keyed, so unchanged prefixes remain
+        # valid and changed/downstream entries are naturally recomputed.
         self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _create_constrained_point(
@@ -13335,6 +13355,10 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, sketch)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
+        if dialog._defer_sketch_rebuild:
+            self.document.regeneration_required = True
+            self.native_viewer.update()
+            return
         self.rebuild_view(
             fit=False,
             rebuild_geometry=True,
@@ -13361,6 +13385,8 @@ class MainWindow(QMainWindow):
         show_auxiliary,
         rotation,
         diameter,
+        *,
+        defer_rebuild: bool = False,
     ) -> None:
         solution, _dof, _status, _constrained = self._solve_point_constraints(
             references, fallback
@@ -13371,7 +13397,24 @@ class MainWindow(QMainWindow):
             obj, sketch, references, fallback, name, show_internal,
             show_auxiliary, rotation, diameter, solution,
         )
-        self._refresh_object_properties(obj)
+        self.document.regeneration_required = True
+        self._populate_tree()
+        self._select_tree_object_without_reference_event(obj.entity_id)
+        if defer_rebuild:
+            self.native_viewer.update()
+            return
+        # Apply previews only the sketch layer. A sketch definition does not
+        # justify rebuilding dependent solids while Properties stays open.
+        scene = self._native_viewer_scene
+        self.rebuild_view(
+            fit=False,
+            rebuild_geometry=True,
+            cached_body_shape=(
+                scene.shapes_by_owner_id.get(self.document.root.entity_id)
+                if scene is not None else None
+            ),
+            cached_body_mesh=(scene.body_mesh if scene is not None else None),
+        )
 
     def _set_sketch_definition(
         self,
@@ -17887,6 +17930,7 @@ class MainWindow(QMainWindow):
             if owner_id == self.document.root.entity_id
             and self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
+            and self._history_source_cycle_active
             else None
         )
         if source_edge is not None:
@@ -17898,12 +17942,6 @@ class MainWindow(QMainWindow):
             )
             if shape is None:
                 return
-        elif (
-            owner_id == self.document.root.entity_id
-            and self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
-        ):
-            return
         else:
             scene = self._native_viewer_scene
             shape = (
@@ -18756,6 +18794,7 @@ class MainWindow(QMainWindow):
         source_face = (
             self._source_face_reference_for_pick(face_index)
             if owner_id == self.document.root.entity_id
+            and self._history_source_cycle_active
             else None
         )
         if source_face is not None:
@@ -18768,16 +18807,6 @@ class MainWindow(QMainWindow):
             if shape is None:
                 return
         else:
-            if (
-                owner_id == self.document.root.entity_id
-                and self.point_constraint_dialog is not None
-                and self.point_constraint_dialog.isVisible()
-            ):
-                self.statusBar().showMessage(
-                    tr("dialog.point_constraints.unsupported_curved_face"),
-                    3000,
-                )
-                return
             scene = self._native_viewer_scene
             shape = (
                 scene.resolve_topology(owner_id, "face", face_index)
@@ -19092,6 +19121,7 @@ class MainWindow(QMainWindow):
             and owner_id == self.document.root.entity_id
             and self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
+            and self._history_source_cycle_active
         ):
             source_point = self._source_topology_reference_at_cursor("point")
             if source_point is None:
@@ -19828,76 +19858,13 @@ class MainWindow(QMainWindow):
         face_index: int,
     ) -> None:
         self._set_view_hover("face", owner_id, face_index)
-        highlighted: set[tuple[str, int]] = set()
-        if (
-            self.document is not None
-            and owner_id == self.document.root.entity_id
-            and face_index > 0
-        ):
-            registry = self._reference_topology_registry(
-                self.document.history_cursor()
-            )
-            scene = self._native_viewer_scene
-            face = (
-                scene.resolve_topology(owner_id, "face", face_index)
-                if scene is not None
-                else None
-            )
-            references = (
-                registry.references_for_face(face)
-                if registry is not None and face is not None
-                else ()
-            )
-            containers = []
-            for reference in references:
-                feature = self.document.find_entity(reference.feature_id)
-                container = (
-                    feature
-                    if feature is not None
-                    and feature.kind == EntityKind.CONTAINER
-                    else self.document.find_owning_object(feature.entity_id)
-                    if feature is not None
-                    else None
-                )
-                if (
-                    container is not None
-                    and container.container_type in (
-                        ContainerType.FILLET,
-                        ContainerType.CHAMFER,
-                    )
-                ):
-                    containers.append(container)
-            container = max(
-                containers,
-                key=lambda candidate: (
-                    self.document.history_index(candidate.entity_id)
-                    if self.document.history_index(candidate.entity_id)
-                    is not None
-                    else -1
-                ),
-                default=None,
-            )
-            if (
-                container is not None
-                and container.container_type in (
-                    ContainerType.FILLET,
-                    ContainerType.CHAMFER,
-                )
-                and registry is not None
-            ):
-                mesh = scene.mesh if scene is not None else None
-                face_count = (
-                    max(mesh.triangle_face_indices, default=0)
-                    if mesh is not None
-                    else 0
-                )
-                highlighted = self._edge_treatment_boundary_edge_keys(container)
-        self.native_viewer.set_feature_hover_edges(highlighted)
-        if highlighted or self.native_viewer._interaction_mode == "object":
+        # Hover is a renderer-only operation. Stable topology/provenance is
+        # intentionally resolved only after RMB activates candidate cycling
+        # or after the user confirms one visible mesh element.
+        self.native_viewer.set_feature_hover_edges(set())
+        if self.native_viewer._interaction_mode == "object":
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
-                if highlighted:
-                    self.native_viewer._set_hovered_object(None)
                 self.native_viewer._set_hovered_face(None)
             finally:
                 self.native_viewer.blockSignals(signals_were_blocked)
@@ -21310,6 +21277,7 @@ class MainWindow(QMainWindow):
         if not candidates:
             self._view_candidate_cycle_ids = ()
             self._view_candidate_cycle_index = -1
+            self._history_source_cycle_active = False
             self.native_viewer._cycled_topology_candidate = None
             self.native_viewer._clear_topology_hover()
             return
@@ -21324,6 +21292,7 @@ class MainWindow(QMainWindow):
                 self._view_candidate_cycle_index + 1
             ) % len(candidates)
         self._view_candidate_cycle_ids = cycle_ids
+        self._history_source_cycle_active = True
         self.native_viewer.preview_topology_candidate(
             candidates[self._view_candidate_cycle_index]
         )
@@ -24300,6 +24269,7 @@ class MainWindow(QMainWindow):
             rotation, diameter: self._update_sketch_object(
                 obj, sketch, references, fallback, name, show_internal,
                 show_auxiliary, rotation, diameter,
+                defer_rebuild=dialog._defer_sketch_rebuild,
             )
         )
         dialog.enterSketchRequested.connect(
@@ -38903,7 +38873,18 @@ class MainWindow(QMainWindow):
             self._select_tree_object_without_reference_event(
                 return_target.entity_id
             )
-            self.show_object_properties(return_target)
+            if return_target.container_type == ContainerType.PROTRUSION:
+                self._edit_protrusion(
+                    return_target,
+                    rebuild_rollback=False,
+                )
+            elif return_target.container_type == ContainerType.REVOLVE:
+                self._edit_revolve(
+                    return_target,
+                    rebuild_rollback=False,
+                )
+            else:
+                self.show_object_properties(return_target)
 
     def _begin_definition_edit(self, obj: ZimaEntity) -> None:
         self._definition_dialog_depth += 1
@@ -41961,14 +41942,10 @@ class MainWindow(QMainWindow):
             if owner_id == self.document.root.entity_id
         ]
         if not reuse_body_geometry:
+            # Historical source shapes/meshes are selection data, not scene
+            # data. Build them lazily only after RMB requests candidates.
             self._cached_source_model_shapes = []
             self._cached_source_model_meshes.clear()
-            for source in self.document.history_objects_at(history_boundary):
-                source_shape = self.document.build_standalone_shape(source)
-                if source_shape is not None:
-                    self._cached_source_model_shapes.append(
-                        (source_shape, source.entity_id)
-                    )
         self.native_viewer.set_mesh(
             self._native_viewer_scene.mesh,
             fit=fit,

@@ -1215,11 +1215,6 @@ class PartDocument:
                 builder.Add(result_shape, shape)
                 has_shape = True
             return result_shape if has_shape else None
-        # Edge treatments need both the incoming shape and its topology
-        # registry. A treatment used to reconstruct that registry from the beginning of the
-        # history independently for every step, producing triangular work as
-        # blends accumulated.  Prepare all prefix registries in one linear
-        # pass and share them for this shape evaluation.
         history = self.history_objects()
         is_history_prefix = all(
             index < len(history) and obj is history[index]
@@ -1243,79 +1238,28 @@ class PartDocument:
             cached_prefix = index
             result_shape = cached_shape
             _clear_entity_build_status(objects[index - 1])
-        snapshots: dict[int, TopologyRegistry] | None = None
-        edge_features_need_boolean_topology = False
-        for index, candidate in enumerate(objects):
-            if candidate.container_type not in (
-                ContainerType.FILLET,
-                ContainerType.CHAMFER,
+        for index, obj in enumerate(
+            objects[cached_prefix:],
+            cached_prefix,
+        ):
+            result_shape = apply_object_to_shape(
+                result_shape,
+                obj,
+                identity_transform(),
+                document=self,
+            )
+            if (
+                cache_keys
+                and result_shape is not None
+                and not _entity_has_build_status(obj)
             ):
-                continue
-            edge_feature = next((
-                child for child in candidate.children
-                if child.kind in (EntityKind.FILLET, EntityKind.CHAMFER)
-                and not child.locked
-            ), None)
-            edge_references = edge_feature_references(edge_feature)
-            edge_reference = edge_references[0] if edge_references else None
-            source_entity = (
-                self.find_entity(edge_reference.feature_id)
-                if edge_reference is not None
-                else None
+                self._shape_history_cache[cache_keys[index]] = result_shape
+        # Bound memory while retaining recent alternative/undo states.
+        while len(self._shape_history_cache) > 128:
+            self._shape_history_cache.pop(
+                next(iter(self._shape_history_cache))
             )
-            source_owner = (
-                source_entity
-                if source_entity is not None
-                and source_entity.kind == EntityKind.CONTAINER
-                else self.find_owning_object(source_entity.entity_id)
-                if source_entity is not None
-                else None
-            )
-            source_index = (
-                self.history_index(source_owner.entity_id)
-                if source_owner is not None
-                else None
-            )
-            if not (index == 1 and source_index == 0):
-                edge_features_need_boolean_topology = True
-                break
-        if is_history_prefix and edge_features_need_boolean_topology:
-            snapshots = {}
-            boolean_topology_registry_at(
-                self,
-                len(objects),
-                snapshots=snapshots,
-            )
-            self._active_topology_registry_snapshots = snapshots
-        try:
-            for index, obj in enumerate(
-                objects[cached_prefix:],
-                cached_prefix,
-            ):
-                result_shape = apply_object_to_shape(
-                    result_shape,
-                    obj,
-                    identity_transform(),
-                    document=self,
-                )
-                if (
-                    cache_keys
-                    and result_shape is not None
-                    and not _entity_has_build_status(obj)
-                ):
-                    self._shape_history_cache[cache_keys[index]] = result_shape
-            # Bound memory while retaining recent alternative/undo states.
-            while len(self._shape_history_cache) > 128:
-                self._shape_history_cache.pop(
-                    next(iter(self._shape_history_cache))
-                )
-            return result_shape
-        finally:
-            if snapshots is not None:
-                self.__dict__.pop(
-                    "_active_topology_registry_snapshots",
-                    None,
-                )
+        return result_shape
 
     def _shape_history_cache_keys(
         self,
@@ -1587,62 +1531,10 @@ def apply_object_to_shape(
                 feature.parameters["build_status"] = "missing_input"
             return result_shape
         references = edge_feature_references(feature)
-        reference = references[0] if references else None
-        history_index = document.history_index(obj.entity_id)
-        # Do not call ``face_registry_at`` here.  For multi-feature history it
-        # also builds a fresh live shape, whose fillet evaluation recursively
-        # asks for another face registry.  Successive fillets therefore caused
-        # a rapidly growing tree of duplicate OCCT evaluations.  The Boolean
-        # evaluator already returns the required registry in one linear pass;
-        # bind that pass to the result shape currently being built below.
-        snapshots = getattr(
-            document,
-            "_active_topology_registry_snapshots",
-            None,
+        registry = _registry_for_geometric_edge_references(
+            result_shape,
+            references,
         )
-        source_entity = (
-            document.find_entity(reference.feature_id)
-            if reference is not None
-            else None
-        )
-        source_owner = (
-            source_entity
-            if source_entity is not None
-            and source_entity.kind == EntityKind.CONTAINER
-            else document.find_owning_object(source_entity.entity_id)
-            if source_entity is not None
-            else None
-        )
-        source_index = (
-            document.history_index(source_owner.entity_id)
-            if source_owner is not None
-            else None
-        )
-        if history_index == 1 and source_index == 0 and source_owner is not None:
-            registry = standalone_topology_registry(document, source_owner)
-        else:
-            registry = (
-                snapshots.get(history_index, TopologyRegistry())
-                if history_index is not None and snapshots is not None
-                else boolean_topology_registry_at(document, history_index)
-                if history_index is not None
-                else TopologyRegistry()
-            )
-        registry = _rebind_registry_to_shape(registry, result_shape)
-        geometric_feature_ids = {
-            reference.feature_id
-            for reference in references
-            if reference.role == "geometric"
-        }
-        for geometric_feature_id in geometric_feature_ids:
-            # On-demand fallback references are intentionally not added to
-            # every normal topology registry.  Register them only while
-            # evaluating the fillet that actually persisted such a pick.
-            _register_geometric_fallback_edges(
-                registry,
-                result_shape,
-                geometric_feature_id,
-            )
         try:
             size_key = "radius" if is_fillet else "distance"
             size = float(feature.parameters.get(size_key, 1.0))
@@ -1650,11 +1542,21 @@ def apply_object_to_shape(
                 raise ValueError("Edge treatment requires a stable edge reference")
             if is_fillet:
                 result_shape, _registry = make_fillet_shape(
-                    result_shape, registry, references, size, feature.entity_id
+                    result_shape,
+                    registry,
+                    references,
+                    size,
+                    feature.entity_id,
+                    build_result_registry=False,
                 )
             else:
                 result_shape, _registry = make_chamfer_shape(
-                    result_shape, registry, references, size, feature.entity_id
+                    result_shape,
+                    registry,
+                    references,
+                    size,
+                    feature.entity_id,
+                    build_result_registry=False,
                 )
         except (RuntimeError, TypeError, ValueError) as error:
             if not accept_first_shape:
@@ -4156,16 +4058,11 @@ def _unique_subshapes(shape, shape_type: int) -> list[Any]:
     try:
         if shape.IsNull():
             return []
-        explorer = TopExp_Explorer(shape, shape_type)
+        indexed = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(shape, shape_type, indexed)
     except (AttributeError, RuntimeError, TypeError):
         return []
-    result = []
-    while explorer.More():
-        candidate = explorer.Current()
-        if not any(candidate.IsSame(existing) for existing in result):
-            result.append(candidate)
-        explorer.Next()
-    return result
+    return [indexed.FindKey(index) for index in range(1, indexed.Size() + 1)]
 
 
 def _unify_same_domain(shape):
@@ -4475,7 +4372,7 @@ def _propagate_boolean_registry(
 
 
 def edge_feature_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
-    """Read multi-edge treatments and legacy single-edge payloads."""
+    """Read the current multi-edge treatment payload."""
     if feature is None:
         return ()
     raw = feature.parameters.get("edge_refs")
@@ -4492,14 +4389,7 @@ def edge_feature_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
             )
             if references:
                 return tuple(dict.fromkeys(references))
-    legacy = parse_edge_reference(feature.parameters.get("edge_ref"))
-    return (legacy,) if legacy is not None else ()
-
-
-def fillet_edge_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
-    """Backward-compatible Fillet API backed by shared edge references."""
-
-    return edge_feature_references(feature)
+    return ()
 
 
 def make_fillet_shape(
@@ -4508,6 +4398,8 @@ def make_fillet_shape(
     edge_reference: EdgeRef | Iterable[EdgeRef],
     radius: float,
     feature_id: str,
+    *,
+    build_result_registry: bool = True,
 ) -> tuple[Any, TopologyRegistry]:
     """Fillet persistently named edges in one shared OCCT operation."""
 
@@ -4591,6 +4483,9 @@ def make_fillet_shape(
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Fillet did not produce a solid")
 
+    if not build_result_registry:
+        return result_shape, TopologyRegistry()
+
     result_registry = _propagate_boolean_registry(
         builder, result_shape, registry, TopologyRegistry()
     )
@@ -4627,6 +4522,8 @@ def make_chamfer_shape(
     edge_reference: EdgeRef | Iterable[EdgeRef],
     distance: float,
     feature_id: str,
+    *,
+    build_result_registry: bool = True,
 ) -> tuple[Any, TopologyRegistry]:
     """Chamfer persistently named edges in one symmetric OCCT operation."""
 
@@ -4703,6 +4600,9 @@ def make_chamfer_shape(
     )
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Chamfer did not produce a solid")
+
+    if not build_result_registry:
+        return result_shape, TopologyRegistry()
 
     result_registry = _propagate_boolean_registry(
         builder, result_shape, registry, TopologyRegistry()
@@ -5038,6 +4938,49 @@ def geometric_edge_reference(
         reference,
         ordered.index(selected_index) + 1,
     )
+
+
+def _registry_for_geometric_edge_references(
+    shape,
+    references: Iterable[EdgeRef],
+) -> TopologyRegistry:
+    """Resolve only the edge identities consumed by one treatment feature."""
+
+    registry = TopologyRegistry()
+    edges = _unique_subshapes(shape, TopAbs_EDGE)
+    for reference in dict.fromkeys(references):
+        if reference.role != "geometric":
+            continue
+        matching_indices = [
+            index
+            for index, edge in enumerate(edges)
+            if _geometric_edge_reference(
+                edge,
+                reference.feature_id,
+            ).source_id == reference.source_id
+        ]
+        matching_indices.sort(
+            key=lambda index: _topology_fragment_key(
+                edges[index],
+                TopAbs_EDGE,
+            )
+        )
+        if reference.fragment is not None:
+            fragment_index = int(reference.fragment) - 1
+            matching_indices = (
+                [matching_indices[fragment_index]]
+                if 0 <= fragment_index < len(matching_indices)
+                else []
+            )
+        for index in matching_indices:
+            registry.register_edge(
+                reference,
+                edges[index],
+                runtime_index=(index + 1)
+                if len(matching_indices) == 1
+                else None,
+            )
+    return registry
 
 
 def boolean_topology_registry_at(
