@@ -41972,6 +41972,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_mesh(
             self._native_viewer_scene.mesh,
             fit=fit,
+            base_edge_mesh=self._native_viewer_scene.body_mesh,
         )
         self.native_viewer.set_excluded_topology_owners(
             self._definition_reference_excluded_ids()

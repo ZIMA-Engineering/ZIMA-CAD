@@ -560,6 +560,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._background_vao: QOpenGLVertexArrayObject | None = None
         self._surface_vertex_count = 0
         self._uploaded_surface_key: tuple[int, int, int, int] | None = None
+        self._base_edge_cache_key: int | None = None
+        self._base_edge_cache_data = b""
+        self._base_edge_cache_ranges: tuple[tuple[int, int], ...] = ()
+        self._base_edge_cache_vertex_count = 0
+        self._base_edge_mesh: ViewerMesh | None = None
         self._face_ranges: tuple[tuple[str, int, int, int], ...] = ()
         self._owner_ranges: tuple[tuple[str, int, int], ...] = ()
         self._edge_ranges: tuple[tuple[int, int], ...] = ()
@@ -1275,12 +1280,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def point_at(self, position: QPointF) -> TopologyKey | None:
         return self._pick_point(position)
 
-    def set_mesh(self, mesh: ViewerMesh | None, *, fit: bool = True) -> None:
+    def set_mesh(
+        self,
+        mesh: ViewerMesh | None,
+        *,
+        fit: bool = True,
+        base_edge_mesh: ViewerMesh | None = None,
+    ) -> None:
         previous_mesh = self._mesh
         previous_center = self._scene_center
         previous_radius = self._scene_radius
         previous_zoom = self.camera.zoom
         self._mesh = mesh
+        self._base_edge_mesh = base_edge_mesh
         cached_silhouettes = (
             next(
                 (
@@ -3469,8 +3481,37 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     surface_values.extend(
                         mesh.triangle_normals[offset:offset + 3]
                     )
-            edge_vertex_start = 0
-            for edge in mesh.edges:
+            base_edge_mesh = self._base_edge_mesh
+            base_edge_count = (
+                len(base_edge_mesh.edges)
+                if base_edge_mesh is not None
+                and len(base_edge_mesh.edges) <= len(mesh.edges)
+                else 0
+            )
+            base_cache_key = (
+                id(base_edge_mesh.edges) if base_edge_count else None
+            )
+            if base_cache_key != self._base_edge_cache_key:
+                base_values = array("f")
+                base_ranges: list[tuple[int, int]] = []
+                base_vertex_start = 0
+                for edge in (
+                    base_edge_mesh.edges if base_edge_mesh is not None else ()
+                ):
+                    display_points = self._display_edge_points(edge)
+                    for point in display_points:
+                        base_values.extend(point)
+                    base_ranges.append(
+                        (base_vertex_start, len(display_points))
+                    )
+                    base_vertex_start += len(display_points)
+                self._base_edge_cache_key = base_cache_key
+                self._base_edge_cache_data = base_values.tobytes()
+                self._base_edge_cache_ranges = tuple(base_ranges)
+                self._base_edge_cache_vertex_count = base_vertex_start
+            edge_ranges.extend(self._base_edge_cache_ranges)
+            edge_vertex_start = self._base_edge_cache_vertex_count
+            for edge in mesh.edges[base_edge_count:]:
                 display_points = self._display_edge_points(edge)
                 for point in display_points:
                     edge_values.extend(point)
@@ -3478,7 +3519,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     (edge_vertex_start, len(display_points))
                 )
                 edge_vertex_start += len(display_points)
-        edge_data = edge_values.tobytes()
+        edge_data = self._base_edge_cache_data + edge_values.tobytes()
         if surface_changed:
             surface_data = surface_values.tobytes()
             surface_buffer.bind()
