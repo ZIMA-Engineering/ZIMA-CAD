@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from zima_cad.animation import ANIMATION_DURATION_MS
 from zima_cad.viewer_mesh import (
     ViewerMesh,
     X_AXIS_COLOR,
@@ -1153,7 +1154,10 @@ class DrawingCanvas(QWidget):
             "shaded": "shaded",
         }.get(str(view.get("display_style", "no_hidden")), "no_hidden")
 
-    def animate_fit_sheet(self, duration_ms: int = 650) -> None:
+    def animate_fit_sheet(
+        self,
+        duration_ms: int = ANIMATION_DURATION_MS,
+    ) -> None:
         width, height = self.sheet_size()
         margin = 36.0
         target_scale = max(

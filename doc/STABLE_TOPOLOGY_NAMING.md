@@ -230,8 +230,9 @@ the viewer. A `SelectionRequest` declares allowed object/face/edge/point/axis/
 plane kinds, minimum and maximum count, a command validator/resolver and
 completion/cancellation callbacks. The viewer only reports transient picked
 candidates; the resolver converts supported topology to stable references.
-Fillet is the first migrated client and requests one stable `EdgeRef` after
-command activation. Chamfer, Assembly and Sketch reference workflows should be
+Fillet is the first migrated client and requests one or more stable `EdgeRef`
+values after command activation. The complete selection is stored as one
+multi-edge feature with a shared radius. Chamfer, Assembly and Sketch reference workflows should be
 migrated to the same controller instead of adding command-specific pick flags.
 
 ## Operation contract
@@ -319,11 +320,12 @@ correct result.
    Next expand curved-profile, repeated-intersection and general Boolean
    coverage.
 8. Reuse the registry for remaining Part attachments and Drawing associations.
-9. **Fillet subset done:** a single selected stable edge is stored in Part
-   history, its radius is editable, ancestry is propagated, the generated face
-   is named and all result edges receive stable incidence-derived identities
-   for following features. Next add multi-edge selection and apply the same
-   contract to Chamfer.
+9. **Fillet subset done:** one or more selected stable edges are stored in one
+   Part-history feature with a shared editable radius. Ancestry is propagated,
+   generated faces are named and result edges receive stable incidence-derived
+   identities for following features. Creation and editing share one properties
+   dialog and staged Apply/OK calculation. Next apply the same topology contract
+   to Chamfer.
 10. Consider legacy numerical-reference migration only if it becomes a product
     requirement; current development intentionally requires recreation.
 

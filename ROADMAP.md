@@ -140,11 +140,11 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 7. Advanced Part Modeling
 
-**Status: Initial Fillet implemented; remaining features planned**
+**Status: Multi-edge Fillet implemented; remaining features planned**
 
-- single-edge history Fillet selected after command activation, stored through
-  a stable semantic edge reference and preserving the last valid body on error
-- multi-edge fillets and chamfers
+- multi-edge history Fillet with one shared radius, stable semantic edge
+  references, unified creation/editing properties and last-valid-body recovery
+- chamfers
 - shell and thickness
 - holes and threads
 - mirrors and patterns

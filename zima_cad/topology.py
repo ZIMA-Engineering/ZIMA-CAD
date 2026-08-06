@@ -327,6 +327,16 @@ class TopologyRegistry:
     def reference_for_runtime_index(self, index: int) -> FaceRef | None:
         return self._refs_by_runtime_index.get(int(index))
 
+    def references_for_face(self, face: Any) -> tuple[FaceRef, ...]:
+        """Return every historical identity carried by one runtime face."""
+
+        references = {
+            reference
+            for reference, candidates in self._faces_by_ref.items()
+            if any(face.IsSame(candidate) for candidate in candidates)
+        }
+        return tuple(sorted(references, key=self._reference_sort_key))
+
     def runtime_index_for_reference(self, reference: FaceRef) -> int | None:
         indices = self._runtime_indices_by_ref.get(reference, ())
         return indices[0] if len(indices) == 1 else None

@@ -44,6 +44,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from OCC.Core.gp import gp_Pnt
 
+from zima_cad.animation import ANIMATION_DURATION_MS
 from zima_cad.sketch_geometry import (
     arc_cardinal_keypoints,
     center_arc_points,
@@ -570,8 +571,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._gpu_ready = False
         self._hovered_edge: TopologyKey | None = None
         self._selected_edge: TopologyKey | None = None
+        self._fillet_selection_edges: frozenset[TopologyKey] = frozenset()
         self._hovered_face: TopologyKey | None = None
         self._selected_face: TopologyKey | None = None
+        self._feature_hover_edges: frozenset[TopologyKey] = frozenset()
+        self._feature_selected_edges: frozenset[TopologyKey] = frozenset()
         self._hovered_point: TopologyKey | None = None
         self._selected_point: TopologyKey | None = None
         self._hovered_plane: TopologyKey | None = None
@@ -895,7 +899,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self,
         view_name: str,
         *,
-        duration_ms: int = 650,
+        duration_ms: int = ANIMATION_DURATION_MS,
         fit: bool = False,
     ) -> None:
         if view_name not in STANDARD_VIEW_ORIENTATIONS:
@@ -945,7 +949,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self,
         target: CameraState,
         *,
-        duration_ms: int = 650,
+        duration_ms: int = ANIMATION_DURATION_MS,
     ) -> None:
         """Animate all persisted camera properties to a named view."""
         self._stop_camera_animation()
@@ -1006,7 +1010,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         center_point: Point3 | None = None,
         *,
         roll_degrees: float = 0.0,
-        duration_ms: int = 1000,
+        duration_ms: int = ANIMATION_DURATION_MS,
     ) -> None:
         nx, ny, nz = normal
         length = sqrt(nx * nx + ny * ny + nz * nz)
@@ -1807,6 +1811,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # again immediately after it ends.
         if self._navigation_active:
             self._paint_screen_constant_edges()
+            # Feature-boundary selection is persistent model state, not a
+            # disposable hover decoration. Reproject it for every navigation
+            # frame so a selected fillet stays blue while the camera rotates.
+            self._paint_reference_highlights()
             # Dimension geometry is spatial context and must follow the
             # camera continuously in Part, Assembly and Sketch alike.  The
             # editable text widgets are positioned separately; omitting the
@@ -1838,15 +1846,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _paint_face_highlight_outlines(self) -> None:
         mesh = self._mesh
-        if not self._outline_face_highlights or mesh is None:
+        if (
+            mesh is None
+            or not self._outline_face_highlights
+        ):
             return
         highlights = [
             (
-                self._hovered_face,
+                None
+                if self._feature_hover_edges
+                else self._hovered_face,
                 QColor.fromRgbF(1.0, 0.48, 0.0),
             ),
             (
-                self._selected_face,
+                None
+                if self._feature_selected_edges
+                else self._selected_face,
                 QColor.fromRgbF(0.0, 0.82, 1.0),
             ),
         ]
@@ -2909,9 +2924,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             elif axis is not None:
                 self._set_hovered_edge(axis)
             else:
+                face = self._pick_face(event.position())
                 self._set_hovered_object(
-                    self._pick_object(event.position())
+                    face[0] if face is not None
+                    else self._pick_object(event.position())
                 )
+                # Emit the face last. The application can then replace the
+                # whole-object hover with a feature-boundary highlight.
+                self._set_hovered_face(face)
             super().mouseMoveEvent(event)
             return
         point = self._pick_point(event.position())
@@ -3043,6 +3063,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and not self._middle_dragged
                 and not self._middle_chorded
             )
+            dismiss_view_selection = (
+                self._sketch_frame is None
+                and not self._middle_dragged
+                and not self._middle_chorded
+            )
             self._last_mouse_position = None
             self._middle_press_position = None
             self._middle_dragged = False
@@ -3085,6 +3110,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._sketch_cycle_ids = ()
                 self._sketch_cycle_index = -1
                 self.update()
+            elif dismiss_view_selection:
+                self.dimensionsDismissRequested.emit()
+                self._clear_topology_selection()
+                # Keep a plain middle click consistent with an empty-space
+                # click and a middle double-click. A dragged middle gesture
+                # is navigation only and deliberately preserves selection.
+                self.selectedObjectChanged.emit("")
             event.accept()
             return
         if (
@@ -3259,6 +3291,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self.sketchFinishCurrentRequested.emit()
             else:
                 self.dimensionsDismissRequested.emit()
+                self._clear_topology_selection()
+                # A tree selection need not be mirrored in the viewport, so
+                # explicitly notify the application even when the viewer was
+                # already internally empty.
+                self.selectedObjectChanged.emit("")
             self._last_mouse_position = None
             event.accept()
             return
@@ -10811,6 +10848,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
             if (
                 key == self._selected_edge
+                or key in self._fillet_selection_edges
+                or key in self._feature_selected_edges
                 or key in self._constraint_reference_edges
                 or key in self._assembly_reference_edges
                 or edge.owner_id in {
@@ -10820,6 +10859,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 or edge.owner_id in self._selected_container_content_ids
             ):
                 color = QColor.fromRgbF(0.0, 0.82, 1.0)
+            if (
+                key in self._feature_hover_edges
+                and key not in self._feature_selected_edges
+            ):
+                color = QColor.fromRgbF(1.0, 0.48, 0.0)
             if color is None or edge.element_kind not in {
                 "axis",
                 "centerline",
@@ -10827,7 +10871,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "sketch",
             }:
                 continue
-            if not edge_visible_in_display(edge, self._display_mode):
+            if (
+                not edge_visible_in_display(edge, self._display_mode)
+                and key not in self._fillet_selection_edges
+                and key not in self._feature_hover_edges
+                and key not in self._feature_selected_edges
+            ):
                 continue
             painter.setPen(
                 self._datum_centerline_pen(color, 3.0)
@@ -10961,7 +11010,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
                 candidates.append(("point", marker.owner_id, marker.point_index))
         for edge in mesh.edges:
-            if not edge_visible_in_display(edge, self._display_mode):
+            if (
+                not edge_visible_in_display(edge, self._display_mode)
+                and not (
+                    self._selection_filter == "edge"
+                    and edge.element_kind == "edge"
+                    and edge.topology_role not in {"seam", "periodic_tangent"}
+                )
+            ):
                 continue
             projected = [
                 self._screen_point(self._camera_point(point))
@@ -11272,7 +11328,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for edge in mesh.edges:
             if not self._topology_owner_is_selectable(edge.owner_id):
                 continue
-            if not edge_visible_in_display(edge, self._display_mode):
+            if (
+                not edge_visible_in_display(edge, self._display_mode)
+                and not (
+                    self._selection_filter == "edge"
+                    and edge.element_kind == "edge"
+                    and edge.topology_role not in {"seam", "periodic_tangent"}
+                )
+            ):
                 continue
             if self._selection_filter == "axis":
                 if edge.element_kind not in {"axis", "centerline"}:
@@ -11481,6 +11544,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.selectedEdgeChanged.emit(*(edge or ("", 0)))
         self.update()
 
+    def set_fillet_selection_edges(
+        self,
+        edges: set[TopologyKey] | frozenset[TopologyKey],
+    ) -> None:
+        selected = frozenset(edges)
+        if selected == self._fillet_selection_edges:
+            return
+        self._fillet_selection_edges = selected
+        self.update()
+
     def _set_hovered_face(self, face: TopologyKey | None) -> None:
         if face == self._hovered_face:
             return
@@ -11493,6 +11566,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         self._selected_face = face
         self.selectedFaceChanged.emit(*(face or ("", 0)))
+        self.update()
+
+    def set_feature_hover_edges(
+        self,
+        edges: set[TopologyKey] | frozenset[TopologyKey],
+    ) -> None:
+        selected = frozenset(edges)
+        if selected == self._feature_hover_edges:
+            return
+        self._feature_hover_edges = selected
+        self.update()
+
+    def set_feature_selected_edges(
+        self,
+        edges: set[TopologyKey] | frozenset[TopologyKey],
+    ) -> None:
+        selected = frozenset(edges)
+        if selected == self._feature_selected_edges:
+            return
+        self._feature_selected_edges = selected
         self.update()
 
     def _set_hovered_point(self, point: TopologyKey | None) -> None:

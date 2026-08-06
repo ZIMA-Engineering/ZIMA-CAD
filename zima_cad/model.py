@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from uuid import uuid4
 
 from OCC.Core.BRepAlgoAPI import (
@@ -37,6 +37,7 @@ from OCC.Core.GeomAbs import (
 )
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
@@ -81,6 +82,8 @@ from zima_cad.topology import (
     FaceRef,
     parse_edge_reference,
     TopologyRegistry,
+    TopologyResolution,
+    TopologyResolutionState,
     VertexRef,
     semantic_provenance_id,
 )
@@ -1241,11 +1244,8 @@ class PartDocument:
                 child for child in candidate.children
                 if child.kind == EntityKind.FILLET and not child.locked
             ), None)
-            fillet_reference = (
-                parse_edge_reference(fillet_feature.parameters.get("edge_ref"))
-                if fillet_feature is not None
-                else None
-            )
+            fillet_references = fillet_edge_references(fillet_feature)
+            fillet_reference = fillet_references[0] if fillet_references else None
             source_entity = (
                 self.find_entity(fillet_reference.feature_id)
                 if fillet_reference is not None
@@ -1569,7 +1569,8 @@ def apply_object_to_shape(
             if feature is not None and not accept_first_shape:
                 feature.parameters["build_status"] = "missing_input"
             return result_shape
-        reference = parse_edge_reference(feature.parameters.get("edge_ref"))
+        references = fillet_edge_references(feature)
+        reference = references[0] if references else None
         history_index = document.history_index(obj.entity_id)
         # Do not call ``face_registry_at`` here.  For multi-feature history it
         # also builds a fresh live shape, whose fillet evaluation recursively
@@ -1611,23 +1612,28 @@ def apply_object_to_shape(
                 else TopologyRegistry()
             )
         registry = _rebind_registry_to_shape(registry, result_shape)
-        if reference is not None and reference.role == "geometric":
+        geometric_feature_ids = {
+            reference.feature_id
+            for reference in references
+            if reference.role == "geometric"
+        }
+        for geometric_feature_id in geometric_feature_ids:
             # On-demand fallback references are intentionally not added to
             # every normal topology registry.  Register them only while
             # evaluating the fillet that actually persisted such a pick.
             _register_geometric_fallback_edges(
                 registry,
                 result_shape,
-                reference.feature_id,
+                geometric_feature_id,
             )
         try:
             radius = float(feature.parameters.get("radius", 1.0))
-            if reference is None:
+            if not references:
                 raise ValueError("Fillet requires a stable edge reference")
             result_shape, _registry = make_fillet_shape(
                 result_shape,
                 registry,
-                reference,
+                references,
                 radius,
                 feature.entity_id,
             )
@@ -1752,6 +1758,7 @@ def apply_object_to_shape(
                     fused_candidate = BRepAlgoAPI_Fuse(
                         components[index], merged
                     ).Shape()
+                    fused_candidate = _unify_same_domain(fused_candidate)
                     if solid_count(fused_candidate) == 1:
                         merged = unique_solids(fused_candidate)[0]
                         components.pop(index)
@@ -4142,6 +4149,21 @@ def _unique_subshapes(shape, shape_type: int) -> list[Any]:
     return result
 
 
+def _unify_same_domain(shape):
+    """Remove redundant seams left between coplanar/cotangent fuse faces."""
+    if shape is None:
+        return shape
+    try:
+        unifier = ShapeUpgrade_UnifySameDomain(shape, True, True, False)
+        unifier.Build()
+        unified = unifier.Shape()
+        if unified is not None and not unified.IsNull():
+            return unified
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        pass
+    return shape
+
+
 def _rebind_registry_to_shape(
     registry: TopologyRegistry,
     shape,
@@ -4189,9 +4211,60 @@ def _rebind_registry_to_shape(
                     _topology_rebind_key(source_shape, shape_type), ()
                 )
             }
+            if (
+                shape_type == TopAbs_FACE
+                and isinstance(reference, FaceRef)
+                and reference.role == "generated"
+            ):
+                # A later additive feature can trim a cylindrical fillet.
+                # UnifySameDomain then changes its area and centre of mass,
+                # although the underlying analytic cylinder is unchanged.
+                # Preserve ancestry only on that exact cylinder; applying
+                # this fallback to planes could select unrelated coplanar
+                # faces and make the whole Body appear selected.
+                source_surfaces = {
+                    signature
+                    for source_shape in source_shapes
+                    if (
+                        signature := _cylindrical_face_signature(source_shape)
+                    ) is not None
+                }
+                if source_surfaces:
+                    matching_indices.update(
+                        index
+                        for index, final_shape in enumerate(final_shapes, 1)
+                        if _cylindrical_face_signature(final_shape)
+                        in source_surfaces
+                    )
             for index in sorted(matching_indices):
                 register(reference, final_shapes[index - 1], runtime_index=index)
     return rebound
+
+
+def _cylindrical_face_signature(face) -> tuple[float, ...] | None:
+    """Identify an unbounded cylinder independently of face trimming."""
+
+    try:
+        adaptor = BRepAdaptor_Surface(face)
+        if adaptor.GetType() != GeomAbs_Cylinder:
+            return None
+        cylinder = adaptor.Cylinder()
+        axis = cylinder.Axis()
+        location = axis.Location()
+        direction = axis.Direction()
+        vector = (direction.X(), direction.Y(), direction.Z())
+        for component in vector:
+            if abs(component) > 1.0e-12:
+                if component < 0.0:
+                    vector = tuple(-value for value in vector)
+                break
+        return tuple(round(float(value), 7) for value in (
+            location.X(), location.Y(), location.Z(),
+            *vector,
+            cylinder.Radius(),
+        ))
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return None
 
 
 def _topology_rebind_key(shape, shape_type: int) -> tuple[Any, ...]:
@@ -4382,31 +4455,88 @@ def _propagate_boolean_registry(
     return result
 
 
+def fillet_edge_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
+    """Read new multi-edge fillets and legacy single-edge documents."""
+    if feature is None:
+        return ()
+    raw = feature.parameters.get("edge_refs")
+    if raw is not None:
+        try:
+            values = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if isinstance(values, list):
+            references = tuple(
+                reference
+                for value in values
+                if (reference := parse_edge_reference(value)) is not None
+            )
+            if references:
+                return tuple(dict.fromkeys(references))
+    legacy = parse_edge_reference(feature.parameters.get("edge_ref"))
+    return (legacy,) if legacy is not None else ()
+
+
 def make_fillet_shape(
     shape,
     registry: TopologyRegistry,
-    edge_reference: EdgeRef,
+    edge_reference: EdgeRef | Iterable[EdgeRef],
     radius: float,
     feature_id: str,
 ) -> tuple[Any, TopologyRegistry]:
-    """Fillet one persistently named edge and propagate its topology."""
+    """Fillet persistently named edges in one shared OCCT operation."""
 
     if shape is None:
         raise ValueError("Fillet requires an input shape")
     if radius <= 0.0 or not math.isfinite(radius):
         raise ValueError("Fillet radius must be a positive finite number")
-    resolution = registry.resolve_edge(edge_reference)
-    if resolution.state.value != "resolved" or resolution.shape is None:
-        raise ValueError(
-            f"Fillet edge is {resolution.state.value}: "
-            f"{edge_reference.serialize()}"
-        )
+    edge_references = (
+        (edge_reference,)
+        if isinstance(edge_reference, EdgeRef)
+        else tuple(dict.fromkeys(edge_reference))
+    )
+    if not edge_references:
+        raise ValueError("Fillet requires at least one edge")
+    resolutions = []
+    for reference in edge_references:
+        resolution = registry.resolve_edge(reference)
+        if (
+            reference.role == "geometric"
+            and resolution.state.value == "ambiguous"
+            and resolution.candidates
+        ):
+            # A Boolean result can contain two distinct OCCT edge objects on
+            # the same exact geometric curve. The viewport exposes only one
+            # visible curve, so a geometry fallback legitimately resolves to
+            # both. Choose deterministically; semantic references remain
+            # strict and still reject every ambiguity.
+            candidates = sorted(
+                resolution.candidates,
+                key=lambda candidate: _topology_fragment_key(
+                    candidate,
+                    TopAbs_EDGE,
+                ),
+            )
+            resolution = TopologyResolution(
+                TopologyResolutionState.RESOLVED,
+                shape=candidates[0],
+                candidates=tuple(candidates),
+            )
+        if resolution.state.value != "resolved" or resolution.shape is None:
+            raise ValueError(
+                f"Fillet edge is {resolution.state.value}: "
+                f"{reference.serialize()}"
+            )
+        resolutions.append(resolution)
     input_solids = _unique_subshapes(shape, TopAbs_SOLID)
     owning_solids = []
     for solid in input_solids:
         explorer = TopExp_Explorer(solid, TopAbs_EDGE)
         while explorer.More():
-            if resolution.shape.IsSame(explorer.Current()):
+            if any(
+                resolution.shape.IsSame(explorer.Current())
+                for resolution in resolutions
+            ):
                 owning_solids.append(solid)
                 break
             explorer.Next()
@@ -4416,7 +4546,8 @@ def make_fillet_shape(
         else shape
     )
     builder = BRepFilletAPI_MakeFillet(fillet_input)
-    builder.Add(float(radius), resolution.shape)
+    for resolution in resolutions:
+        builder.Add(float(radius), resolution.shape)
     builder.Build()
     if not builder.IsDone():
         raise ValueError("Fillet could not be built with the requested radius")
@@ -4441,6 +4572,7 @@ def make_fillet_shape(
     final_faces = _unique_subshapes(result_shape, TopAbs_FACE)
     generated_indices = {
         index
+        for resolution in resolutions
         for generated in _boolean_history_shapes(builder, resolution.shape)
         for index, candidate in enumerate(final_faces)
         if generated.ShapeType() == TopAbs_FACE and generated.IsSame(candidate)
@@ -4448,7 +4580,7 @@ def make_fillet_shape(
     generated_reference = FaceRef(
         feature_id,
         "generated",
-        semantic_provenance_id(edge_reference),
+        semantic_provenance_id(*edge_references),
     )
     _register_derived_references(
         result_registry,
@@ -4749,7 +4881,25 @@ def geometric_edge_reference(
     edges = _unique_subshapes(shape, TopAbs_EDGE)
     if edge_index <= 0 or edge_index > len(edges):
         return None
-    return _geometric_edge_reference(edges[edge_index - 1], feature_id)
+    selected_index = edge_index - 1
+    reference = _geometric_edge_reference(edges[selected_index], feature_id)
+    matching_indices = [
+        index
+        for index, edge in enumerate(edges)
+        if _geometric_edge_reference(edge, feature_id) == reference
+    ]
+    if len(matching_indices) <= 1:
+        return reference
+    ordered = sorted(
+        matching_indices,
+        key=lambda index: _topology_fragment_key(
+            edges[index], TopAbs_EDGE
+        ),
+    )
+    return _reference_with_fragment(
+        reference,
+        ordered.index(selected_index) + 1,
+    )
 
 
 def boolean_topology_registry_at(
@@ -4772,23 +4922,25 @@ def boolean_topology_registry_at(
                 child for child in container.children
                 if child.kind == EntityKind.FILLET and not child.locked
             ), None)
-            reference = (
-                parse_edge_reference(feature.parameters.get("edge_ref"))
-                if feature is not None else None
-            )
-            if result_shape is None or feature is None or reference is None:
+            references = fillet_edge_references(feature)
+            if result_shape is None or feature is None or not references:
                 continue
             try:
-                if reference.role == "geometric":
+                geometric_feature_ids = {
+                    reference.feature_id
+                    for reference in references
+                    if reference.role == "geometric"
+                }
+                for geometric_feature_id in geometric_feature_ids:
                     _register_geometric_fallback_edges(
                         result_registry,
                         result_shape,
-                        reference.feature_id,
+                        geometric_feature_id,
                     )
                 result_shape, result_registry = make_fillet_shape(
                     result_shape,
                     result_registry,
-                    reference,
+                    references,
                     float(feature.parameters.get("radius", 1.0)),
                     feature.entity_id,
                 )
@@ -4836,6 +4988,14 @@ def boolean_topology_registry_at(
             result_registry,
             _container_boolean_feature_id(container),
         )
+        if operation == CombineMode.ADD:
+            unified = _unify_same_domain(combined)
+            if unified is not combined:
+                result_registry = _rebind_registry_to_shape(
+                    result_registry,
+                    unified,
+                )
+                combined = unified
         result_shape = combined
     if snapshots is not None:
         snapshots[cursor] = result_registry

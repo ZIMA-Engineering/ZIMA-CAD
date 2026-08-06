@@ -166,6 +166,34 @@ zůstává azurový také při změně směru, délky nebo úhlu, jednostrannéh
 oboustranného či symetrického rozsahu a operace. Teprve **OK** zavře dialog a
 provede skutečný booleovský výpočet výsledného tělesa.
 
+### Rollback při editaci kontejneru
+
+Otevření **Vlastností** libovolného kontejneru v historii dočasně vrátí model
+těsně před tento kontejner. Nejde jen o Zaoblení: stejné pravidlo platí pro
+všechny editovatelné kontejnery. Ve 3D pohledu proto není výsledek upravovaného
+kontejneru ani výsledky pozdějších operací. Zobrazuje a vybírá se skutečná
+vstupní geometrie daného kroku, nikoliv finální těleso z cache.
+
+Upravovaný kontejner ze stromu nezmizí. Zůstává na svém místě, je zeleně
+označený jako právě editovaný a za ním je značka **Vložit zde**. Následující
+kontejnery jsou po dobu úpravy viditelně potlačené:
+
+```text
+Těleso → předchozí kontejnery → zelený editovaný kontejner
+        → Vložit zde → potlačené následující kontejnery
+```
+
+**Použít** přepočítá tentýž kontejner, zobrazí jeho dočasný náhled a ponechá
+rollback i okno aktivní. Nevytváří kopii kontejneru a opakovaný náhled se vždy
+počítá ze stejné vstupní geometrie, nikoliv z předchozího náhledu. Výběrové
+zvýraznění zůstává při otáčení pohledu zachované.
+
+**OK** zahrnuje použití změn, ukončí editaci, vrátí **Vložit zde** na konec
+stromu a znovu vyhodnotí následující operace. **Zrušit** obnoví stav před
+otevřením nebo stav posledního úspěšného použití. V obou případech view odstraní
+dočasný náhled, editační kóty a pomocná zvýraznění, obnoví běžný režim výběru a
+zobrazí celé výsledné těleso. Natočení a přiblížení kamery se přitom nemění.
+
 ### Operace solidu
 
 V horní části Vlastností solidu je výrazný přepínač operace:
@@ -183,15 +211,32 @@ lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
 
 ### Zaoblení hrany
 
-Spusťte **Zaoblení** a potom ukažte podporovanou hranu výsledného tělesa ve
-3D pohledu. Zadejte kladný poloměr. Nový prvek se vloží do historie a hranu
-uchovává její stabilní sémantickou referencí, nikoliv pořadovým číslem
-geometrického jádra. Poloměr lze později změnit dvojklikem nebo přes
-**Vlastnosti** prvku. Neproveditelná hodnota zachová poslední platnou geometrii.
+Příkaz **Zaoblení** rovnou otevře jediné okno **Vlastnosti zaoblení**, které se
+používá také při pozdější editaci. Ve 3D pohledu zvolte jednu nebo více
+podporovaných hran. `Ctrl` přidává a odebírá hrany ze společného výběru; hranu
+lze odebrat také ze seznamu v okně. Všechny uvedené hrany používají jeden
+společný poloměr.
 
-První podporovaný rozsah je jedna stabilně pojmenovaná hrana Boxu/Wedge nebo
-hrana, jejíž identita byla zachována podporovanou historií. Výběr více hran a
-Chamfer budou doplněny v dalším kroku.
+**Použít** spočítá dočasný náhled a nechá okno otevřené. Náhled nevytváří další
+kontejner a každé další použití se znovu počítá z původního ostrého tělesa.
+**OK** provede stejnou kontrolu, vloží právě jeden prvek Zaoblení do historie a
+okno zavře. Krátký klik prostředním tlačítkem odpovídá **Použít**, dvojklik
+prostředním tlačítkem odpovídá **OK**; tažení prostředním tlačítkem pouze otáčí
+pohled.
+
+Při editaci se historie dočasně vrátí těsně před upravované Zaoblení, takže je
+ve view dostupná původní ostrá hrana. Upravovaný kontejner zůstává ve stromu
+viditelný a je označen zeleně, zatímco následující prvky jsou po dobu úpravy
+potlačené. **Použít** upraví existující prvek bez založení kopie a **OK** změnu
+potvrdí a vrátí vyhodnocení na konec historie.
+
+Vybrané zaoblení se ve view zvýrazňuje pouze svými hraničními hranami, nikoliv
+celou plochou nebo celým dílem. Dvojklik levým tlačítkem zobrazí editovatelnou
+kótu poloměru. Okno vlastností se otevírá přes **Vlastnosti** v kontextovém
+menu vybraného prvku. Hrany se ukládají stabilními sémantickými referencemi,
+nikoliv pořadovými čísly geometrického jádra. Neproveditelný poloměr nebo
+nekompatibilní kombinace hran zachová poslední platné těleso a okno zůstane
+otevřené.
 
 ## Režim skici
 

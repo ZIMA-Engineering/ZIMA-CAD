@@ -61,6 +61,15 @@ direction in Part, Assembly and Drawing: forward zooms out and backward zooms
 in. Protrusion and Revolve use a staged workflow: Apply keeps the properties
 open and shows a cyan standalone feature preview without a Boolean operation;
 OK performs the final Fuse/Cut and closes the properties.
+Fillet uses the same single properties window for creation and editing. It
+supports a shared radius over multiple stable edge references; Apply previews
+without inserting a history feature and OK commits exactly one feature. The
+detailed implementation contract is documented in
+[doc/FILLET_WORKFLOW.md](doc/FILLET_WORKFLOW.md).
+Editing any Part history container follows the common rollback, tree, and view
+contract in [doc/HISTORY_EDITING.md](doc/HISTORY_EDITING.md): the view is
+evaluated before the edited container, that container stays visible and green,
+and later history remains temporarily suppressed until editing ends.
 
 Part containers use one shared placement model: up to three positional
 references determine the local origin, two optional orientation slots map

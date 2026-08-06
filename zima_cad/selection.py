@@ -74,7 +74,7 @@ class SelectionUpdate:
 class SelectionController:
     request: SelectionRequest | None = None
     _values: list[Any] = field(default_factory=list)
-    _candidate_keys: set[tuple[str, str, int]] = field(default_factory=set)
+    _candidate_keys: list[tuple[str, str, int]] = field(default_factory=list)
 
     @property
     def active(self) -> bool:
@@ -87,6 +87,10 @@ class SelectionController:
     @property
     def values(self) -> tuple[Any, ...]:
         return tuple(self._values)
+
+    @property
+    def candidate_keys(self) -> tuple[tuple[str, str, int], ...]:
+        return tuple(self._candidate_keys)
 
     def begin(self, request: SelectionRequest) -> None:
         self.cancel()
@@ -102,6 +106,47 @@ class SelectionController:
         if request is not None and request.on_cancel is not None:
             request.on_cancel()
         return request is not None
+
+    def toggle(self, candidate: SelectionCandidate) -> SelectionUpdate:
+        """Toggle one resolved candidate without completing the request."""
+        request = self.request
+        if request is None:
+            return SelectionUpdate(consumed=False)
+        if candidate.kind not in request.allowed_kinds:
+            return SelectionUpdate(consumed=True, message=request.wrong_kind_message)
+        if candidate.key in self._candidate_keys:
+            index = self._candidate_keys.index(candidate.key)
+            self._candidate_keys.remove(candidate.key)
+            self._values.pop(index)
+            return SelectionUpdate(consumed=True, accepted=True, message=request.prompt)
+        resolution = request.resolver(candidate)
+        if not resolution.accepted:
+            return SelectionUpdate(
+                consumed=True,
+                message=resolution.error or request.prompt,
+            )
+        self._candidate_keys.append(candidate.key)
+        self._values.append(resolution.value)
+        return SelectionUpdate(consumed=True, accepted=True, message=request.prompt)
+
+    def complete(self) -> bool:
+        request = self.request
+        if request is None or len(self._values) < request.minimum_count:
+            return False
+        values = tuple(self._values)
+        self.request = None
+        self._values.clear()
+        self._candidate_keys.clear()
+        request.on_complete(values)
+        return True
+
+    def remove_key(self, key: tuple[str, str, int]) -> bool:
+        if key not in self._candidate_keys:
+            return False
+        index = self._candidate_keys.index(key)
+        self._candidate_keys.pop(index)
+        self._values.pop(index)
+        return True
 
     def submit(self, candidate: SelectionCandidate) -> SelectionUpdate:
         request = self.request
@@ -120,7 +165,7 @@ class SelectionController:
                 consumed=True,
                 message=resolution.error or request.prompt,
             )
-        self._candidate_keys.add(candidate.key)
+        self._candidate_keys.append(candidate.key)
         self._values.append(resolution.value)
         completed = len(self._values) >= request.maximum_count
         if completed:

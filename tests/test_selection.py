@@ -46,6 +46,23 @@ class SelectionControllerTests(unittest.TestCase):
         self.assertFalse(controller.active)
         self.assertEqual(completed, [("edge:3",)])
 
+    def test_selected_candidate_can_be_removed_by_key(self) -> None:
+        controller = SelectionController()
+        controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(candidate.element_index),
+            on_complete=lambda _values: None,
+            maximum_count=10,
+        ))
+        candidate = SelectionCandidate(SelectionKind.EDGE, "body", 4)
+        controller.toggle(candidate)
+
+        self.assertTrue(controller.remove_key(candidate.key))
+        self.assertEqual(controller.values, ())
+        self.assertEqual(controller.candidate_keys, ())
+        self.assertFalse(controller.remove_key(candidate.key))
+
     def test_multi_selection_rejects_duplicates_and_can_cancel(self) -> None:
         cancelled = []
         completed = []
@@ -64,6 +81,32 @@ class SelectionControllerTests(unittest.TestCase):
         self.assertTrue(controller.cancel())
         self.assertEqual(cancelled, [True])
         self.assertEqual(completed, [])
+
+    def test_multi_selection_can_toggle_and_complete_explicitly(self) -> None:
+        completed = []
+        controller = SelectionController()
+        controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(candidate.element_index),
+            on_complete=completed.append,
+            maximum_count=10,
+        ))
+        first = SelectionCandidate(SelectionKind.EDGE, "result", 2)
+        second = SelectionCandidate(SelectionKind.EDGE, "result", 7)
+
+        controller.toggle(first)
+        controller.toggle(second)
+        controller.toggle(first)
+
+        self.assertEqual(controller.values, (7,))
+        self.assertEqual(
+            controller.candidate_keys,
+            ((SelectionKind.EDGE.value, "result", 7),),
+        )
+        self.assertTrue(controller.complete())
+        self.assertEqual(completed, [(7,)])
+        self.assertFalse(controller.active)
 
 
 if __name__ == "__main__":

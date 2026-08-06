@@ -207,20 +207,31 @@ def triangulate_shape(
         )
 
     edges: list[EdgePolyline] = []
-    seen_edge_hashes: set[int] = set()
+    # Use OCCT identity, just like the topology registry. Python hashes can
+    # collide and used to shift displayed indices on complex curved bodies.
+    unique_edges: list[Any] = []
     faces: list[Any] = []
-    edge_faces: dict[int, list[Any]] = {}
+    edge_faces: list[list[Any]] = []
     face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while face_explorer.More():
         face = face_explorer.Current()
         faces.append(face)
         face_edge_explorer = TopExp_Explorer(face, TopAbs_EDGE)
-        face_edge_hashes: set[int] = set()
+        face_edges: list[Any] = []
         while face_edge_explorer.More():
-            edge_hash = hash(face_edge_explorer.Current())
-            if edge_hash not in face_edge_hashes:
-                edge_faces.setdefault(edge_hash, []).append(face)
-                face_edge_hashes.add(edge_hash)
+            edge = face_edge_explorer.Current()
+            if not any(edge.IsSame(candidate) for candidate in face_edges):
+                face_edges.append(edge)
+                index = next((
+                    item
+                    for item, candidate in enumerate(unique_edges)
+                    if edge.IsSame(candidate)
+                ), None)
+                if index is None:
+                    unique_edges.append(edge)
+                    edge_faces.append([])
+                    index = len(unique_edges) - 1
+                edge_faces[index].append(face)
             face_edge_explorer.Next()
         face_explorer.Next()
 
@@ -244,17 +255,25 @@ def triangulate_shape(
             pass
         return "sharp"
 
-    edge_index = 0
     edge_explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    ordered_edges: list[Any] = []
     while edge_explorer.More():
         edge = edge_explorer.Current()
-        edge_hash = hash(edge)
-        if edge_hash in seen_edge_hashes:
-            edge_explorer.Next()
-            continue
-        seen_edge_hashes.add(edge_hash)
-        edge_index += 1
-        adjacent_faces = edge_faces.get(edge_hash, [])
+        if not any(edge.IsSame(candidate) for candidate in ordered_edges):
+            ordered_edges.append(edge)
+        edge_explorer.Next()
+
+    for edge_index, edge in enumerate(ordered_edges, 1):
+        adjacency_index = next((
+            item
+            for item, candidate in enumerate(unique_edges)
+            if edge.IsSame(candidate)
+        ), None)
+        adjacent_faces = (
+            edge_faces[adjacency_index]
+            if adjacency_index is not None
+            else []
+        )
         points = (
             _triangulation_edge_points(edge, adjacent_faces)
             or _sample_edge(edge, edge_linear_deflection)
@@ -272,7 +291,6 @@ def triangulate_shape(
                 )
             )
             all_points.extend(points)
-        edge_explorer.Next()
 
     vertices: list[PointMarker] = []
     seen_vertex_hashes: set[int] = set()
