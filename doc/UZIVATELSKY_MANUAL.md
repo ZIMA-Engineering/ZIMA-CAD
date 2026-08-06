@@ -127,6 +127,11 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   **FRONT/BACK**. Druhý slot přijímá
   nezávislou rovinu, plochu, hranu nebo osu a roli
   **TOP/BOTTOM/LEFT/RIGHT**. Rovnoběžná druhá reference se odmítne.
+- Při zadání rovinné plochy jako reference Sketch, Protrusion nebo Revolve se
+  první orientační slot automaticky nastaví na **BACK** podle vnější normály
+  solidu. Čelní pohled proto míří na pracovní plochu z vnější strany. Pozdější
+  ruční změna na **FRONT** zůstává zachována až do nového zadání nebo nahrazení
+  plošné reference.
 - Oba orientační sloty jsou nepovinné. Bez nich se použije vlastní lokální rámec
   kontejneru a jeho korekce `RX/RY/RZ`; jde o plnohodnotné a podporované
   umístění, nikoliv o chybějící definici.
@@ -247,27 +252,33 @@ Explicitní kóty jsou ve skicáři zobrazené vždy; samostatný přepínač je
 viditelnosti se nepoužívá.
 
 V nabídce **Vazby → Kolmá** vyberte postupně dvě úsečky nebo konstrukční
-čáry. První je ta, která se má srovnat; druhá určuje referenční směr.
-U první zůstane zachovaný první bod a délka a její druhý bod se dopočítá tak,
-aby byly čáry kolmé. Pravé tlačítko zruší první výběr. Jako druhou referenci
-lze zvolit také čárkovanou lokální osu X nebo Y skici nebo externí čárovou
-referenci. Vazbu lze odstranit z kontextové nabídky ve stromu skici.
+čáry. První určuje referenční směr a druhá je řízená.
+U druhé zůstane zachovaný první bod a délka a její druhý bod se dopočítá tak,
+aby byly čáry kolmé. Pravé tlačítko zruší první výběr. Vazbu lze odstranit
+z kontextové nabídky ve stromu skici.
 
-U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára se srovná a nese
-symbol rovnoběžnosti, druhá čára určuje referenční směr. Druhá čára se nikdy
-nepřepočítává. Pokud je první čára již směrově zavazbená, ohlásí se konflikt.
+U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára je reference,
+druhá se srovná a nese symbol rovnoběžnosti. První čára se nepřepočítává.
+Pokud je druhá čára již směrově zavazbená, ohlásí se konflikt.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
 druhého bodu se dopočítá. Vodorovné a svislé vazby jsou uprostřed geometrie
 označené zeleným písmenem **H** nebo **V**.
 
-V nabídce **Vazby → Rovnoběžná** vyberte referenční a potom řízenou úsečku.
-Solver zachová délku řízené úsečky a natočí ji rovnoběžně; vazbu označuje
-zelený symbol **∥**.
+Stejnými příkazy lze spojit také dva body. Nejprve se vybere referenční bod a
+potom řízený bod. Vodorovná vazba přenese na řízený bod souřadnici Y,
+svislá souřadnici X. Značka **H** nebo **V** se zobrazí u řízeného bodu.
+
+Podrobný popis pořadí výběru, priorit přichytávání, stupňů volnosti a typů
+vazeb je v dokumentu [Skicář](SKETCHER.md).
 
 Zobrazené explicitní kóty lze pravým tlačítkem **Zamknout** nebo
 **Odemknout**. Zamknutá kóta je řídicí: solver zachová její hodnotu.
+Do editačního pole kóty ve skicáři i ve 3D view lze místo hotové hodnoty
+zadat výpočet s operátory `+`, `-`, `*`, `/` a závorkami. Například
+`5+4*4` se po potvrzení vyhodnotí jako `21`; podporovaná je také desetinná
+čárka. Dělení nulou a jiné než číselné výrazy se odmítnou.
 Odemknutím přestane být podmínkou a z pohledu zmizí. Stav se ukládá společně
 se skicou.
 

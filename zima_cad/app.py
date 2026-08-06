@@ -137,6 +137,10 @@ from zima_cad.model import (
     transform_shape,
     transform_point,
 )
+from zima_cad.numeric_expression import (
+    NumericExpressionError,
+    evaluate_numeric_expression,
+)
 from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
@@ -189,6 +193,12 @@ from zima_cad.sketch_geometry import (
     polyline_arc_start_context,
     regular_polygon_vertices,
     valid_automatic_tangent,
+)
+from zima_cad.spline_geometry import (
+    orient_tangent,
+    sample_interpolated_spline,
+    spline_endpoint_support_tangent,
+    stored_spline_tangent,
 )
 from zima_cad.sketch_trim import (
     apply_trim_pieces,
@@ -2415,6 +2425,7 @@ class PointConstraintDialog(QDialog):
 
 
 class AxisConstraintDialog(PointConstraintDialog):
+    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = False
     createAxisRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, float
     )
@@ -3074,6 +3085,26 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             if callable(checker) and not checker([other], reference):
                 return False
         self._container_orientation_references[row] = dict(reference)
+        if (
+            row == 0
+            and self.AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE
+            and reference.get("type") == "face"
+        ):
+            # With the sketch camera convention BACK is the menu side that
+            # looks at an OCCT-oriented face from outside the solid.
+            back_index = self.container_orientation_roles[0].findData(
+                "back"
+            )
+            if back_index >= 0:
+                signals_were_blocked = self.container_orientation_roles[
+                    0
+                ].blockSignals(True)
+                self.container_orientation_roles[0].setCurrentIndex(
+                    back_index
+                )
+                self.container_orientation_roles[0].blockSignals(
+                    signals_were_blocked
+                )
         self._orientation_highlighted_reference_keys = {
             str(item.get("key", ""))
             for item in self._container_orientation_references
@@ -3159,6 +3190,35 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                     ),
                     reference,
                 )
+                if replaced_reference is not None:
+                    replaced_key = str(replaced_reference.get("key", ""))
+                    for index, orientation_reference in enumerate(
+                        self._container_orientation_references
+                    ):
+                        if orientation_reference is None:
+                            continue
+                        orientation_key = str(
+                            orientation_reference.get("key", "")
+                        )
+                        same_reference = (
+                            bool(replaced_key)
+                            and orientation_key == replaced_key
+                        ) or (
+                            not replaced_key
+                            and not orientation_key
+                            and all(
+                                orientation_reference.get(field)
+                                == replaced_reference.get(field)
+                                for field in (
+                                    "type",
+                                    "entity_id",
+                                    "topology_key",
+                                    "vertex_index",
+                                )
+                            )
+                        )
+                        if same_reference:
+                            self._container_orientation_references[index] = None
                 self._record_automatic_container_orientation(added)
                 self._ensure_automatic_orientation_roles()
                 self._refresh_reference_orientation_combos()
@@ -3175,16 +3235,58 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self.definitionChanged.emit()
 
     def _remove_reference_at(self, row: int) -> None:
-        if type(self) is not PlaneConstraintDialog:
-            super()._remove_reference_at(row)
-            return
+        removed_reference = (
+            dict(self.references[row])
+            if 0 <= row < len(self.references)
+            else None
+        )
         removed_orientation = (
-            0 <= row < len(self.references)
-            and self.references[row].get("plane_role") == "orientation"
+            removed_reference is not None
+            and removed_reference.get("plane_role") == "orientation"
         )
         super()._remove_reference_at(row)
+        removed_from_orientation = False
+        if removed_reference is not None:
+            removed_key = str(removed_reference.get("key", ""))
+            for index, orientation_reference in enumerate(
+                self._container_orientation_references
+            ):
+                if orientation_reference is None:
+                    continue
+                orientation_key = str(
+                    orientation_reference.get("key", "")
+                )
+                same_reference = (
+                    bool(removed_key)
+                    and orientation_key == removed_key
+                ) or (
+                    not removed_key
+                    and not orientation_key
+                    and all(
+                        orientation_reference.get(field)
+                        == removed_reference.get(field)
+                        for field in (
+                            "type",
+                            "entity_id",
+                            "topology_key",
+                            "vertex_index",
+                        )
+                    )
+                )
+                if same_reference:
+                    self._container_orientation_references[index] = None
+                    removed_from_orientation = True
+            if removed_from_orientation:
+                self._orientation_highlighted_reference_keys = {
+                    str(reference.get("key", ""))
+                    for reference in self._container_orientation_references
+                    if reference is not None
+                }
+                self._refresh_container_orientation_controls()
+                self._update_solution()
         if removed_orientation:
             self._normalize_orientation_reference()
+        if removed_orientation or removed_from_orientation:
             self.definitionChanged.emit()
 
     def add_reference(self, reference: ZimaEntity) -> None:
@@ -3533,6 +3635,21 @@ class ContainerPropertiesDialog(AxisConstraintDialog):
             tr("dialog.container_properties.title", name=self.name_edit.text().strip())
         )
 
+    def add_reference(self, reference: ZimaEntity) -> None:
+        if (
+            reference.kind == EntityKind.ORIGIN
+            and self._active_container_orientation_row is None
+            and self._pending_container_orientation_row is None
+        ):
+            # Origin is a complete placement definition. Remove every older
+            # placement reference through the normal path so matching
+            # orientation references are synchronized as well.
+            while self.references:
+                self._remove_reference_at(len(self.references) - 1)
+            self._replacement_reference_row = None
+            self.highlighted_reference_keys.clear()
+        super().add_reference(reference)
+
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
         if self.solution is None or not name:
@@ -3554,6 +3671,7 @@ class ContainerPropertiesDialog(AxisConstraintDialog):
 
 
 class SketchConstraintDialog(PlaneConstraintDialog):
+    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = True
     createSketchRequested = Signal(
         list, tuple, str, bool, bool, tuple, float
     )
@@ -3703,6 +3821,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
 
 
 class ProtrusionConstraintDialog(PlaneConstraintDialog):
+    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = True
     createProtrusionRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str,
         float, float, str, str, str, str
@@ -7783,11 +7902,65 @@ class DimensionPropertiesDialog(QDialog):
 
 
 class SketchTextPropertiesDialog(QDialog):
+    applyRequested = Signal()
+    previewChanged = Signal()
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._handles_middle_confirmation = False
         self.setWindowTitle(tr("sketch.text.dialog.title"))
         self.setModal(False)
-        form = QFormLayout(self)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
+        layout = QVBoxLayout(self)
+        self.setObjectName("propertiesSubWindow")
+        self.setStyleSheet(
+            "QDialog#propertiesSubWindow {"
+            " background: palette(window);"
+            " border: 1px solid palette(mid);"
+            " border-radius: 5px;"
+            "}"
+        )
+        layout.setContentsMargins(8, 6, 8, 8)
+        self._internal_title_bar = QWidget(self)
+        self._internal_title_bar.setObjectName("propertiesTitleBar")
+        self._internal_title_bar.setFixedHeight(34)
+        self._internal_title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+        self._internal_title_bar.setStyleSheet(
+            "QWidget#propertiesTitleBar {"
+            " background: palette(midlight);"
+            " border: 1px solid palette(mid);"
+            " border-radius: 4px;"
+            "}"
+        )
+        title_layout = QHBoxLayout(self._internal_title_bar)
+        title_layout.setContentsMargins(10, 2, 4, 2)
+        title_label = QLabel(tr("sketch.text.dialog.title"))
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_layout.addWidget(title_label, 1)
+        close_button = QPushButton("×")
+        close_button.setFixedSize(27, 26)
+        close_button.setToolTip(tr("button.cancel"))
+        close_button.setStyleSheet(
+            "QPushButton { border: none; border-radius: 4px;"
+            " font-size: 18px; font-weight: 700; }"
+            "QPushButton:hover { background: #b83232; color: white; }"
+        )
+        close_button.clicked.connect(self.reject)
+        title_layout.addWidget(close_button)
+        self._internal_title_bar.installEventFilter(self)
+        layout.addWidget(self._internal_title_bar)
+        form = QFormLayout()
         self.text_edit = QLineEdit()
         self.text_edit.setText("TEXT")
         form.addRow(tr("sketch.text.dialog.value"), self.text_edit)
@@ -7816,14 +7989,114 @@ class SketchTextPropertiesDialog(QDialog):
         ):
             self.vertical_combo.addItem(tr(key), value)
         form.addRow(tr("sketch.text.dialog.vertical"), self.vertical_combo)
+        self.font_combo = QComboBox()
+        self.font_combo.addItem("ISO (osifont)", "osifont")
+        form.addRow(tr("sketch.text.dialog.font"), self.font_combo)
+        self.color_combo = QComboBox()
+        self.color_combo.addItem(tr("sketch.text.color.green"), "green")
+        self.color_combo.addItem(tr("sketch.text.color.white"), "white")
+        form.addRow(tr("sketch.text.dialog.color"), self.color_combo)
+        self.angle_spin = QDoubleSpinBox()
+        self.angle_spin.setRange(-360_000.0, 360_000.0)
+        self.angle_spin.setDecimals(3)
+        self.angle_spin.setSuffix("°")
+        form.addRow(tr("sketch.text.dialog.angle"), self.angle_spin)
+        layout.addLayout(form)
+        tools = QHBoxLayout()
+        self.flip_button = QPushButton(tr("sketch.text.dialog.flip"))
+        self.flip_button.setCheckable(True)
+        tools.addWidget(self.flip_button)
+        layout.addLayout(tools)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self.applyRequested
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        for signal in (
+            self.text_edit.textChanged,
+            self.height_spin.valueChanged,
+            self.horizontal_combo.currentIndexChanged,
+            self.vertical_combo.currentIndexChanged,
+            self.color_combo.currentIndexChanged,
+            self.angle_spin.valueChanged,
+            self.flip_button.toggled,
+        ):
+            signal.connect(lambda _value=None: self.previewChanged.emit())
 
-    def values(self) -> tuple[str, float, str, str]:
+    def values(self) -> tuple[str, float, str, str, float, bool, str, str]:
         return (
             self.text_edit.text(),
             self.height_spin.value(),
             str(self.horizontal_combo.currentData()),
             str(self.vertical_combo.currentData()),
+            self.angle_spin.value(),
+            self.flip_button.isChecked(),
+            str(self.color_combo.currentData()),
+            str(self.font_combo.currentData()),
         )
+
+    def set_values(self, data: dict[str, Any]) -> None:
+        blocked = self.blockSignals(True)
+        try:
+            self.text_edit.setText(str(data.get("text_value", "TEXT")))
+            self.height_spin.setValue(float(data.get("text_height", 10.0)))
+            for combo, key, fallback in (
+                (self.horizontal_combo, "text_horizontal", "left"),
+                (self.vertical_combo, "text_vertical", "bottom"),
+                (self.color_combo, "text_color", "green"),
+                (self.font_combo, "text_font", "osifont"),
+            ):
+                combo.setCurrentIndex(max(0, combo.findData(data.get(key, fallback))))
+            self.angle_spin.setValue(float(data.get("text_angle", 0.0)))
+            self.flip_button.setChecked(bool(data.get("text_flip", False)))
+        finally:
+            self.blockSignals(blocked)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        parent = self.parentWidget()
+        if parent is not None and self.windowFlags() & Qt.WindowType.SubWindow:
+            self.setMaximumSize(parent.size())
+        self.adjustSize()
+        position_dialog_top_right_after_show(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._internal_title_bar:
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                parent = self.parentWidget()
+                target = self._title_drag_window_origin + QPoint(
+                    int(delta.x()), int(delta.y())
+                )
+                if parent is not None:
+                    target.setX(max(0, min(target.x(), parent.width() - self.width())))
+                    target.setY(max(0, min(target.y(), parent.height() - 34)))
+                self.move(target)
+                return True
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                return True
+        return super().eventFilter(watched, event)
 
 
 class MainWindow(QMainWindow):
@@ -7928,6 +8201,13 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderLabels([tr("tree.document.part")])
         self.tree.setMinimumWidth(280)
         self.tree.header().setMinimumHeight(38)
+        # The platform uses an overlay vertical scrollbar. Without a top
+        # inset its handle is painted over the right side of the tree header
+        # and covers the Part/Assembly/Drawing navigation button. Keep the
+        # scrolling control below the shared header in every document mode.
+        self.tree.verticalScrollBar().setStyleSheet(
+            "QScrollBar:vertical { margin-top: 38px; }"
+        )
         self.drawings_button = QToolButton(self.tree.header())
         self.drawings_button.setText(tr("drawing.command.drawings"))
         self.drawings_button.setToolTip(tr("drawing.command.drawings.tooltip"))
@@ -8002,6 +8282,8 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids: list[str] = []
         self._sketch_pending_new_point_ids: set[str] = set()
         self._sketch_pending_constraint: str | list[dict[str, str]] | None = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id: str | None = None
         self._sketch_polyline_arc_center_reference_id: str | None = None
         self._sketch_polyline_arc_reverse = False
         self._sketch_polygon_sides = 4
@@ -8009,9 +8291,16 @@ class MainWindow(QMainWindow):
         self._sketch_text_height = 10.0
         self._sketch_text_horizontal = "left"
         self._sketch_text_vertical = "bottom"
+        self._sketch_text_angle = 0.0
+        self._sketch_text_flip = False
+        self._sketch_text_color = "green"
+        self._sketch_text_font = "osifont"
+        self._sketch_text_edit_group: str | None = None
+        self._sketch_text_edit_baseline: dict[str, Any] | None = None
         self._sketch_text_dialog: SketchTextPropertiesDialog | None = None
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id: str | None = None
+        self._sketch_direction_first_point_id: str | None = None
         self._sketch_midpoint_point_id: str | None = None
         self._sketch_symmetry_point_ids: list[str] = []
         self._sketch_perpendicular_first_geometry_id: str | None = None
@@ -8164,6 +8453,15 @@ class MainWindow(QMainWindow):
         self.native_viewer.sketchPlacementClicked.connect(
             self._on_sketch_placement_clicked
         )
+        self.native_viewer.sketchPlacementConfirmed.connect(
+            self._on_sketch_placement_confirmed
+        )
+        self.native_viewer.sketchRectangleAxisModeRequested.connect(
+            self._begin_sketch_rectangle_axis_selection
+        )
+        self.native_viewer.sketchRectangleAxisSelected.connect(
+            self._select_sketch_rectangle_axis
+        )
         self.native_viewer.sketchReferenceHovered.connect(
             self._on_sketch_reference_hovered
         )
@@ -8184,6 +8482,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchEntitySelected.connect(
             self._select_sketch_entity
+        )
+        self.native_viewer.sketchTextEditRequested.connect(
+            self._edit_sketch_text
         )
         self.native_viewer.sketchConstraintSelected.connect(
             self._select_sketch_constraint_relation
@@ -8748,6 +9049,16 @@ class MainWindow(QMainWindow):
                 self._set_sketch_unified_dimension_tool
             )
             self._mark_application_command(dimension_action)
+            text_action = self.tools_toolbar.addAction(
+                tr("sketch.tool.text")
+            )
+            text_action.setIcon(resource_icon("sketch-text"))
+            text_action.setCheckable(True)
+            text_action.setChecked(self._sketch_tool == "text")
+            text_action.triggered.connect(
+                lambda _checked=False: self._set_sketch_tool("text")
+            )
+            self._mark_application_command(text_action)
             self.tools_toolbar.addSeparator()
             trim_action = self.tools_toolbar.addAction(
                 tr("sketch.tool.trim")
@@ -8772,17 +9083,16 @@ class MainWindow(QMainWindow):
             self._mark_application_command(mirror_action)
             self.tools_toolbar.addSeparator()
             for tool, text_key, icon_name in (
+                ("point", "sketch.tool.point", "point"),
                 (
                     "construction",
                     "sketch.tool.construction",
                     "sketch-construction",
                 ),
-                ("point", "sketch.tool.point", "point"),
                 ("segment", "sketch.tool.segment", "sketch-segment"),
                 ("polyline", "sketch.tool.polyline", "sketch-polyline"),
                 ("rectangle", "sketch.tool.rectangle", "sketch-rectangle"),
                 ("hexagon", "sketch.tool.polygon", "sketch-hexagon"),
-                ("text", "sketch.tool.text", "sketch-text"),
                 ("circle", "sketch.tool.circle", "sketch-circle"),
                 ("arc", "sketch.tool.arc", "sketch-arc"),
                 ("ellipse", "sketch.tool.ellipse", "sketch-ellipse"),
@@ -10648,6 +10958,11 @@ class MainWindow(QMainWindow):
                     str(mapping.get("role", "")),
                     "none",
                 )
+                # An OCCT face carries an oriented outward normal.  Unlike a
+                # free datum plane, its sign is meaningful and must survive
+                # the common frame calculation unchanged.
+                if source.get("type") == "face":
+                    oriented["preserve_orientation_sign"] = True
                 oriented["orientation_drives_rotation"] = True
                 oriented["position_role"] = "orientation_only"
                 expanded.append(oriented)
@@ -11683,6 +11998,12 @@ class MainWindow(QMainWindow):
         normal_assignment = role_axis.get(normal_role)
         if normal_assignment is None:
             return frame_references
+        if original_assignment is not None:
+            normal_assignment = (
+                normal_assignment[0],
+                original_assignment[1],
+            )
+            normal_role = role_for_axis[normal_assignment]
 
         # Choosing e.g. XY as Front changes its geometric normal from the
         # generic view-Y role to local Z. If another reference already owns Z
@@ -11746,10 +12067,10 @@ class MainWindow(QMainWindow):
             direction = self._normalized_vector(direction)
             if direction == (0.0, 0.0, 0.0):
                 continue
-            # A plane normal (and usually an edge direction) has two equally
-            # valid geometric senses. Pick the one closest to the matching
-            # global axis so a standard role preserves the global frame as
-            # much as possible. The opposite role deliberately reverses it.
+            # A free datum-plane normal (and usually an edge direction) has
+            # two equally valid senses, so keep its frame close to the global
+            # axes.  A selected solid face is different: OCCT orients its
+            # normal outwards and FRONT/BACK must preserve that distinction.
             global_axis = tuple(
                 1.0 if index == axis_index else 0.0
                 for index in range(3)
@@ -11760,6 +12081,9 @@ class MainWindow(QMainWindow):
             )
             if (
                 descriptor.get("type") != "fixed_direction"
+                and not bool(
+                    descriptor.get("preserve_orientation_sign", False)
+                )
                 and alignment < -1e-10
             ):
                 direction = tuple(-value for value in direction)
@@ -17316,8 +17640,8 @@ class MainWindow(QMainWindow):
         if container is None:
             return
         try:
-            value = float(str(raw_value).replace(",", "."))
-        except (TypeError, ValueError):
+            value = evaluate_numeric_expression(str(raw_value))
+        except NumericExpressionError:
             return
         if not math.isfinite(value):
             return
@@ -17355,8 +17679,8 @@ class MainWindow(QMainWindow):
         ):
             return
         try:
-            value = float(str(raw_value).replace(",", "."))
-        except (TypeError, ValueError):
+            value = evaluate_numeric_expression(str(raw_value))
+        except NumericExpressionError:
             return
         if value <= 1.0e-9:
             return
@@ -21523,8 +21847,8 @@ class MainWindow(QMainWindow):
 
         def commit_mate_value(row_index: int, raw_value: str) -> None:
             try:
-                value = float(str(raw_value).replace(",", "."))
-            except (TypeError, ValueError):
+                value = evaluate_numeric_expression(str(raw_value))
+            except NumericExpressionError:
                 return
             if 0 <= row_index < len(dialog.rows):
                 dialog.rows[row_index][3].setValue(value)
@@ -25260,8 +25584,11 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id = None
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id = None
+        self._sketch_direction_first_point_id = None
         self._sketch_midpoint_point_id = None
         self._sketch_symmetry_point_ids.clear()
         self._sketch_perpendicular_first_geometry_id = None
@@ -25318,7 +25645,12 @@ class MainWindow(QMainWindow):
         self._align_view_to_active_sketch()
         self.native_viewer.set_sketch_overlay(
             frame,
-            self._stored_sketch_entities(sketch),
+            [
+                entity
+                for entity in self._stored_sketch_entities(sketch)
+                if entity.get("text_role")
+                not in ("outline", "outline_point")
+            ],
             selection_mode=True,
             external_references=self._resolved_sketch_external_references(
                 sketch
@@ -25411,18 +25743,20 @@ class MainWindow(QMainWindow):
         if tool == "text":
             if self._sketch_text_dialog is None:
                 dialog = SketchTextPropertiesDialog(self)
-                dialog.text_edit.setText(self._sketch_text_value or "TEXT")
-                dialog.height_spin.setValue(self._sketch_text_height)
-                dialog.horizontal_combo.setCurrentIndex(max(
-                    0,
-                    dialog.horizontal_combo.findData(
-                        self._sketch_text_horizontal
-                    ),
-                ))
-                dialog.vertical_combo.setCurrentIndex(max(
-                    0,
-                    dialog.vertical_combo.findData(self._sketch_text_vertical),
-                ))
+                dialog.set_values({
+                    "text_value": self._sketch_text_value or "TEXT",
+                    "text_height": self._sketch_text_height,
+                    "text_horizontal": self._sketch_text_horizontal,
+                    "text_vertical": self._sketch_text_vertical,
+                    "text_angle": self._sketch_text_angle,
+                    "text_flip": self._sketch_text_flip,
+                    "text_color": self._sketch_text_color,
+                    "text_font": self._sketch_text_font,
+                })
+                dialog.applyRequested.connect(self._apply_sketch_text_dialog)
+                dialog.previewChanged.connect(self._preview_sketch_text_dialog)
+                dialog.accepted.connect(self._accept_sketch_text_dialog)
+                dialog.rejected.connect(self._cancel_sketch_text_dialog)
                 dialog.finished.connect(
                     lambda _result: setattr(self, "_sketch_text_dialog", None)
                 )
@@ -25481,8 +25815,11 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id = None
         self._sketch_arc_clockwise = False
         self._sketch_coincident_first_point_id = None
+        self._sketch_direction_first_point_id = None
         self._sketch_midpoint_point_id = None
         self._sketch_symmetry_point_ids.clear()
         self._sketch_perpendicular_first_geometry_id = None
@@ -25536,6 +25873,109 @@ class MainWindow(QMainWindow):
             self._sketch_trim_baseline_dimensions = None
             self.native_viewer.set_sketch_trim_preview(())
             self._sketch_trim_topology = ()
+
+    def _read_sketch_text_dialog(self) -> bool:
+        if self._sketch_text_dialog is None:
+            return False
+        (
+            self._sketch_text_value,
+            self._sketch_text_height,
+            self._sketch_text_horizontal,
+            self._sketch_text_vertical,
+            self._sketch_text_angle,
+            self._sketch_text_flip,
+            self._sketch_text_color,
+            self._sketch_text_font,
+        ) = self._sketch_text_dialog.values()
+        return bool(self._sketch_text_value)
+
+    def _apply_sketch_text_dialog(self) -> None:
+        if not self._read_sketch_text_dialog():
+            return
+        if self._sketch_text_edit_group is not None:
+            self._update_sketch_text_group(self._sketch_text_edit_group)
+            if self.document is not None and self._sketch_edit_entity_id is not None:
+                sketch = self.document.find_entity(self._sketch_edit_entity_id)
+                self._sketch_text_edit_baseline = copy.deepcopy(next((
+                    entity for entity in self._stored_sketch_entities(sketch)
+                    if entity.get("type") == "point"
+                    and entity.get("text_role") == "anchor"
+                    and entity.get("text_group") == self._sketch_text_edit_group
+                ), None)) if sketch is not None else None
+        else:
+            self._commit_pending_sketch_text()
+
+    def _preview_sketch_text_dialog(self) -> None:
+        if (
+            self._sketch_text_edit_group is None
+            or not self._read_sketch_text_dialog()
+            or self.document is None
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        anchor = next((
+            entity for entity in entities
+            if entity.get("type") == "point"
+            and entity.get("text_role") == "anchor"
+            and entity.get("text_group") == self._sketch_text_edit_group
+        ), None)
+        if anchor is None:
+            return
+        anchor.update({
+            "text_value": self._sketch_text_value,
+            "text_height": self._sketch_text_height,
+            "text_horizontal": self._sketch_text_horizontal,
+            "text_vertical": self._sketch_text_vertical,
+            "text_angle": self._sketch_text_angle,
+            "text_flip": self._sketch_text_flip,
+                    "text_color": self._sketch_text_color,
+            "text_font": self._sketch_text_font,
+        })
+        self._store_sketch_entities(sketch, entities)
+        self._refresh_sketch_overlay(populate_tree=False)
+
+    def _accept_sketch_text_dialog(self) -> None:
+        was_editing = self._sketch_text_edit_group is not None
+        self._apply_sketch_text_dialog()
+        self._sketch_text_edit_group = None
+        self._sketch_text_edit_baseline = None
+        if self._sketch_edit_entity_id is not None and was_editing:
+            self._set_sketch_tool("select")
+        elif self._sketch_edit_entity_id is not None:
+            self._refresh_sketch_overlay()
+
+    def _cancel_sketch_text_dialog(self) -> None:
+        if (
+            self._sketch_text_edit_group is not None
+            and self._sketch_text_edit_baseline is not None
+            and self.document is not None
+            and self._sketch_edit_entity_id is not None
+        ):
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is not None:
+                entities = self._stored_sketch_entities(sketch)
+                for index, entity in enumerate(entities):
+                    if (
+                        entity.get("type") == "point"
+                        and entity.get("text_role") == "anchor"
+                        and entity.get("text_group") == self._sketch_text_edit_group
+                    ):
+                        entities[index] = copy.deepcopy(
+                            self._sketch_text_edit_baseline
+                        )
+                        break
+                self._store_sketch_entities(sketch, entities)
+                self._refresh_sketch_overlay(populate_tree=False)
+        self._sketch_text_edit_group = None
+        self._sketch_text_edit_baseline = None
+        if self._sketch_edit_entity_id is not None and self._sketch_tool == "text":
+            self._remove_pending_sketch_points()
+            self._sketch_pending_points.clear()
+            self._set_sketch_tool("select")
 
     def _set_sketch_constraint_tool(self, constraint: str) -> None:
         if (
@@ -25630,6 +26070,104 @@ class MainWindow(QMainWindow):
             reference_id=reference_id or None,
             automatic_constraint=automatic_constraint or None,
         )
+
+    def _on_sketch_placement_confirmed(
+        self,
+        x: float,
+        y: float,
+        reference_id: str,
+        automatic_constraint: str,
+    ) -> None:
+        if self._sketch_tool != "rectangle":
+            confirming_spline = self._sketch_tool == "spline"
+            self._on_sketch_position_clicked(
+                x,
+                y,
+                reference_id=reference_id or None,
+                automatic_constraint=automatic_constraint or None,
+                confirm_final=True,
+            )
+            if (
+                confirming_spline
+                and self._sketch_tool == "spline"
+                and len(self._sketch_pending_points) >= 2
+            ):
+                # A final MMB placement can resolve to the last pending point
+                # (for example through point snapping).  The ordinary click
+                # handler then rejects the duplicate before reaching its
+                # confirm_final branch.  MMB still means "finish this
+                # spline", so commit the already valid pending chain.
+                self._commit_pending_sketch_entity()
+            return
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or not self._sketch_pending_points
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        if (
+            self._sketch_rectangle_axis_id is not None
+            and automatic_constraint.startswith("rectangle_oriented:")
+        ):
+            self._commit_oriented_sketch_rectangle(
+                sketch,
+                self._sketch_pending_point_ids[0],
+                self._sketch_pending_points[0],
+                (x, y),
+                automatic_constraint.split(":", 1)[1],
+            )
+            return
+        if len(self._sketch_pending_points) != 1:
+            return
+        first = self._sketch_pending_points[0]
+        if (
+            math.isclose(first[0], x, abs_tol=1.0e-12)
+            or math.isclose(first[1], y, abs_tol=1.0e-12)
+        ):
+            return
+        point, snapped, created = self._ensure_sketch_point(sketch, (x, y))
+        point_id = str(point.get("id", ""))
+        if created and point_id:
+            self._sketch_pending_new_point_ids.add(point_id)
+        self._commit_sketch_rectangle(
+            sketch,
+            self._sketch_pending_point_ids[0],
+            point_id,
+            first,
+            snapped,
+            automatic_constraint=automatic_constraint or None,
+        )
+
+    def _begin_sketch_rectangle_axis_selection(self) -> None:
+        if (
+            self._sketch_tool != "rectangle"
+            or len(self._sketch_pending_points) != 1
+        ):
+            return
+        self._sketch_rectangle_axis_mode = True
+        self._sketch_rectangle_axis_id = None
+        self._refresh_sketch_overlay()
+
+    def _select_sketch_rectangle_axis(self, axis_id: str) -> None:
+        if not self._sketch_rectangle_axis_mode:
+            return
+        sketch = (
+            self.document.find_entity(self._sketch_edit_entity_id)
+            if self.document is not None and self._sketch_edit_entity_id
+            else None
+        )
+        valid = any(
+            entity.get("type") == "construction"
+            and str(entity.get("id", "")) == axis_id
+            for entity in self._stored_sketch_entities(sketch)
+        ) if sketch is not None else False
+        if not valid:
+            return
+        self._sketch_rectangle_axis_id = axis_id
+        self._refresh_sketch_overlay()
 
     def _on_sketch_reference_hovered(self, reference_id: str) -> None:
         if (
@@ -25853,6 +26391,11 @@ class MainWindow(QMainWindow):
         if sketch is None:
             return
         entities = self._stored_sketch_entities(sketch)
+        points = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
         geometry = next(
             (
                 entity
@@ -25862,11 +26405,6 @@ class MainWindow(QMainWindow):
             ),
             None,
         )
-        points = {
-            str(entity.get("id", "")): entity
-            for entity in entities
-            if entity.get("type") == "point"
-        }
         if geometry is None or not self._valid_sketch_line(geometry, points):
             self._sketch_perpendicular_first_geometry_id = None
             self.statusBar().showMessage(
@@ -26025,6 +26563,7 @@ class MainWindow(QMainWindow):
         *,
         reference_id: str | None = None,
         automatic_constraint: str | None = None,
+        confirm_final: bool = False,
     ) -> None:
         if self._sketch_edit_entity_id is None or self.document is None:
             return
@@ -26035,23 +26574,26 @@ class MainWindow(QMainWindow):
             if self._sketch_text_dialog is None:
                 self._set_sketch_tool("text")
                 return
+            if not confirm_final:
+                return
             if not self._sketch_pending_points:
                 self._sketch_pending_points[:] = [(x, y)]
                 self._refresh_sketch_overlay()
-                return
-            anchor = self._sketch_pending_points[0]
-            if math.dist(anchor, (x, y)) <= 1.0e-9:
-                return
-            (
-                self._sketch_text_value,
-                self._sketch_text_height,
-                self._sketch_text_horizontal,
-                self._sketch_text_vertical,
-            ) = self._sketch_text_dialog.values()
-            if not self._sketch_text_value:
-                return
-            self._commit_sketch_text(sketch, anchor, (x, y))
-            self._sketch_pending_points.clear()
+                self._commit_pending_sketch_text()
+            return
+        if (
+            confirm_final
+            and not self._sketch_pending_points
+        ):
+            return
+        if (
+            self._sketch_tool == "elliptical_arc"
+            and confirm_final
+            and len(self._sketch_pending_points) != 4
+        ):
+            # Centre, major semi-axis, minor semi-axis and arc start are
+            # ordinary LMB steps. MMB is reserved exclusively for the fifth
+            # and final point, which determines the end of the arc.
             return
         if (
             self._sketch_tool == "polyline_arc"
@@ -26078,6 +26620,8 @@ class MainWindow(QMainWindow):
             # is reused as that point when the arc is committed.
             automatic_constraint = None
         if self._sketch_tool == "circle" and self._sketch_pending_points:
+            if not confirm_final:
+                return
             centre = self._sketch_pending_points[0]
             radius = math.hypot(x - centre[0], y - centre[1])
             if radius <= 1.0e-12:
@@ -26092,6 +26636,8 @@ class MainWindow(QMainWindow):
             )
             return
         if self._sketch_tool == "hexagon" and self._sketch_pending_points:
+            if not confirm_final:
+                return
             centre = self._sketch_pending_points[0]
             radius = math.hypot(x - centre[0], y - centre[1])
             if radius <= 1.0e-12:
@@ -26114,18 +26660,26 @@ class MainWindow(QMainWindow):
         if (
             self._sketch_tool == "rectangle"
             and self._sketch_pending_points
-            and (
-                math.isclose(
-                    self._sketch_pending_points[0][0],
-                    x,
-                    abs_tol=1.0e-12,
-                )
-                or math.isclose(
-                    self._sketch_pending_points[0][1],
-                    y,
-                    abs_tol=1.0e-12,
-                )
-            )
+            and not confirm_final
+        ):
+            return
+        fixed_required = {
+            "segment": 2,
+            "construction": 2,
+            "arc": 3,
+            "ellipse": 3,
+            "elliptical_arc": 5,
+        }.get(self._sketch_tool)
+        if (
+            not confirm_final
+            and fixed_required is not None
+            and len(self._sketch_pending_points) >= fixed_required - 1
+        ):
+            return
+        if (
+            self._sketch_tool == "rectangle"
+            and self._sketch_pending_points
+            and math.dist(self._sketch_pending_points[0], (x, y)) <= 1.0e-12
         ):
             return
         if self._sketch_tool == "arc" and len(self._sketch_pending_points) == 2:
@@ -26145,6 +26699,7 @@ class MainWindow(QMainWindow):
             self._sketch_tool in ("ellipse", "elliptical_arc")
             and len(self._sketch_pending_points) == 2
         ):
+            unprojected = (x, y)
             center, major = self._sketch_pending_points
             ax, ay = major[0] - center[0], major[1] - center[1]
             length = math.hypot(ax, ay)
@@ -26158,6 +26713,15 @@ class MainWindow(QMainWindow):
                 return
             x = center[0] + nx * signed_length
             y = center[1] + ny * signed_length
+            if math.dist(unprojected, (x, y)) > 1.0e-9:
+                # The stored point is the perpendicular projection, not the
+                # curve/point candidate originally below the cursor.
+                reference_id = None
+                if (
+                    automatic_constraint is not None
+                    and automatic_constraint.startswith("keypoint:")
+                ):
+                    automatic_constraint = None
         elif (
             self._sketch_tool == "elliptical_arc"
             and len(self._sketch_pending_points) >= 3
@@ -26228,15 +26792,11 @@ class MainWindow(QMainWindow):
                 and automatic_constraint.startswith("keypoint:")
                 and isinstance(point.get("curve_attachment"), dict)
             ):
-                # K is a magnetic construction aid, not a persistent angular
-                # constraint.  Keep the ordinary point-on-curve attachment
-                # (C); H/V/T from subsequently drawn geometry provide the
-                # lasting design intent.
                 angle = math.radians(
                     float(automatic_constraint.split(":", 1)[1])
                 )
                 point["curve_attachment"]["angle"] = angle
-                point["curve_attachment"].pop("locked", None)
+                point["curve_attachment"]["locked"] = True
                 entities = self._stored_sketch_entities(sketch)
                 stored_point = next(
                     (
@@ -26250,6 +26810,24 @@ class MainWindow(QMainWindow):
                     stored_point["curve_attachment"] = dict(
                         point["curve_attachment"]
                     )
+                    self._store_sketch_entities(sketch, entities)
+            elif (
+                automatic_constraint is not None
+                and automatic_constraint.startswith("keypoint:")
+            ):
+                # Ends of a newly defined ellipse axis are intrinsic
+                # keypoints. Store the automatic relation as lightweight
+                # metadata; it needs no extra solver equation or toolbar
+                # command.
+                point["keypoint_constraint"] = True
+                entities = self._stored_sketch_entities(sketch)
+                stored_point = next((
+                    entity for entity in entities
+                    if entity.get("type") == "point"
+                    and str(entity.get("id", "")) == point_id
+                ), None)
+                if stored_point is not None:
+                    stored_point["keypoint_constraint"] = True
                     self._store_sketch_entities(sketch, entities)
         if (
             point_id
@@ -26329,20 +26907,8 @@ class MainWindow(QMainWindow):
                 self._sketch_pending_point_ids[:] = [point_id]
                 self._refresh_sketch_overlay()
                 return
-            first = self._sketch_pending_points[0]
-            if (
-                math.isclose(first[0], snapped[0], abs_tol=1.0e-12)
-                or math.isclose(first[1], snapped[1], abs_tol=1.0e-12)
-            ):
+            if len(self._sketch_pending_point_ids) == 1:
                 return
-            self._commit_sketch_rectangle(
-                sketch,
-                self._sketch_pending_point_ids[0],
-                point_id,
-                first,
-                snapped,
-                automatic_constraint=automatic_constraint,
-            )
             return
         if (
             point_id
@@ -26353,7 +26919,8 @@ class MainWindow(QMainWindow):
         self._sketch_pending_points.append(snapped)
         self._sketch_pending_point_ids.append(point_id)
         if (
-            self._sketch_tool == "spline"
+            confirm_final
+            and self._sketch_tool == "spline"
             and len(self._sketch_pending_point_ids) >= 4
             and self._sketch_pending_point_ids[-1]
             == self._sketch_pending_point_ids[0]
@@ -26367,6 +26934,38 @@ class MainWindow(QMainWindow):
             and len(self._sketch_pending_points) >= 2
         ):
             self._sketch_pending_constraint = automatic_constraint
+        elif (
+            automatic_constraint is not None
+            and automatic_constraint.startswith("symmetric_point:")
+            and self._sketch_tool in ("segment", "construction", "polyline")
+            and len(self._sketch_pending_points) >= 2
+        ):
+            symmetry_parts = automatic_constraint.split(":")
+            self._sketch_pending_constraint = [{
+                "type": "symmetric_points",
+                "axis_geometry_id": symmetry_parts[1],
+            }]
+        elif (
+            automatic_constraint is not None
+            and automatic_constraint.startswith("equal_length:")
+            and self._sketch_tool in ("segment", "construction", "polyline")
+            and len(self._sketch_pending_points) >= 2
+        ):
+            equal_parts = automatic_constraint.split(":")
+            pending_equal_constraints: list[dict[str, str]] = [{
+                "type": "equal_length",
+                "geometry_id": equal_parts[1],
+                "relation_role": "driven",
+            }]
+            if (
+                len(equal_parts) >= 3
+                and equal_parts[2] in ("horizontal", "vertical")
+            ):
+                pending_equal_constraints.append({
+                    "type": "point_direction",
+                    "direction": equal_parts[2],
+                })
+            self._sketch_pending_constraint = pending_equal_constraints
         elif (
             automatic_constraint is not None
             and automatic_constraint.startswith("parallel:")
@@ -26447,14 +27046,35 @@ class MainWindow(QMainWindow):
         required = {
             "point": 1,
             "segment": 2,
-            "polyline": 2,
-            "polyline_arc": 2,
             "construction": 2,
             "arc": 3,
             "ellipse": 3,
             "elliptical_arc": 5,
         }.get(self._sketch_tool)
-        if required is not None and len(self._sketch_pending_points) >= required:
+        if (
+            self._sketch_tool in ("polyline", "polyline_arc")
+            and len(self._sketch_pending_points) >= 2
+        ):
+            self._commit_pending_sketch_entity()
+            if confirm_final:
+                # A single MMB ends this chain but keeps the polyline tool
+                # active. The next LMB therefore starts a fresh chain.
+                self._sketch_pending_points.clear()
+                self._sketch_pending_point_ids.clear()
+                self._sketch_pending_new_point_ids.clear()
+                self._sketch_pending_constraint = None
+                self._refresh_sketch_overlay()
+        elif (
+            required is not None
+            and len(self._sketch_pending_points) >= required
+            and confirm_final
+        ):
+            self._commit_pending_sketch_entity()
+        elif (
+            confirm_final
+            and self._sketch_tool == "spline"
+            and len(self._sketch_pending_points) >= 2
+        ):
             self._commit_pending_sketch_entity()
         else:
             self._refresh_sketch_overlay()
@@ -26566,6 +27186,7 @@ class MainWindow(QMainWindow):
             return
 
         self._sketch_coincident_first_point_id = None
+        self._sketch_direction_first_point_id = None
         self._sketch_midpoint_point_id = None
         self._sketch_selected_entity_id = None
         self._regenerate_active_sketch_constraints(sketch)
@@ -26822,6 +27443,33 @@ class MainWindow(QMainWindow):
                         "angle": math.atan2(sine, cosine),
                     }
                     self._store_sketch_entities(sketch, entities)
+            return point
+        if reference_id.startswith("sketch_spline:"):
+            spline_id = reference_id.split(":", 1)[1]
+            spline = next((
+                entity for entity in entities
+                if entity.get("type") == "spline"
+                and str(entity.get("id", "")) == spline_id
+            ), None)
+            ids = tuple(map(str, spline.get("point_ids", ()))) if spline else ()
+            positions = {
+                str(entity.get("id", "")): self._sketch_point_position(entity)
+                for entity in entities if entity.get("type") == "point"
+            }
+            if len(ids) >= 2 and all(point_id in positions for point_id in ids):
+                sampled = sample_interpolated_spline(
+                    tuple(positions[point_id] for point_id in ids),
+                    stored_spline_tangent(spline, "start_tangent"),
+                    stored_spline_tangent(spline, "end_tangent"),
+                )
+                position = self._sketch_point_position(point)
+                index = min(range(len(sampled)), key=lambda candidate: math.dist(sampled[candidate], position))
+                point["curve_attachment"] = {
+                    "type": "spline",
+                    "geometry_id": spline_id,
+                    "fraction": index / max(1, len(sampled) - 1),
+                }
+                self._store_sketch_entities(sketch, entities)
             return point
         if reference_id.startswith("sketch_circle:"):
             circle_id = reference_id.split(":", 1)[1]
@@ -27291,6 +27939,7 @@ class MainWindow(QMainWindow):
                 self._set_sketch_tool("select")
             return
         if self._sketch_tool in ("horizontal", "vertical"):
+            self._sketch_direction_first_point_id = None
             self._sketch_selected_entity_id = None
             self._refresh_sketch_overlay()
             self.statusBar().showMessage(
@@ -27383,6 +28032,8 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id = None
         self._refresh_sketch_overlay()
 
     def _alternate_current_sketch_entity(self) -> None:
@@ -27497,9 +28148,15 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_tool == "select":
             return
+        if self._sketch_tool == "text":
+            if self._sketch_text_edit_group is not None:
+                self._apply_sketch_text_dialog()
+                self._sketch_pending_points.clear()
+            else:
+                self._commit_pending_sketch_text()
+            return
         if self._sketch_tool == "trim":
-            self._set_sketch_tool("select")
-            self.statusBar().showMessage(tr("sketch.status.trim.finished"))
+            self.statusBar().showMessage(tr("sketch.status.trim.active"))
             return
         if self._sketch_tool == "mirror":
             if self._sketch_mirror_phase == "objects":
@@ -27527,7 +28184,6 @@ class MainWindow(QMainWindow):
             and len(self._sketch_pending_points) >= 2
         ):
             self._commit_pending_sketch_entity()
-            self._set_sketch_tool("select")
             return
         if (
             self._sketch_tool == "point"
@@ -27543,7 +28199,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
-        self._set_sketch_tool("select")
+        self._refresh_sketch_overlay()
 
     def _finish_current_sketch_tool(self) -> None:
         if self._sketch_edit_entity_id is None:
@@ -27555,6 +28211,13 @@ class MainWindow(QMainWindow):
             == "sketch_external_segment"
         ):
             self._selection_controller.cancel()
+            return
+        if self._sketch_tool == "text":
+            if self._sketch_text_edit_group is None:
+                self._commit_pending_sketch_text()
+            if self._sketch_text_dialog is not None:
+                self._sketch_text_dialog.accept()
+            self._set_sketch_tool("select")
             return
         self._remove_pending_sketch_points()
         self._sketch_pending_points.clear()
@@ -27569,6 +28232,30 @@ class MainWindow(QMainWindow):
         self._sketch_selected_entity_id = None
         self._sketch_selected_entity_ids.clear()
         self._set_sketch_tool("select")
+
+    def _commit_pending_sketch_text(self) -> bool:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+            or not self._sketch_pending_points
+            or not self._read_sketch_text_dialog()
+        ):
+            return False
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return False
+        anchor = self._sketch_pending_points[0]
+        angle = math.radians(self._sketch_text_angle)
+        self._commit_sketch_text(
+            sketch,
+            anchor,
+            (anchor[0] + math.cos(angle), anchor[1] + math.sin(angle)),
+        )
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._refresh_sketch_overlay()
+        return True
 
     def _clear_tree_selection_from_sketch_view(self) -> None:
         if self._sketch_edit_entity_id is None:
@@ -28854,10 +29541,27 @@ class MainWindow(QMainWindow):
                         )
                         return
                     if len(first_ids) == 2:
-                        self._sketch_dimension_point_ids[:] = [
-                            *first_ids,
-                            *point_ids,
-                        ]
+                        shared = set(first_ids) & set(point_ids)
+                        if len(shared) == 1:
+                            vertex_id = next(iter(shared))
+                            self._sketch_dimension_point_ids[:] = [
+                                next(
+                                    item
+                                    for item in first_ids
+                                    if item != vertex_id
+                                ),
+                                vertex_id,
+                                next(
+                                    item
+                                    for item in point_ids
+                                    if item != vertex_id
+                                ),
+                            ]
+                        else:
+                            self._sketch_dimension_point_ids[:] = [
+                                *first_ids,
+                                *point_ids,
+                            ]
                         self._sketch_dimension_reference_id = None
                         self._sketch_selected_entity_ids.update(
                             (selected_geometry_id, entity_id)
@@ -31136,6 +31840,66 @@ class MainWindow(QMainWindow):
             for entity in entities
             if entity.get("type") == "point"
         }
+        selected_point = points.get(entity_id)
+        first_point_id = self._sketch_direction_first_point_id
+        if selected_point is not None:
+            if first_point_id is None:
+                # The first point is the reference; the second point moves.
+                self._sketch_direction_first_point_id = entity_id
+                self._sketch_selected_entity_id = entity_id
+                self._refresh_sketch_overlay()
+                self.statusBar().showMessage(
+                    tr(f"sketch.status.{constraint_type}.select_second_point")
+                )
+                return
+            if entity_id == first_point_id:
+                self.statusBar().showMessage(
+                    tr(f"sketch.status.{constraint_type}.different_point")
+                )
+                return
+            reference = points.get(first_point_id)
+            if reference is None:
+                self._sketch_direction_first_point_id = None
+                self.statusBar().showMessage(
+                    tr(f"sketch.status.{constraint_type}.point_required")
+                )
+                return
+            constraints = selected_point.get("constraints", [])
+            if not isinstance(constraints, list):
+                constraints = []
+            if any(
+                isinstance(constraint, dict)
+                and constraint.get("type") == constraint_type
+                and str(constraint.get("point_id", "")) == first_point_id
+                for constraint in constraints
+            ):
+                self.statusBar().showMessage(
+                    tr(f"sketch.status.{constraint_type}.point_already_exists")
+                )
+                return
+            if constraint_type == "horizontal":
+                selected_point["y"] = float(reference.get("y", 0.0))
+            else:
+                selected_point["x"] = float(reference.get("x", 0.0))
+            constraints.append({
+                "type": constraint_type,
+                "point_id": first_point_id,
+                "relation_role": "driven",
+            })
+            selected_point["constraints"] = constraints
+            self._store_sketch_entities(sketch, entities)
+            self._sketch_direction_first_point_id = None
+            self._sketch_selected_entity_id = None
+            self._regenerate_active_sketch_constraints(sketch)
+            self.statusBar().showMessage(
+                tr(f"sketch.status.{constraint_type}.point_created")
+            )
+            return
+        if first_point_id is not None:
+            self.statusBar().showMessage(
+                tr(f"sketch.status.{constraint_type}.point_required")
+            )
+            return
         if geometry is None or not self._valid_sketch_line(geometry, points):
             self.statusBar().showMessage(
                 tr(f"sketch.status.{constraint_type}.line_required")
@@ -31240,9 +32004,9 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.perpendicular.invalid_second")
             )
             return
-        # The first selected line is the one being constrained; the second
-        # selection only supplies its reference direction.
-        constraints = reference.get("constraints", [])
+        # Selection order is stable across relational constraints: the first
+        # line is the reference and the second line is driven.
+        constraints = geometry.get("constraints", [])
         if not isinstance(constraints, list):
             constraints = []
         relation_ids = {first_id, entity_id}
@@ -31267,45 +32031,23 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.perpendicular.already_exists")
             )
             return
-        first_has_direction_constraint = any(
+        driven_has_direction_constraint = any(
             isinstance(constraint, dict)
             and constraint.get("type")
             in ("horizontal", "vertical", "parallel", "perpendicular")
             for constraint in constraints
         )
-        if first_has_direction_constraint:
-            # The first line cannot be moved again. Treat it as the
-            # reference and apply the requested perpendicular relation to
-            # the second selected line instead.
-            second_constraints = geometry.get("constraints", [])
-            if not isinstance(second_constraints, list):
-                second_constraints = []
-            if any(
-                isinstance(constraint, dict)
-                and constraint.get("type")
-                in (
-                    "horizontal",
-                    "vertical",
-                    "parallel",
-                    "perpendicular",
-                )
-                for constraint in second_constraints
-            ):
-                self.statusBar().showMessage(
-                    tr("sketch.status.perpendicular.conflict")
-                )
-                return
-            second_constraints.append({
-                "type": "perpendicular",
-                "geometry_id": first_id,
-            })
-            geometry["constraints"] = second_constraints
-        else:
-            constraints.append({
-                "type": "perpendicular",
-                "geometry_id": entity_id,
-            })
-            reference["constraints"] = constraints
+        if driven_has_direction_constraint:
+            self.statusBar().showMessage(
+                tr("sketch.status.perpendicular.conflict")
+            )
+            return
+        constraints.append({
+            "type": "perpendicular",
+            "geometry_id": first_id,
+            "relation_role": "driven",
+        })
+        geometry["constraints"] = constraints
         self._apply_sketch_geometry_constraints(entities, sketch)
         self._apply_sketch_coincident_constraints(entities)
         self._store_sketch_entities(sketch, entities)
@@ -31619,9 +32361,8 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.parallel.invalid_first")
             )
             return
-        # The first selected line is the one being constrained; the second
-        # selection supplies the reference direction.
-        constraints = reference.get("constraints", [])
+        # The first selected line is the reference; the second line is driven.
+        constraints = geometry.get("constraints", [])
         if not isinstance(constraints, list):
             constraints = []
         relation_ids = {first_id, entity_id}
@@ -31646,7 +32387,7 @@ class MainWindow(QMainWindow):
                 tr("sketch.status.parallel.already_exists")
             )
             return
-        first_has_direction_constraint = any(
+        driven_has_direction_constraint = any(
             isinstance(constraint, dict)
             and constraint.get("type") in (
                 "horizontal",
@@ -31656,16 +32397,19 @@ class MainWindow(QMainWindow):
             )
             for constraint in constraints
         )
-        if first_has_direction_constraint:
+        if driven_has_direction_constraint:
             self.statusBar().showMessage(
                 tr("sketch.status.parallel.conflict")
             )
             return
         constraints.append({
             "type": "parallel",
-            "geometry_id": entity_id,
+            "geometry_id": first_id,
+            "relation_role": "driven",
         })
-        reference["constraints"] = constraints
+        geometry["constraints"] = constraints
+        self._apply_sketch_geometry_constraints(entities, sketch)
+        self._apply_sketch_coincident_constraints(entities)
         self._store_sketch_entities(sketch, entities)
         self._sketch_parallel_first_geometry_id = None
         self._sketch_selected_entity_id = None
@@ -32738,6 +33482,17 @@ class MainWindow(QMainWindow):
             else constraints[constraint_index]
         )
         related_ids = {owner_id}
+        owner_type = str(owner.get("type", ""))
+        constraint_type = str(constraint.get("type", ""))
+        point_direction_constraint = bool(
+            owner_type == "point"
+            and constraint_type in ("horizontal", "vertical")
+            and str(constraint.get("point_id", ""))
+        )
+        geometry_direction_constraint = (
+            owner_type in ("segment", "construction")
+            and constraint_type in ("horizontal", "vertical")
+        )
         if virtual_equal_radius:
             group = str(owner.get("equal_radius_group", ""))
             related_ids.update(
@@ -32764,6 +33519,10 @@ class MainWindow(QMainWindow):
         raw_point_ids = constraint.get("point_ids", ())
         if isinstance(raw_point_ids, (list, tuple)):
             related_ids.update(map(str, raw_point_ids))
+        if geometry_direction_constraint:
+            owner_point_ids = owner.get("point_ids", ())
+            if isinstance(owner_point_ids, list):
+                related_ids.update(map(str, owner_point_ids[:2]))
         geometry_by_point: dict[str, set[str]] = {}
         for entity in entities:
             geometry_id = str(entity.get("id", ""))
@@ -32772,8 +33531,9 @@ class MainWindow(QMainWindow):
                 continue
             for point_id in map(str, point_ids):
                 geometry_by_point.setdefault(point_id, set()).add(geometry_id)
-        for related_id in tuple(related_ids):
-            related_ids.update(geometry_by_point.get(related_id, ()))
+        if not point_direction_constraint and not geometry_direction_constraint:
+            for related_id in tuple(related_ids):
+                related_ids.update(geometry_by_point.get(related_id, ()))
         self._sketch_selected_constraint = (owner_id, constraint_index)
         self._sketch_selected_entity_ids = related_ids
         self._sketch_selected_entity_id = None
@@ -33372,6 +34132,50 @@ class MainWindow(QMainWindow):
         )
         if selected is None:
             return
+        text_group = str(selected.get("text_group", ""))
+        if selected.get("text_role") == "anchor" and text_group:
+            removed_ids = {
+                str(entity.get("id", ""))
+                for entity in entities
+                if str(entity.get("text_group", "")) == text_group
+            }
+            entities = [
+                entity for entity in entities
+                if str(entity.get("text_group", "")) != text_group
+            ]
+            for entity in entities:
+                constraints = entity.get("constraints", ())
+                if not isinstance(constraints, list):
+                    continue
+                kept = [
+                    constraint for constraint in constraints
+                    if not isinstance(constraint, dict)
+                    or not (
+                        str(constraint.get("point_id", "")) in removed_ids
+                        or str(constraint.get("geometry_id", "")) in removed_ids
+                        or any(
+                            str(point_id) in removed_ids
+                            for point_id in (constraint.get("point_ids") or ())
+                        )
+                    )
+                ]
+                if kept:
+                    entity["constraints"] = kept
+                else:
+                    entity.pop("constraints", None)
+            dimensions = [
+                dimension
+                for dimension in self._stored_sketch_dimensions(sketch)
+                if selected_id not in {
+                    str(point_id)
+                    for point_id in dimension.get("point_ids", ())
+                }
+            ]
+            self._store_sketch_editor_data(sketch, entities, dimensions)
+            self._sketch_selected_entity_id = None
+            self._mark_model_for_regeneration()
+            self._refresh_sketch_overlay()
+            return
         if selected.get("type") == "point":
             removed_geometry_ids = {
                 str(entity.get("id", ""))
@@ -33713,11 +34517,34 @@ class MainWindow(QMainWindow):
         next_geometry_index = 1
         while f"g{next_geometry_index}" in used_geometry_ids:
             next_geometry_index += 1
+        while f"p{next_point_index}" in used_point_ids:
+            next_point_index += 1
+        anchor_id = f"p{next_point_index}"
+        used_point_ids.add(anchor_id)
+        next_point_index += 1
+        entities.append({
+            "id": anchor_id,
+            "type": "point",
+            "x": origin[0],
+            "y": origin[1],
+            "text_group": group_id,
+            "text_role": "anchor",
+            "text_value": self._sketch_text_value,
+            "text_height": self._sketch_text_height,
+            "text_horizontal": self._sketch_text_horizontal,
+            "text_vertical": self._sketch_text_vertical,
+            "text_angle": math.degrees(math.atan2(uy, ux)),
+            "text_flip": self._sketch_text_flip,
+            "text_color": self._sketch_text_color,
+            "text_font": self._sketch_text_font,
+        })
         for contour_index, polygon in enumerate(polygons):
             point_ids: list[str] = []
             for local_x, local_y in polygon:
                 aligned_x = local_x + horizontal_offset
                 aligned_y = local_y + vertical_offset
+                if self._sketch_text_flip:
+                    aligned_x = -aligned_x
                 while f"p{next_point_index}" in used_point_ids:
                     next_point_index += 1
                 point_id = f"p{next_point_index}"
@@ -33729,6 +34556,7 @@ class MainWindow(QMainWindow):
                     "x": origin[0] + aligned_x * ux + aligned_y * vx,
                     "y": origin[1] + aligned_x * uy + aligned_y * vy,
                     "text_group": group_id,
+                    "text_role": "outline_point",
                 })
                 point_ids.append(point_id)
             for index, first_id in enumerate(point_ids):
@@ -33745,6 +34573,7 @@ class MainWindow(QMainWindow):
                         point_ids[(index + 1) % len(point_ids)],
                     ],
                     "text_group": group_id,
+                    "text_role": "outline",
                     "text_contour": contour_index,
                     "text_value": self._sketch_text_value,
                     "text_height": self._sketch_text_height,
@@ -33752,9 +34581,122 @@ class MainWindow(QMainWindow):
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
         self._mark_model_for_regeneration()
-        self.rebuild_view(fit=False)
+        # While Sketcher is open the semantic text is painted by its anchor.
+        # Rebuilding the 3D scene here would also paint the generated profile
+        # edges behind it as large yellow lines.  The profile is rebuilt once
+        # when Sketcher is finished instead.
         self._refresh_sketch_overlay()
         self.statusBar().showMessage(tr("sketch.text.status.created"))
+
+    def _update_sketch_text_group(self, group_id: str) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        anchor = next((
+            entity for entity in entities
+            if entity.get("type") == "point"
+            and entity.get("text_group") == group_id
+            and entity.get("text_role") == "anchor"
+        ), None)
+        if anchor is None:
+            return
+        preserved_anchor = copy.deepcopy(anchor)
+        entities = [
+            entity for entity in entities
+            if entity.get("text_group") != group_id or entity is anchor
+        ]
+        self._store_sketch_entities(sketch, entities)
+        origin = self._sketch_point_position(anchor)
+        angle = math.radians(self._sketch_text_angle)
+        self._commit_sketch_text(
+            sketch,
+            origin,
+            (origin[0] + math.cos(angle), origin[1] + math.sin(angle)),
+        )
+        entities = self._stored_sketch_entities(sketch)
+        new_anchor = next((
+            entity for entity in reversed(entities)
+            if entity.get("type") == "point"
+            and entity.get("text_role") == "anchor"
+        ), None)
+        if new_anchor is None:
+            return
+        new_group = str(new_anchor.get("text_group", ""))
+        preserved_anchor.update({
+            key: value for key, value in new_anchor.items()
+            if key.startswith("text_")
+        })
+        preserved_anchor["text_group"] = group_id
+        rewritten: list[dict[str, Any]] = []
+        for entity in entities:
+            if (
+                entity is new_anchor
+                or str(entity.get("id", ""))
+                == str(preserved_anchor.get("id", ""))
+            ):
+                continue
+            if entity.get("text_group") == new_group:
+                entity["text_group"] = group_id
+            rewritten.append(entity)
+        rewritten.append(preserved_anchor)
+        self._store_sketch_entities(sketch, rewritten)
+        self._refresh_sketch_overlay()
+
+    def _edit_sketch_text(self, group_id: str) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        anchor = next((
+            entity for entity in self._stored_sketch_entities(sketch)
+            if entity.get("type") == "point"
+            and entity.get("text_group") == group_id
+            and entity.get("text_role") == "anchor"
+        ), None)
+        if anchor is None:
+            return
+        self._sketch_text_value = str(anchor.get("text_value", "TEXT"))
+        self._sketch_text_height = float(anchor.get("text_height", 10.0))
+        self._sketch_text_horizontal = str(anchor.get("text_horizontal", "left"))
+        self._sketch_text_vertical = str(anchor.get("text_vertical", "bottom"))
+        self._sketch_text_angle = float(anchor.get("text_angle", 0.0))
+        self._sketch_text_flip = bool(anchor.get("text_flip", False))
+        self._sketch_text_color = str(anchor.get("text_color", "green"))
+        self._sketch_text_font = str(anchor.get("text_font", "osifont"))
+        if self._sketch_text_dialog is not None:
+            self._sketch_text_dialog.hide()
+            self._sketch_text_dialog.deleteLater()
+            self._sketch_text_dialog = None
+        self._sketch_text_edit_group = group_id
+        self._sketch_text_edit_baseline = copy.deepcopy(anchor)
+        self._set_sketch_tool("text")
+
+    def _regenerate_active_sketch_texts(self) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        anchors = [
+            copy.deepcopy(entity)
+            for entity in self._stored_sketch_entities(sketch)
+            if entity.get("type") == "point"
+            and entity.get("text_role") == "anchor"
+        ]
+        for anchor in anchors:
+            self._sketch_text_value = str(anchor.get("text_value", "TEXT"))
+            self._sketch_text_height = float(anchor.get("text_height", 10.0))
+            self._sketch_text_horizontal = str(anchor.get("text_horizontal", "left"))
+            self._sketch_text_vertical = str(anchor.get("text_vertical", "bottom"))
+            self._sketch_text_angle = float(anchor.get("text_angle", 0.0))
+            self._sketch_text_flip = bool(anchor.get("text_flip", False))
+            self._sketch_text_color = str(anchor.get("text_color", "green"))
+            self._sketch_text_font = str(anchor.get("text_font", "osifont"))
+            self._update_sketch_text_group(str(anchor.get("text_group", "")))
 
     def _commit_pending_sketch_entity(self) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:
@@ -33803,6 +34745,8 @@ class MainWindow(QMainWindow):
             "type": "segment" if polyline else self._sketch_tool or "segment",
             "point_ids": point_ids,
         }
+        if closed_spline:
+            geometry["closed_smooth"] = True
         if self._sketch_tool == "polyline_arc":
             point_map = {
                 str(item.get("id", "")): self._sketch_point_position(item)
@@ -33913,6 +34857,191 @@ class MainWindow(QMainWindow):
             )
         elif geometry["type"] == "elliptical_arc":
             geometry["clockwise"] = self._sketch_arc_clockwise
+        elif geometry["type"] == "spline" and not closed_spline:
+            point_positions = {
+                str(item.get("id", "")): self._sketch_point_position(item)
+                for item in entities if item.get("type") == "point"
+            }
+            for name, endpoint_id, adjacent_id in (
+                ("start", point_ids[0], point_ids[1]),
+                ("end", point_ids[-1], point_ids[-2]),
+            ):
+                support = spline_endpoint_support_tangent(
+                    entities, endpoint_id, point_positions
+                )
+                if support is None:
+                    continue
+                support_id, tangent = support
+                endpoint = point_positions[endpoint_id]
+                adjacent = point_positions[adjacent_id]
+                direction = (
+                    (adjacent[0] - endpoint[0], adjacent[1] - endpoint[1])
+                    if name == "start"
+                    else (endpoint[0] - adjacent[0], endpoint[1] - adjacent[1])
+                )
+                geometry[f"{name}_tangent"] = list(
+                    orient_tangent(tangent, direction)
+                )
+                geometry[f"{name}_tangent_geometry_id"] = support_id
+                # Spline endpoint tangency is represented by the stored
+                # derivative above.  Do not also feed it to SketchModel's
+                # generic tangent constraint: that solver relation supports
+                # lines and analytic curves, not splines, and aborts the
+                # regeneration after MMB has already created the final point.
+        pending_point_direction = (
+            str(self._sketch_pending_constraint)
+            if self._sketch_pending_constraint in ("horizontal", "vertical")
+            else next((
+                str(item.get("direction", ""))
+                for item in self._sketch_pending_constraint
+                if isinstance(item, dict)
+                and item.get("type") == "point_direction"
+            ), "")
+            if isinstance(self._sketch_pending_constraint, list)
+            else ""
+        )
+        if (
+            pending_point_direction in ("horizontal", "vertical")
+            and self._sketch_tool in ("segment", "construction", "polyline")
+            and len(point_ids) == 2
+        ):
+            # Direction inferred while drawing belongs to the current
+            # (second) point. Coincidence/axis attachments remain the higher
+            # priority point constraints and must not be duplicated by a
+            # redundant direction constraint on the complete line.
+            constraint_type = pending_point_direction
+            coordinate = "y" if constraint_type == "horizontal" else "x"
+            point_map = {
+                str(item.get("id", "")): item
+                for item in entities
+                if item.get("type") == "point"
+            }
+            reference_point = point_map.get(point_ids[0])
+            driven_point = point_map.get(point_ids[1])
+
+            def coordinate_is_fixed(point: dict[str, Any] | None) -> bool:
+                if point is None:
+                    return False
+                constraints = point.get("constraints", ())
+                if not isinstance(constraints, list):
+                    return False
+                fixed_references = (
+                    {"sketch_origin", "sketch_axis:x"}
+                    if coordinate == "y"
+                    else {"sketch_origin", "sketch_axis:y"}
+                )
+                return any(
+                    isinstance(candidate, dict)
+                    and candidate.get("type") == "point_on_reference"
+                    and str(candidate.get("reference_id", ""))
+                    in fixed_references
+                    for candidate in constraints
+                )
+
+            redundant = (
+                coordinate_is_fixed(reference_point)
+                and coordinate_is_fixed(driven_point)
+            )
+            def linear_support_ids(
+                point_id: str,
+                point: dict[str, Any] | None,
+            ) -> set[str]:
+                supports = {
+                    str(item.get("id", ""))
+                    for item in entities
+                    if item.get("type") in ("segment", "construction")
+                    and point_id in map(str, item.get("point_ids", ()))
+                }
+                constraints = point.get("constraints", ()) if point else ()
+                attached_lines = {
+                    tuple(map(str, item.get("point_ids", ())))
+                    for item in constraints
+                    if isinstance(item, dict)
+                    and item.get("type") == "point_on_line"
+                } if isinstance(constraints, list) else set()
+                supports.update(
+                    str(item.get("id", ""))
+                    for item in entities
+                    if item.get("type") in ("segment", "construction")
+                    and tuple(map(str, item.get("point_ids", ())))
+                    in attached_lines
+                )
+                return supports
+
+            common_linear_support = bool(
+                linear_support_ids(point_ids[0], reference_point)
+                & linear_support_ids(point_ids[1], driven_point)
+            )
+            redundant = redundant or common_linear_support
+            if driven_point is not None and not redundant:
+                constraints = driven_point.get("constraints", [])
+                if not isinstance(constraints, list):
+                    constraints = []
+                if not any(
+                    isinstance(candidate, dict)
+                    and candidate.get("type") == constraint_type
+                    and str(candidate.get("point_id", "")) == point_ids[0]
+                    for candidate in constraints
+                ):
+                    constraints.append({
+                        "type": constraint_type,
+                        "point_id": point_ids[0],
+                        "relation_role": "driven",
+                    })
+                    driven_point["constraints"] = constraints
+            if isinstance(self._sketch_pending_constraint, list):
+                self._sketch_pending_constraint = [
+                    item
+                    for item in self._sketch_pending_constraint
+                    if not (
+                        isinstance(item, dict)
+                        and item.get("type") == "point_direction"
+                    )
+                ]
+            else:
+                self._sketch_pending_constraint = None
+        if isinstance(self._sketch_pending_constraint, list):
+            symmetry_marker = next((
+                item
+                for item in self._sketch_pending_constraint
+                if isinstance(item, dict)
+                and item.get("type") == "symmetric_points"
+            ), None)
+            if symmetry_marker is not None and len(point_ids) == 2:
+                axis_id = str(symmetry_marker.get("axis_geometry_id", ""))
+                axis = next((
+                    item
+                    for item in entities
+                    if item.get("type") == "construction"
+                    and str(item.get("id", "")) == axis_id
+                ), None)
+                axis_point_ids = (
+                    list(map(str, axis.get("point_ids", ())))
+                    if axis is not None
+                    and isinstance(axis.get("point_ids"), list)
+                    else []
+                )
+                reference_point = next((
+                    item
+                    for item in entities
+                    if item.get("type") == "point"
+                    and str(item.get("id", "")) == point_ids[0]
+                ), None)
+                if reference_point is not None and len(axis_point_ids) == 2:
+                    constraints = reference_point.get("constraints", [])
+                    if not isinstance(constraints, list):
+                        constraints = []
+                    constraints.append({
+                        "type": "symmetric",
+                        "point_id": point_ids[1],
+                        "point_ids": axis_point_ids,
+                    })
+                    reference_point["constraints"] = constraints
+                self._sketch_pending_constraint = [
+                    item
+                    for item in self._sketch_pending_constraint
+                    if item is not symmetry_marker
+                ]
         if isinstance(self._sketch_pending_constraint, list):
             geometry["constraints"] = [
                 *geometry.get("constraints", ()),
@@ -34131,17 +35260,72 @@ class MainWindow(QMainWindow):
                         point_ids[corner_index],
                         f"sketch_circle:{parts[2]}",
                     )
-        for start_id, end_id, constraint_type in (
+        if automatic_constraint and automatic_constraint.startswith(
+            "rectangle_symmetric:"
+        ):
+            parts = automatic_constraint.split(":")
+            axis_id = parts[1] if len(parts) >= 2 else ""
+            axis = next((
+                entity
+                for entity in entities
+                if entity.get("type") == "construction"
+                and str(entity.get("id", "")) == axis_id
+            ), None)
+            axis_point_ids = (
+                list(map(str, axis.get("point_ids", ())))
+                if axis is not None
+                and isinstance(axis.get("point_ids"), list)
+                else []
+            )
+            second_point = next((
+                entity
+                for entity in entities
+                if entity.get("type") == "point"
+                and str(entity.get("id", "")) == point_ids[1]
+            ), None)
+            if second_point is not None and len(axis_point_ids) == 2:
+                constraints = second_point.get("constraints", [])
+                if not isinstance(constraints, list):
+                    constraints = []
+                constraints.append({
+                    "type": "symmetric",
+                    "point_id": point_ids[3],
+                    "point_ids": axis_point_ids,
+                })
+                second_point["constraints"] = constraints
+        point_map = {
+            str(entity.get("id", "")): entity
+            for entity in entities
+            if entity.get("type") == "point"
+        }
+        for reference_id, driven_id, constraint_type in (
             (point_ids[0], point_ids[1], "horizontal"),
             (point_ids[1], point_ids[2], "vertical"),
             (point_ids[2], point_ids[3], "horizontal"),
-            (point_ids[3], point_ids[0], "vertical"),
+            (point_ids[0], point_ids[3], "vertical"),
+        ):
+            driven = point_map[driven_id]
+            constraints = driven.get("constraints", [])
+            if not isinstance(constraints, list):
+                constraints = []
+            constraint = {
+                "type": constraint_type,
+                "point_id": reference_id,
+                "relation_role": "driven",
+            }
+            if constraint not in constraints:
+                constraints.append(constraint)
+                driven["constraints"] = constraints
+        for start_id, end_id in (
+            (point_ids[0], point_ids[1]),
+            (point_ids[1], point_ids[2]),
+            (point_ids[2], point_ids[3]),
+            (point_ids[3], point_ids[0]),
         ):
             entities.append({
                 "id": self._next_sketch_geometry_id(entities),
                 "type": "segment",
                 "point_ids": [start_id, end_id],
-                "constraints": [{"type": constraint_type}],
             })
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
@@ -34149,6 +35333,128 @@ class MainWindow(QMainWindow):
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id = None
+        self._regenerate_active_sketch_constraints(sketch)
+
+    def _commit_oriented_sketch_rectangle(
+        self,
+        sketch: ZimaEntity,
+        first_id: str,
+        first: tuple[float, float],
+        guide: tuple[float, float],
+        axis_id: str,
+    ) -> None:
+        entities = self._stored_sketch_entities(sketch)
+        axis = next((
+            entity for entity in entities
+            if entity.get("type") == "construction"
+            and str(entity.get("id", "")) == axis_id
+        ), None)
+        axis_point_ids = (
+            list(map(str, axis.get("point_ids", ())))
+            if axis is not None and isinstance(axis.get("point_ids"), list)
+            else []
+        )
+        point_map = {
+            str(entity.get("id", "")): entity
+            for entity in entities if entity.get("type") == "point"
+        }
+        if len(axis_point_ids) != 2 or any(pid not in point_map for pid in axis_point_ids):
+            return
+        axis_a = (
+            float(point_map[axis_point_ids[0]].get("x", 0.0)),
+            float(point_map[axis_point_ids[0]].get("y", 0.0)),
+        )
+        axis_b = (
+            float(point_map[axis_point_ids[1]].get("x", 0.0)),
+            float(point_map[axis_point_ids[1]].get("y", 0.0)),
+        )
+        dx, dy = axis_b[0] - axis_a[0], axis_b[1] - axis_a[1]
+        axis_length = math.hypot(dx, dy)
+        if axis_length <= 1.0e-12:
+            return
+        ux, uy = dx / axis_length, dy / axis_length
+        length = (guide[0] - first[0]) * ux + (guide[1] - first[1]) * uy
+        projection = (
+            (first[0] - axis_a[0]) * ux
+            + (first[1] - axis_a[1]) * uy
+        )
+        foot = (axis_a[0] + projection * ux, axis_a[1] + projection * uy)
+        mirrored = (2.0 * foot[0] - first[0], 2.0 * foot[1] - first[1])
+        if abs(length) <= 1.0e-12 or math.dist(first, mirrored) <= 1.0e-12:
+            return
+        far_first = (first[0] + length * ux, first[1] + length * uy)
+        far_mirrored = (mirrored[0] + length * ux, mirrored[1] + length * uy)
+
+        # The second LMB point is only an input guide. Remove it when it was
+        # created by this unfinished operation so it cannot remain orphaned.
+        guide_id = (
+            self._sketch_pending_point_ids[1]
+            if len(self._sketch_pending_point_ids) >= 2
+            else ""
+        )
+        if guide_id in self._sketch_pending_new_point_ids and guide_id != first_id:
+            entities = [
+                entity for entity in entities
+                if str(entity.get("id", "")) != guide_id
+            ]
+        created_points = []
+        for position in (far_first, far_mirrored, mirrored):
+            point, _snapped, _created = self._ensure_sketch_point_in_entities(
+                sketch, entities, position
+            )
+            created_points.append(str(point.get("id", "")))
+        point_ids = (first_id, *created_points)
+        if not all(point_ids) or len(set(point_ids)) != 4:
+            return
+        point_map = {
+            str(entity.get("id", "")): entity
+            for entity in entities if entity.get("type") == "point"
+        }
+        for owner_id, paired_id in (
+            (point_ids[3], point_ids[0]),
+            (point_ids[2], point_ids[1]),
+        ):
+            constraints = point_map[owner_id].get("constraints", [])
+            if not isinstance(constraints, list):
+                constraints = []
+            constraints.append({
+                "type": "symmetric",
+                "point_id": paired_id,
+                "point_ids": axis_point_ids,
+            })
+            point_map[owner_id]["constraints"] = constraints
+        geometry_ids = []
+        for start_id, end_id in (
+            (point_ids[0], point_ids[1]),
+            (point_ids[1], point_ids[2]),
+            (point_ids[2], point_ids[3]),
+            (point_ids[3], point_ids[0]),
+        ):
+            geometry_id = self._next_sketch_geometry_id(entities)
+            geometry = {
+                "id": geometry_id,
+                "type": "segment",
+                "point_ids": [start_id, end_id],
+            }
+            entities.append(geometry)
+            geometry_ids.append(geometry_id)
+        # One explicit parallel relation is sufficient: the two symmetry
+        # pairs make the opposite long side parallel as a consequence.
+        entities[-4]["constraints"] = [{
+            "type": "parallel",
+            "geometry_id": axis_id,
+            "relation_role": "driven",
+        }]
+        sketch.parameters["profile"] = "entities"
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_pending_points.clear()
+        self._sketch_pending_point_ids.clear()
+        self._sketch_pending_new_point_ids.clear()
+        self._sketch_pending_constraint = None
+        self._sketch_rectangle_axis_mode = False
+        self._sketch_rectangle_axis_id = None
         self._regenerate_active_sketch_constraints(sketch)
 
     def _commit_sketch_circle(
@@ -34528,9 +35834,35 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_sketch_overlay(None)
             return
         frame = self._sketch_frame(sketch)
+        overlay_entities = [
+            entity
+            for entity in self._stored_sketch_entities(sketch)
+            if entity.get("text_role") not in ("outline", "outline_point")
+        ]
+        selected_constraint_reference_id: str | None = None
+        if self._sketch_selected_constraint is not None:
+            owner_id, constraint_index = self._sketch_selected_constraint
+            owner = next((
+                entity
+                for entity in overlay_entities
+                if str(entity.get("id", "")) == owner_id
+            ), None)
+            constraints = (
+                owner.get("constraints", ())
+                if owner is not None
+                else ()
+            )
+            if (
+                isinstance(constraints, list)
+                and 0 <= constraint_index < len(constraints)
+                and isinstance(constraints[constraint_index], dict)
+            ):
+                selected_constraint_reference_id = str(
+                    constraints[constraint_index].get("reference_id", "")
+                ) or None
         self.native_viewer.set_sketch_overlay(
             frame,
-            self._stored_sketch_entities(sketch),
+            overlay_entities,
             self._sketch_pending_points,
             selection_mode=self._sketch_tool in (
                 "select",
@@ -34568,6 +35900,7 @@ class MainWindow(QMainWindow):
             selected_entity_ids=self._sketch_selected_entity_ids,
             selected_corner_radius=self._sketch_selected_corner_radius,
             selected_constraint=self._sketch_selected_constraint,
+            selected_reference_id=selected_constraint_reference_id,
             external_references=self._resolved_sketch_external_references(
                 sketch
             ),
@@ -34577,6 +35910,7 @@ class MainWindow(QMainWindow):
                 "segment",
                 "polyline",
                 "polyline_arc",
+                "spline",
                 "rectangle",
                 "hexagon",
                 "circle",
@@ -34589,6 +35923,8 @@ class MainWindow(QMainWindow):
             ),
             sketch_tool=self._sketch_tool,
             polygon_sides=self._sketch_polygon_sides,
+            rectangle_axis_mode=self._sketch_rectangle_axis_mode,
+            rectangle_axis_id=self._sketch_rectangle_axis_id,
         )
         if populate_tree:
             self._populate_tree()
@@ -34824,6 +36160,10 @@ class MainWindow(QMainWindow):
             for entity in entities
             if entity.get("type") in ("ellipse", "elliptical_arc")
         }
+        splines = {
+            str(entity.get("id", "")): entity
+            for entity in entities if entity.get("type") == "spline"
+        }
         radius_arcs: dict[str, tuple[tuple[float, float], ...]] = {}
         for first_id, first in geometry.items():
             first_ids = tuple(map(str, first.get("point_ids", ())))
@@ -34883,6 +36223,23 @@ class MainWindow(QMainWindow):
                 blend = scaled - lower
                 point["x"] = arc[lower][0] + blend * (arc[upper][0] - arc[lower][0])
                 point["y"] = arc[lower][1] + blend * (arc[upper][1] - arc[lower][1])
+            elif attachment.get("type") == "spline":
+                spline = splines.get(str(attachment.get("geometry_id", "")))
+                ids = tuple(map(str, spline.get("point_ids", ()))) if spline else ()
+                if len(ids) < 2 or any(point_id not in points for point_id in ids):
+                    continue
+                sampled = sample_interpolated_spline(
+                    tuple(MainWindow._sketch_point_position(points[point_id]) for point_id in ids),
+                    stored_spline_tangent(spline, "start_tangent"),
+                    stored_spline_tangent(spline, "end_tangent"),
+                )
+                fraction = max(0.0, min(1.0, float(attachment.get("fraction", 0.0))))
+                scaled = fraction * (len(sampled) - 1)
+                lower = int(math.floor(scaled))
+                upper = min(lower + 1, len(sampled) - 1)
+                blend = scaled - lower
+                point["x"] = sampled[lower][0] + blend * (sampled[upper][0] - sampled[lower][0])
+                point["y"] = sampled[lower][1] + blend * (sampled[upper][1] - sampled[lower][1])
             elif attachment.get("type") == "arc":
                 attached_arc = arcs.get(
                     str(attachment.get("geometry_id", ""))
@@ -34953,6 +36310,10 @@ class MainWindow(QMainWindow):
             for entity in entities
             if entity.get("type") in ("ellipse", "elliptical_arc")
         }
+        splines = {
+            str(entity.get("id", "")): entity
+            for entity in entities if entity.get("type") == "spline"
+        }
         for point in points.values():
             attachment = point.get("curve_attachment")
             if not isinstance(attachment, dict):
@@ -34993,6 +36354,19 @@ class MainWindow(QMainWindow):
                     radius_id,
                     MainWindow._sketch_point_position(point),
                 )
+            elif attachment.get("type") == "spline":
+                spline = splines.get(str(attachment.get("geometry_id", "")))
+                ids = tuple(map(str, spline.get("point_ids", ()))) if spline else ()
+                if len(ids) < 2 or any(point_id not in points for point_id in ids):
+                    continue
+                sampled = sample_interpolated_spline(
+                    tuple(MainWindow._sketch_point_position(points[point_id]) for point_id in ids),
+                    stored_spline_tangent(spline, "start_tangent"),
+                    stored_spline_tangent(spline, "end_tangent"),
+                )
+                position = MainWindow._sketch_point_position(point)
+                index = min(range(len(sampled)), key=lambda candidate: math.dist(sampled[candidate], position))
+                attachment["fraction"] = index / max(1, len(sampled) - 1)
             elif attachment.get("type") == "arc":
                 attached_arc = arcs.get(
                     str(attachment.get("geometry_id", ""))
@@ -35815,6 +37189,9 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_tool == "spline" and len(self._sketch_pending_points) >= 2:
             self._commit_pending_sketch_entity()
+        if self._sketch_tool == "text" and self._sketch_text_edit_group is None:
+            self._commit_pending_sketch_text()
+        self._regenerate_active_sketch_texts()
         sketch_id = self._sketch_edit_entity_id
         self._leave_sketch_edit(restore=False)
         if self._sketch_return_properties_id is not None:
@@ -35889,6 +37266,12 @@ class MainWindow(QMainWindow):
             sketch_affects_solid = False
         self._clear_dimension_overlays()
         self.native_viewer.set_sketch_overlay(None)
+        if self._sketch_text_dialog is not None:
+            self._sketch_text_dialog.hide()
+            self._sketch_text_dialog.deleteLater()
+            self._sketch_text_dialog = None
+        self._sketch_text_edit_group = None
+        self._sketch_text_edit_baseline = None
         self._set_sketch_reference_mode(False)
         self.native_viewer.set_selection_enabled(self.view_selection_enabled)
         self._sketch_edit_entity_id = None
@@ -35901,6 +37284,7 @@ class MainWindow(QMainWindow):
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
         self._sketch_coincident_first_point_id = None
+        self._sketch_direction_first_point_id = None
         self._sketch_midpoint_point_id = None
         self._sketch_perpendicular_first_geometry_id = None
         self._sketch_parallel_first_geometry_id = None
@@ -36199,6 +37583,12 @@ class MainWindow(QMainWindow):
         dialog: PlaneConstraintDialog,
         row: int,
     ) -> None:
+        # A topology pick can also leave its owning object selected until the
+        # mouse event has finished.  In wireframe mode that stale object
+        # selection colors every edge of the solid cyan while the next frame
+        # reference is being picked.  Clear it on the following event-loop
+        # turn, then restore only the explicitly stored reference highlights.
+        QTimer.singleShot(0, self._reference_selection_confirmed)
         if (
             row != 0
             or type(dialog) is not PlaneConstraintDialog
@@ -36861,10 +38251,12 @@ class MainWindow(QMainWindow):
                         overlay = self._dimension_overlays.get(key)
                         if overlay is not None:
                             try:
-                                dimension["value"] = float(
-                                    overlay._edit_value.replace(",", ".")
+                                dimension["value"] = (
+                                    evaluate_numeric_expression(
+                                        overlay._edit_value
+                                    )
                                 )
-                            except (TypeError, ValueError):
+                            except NumericExpressionError:
                                 pass
                     dimension["locked"] = locked
                     break
@@ -37286,8 +38678,8 @@ class MainWindow(QMainWindow):
         if unit and value_text.lower().endswith(unit.lower()):
             value_text = value_text[:-len(unit)].strip()
         try:
-            value = float(value_text.replace(",", "."))
-        except ValueError:
+            value = evaluate_numeric_expression(value_text)
+        except NumericExpressionError:
             self.statusBar().showMessage(
                 tr("dimension.invalid_value", value=raw_value)
             )

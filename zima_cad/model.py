@@ -35,7 +35,6 @@ from OCC.Core.GeomAbs import (
     GeomAbs_Ellipse,
     GeomAbs_Plane,
 )
-from OCC.Core.GeomAPI import GeomAPI_Interpolate
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCC.Core.Bnd import Bnd_Box
@@ -58,7 +57,6 @@ from OCC.Core.gp import (
     gp_Trsf,
     gp_Vec,
 )
-from OCC.Core.TColgp import TColgp_HArray1OfPnt
 from OCC.Core.TopoDS import TopoDS_Compound
 from OCC.Core.TopAbs import (
     TopAbs_EDGE,
@@ -68,6 +66,7 @@ from OCC.Core.TopAbs import (
     TopAbs_VERTEX,
 )
 from OCC.Core.TopExp import TopExp_Explorer, topexp
+from zima_cad.spline_geometry import interpolated_spline_curve, stored_spline_tangent
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
 from zima_cad.sketch_model import GeometryType, SketchModel, SketchModelError
@@ -2139,35 +2138,23 @@ def _make_sketch_profile_wires(
                         ).Edge()
                     elif entity_type == "spline":
                         ordered_ids = point_ids
+                        start_tangent = stored_spline_tangent(geometry, "start_tangent")
+                        end_tangent = stored_spline_tangent(geometry, "end_tangent")
                         if start_id != point_ids[0]:
                             ordered_ids = tuple(reversed(ordered_ids))
-                        periodic = (
-                            len(ordered_ids) >= 4
-                            and ordered_ids[0] == ordered_ids[-1]
-                        )
-                        if periodic:
-                            ordered_ids = ordered_ids[:-1]
-                        poles = TColgp_HArray1OfPnt(1, len(ordered_ids))
-                        for pole_index, point_id in enumerate(
-                            ordered_ids,
-                            1,
-                        ):
-                            poles.SetValue(
-                                pole_index,
-                                gp_Pnt(*points[point_id], 0.0),
+                            start_tangent, end_tangent = (
+                                (-end_tangent[0], -end_tangent[1]) if end_tangent else None,
+                                (-start_tangent[0], -start_tangent[1]) if start_tangent else None,
                             )
-                        interpolation = GeomAPI_Interpolate(
-                            poles,
-                            periodic,
-                            1.0e-7,
+                        curve = interpolated_spline_curve(
+                            tuple(points[point_id] for point_id in ordered_ids),
+                            start_tangent,
+                            end_tangent,
                         )
-                        interpolation.Perform()
-                        if not interpolation.IsDone():
+                        if curve is None:
                             valid = False
                             break
-                        edge = BRepBuilderAPI_MakeEdge(
-                            interpolation.Curve()
-                        ).Edge()
+                        edge = BRepBuilderAPI_MakeEdge(curve).Edge()
                     elif entity_type == "elliptical_arc":
                         edge = _make_exact_ellipse_edge(
                             tuple(points[pid] for pid in point_ids[:5]),
@@ -3223,21 +3210,13 @@ def protrusion_face_registry(
                 midpoint_2d = sketch_points[point_ids[len(point_ids) // 2]]
         elif entity_type == "spline":
             endpoint_ids = (point_ids[0], point_ids[-1])
-            interpolation_ids = point_ids[:-1] if (
-                len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
-            ) else point_ids
-            poles = TColgp_HArray1OfPnt(1, len(interpolation_ids))
-            for pole_index, point_id in enumerate(interpolation_ids, 1):
-                poles.SetValue(
-                    pole_index, gp_Pnt(*sketch_points[point_id], 0.0)
-                )
-            interpolation = GeomAPI_Interpolate(
-                poles, len(interpolation_ids) != len(point_ids), 1.0e-7
+            curve = interpolated_spline_curve(
+                tuple(sketch_points[point_id] for point_id in point_ids),
+                stored_spline_tangent(entity, "start_tangent"),
+                stored_spline_tangent(entity, "end_tangent"),
             )
-            interpolation.Perform()
-            if not interpolation.IsDone():
+            if curve is None:
                 continue
-            curve = interpolation.Curve()
             point = curve.Value(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
@@ -3831,21 +3810,13 @@ def revolve_face_registry(
                 midpoint_2d = points[point_ids[len(point_ids) // 2]]
         elif entity.get("type") == "spline" and len(point_ids) >= 2:
             endpoint_ids = (point_ids[0], point_ids[-1])
-            interpolation_ids = point_ids[:-1] if (
-                len(point_ids) >= 4 and point_ids[0] == point_ids[-1]
-            ) else point_ids
-            poles = TColgp_HArray1OfPnt(1, len(interpolation_ids))
-            for pole_index, point_id in enumerate(interpolation_ids, 1):
-                poles.SetValue(
-                    pole_index, gp_Pnt(*points[point_id], 0.0)
-                )
-            interpolation = GeomAPI_Interpolate(
-                poles, len(interpolation_ids) != len(point_ids), 1.0e-7
+            curve = interpolated_spline_curve(
+                tuple(points[point_id] for point_id in point_ids),
+                stored_spline_tangent(entity, "start_tangent"),
+                stored_spline_tangent(entity, "end_tangent"),
             )
-            interpolation.Perform()
-            if not interpolation.IsDone():
+            if curve is None:
                 continue
-            curve = interpolation.Curve()
             point = curve.Value(
                 (curve.FirstParameter() + curve.LastParameter()) * 0.5
             )
@@ -5256,28 +5227,11 @@ def make_sketch_shape(
                         gp_Pnt(float(points[2][0]), float(points[2][1]), 0.0),
                     ).Value()
                 elif entity.get("type") == "spline" and len(points) >= 2:
-                    periodic = len(points) >= 4 and points[0] == points[-1]
-                    interpolation_points = points[:-1] if periodic else points
-                    poles = TColgp_HArray1OfPnt(1, len(interpolation_points))
-                    for point_index, point in enumerate(
-                        interpolation_points, 1
-                    ):
-                        poles.SetValue(
-                            point_index,
-                            gp_Pnt(
-                                float(point[0]),
-                                float(point[1]),
-                                0.0,
-                            ),
-                        )
-                    interpolation = GeomAPI_Interpolate(
-                        poles,
-                        periodic,
-                        1.0e-7,
+                    curve = interpolated_spline_curve(
+                        tuple((float(point[0]), float(point[1])) for point in points),
+                        stored_spline_tangent(entity, "start_tangent"),
+                        stored_spline_tangent(entity, "end_tangent"),
                     )
-                    interpolation.Perform()
-                    if interpolation.IsDone():
-                        curve = interpolation.Curve()
                 elif entity.get("type") in ("ellipse", "elliptical_arc"):
                     required = 3 if entity.get("type") == "ellipse" else 5
                     if len(points) >= required:

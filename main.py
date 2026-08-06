@@ -5,26 +5,39 @@ from PySide6.QtGui import QIcon, QPixmap, QSurfaceFormat
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from zima_cad.paths import app_path
+from zima_cad.opengl_platform import OPENGL_CONFIG
 from zima_cad.settings import resolve_startup_context
 
 
 def configure_opengl() -> None:
-    """Configure one shareable EGL/GL format before QApplication exists."""
+    """Configure one shareable platform GL format before QApplication."""
     QApplication.setAttribute(
         Qt.ApplicationAttribute.AA_ShareOpenGLContexts,
         True,
     )
     surface_format = QSurfaceFormat()
-    # EGL exposes the PRIME-rendered NVIDIA device reliably on native
-    # Wayland through OpenGL ES.  Requesting desktop OpenGL here makes Qt's
-    # QOpenGLWidget fail with EGL_BAD_MATCH on hybrid NVIDIA systems.
-    surface_format.setRenderableType(
-        QSurfaceFormat.RenderableType.OpenGLES
-    )
-    surface_format.setVersion(3, 0)
-    surface_format.setProfile(
-        QSurfaceFormat.OpenGLContextProfile.NoProfile
-    )
+    if OPENGL_CONFIG.renderable_type == "gles":
+        # EGL exposes the PRIME-rendered NVIDIA device reliably on native
+        # Wayland through OpenGL ES. Requesting desktop OpenGL here makes
+        # QOpenGLWidget fail with EGL_BAD_MATCH on hybrid NVIDIA systems.
+        surface_format.setRenderableType(
+            QSurfaceFormat.RenderableType.OpenGLES
+        )
+        surface_format.setVersion(*OPENGL_CONFIG.version)
+        surface_format.setProfile(
+            QSurfaceFormat.OpenGLContextProfile.NoProfile
+        )
+    else:
+        # The Windows Qt runtime uses WGL/desktop OpenGL. Forcing the Linux
+        # EGL/OpenGL ES format there can prevent QOpenGLWidget from creating
+        # a context before the main window appears.
+        surface_format.setRenderableType(
+            QSurfaceFormat.RenderableType.OpenGL
+        )
+        surface_format.setVersion(*OPENGL_CONFIG.version)
+        surface_format.setProfile(
+            QSurfaceFormat.OpenGLContextProfile.CoreProfile
+        )
     surface_format.setDepthBufferSize(24)
     surface_format.setSamples(0)
     surface_format.setSwapInterval(0)

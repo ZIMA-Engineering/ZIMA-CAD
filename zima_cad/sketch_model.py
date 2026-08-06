@@ -507,21 +507,25 @@ class SketchModel:
                         f"{constraint.constraint_type} constraint "
                         f"{constraint.constraint_id!r} requires 2 points"
                     )
-                explicit_owner_id = str(
-                    constraint.attributes.get("owner_geometry_id", "")
-                )
-                owner_geometry = (
-                    self.geometry.get(explicit_owner_id)
-                    if explicit_owner_id
-                    else geometry_for_points(points[0], points[1])
-                )
-                if owner_geometry is None:
-                    raise SketchModelError(
-                        f"{constraint.constraint_type} constraint "
-                        f"{constraint.constraint_id!r} has no connector"
+                if constraint.attributes.get("relation_role") == "driven":
+                    owner_id = points[0]
+                    raw["point_id"] = points[1]
+                else:
+                    explicit_owner_id = str(
+                        constraint.attributes.get("owner_geometry_id", "")
                     )
-                owner_id = owner_geometry.geometry_id
-                raw.pop("owner_geometry_id", None)
+                    owner_geometry = (
+                        self.geometry.get(explicit_owner_id)
+                        if explicit_owner_id
+                        else geometry_for_points(points[0], points[1])
+                    )
+                    if owner_geometry is None:
+                        raise SketchModelError(
+                            f"{constraint.constraint_type} constraint "
+                            f"{constraint.constraint_id!r} has no connector"
+                        )
+                    owner_id = owner_geometry.geometry_id
+                    raw.pop("owner_geometry_id", None)
             elif constraint.constraint_type in ("point_on_line", "midpoint"):
                 if len(points) != 3:
                     raise SketchModelError(

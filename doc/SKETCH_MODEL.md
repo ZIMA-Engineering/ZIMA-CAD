@@ -43,6 +43,12 @@ For perpendicularity, `B` is the shared vertex. Segments `AB` and `BC` may
 make the relation selectable and visible, but they are not operands of the
 constraint.
 
+The interaction convention is reference first, driven element second. For
+two-point horizontal and vertical constraints the stored owner is the driven
+point and `point_id` identifies the reference point. Relational constraints
+may retain `relation_role: driven` as editor metadata. The complete selection,
+snapping-priority and exception rules are documented in [SKETCHER.md](SKETCHER.md).
+
 External projected geometry is a reference, not copied authoritative
 geometry. Cached coordinates may be retained for display and recovery, but
 must never become the source of truth while the reference is valid.

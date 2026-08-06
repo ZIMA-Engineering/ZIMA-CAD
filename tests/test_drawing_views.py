@@ -238,6 +238,7 @@ class DrawingViewConventionTests(unittest.TestCase):
             expanded[1]["container_orientation_slot"], "primary"
         )
         self.assertEqual(expanded[1]["orientation_role"], "normal")
+        self.assertTrue(expanded[1]["preserve_orientation_sign"])
 
     def test_explicit_frame_drives_rotation_instead_of_position_roles(self):
         class RotationHarness:
@@ -321,6 +322,65 @@ class DrawingViewConventionTests(unittest.TestCase):
             for index in range(3)
         ))
         self.assertAlmostEqual(agreement, 1.0, places=7)
+
+    def test_face_front_preserves_outward_normal_and_back_reverses_it(self):
+        class DatumHarness:
+            _normalized_vector = staticmethod(MainWindow._normalized_vector)
+            _cross_product = staticmethod(MainWindow._cross_product)
+            _local_plane_for_normal = staticmethod(
+                MainWindow._local_plane_for_normal
+            )
+            _datum_frame_references = staticmethod(
+                MainWindow._datum_frame_references
+            )
+            _plane_reference_rotation = MainWindow._plane_reference_rotation
+
+            @staticmethod
+            def _orientation_reference_vector(
+                descriptor,
+                *,
+                allow_frame_fallback,
+            ):
+                return tuple(descriptor["direction"])
+
+        outward = (-0.2, -0.4, -0.8944271909999159)
+        for role, expected_agreement in (("front", 1.0), ("back", -1.0)):
+            references = [{
+                "type": "container_orientation",
+                "mappings": [{
+                    "slot": "primary",
+                    "reference": {
+                        "type": "face",
+                        "direction": outward,
+                    },
+                    "role": role,
+                }],
+            }]
+            plane, rotation = MainWindow._datum_plane_frame(
+                DatumHarness(), references, "xz"
+            )
+            local_normal = {
+                "xy": (0.0, 0.0, 1.0),
+                "yz": (1.0, 0.0, 0.0),
+                "xz": (0.0, 1.0, 0.0),
+            }[plane]
+            transform = coordinate_system_transform(
+                CoordinateSystem(rotation=rotation)
+            )
+            world_normal = tuple(
+                sum(
+                    transform[row][column] * local_normal[column]
+                    for column in range(3)
+                )
+                for row in range(3)
+            )
+            agreement = sum(
+                world_normal[index] * outward[index]
+                for index in range(3)
+            )
+            self.assertAlmostEqual(
+                agreement, expected_agreement, places=7
+            )
 
     def test_front_offset_does_not_override_locked_container_origin(self):
         class ConstraintHarness:
@@ -1700,7 +1760,7 @@ class DrawingViewConventionTests(unittest.TestCase):
             references, primary_index=0, normal_role="up"
         )
 
-        self.assertEqual(remapped[0]["orientation_role"], "up")
+        self.assertEqual(remapped[0]["orientation_role"], "down")
         self.assertEqual(
             remapped[1]["orientation_role"], "opposite_normal"
         )
