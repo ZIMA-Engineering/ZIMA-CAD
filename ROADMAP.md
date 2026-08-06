@@ -140,11 +140,11 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 7. Advanced Part Modeling
 
-**Status: Multi-edge Fillet implemented; remaining features planned**
+**Status: Multi-edge Fillet and symmetric Chamfer implemented**
 
 - multi-edge history Fillet with one shared radius, stable semantic edge
   references, unified creation/editing properties and last-valid-body recovery
-- chamfers
+- two-distance and distance-plus-angle Chamfer modes
 - shell and thickness
 - holes and threads
 - mirrors and patterns

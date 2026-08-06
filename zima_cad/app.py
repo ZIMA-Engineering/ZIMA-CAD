@@ -131,7 +131,8 @@ from zima_cad.model import (
     identity_transform,
     multiply_transforms,
     entity_world_transform,
-    fillet_edge_references,
+    edge_feature_references,
+    make_chamfer_shape,
     make_fillet_shape,
     make_sketch_shape,
     sketch_profile_status,
@@ -345,7 +346,8 @@ TREE_ICON_NAMES = {
     EntityKind.SKETCH: "sketch",
     EntityKind.PROTRUSION: "protrusion",
     EntityKind.REVOLVE: "revolve",
-    EntityKind.FILLET: "protrusion",
+    EntityKind.FILLET: "fillet",
+    EntityKind.CHAMFER: "chamfer",
     EntityKind.BOX: "box",
     EntityKind.SPHERE: "sphere",
     EntityKind.CYLINDER: "cylinder",
@@ -920,17 +922,19 @@ class NewDocumentDialog(QDialog):
         super().accept()
 
 
-class FilletPropertiesDialog(QDialog):
-    """Compact native properties window for one multi-edge fillet."""
+class EdgeTreatmentPropertiesDialog(QDialog):
+    """Shared properties window for multi-edge Fillet and Chamfer."""
 
     removeEdgeRequested = Signal(object)
     applied = Signal()
 
     def __init__(
         self,
-        radius: float,
+        size: float,
         edge_count: int = 0,
         parent=None,
+        *,
+        operation: ContainerType = ContainerType.FILLET,
     ) -> None:
         super().__init__(parent)
         if isinstance(parent, QWidget):
@@ -949,7 +953,14 @@ class FilletPropertiesDialog(QDialog):
                 " border-radius: 5px;"
                 "}"
             )
-        self.setWindowTitle(tr("fillet.properties.title"))
+        self._operation = operation
+        self.setWindowTitle(
+            tr(
+                "fillet.properties.title"
+                if operation == ContainerType.FILLET
+                else "chamfer.properties.title"
+            )
+        )
         self.accept_callback: Callable[[], bool] | None = None
         self.setModal(False)
         self.setMinimumWidth(320)
@@ -991,17 +1002,20 @@ class FilletPropertiesDialog(QDialog):
         layout = QVBoxLayout()
         layout.setSpacing(5)
         outer_layout.addLayout(layout)
-        radius_label = QLabel(tr("fillet.radius"))
-        radius_label_font = radius_label.font()
-        radius_label_font.setBold(True)
-        radius_label.setFont(radius_label_font)
-        layout.addWidget(radius_label)
-        self.radius_spin = QDoubleSpinBox()
-        self.radius_spin.setDecimals(3)
-        self.radius_spin.setRange(0.001, 1_000_000.0)
-        self.radius_spin.setSuffix(" mm")
-        self.radius_spin.setValue(float(radius))
-        layout.addWidget(self.radius_spin)
+        self.size_label = QLabel()
+        size_label_font = self.size_label.font()
+        size_label_font.setBold(True)
+        self.size_label.setFont(size_label_font)
+        layout.addWidget(self.size_label)
+        self.size_spin = QDoubleSpinBox()
+        self.size_spin.setDecimals(3)
+        self.size_spin.setRange(0.001, 1_000_000.0)
+        self.size_spin.setSuffix(" mm")
+        self.size_spin.setValue(float(size))
+        layout.addWidget(self.size_spin)
+        # Compatibility for the existing radius-dimension binding.
+        self.radius_spin = self.size_spin
+        self._refresh_operation_labels()
         edges_label = QLabel(tr("fillet.edges"))
         edges_label_font = edges_label.font()
         edges_label_font.setBold(True)
@@ -1095,7 +1109,26 @@ class FilletPropertiesDialog(QDialog):
 
     @property
     def radius(self) -> float:
-        return float(self.radius_spin.value())
+        return self.size
+
+    @property
+    def distance(self) -> float:
+        return self.size
+
+    @property
+    def size(self) -> float:
+        return float(self.size_spin.value())
+
+    @property
+    def operation(self) -> ContainerType:
+        return self._operation
+
+    def _refresh_operation_labels(self) -> None:
+        self.size_label.setText(
+            tr("fillet.radius")
+            if self.operation == ContainerType.FILLET
+            else tr("chamfer.distance")
+        )
 
     def accept(self) -> None:
         if self.accept_callback is not None and not self.accept_callback():
@@ -8418,7 +8451,7 @@ class MainWindow(QMainWindow):
         self.document_sessions = self.workspace.document_sessions
         self.active_document_index = -1
         self.document: PartDocument | None = None
-        self.fillet_properties_dialog: FilletPropertiesDialog | None = None
+        self.edge_treatment_properties_dialog: EdgeTreatmentPropertiesDialog | None = None
         self.current_file_path: Path | None = None
         self.working_directory = self.startup_context.working_directory
         self._active_component_return_document: PartDocument | None = None
@@ -8502,7 +8535,7 @@ class MainWindow(QMainWindow):
         self.selected_face = None
         self.selected_face_object_id: str | None = None
         self._view_selection_confirmed = False
-        self._selected_view_fillet_id: str | None = None
+        self._selected_view_edge_treatment_id: str | None = None
         self._view_transform_sketch_id: str | None = None
         self._history_source_cycle_index = -1
         self._history_source_cycle_ids: tuple[str, ...] = ()
@@ -9429,6 +9462,10 @@ class MainWindow(QMainWindow):
             fillet_action.setIcon(resource_icon("fillet"))
             self._mark_application_command(fillet_action)
             fillet_action.triggered.connect(self._create_fillet)
+            chamfer_action = self.tools_toolbar.addAction(tr("chamfer.command"))
+            chamfer_action.setIcon(resource_icon("chamfer"))
+            self._mark_application_command(chamfer_action)
+            chamfer_action.triggered.connect(self._create_chamfer)
             self.tools_toolbar.addSeparator()
             for kind, text_key in (
                 (EntityKind.BOX, "primitive.box"),
@@ -10627,49 +10664,63 @@ class MainWindow(QMainWindow):
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def _create_fillet(self) -> None:
+        self._create_edge_treatment(ContainerType.FILLET)
+
+    def _create_chamfer(self) -> None:
+        self._create_edge_treatment(ContainerType.CHAMFER)
+
+    def _create_edge_treatment(self, operation: ContainerType) -> None:
         if self.document is None:
             return
+        command_id = (
+            "fillet" if operation == ContainerType.FILLET else "chamfer"
+        )
         if (
             self._selection_controller.request is not None
-            and self._selection_controller.request.command_id == "fillet"
+            and self._selection_controller.request.command_id == command_id
         ):
-            if self.fillet_properties_dialog is not None:
-                self.fillet_properties_dialog.accept()
+            if self.edge_treatment_properties_dialog is not None:
+                self.edge_treatment_properties_dialog.accept()
             else:
                 self._selection_controller.complete()
             return
         self._selection_controller.begin(SelectionRequest(
-            command_id="fillet",
+            command_id=command_id,
             allowed_kinds=frozenset({SelectionKind.EDGE}),
             resolver=self._resolve_stable_edge_candidate,
             on_complete=self._finish_create_fillet,
             maximum_count=10_000,
-            prompt=tr("fillet.status.select_edge"),
-            wrong_kind_message=tr("fillet.status.select_edge"),
+            prompt=tr("edge_treatment.status.select_edge"),
+            wrong_kind_message=tr("edge_treatment.status.select_edge"),
             on_cancel=self._restore_default_selection,
         ))
         self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self.statusBar().showMessage(self._selection_controller.prompt)
-        dialog = FilletPropertiesDialog(
+        dialog = EdgeTreatmentPropertiesDialog(
             0.5,
             parent=self,
+            operation=operation,
         )
         dialog.removeEdgeRequested.connect(self._remove_fillet_edge)
-        dialog.accept_callback = self._preview_new_fillet
+        dialog.accept_callback = lambda: self._preview_new_fillet(
+            show_preview=False
+        )
         dialog.applied.connect(self._preview_new_fillet)
         dialog.accepted.connect(self._confirm_fillet_properties)
         dialog.rejected.connect(self._cancel_fillet_properties)
         dialog.finished.connect(
             lambda _result, target=dialog: self._clear_fillet_dialog(target)
         )
-        self.fillet_properties_dialog = dialog
+        self.edge_treatment_properties_dialog = dialog
         dialog.show()
         position_dialog_top_right_after_show(dialog)
 
-    def _clear_fillet_dialog(self, dialog: FilletPropertiesDialog) -> None:
-        if self.fillet_properties_dialog is dialog:
-            self.fillet_properties_dialog = None
+    def _clear_fillet_dialog(
+        self, dialog: EdgeTreatmentPropertiesDialog
+    ) -> None:
+        if self.edge_treatment_properties_dialog is dialog:
+            self.edge_treatment_properties_dialog = None
 
     def _confirm_fillet_properties(self) -> None:
         self._selection_controller.complete()
@@ -10677,14 +10728,15 @@ class MainWindow(QMainWindow):
     def _cancel_fillet_properties(self) -> None:
         if (
             self._selection_controller.request is not None
-            and self._selection_controller.request.command_id == "fillet"
+            and self._selection_controller.request.command_id
+            in ("fillet", "chamfer")
         ):
             self._selection_controller.cancel()
 
-    def _preview_new_fillet(self) -> bool:
-        """Evaluate a new fillet without inserting a history container."""
+    def _preview_new_fillet(self, *, show_preview: bool = True) -> bool:
+        """Evaluate a new edge treatment without inserting it in history."""
 
-        if self.document is None or self.fillet_properties_dialog is None:
+        if self.document is None or self.edge_treatment_properties_dialog is None:
             return False
         references = tuple(self._selection_controller.values)
         keys = self._selection_controller.candidate_keys
@@ -10719,24 +10771,29 @@ class MainWindow(QMainWindow):
                 return False
             preview_registry.register_edge(reference, edge)
         try:
-            preview_shape, _registry = make_fillet_shape(
-                input_shape,
-                preview_registry,
-                references,
-                self.fillet_properties_dialog.radius,
-                "__fillet_preview__",
-            )
+            dialog = self.edge_treatment_properties_dialog
+            if dialog.operation == ContainerType.FILLET:
+                preview_shape, _registry = make_fillet_shape(
+                    input_shape, preview_registry, references,
+                    dialog.size, "__edge_treatment_preview__",
+                )
+            else:
+                preview_shape, _registry = make_chamfer_shape(
+                    input_shape, preview_registry, references,
+                    dialog.size, "__edge_treatment_preview__",
+                )
         except (RuntimeError, TypeError, ValueError) as error:
             self.statusBar().showMessage(
-                tr("fillet.status.failed", error=str(error))
+                tr("edge_treatment.status.failed", error=str(error))
             )
             return False
-        self.rebuild_view(
-            fit=False,
-            rebuild_geometry=True,
-            cached_body_shape=preview_shape,
-        )
-        self.native_viewer.set_fillet_selection_edges(set())
+        if show_preview:
+            self.rebuild_view(
+                fit=False,
+                rebuild_geometry=True,
+                cached_body_shape=preview_shape,
+            )
+            self.native_viewer.set_edge_treatment_selection_edges(set())
         return True
 
     def _remove_fillet_edge(self, key: tuple[str, str, int]) -> None:
@@ -10750,16 +10807,23 @@ class MainWindow(QMainWindow):
             for kind, owner_id, element_index in keys
             if kind == SelectionKind.EDGE.value
         }
-        self.native_viewer.set_fillet_selection_edges(selected_edges)
-        dialog = self.fillet_properties_dialog
+        # Creation/editing highlights only the source edges stored in the
+        # properties list. A tree selection may still carry the boundary
+        # highlight of the finished Fillet/Chamfer; on the rollback body its
+        # transient indices point at unrelated edges and must not be combined
+        # with the source-edge selection.
+        self.native_viewer.set_feature_selected_edges(set())
+        self.native_viewer.set_feature_hover_edges(set())
+        self.native_viewer.set_edge_treatment_selection_edges(selected_edges)
+        dialog = self.edge_treatment_properties_dialog
         if dialog is not None:
             dialog.set_selected_edges(keys)
 
-    def _fillet_reference_view_keys(
+    def _edge_treatment_reference_view_keys(
         self,
         references: list[EdgeRef],
     ) -> list[tuple[str, str, int]]:
-        """Map stored fillet references back to selectable viewer edges."""
+        """Map stored treatment references onto the displayed rollback body."""
 
         if self.document is None:
             return [
@@ -10789,20 +10853,34 @@ class MainWindow(QMainWindow):
             explorer.Next()
         keys = []
         for ordinal, reference in enumerate(references, 1):
-            resolution = registry.resolve_edge(reference)
-            candidates = (
-                (resolution.shape,)
-                if resolution.shape is not None
-                else resolution.candidates
-            )
-            runtime_index = next((
-                index
-                for index, edge in enumerate(edges, 1)
-                if any(
-                    candidate is not None and edge.IsSame(candidate)
-                    for candidate in candidates
+            runtime_index = None
+            if reference.role == "geometric":
+                # Geometric fallbacks are registered only on demand during
+                # feature evaluation. Recreate their digest directly on the
+                # rollback body; an ordinal fallback would highlight an
+                # unrelated edge after topology order changed.
+                runtime_index = next((
+                    index
+                    for index in range(1, len(edges) + 1)
+                    if geometric_edge_reference(
+                        shape, index, reference.feature_id
+                    ) == reference
+                ), None)
+            if runtime_index is None:
+                resolution = registry.resolve_edge(reference)
+                candidates = (
+                    (resolution.shape,)
+                    if resolution.shape is not None
+                    else resolution.candidates
                 )
-            ), None)
+                runtime_index = next((
+                    index
+                    for index, edge in enumerate(edges, 1)
+                    if any(
+                        candidate is not None and edge.IsSame(candidate)
+                        for candidate in candidates
+                    )
+                ), None)
             keys.append((
                 SelectionKind.EDGE.value,
                 self.document.root.entity_id if runtime_index else "",
@@ -10864,13 +10942,14 @@ class MainWindow(QMainWindow):
         if (
             event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
             and self._selection_controller.request is not None
-            and self._selection_controller.request.command_id == "fillet"
+            and self._selection_controller.request.command_id
+            in ("fillet", "chamfer")
         ):
             if not self._selection_controller.values:
                 event.accept()
                 return
-            if self.fillet_properties_dialog is not None:
-                self.fillet_properties_dialog.accept()
+            if self.edge_treatment_properties_dialog is not None:
+                self.edge_treatment_properties_dialog.accept()
             else:
                 self._selection_controller.complete()
             event.accept()
@@ -10884,7 +10963,7 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def _restore_default_selection(self) -> None:
-        self.native_viewer.set_fillet_selection_edges(set())
+        self.native_viewer.set_edge_treatment_selection_edges(set())
         self.statusBar().clearMessage()
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
@@ -10934,7 +11013,7 @@ class MainWindow(QMainWindow):
             error=(
                 None
                 if reference is not None
-                else tr("fillet.status.edge_unsupported")
+                else tr("edge_treatment.status.edge_unsupported")
             ),
         )
 
@@ -11011,22 +11090,29 @@ class MainWindow(QMainWindow):
     def _finish_create_fillet(self, references: tuple[EdgeRef, ...]) -> None:
         if self.document is None:
             return
-        self.native_viewer.set_fillet_selection_edges(set())
-        dialog = self.fillet_properties_dialog
-        radius = dialog.radius if dialog is not None else 0.5
+        self.native_viewer.set_edge_treatment_selection_edges(set())
+        dialog = self.edge_treatment_properties_dialog
+        operation = (
+            dialog.operation if dialog is not None else ContainerType.FILLET
+        )
+        size = dialog.size if dialog is not None else 0.5
+        is_fillet = operation == ContainerType.FILLET
+        command_key = "fillet.command" if is_fillet else "chamfer.command"
+        feature_kind = EntityKind.FILLET if is_fillet else EntityKind.CHAMFER
+        size_key = "radius" if is_fillet else "distance"
         obj = self.document.create_container(
-            self.document.next_container_name(tr("fillet.command")),
-            ContainerType.FILLET,
+            self.document.next_container_name(tr(command_key)),
+            operation,
         )
         feature = ZimaEntity(
-            name=tr("fillet.command"),
-            kind=EntityKind.FILLET,
+            name=tr(command_key),
+            kind=feature_kind,
             parameters={
                 "edge_ref": references[0].serialize(),
                 "edge_refs": json.dumps([
                     reference.to_dict() for reference in references
                 ], separators=(",", ":")),
-                "radius": str(radius),
+                size_key: str(size),
                 "unit": "mm",
             },
         )
@@ -11036,11 +11122,11 @@ class MainWindow(QMainWindow):
         error = str(feature.parameters.get("build_status", "")).strip()
         if error:
             self.document.delete_container(obj.entity_id)
-            message = tr("fillet.status.failed", error=error)
+            message = tr("edge_treatment.status.failed", error=error)
             self.statusBar().showMessage(message)
             QMessageBox.warning(
                 self,
-                tr("fillet.command"),
+                tr(command_key),
                 message,
             )
             self.rebuild_view(fit=False, rebuild_geometry=False)
@@ -11054,37 +11140,66 @@ class MainWindow(QMainWindow):
         )
 
     def _edit_fillet(self, obj: ZimaEntity) -> None:
+        self._edit_edge_treatment(obj)
+
+    def _edit_chamfer(self, obj: ZimaEntity) -> None:
+        self._edit_edge_treatment(obj)
+
+    def _edit_edge_treatment(self, obj: ZimaEntity) -> None:
+        initial_operation = obj.container_type
+        initial_kind = (
+            EntityKind.FILLET
+            if initial_operation == ContainerType.FILLET
+            else EntityKind.CHAMFER
+        )
+        initial_size_key = (
+            "radius" if initial_operation == ContainerType.FILLET else "distance"
+        )
         feature = next((
             child for child in obj.children
-            if child.kind == EntityKind.FILLET and not child.locked
+            if child.kind == initial_kind and not child.locked
         ), None)
         if feature is None:
             return
         try:
-            current_radius = float(feature.parameters.get("radius", 4.0))
+            current_radius = float(feature.parameters.get(initial_size_key, 4.0))
         except (TypeError, ValueError):
             current_radius = 4.0
-        editable_references = list(fillet_edge_references(feature))
-        dialog = FilletPropertiesDialog(
+        editable_references = list(edge_feature_references(feature))
+        dialog = EdgeTreatmentPropertiesDialog(
             current_radius,
             len(editable_references),
             self,
+            operation=initial_operation,
         )
+        # Clear result-feature highlights before rollback rebuilds the scene.
+        # Otherwise their final-body indices are rendered for one frame on
+        # the sharp input body and unrelated edges visibly flash blue.
+        self._selected_view_edge_treatment_id = None
+        self.native_viewer.set_feature_selected_edges(set())
+        self.native_viewer.set_feature_hover_edges(set())
+        self.native_viewer.set_edge_treatment_selection_edges(set())
         self._begin_definition_edit(obj)
         self._selection_controller.begin(SelectionRequest(
-            command_id="fillet_edit",
+            command_id=(
+                "fillet_edit"
+                if initial_operation == ContainerType.FILLET
+                else "chamfer_edit"
+            ),
             allowed_kinds=frozenset({SelectionKind.EDGE}),
             resolver=self._resolve_stable_edge_candidate,
             on_complete=lambda _values: None,
             maximum_count=10_000,
-            prompt=tr("fillet.status.select_edge"),
-            wrong_kind_message=tr("fillet.status.select_edge"),
+            prompt=tr("edge_treatment.status.select_edge"),
+            wrong_kind_message=tr("edge_treatment.status.select_edge"),
             on_cancel=self._restore_default_selection,
         ))
-        initial_keys = self._fillet_reference_view_keys(editable_references)
+        initial_keys = self._edge_treatment_reference_view_keys(
+            editable_references
+        )
         self._selection_controller._values[:] = editable_references
         self._selection_controller._candidate_keys[:] = initial_keys
-        self.fillet_properties_dialog = dialog
+        self.edge_treatment_properties_dialog = dialog
         self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self._refresh_fillet_selection_ui()
@@ -11098,11 +11213,12 @@ class MainWindow(QMainWindow):
             editable_references[:] = self._selection_controller.values
             if not editable_references:
                 return False
-            radius = dialog.radius
-            previous = str(feature.parameters.get("radius", current_radius))
+            operation = dialog.operation
+            size_key = "radius" if operation == ContainerType.FILLET else "distance"
+            previous_parameters = dict(feature.parameters)
             previous_reference = feature.parameters.get("edge_ref")
             previous_references = feature.parameters.get("edge_refs")
-            feature.parameters["radius"] = str(radius)
+            feature.parameters[size_key] = str(dialog.size)
             feature.parameters["edge_ref"] = editable_references[0].serialize()
             feature.parameters["edge_refs"] = json.dumps([
                 reference.to_dict() for reference in editable_references
@@ -11123,7 +11239,8 @@ class MainWindow(QMainWindow):
             )
             if feature.parameters.get("build_status"):
                 error = str(feature.parameters["build_status"])
-                feature.parameters["radius"] = previous
+                feature.parameters.clear()
+                feature.parameters.update(previous_parameters)
                 if previous_reference is None:
                     feature.parameters.pop("edge_ref", None)
                 else:
@@ -11135,24 +11252,24 @@ class MainWindow(QMainWindow):
                 if self.document is not None and preview_cursor > 0:
                     self.document.build_shape_at(preview_cursor)
                 self.statusBar().showMessage(
-                    tr("fillet.status.failed", error=error)
+                    tr("edge_treatment.status.failed", error=error)
                 )
                 if keep_open:
                     self._clear_dimension_overlays()
-                    self._show_fillet_radius_dimension(
+                    self._show_edge_treatment_dimension(
                         obj, dialog, apply_callback=apply_from_dialog
                     )
                 return False
-            self._populate_tree()
-            self._select_tree_object_without_reference_event(obj.entity_id)
-            self.rebuild_view(
-                fit=False,
-                rebuild_geometry=True,
-                cached_body_shape=preview_shape,
-            )
             if keep_open:
+                self._populate_tree()
+                self._select_tree_object_without_reference_event(obj.entity_id)
+                self.rebuild_view(
+                    fit=False,
+                    rebuild_geometry=True,
+                    cached_body_shape=preview_shape,
+                )
                 self._clear_dimension_overlays()
-                self._show_fillet_radius_dimension(
+                self._show_edge_treatment_dimension(
                     obj, dialog, apply_callback=apply_from_dialog
                 )
             return True
@@ -11165,16 +11282,20 @@ class MainWindow(QMainWindow):
             if (
                 self._selection_controller.request is not None
                 and self._selection_controller.request.command_id
-                == "fillet_edit"
+                in ("fillet_edit", "chamfer_edit")
             ):
                 self._selection_controller.cancel()
             self._clear_fillet_dialog(dialog)
             self._end_definition_edit()
 
-        dialog.accept_callback = lambda: apply_edit(keep_open=True)
+        # OK validates and stores the same values as Apply, but does not paint
+        # the transient preview/dimension for a single frame immediately
+        # before the dialog closes. _end_definition_edit performs the one
+        # final full-history rebuild.
+        dialog.accept_callback = lambda: apply_edit(keep_open=False)
         dialog.applied.connect(apply_from_dialog)
         dialog.finished.connect(finish_edit)
-        self._show_fillet_radius_dimension(
+        self._show_edge_treatment_dimension(
             obj, dialog, apply_callback=apply_from_dialog
         )
         dialog.show()
@@ -14293,7 +14414,10 @@ class MainWindow(QMainWindow):
             if feature is not None
             else None
         )
-        if source is None or source.container_type == ContainerType.FILLET:
+        if source is None or source.container_type in (
+            ContainerType.FILLET,
+            ContainerType.CHAMFER,
+        ):
             return None
         if topology_kind == "face" and reference.role == "imported":
             try:
@@ -14473,6 +14597,8 @@ class MainWindow(QMainWindow):
                 ContainerType.SKETCH: "sketch",
                 ContainerType.PROTRUSION: "protrusion",
                 ContainerType.REVOLVE: "revolve",
+                ContainerType.FILLET: "fillet",
+                ContainerType.CHAMFER: "chamfer",
             }.get(obj.container_type, icon_name)
         if icon_name is not None:
             item.setIcon(0, resource_icon(icon_name))
@@ -17485,6 +17611,8 @@ class MainWindow(QMainWindow):
                 ContainerType.SKETCH: "sketch",
                 ContainerType.PROTRUSION: "protrusion",
                 ContainerType.REVOLVE: "revolve",
+                ContainerType.FILLET: "fillet",
+                ContainerType.CHAMFER: "chamfer",
             }.get(obj.container_type, icon_name)
         if icon_name is not None:
             item.setIcon(0, resource_icon(icon_name))
@@ -17688,10 +17816,10 @@ class MainWindow(QMainWindow):
             or self._current_definition_owns_reference(owner_id)
         ):
             return
-        fillet_source_selection = (
+        edge_treatment_source_selection = (
             self._selection_controller.request is not None
             and self._selection_controller.request.command_id
-            in ("fillet", "fillet_edit")
+            in ("fillet", "fillet_edit", "chamfer", "chamfer_edit")
         )
         source_edge = (
             self._source_topology_reference_at_cursor("edge")
@@ -17722,7 +17850,7 @@ class MainWindow(QMainWindow):
                 if scene is not None else None
             )
         scene = self._native_viewer_scene
-        if fillet_source_selection:
+        if edge_treatment_source_selection:
             candidate = SelectionCandidate(
                 kind=SelectionKind.EDGE,
                 owner_id=owner_id,
@@ -17739,9 +17867,9 @@ class MainWindow(QMainWindow):
             self._refresh_fillet_selection_ui()
             count = len(self._selection_controller.candidate_keys)
             self.statusBar().showMessage(
-                tr("fillet.status.selected_edges", count=count)
+                tr("edge_treatment.status.selected_edges", count=count)
                 if update.accepted and count
-                else update.message or tr("fillet.status.select_edge")
+                else update.message or tr("edge_treatment.status.select_edge")
             )
             return
         if self._submit_command_selection(
@@ -18037,7 +18165,7 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_selected_container_contents(set())
         self.native_viewer.set_selected_container_origin(None)
         if not owner_id:
-            self._selected_view_fillet_id = None
+            self._selected_view_edge_treatment_id = None
             self._view_transform_sketch_id = None
             if self._dimension_overlays:
                 self._clear_dimension_overlays()
@@ -18057,11 +18185,11 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_feature_hover_edges(set())
             return
         if owner_id == self.document.root.entity_id:
-            fillet = self._fillet_at_last_view_click(owner_id)
+            fillet = self._edge_treatment_at_last_view_click(owner_id)
             if fillet is not None:
-                self._selected_view_fillet_id = fillet.entity_id
+                self._selected_view_edge_treatment_id = fillet.entity_id
                 self.native_viewer.set_feature_selected_edges(
-                    self._fillet_boundary_edge_keys(fillet)
+                    self._edge_treatment_boundary_edge_keys(fillet)
                 )
                 signals_were_blocked = self.native_viewer.blockSignals(True)
                 try:
@@ -18072,7 +18200,7 @@ class MainWindow(QMainWindow):
                 self._view_selection_confirmed = True
                 self._history_source_cycle_active = False
                 return
-        self._selected_view_fillet_id = None
+        self._selected_view_edge_treatment_id = None
         self.native_viewer.set_feature_selected_edges(set())
         view_entity = self.document.find_entity(owner_id)
         self._view_transform_sketch_id = (
@@ -18175,10 +18303,10 @@ class MainWindow(QMainWindow):
                 obj = picked
         if obj is None:
             return
-        fillet = self._fillet_at_last_view_click(owner_id)
+        fillet = self._edge_treatment_at_last_view_click(owner_id)
         if fillet is not None:
             self._clear_dimension_overlays()
-            self._show_fillet_radius_dimension(fillet)
+            self._show_edge_treatment_dimension(fillet)
             return
         if (
             self.document is not None
@@ -18237,7 +18365,7 @@ class MainWindow(QMainWindow):
                 ),
             )
 
-    def _fillet_at_last_view_click(
+    def _edge_treatment_at_last_view_click(
         self,
         owner_id: str,
     ) -> ZimaEntity | None:
@@ -18274,7 +18402,7 @@ class MainWindow(QMainWindow):
                 reference = registry.reference_for_runtime_index(face_key[1])
                 if reference is not None:
                     references.append(reference)
-        fillet_containers = []
+        edge_treatment_containers = []
         for reference in references:
             feature = self.document.find_entity(reference.feature_id)
             if feature is None:
@@ -18286,11 +18414,14 @@ class MainWindow(QMainWindow):
             )
             if (
                 container is not None
-                and container.container_type == ContainerType.FILLET
+                and container.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
             ):
-                fillet_containers.append(container)
+                edge_treatment_containers.append(container)
         return max(
-            fillet_containers,
+            edge_treatment_containers,
             key=lambda candidate: (
                 self.document.history_index(candidate.entity_id)
                 if self.document.history_index(candidate.entity_id)
@@ -19173,7 +19304,7 @@ class MainWindow(QMainWindow):
         # Tree highlighting may mirror the same object into the viewport, but
         # it must never authorize the in-place Sketch transformation.
         self._view_transform_sketch_id = None
-        self._selected_view_fillet_id = None
+        self._selected_view_edge_treatment_id = None
         self.native_viewer.set_feature_selected_edges(set())
         if (
             self._dimension_overlays
@@ -19458,22 +19589,31 @@ class MainWindow(QMainWindow):
                 selected_object
                 if selected_object is not None
                 and selected_object.kind == EntityKind.CONTAINER
-                and selected_object.container_type == ContainerType.FILLET
+                and selected_object.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
                 else self.document.find_owning_object(
                     selected_object.entity_id
                 )
                 if self.document is not None
                 and selected_object is not None
-                and selected_object.kind == EntityKind.FILLET
+                and selected_object.kind in (
+                    EntityKind.FILLET,
+                    EntityKind.CHAMFER,
+                )
                 else None
             )
             if (
                 fillet is not None
-                and fillet.container_type == ContainerType.FILLET
+                and fillet.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
             ):
-                self._selected_view_fillet_id = fillet.entity_id
+                self._selected_view_edge_treatment_id = fillet.entity_id
                 self.native_viewer.set_feature_selected_edges(
-                    self._fillet_boundary_edge_keys(fillet)
+                    self._edge_treatment_boundary_edge_keys(fillet)
                 )
 
     def _try_pick_protrusion_profile(self, entity: ZimaEntity) -> bool:
@@ -19660,7 +19800,10 @@ class MainWindow(QMainWindow):
                 )
                 if (
                     container is not None
-                    and container.container_type == ContainerType.FILLET
+                    and container.container_type in (
+                        ContainerType.FILLET,
+                        ContainerType.CHAMFER,
+                    )
                 ):
                     containers.append(container)
             container = max(
@@ -19675,7 +19818,10 @@ class MainWindow(QMainWindow):
             )
             if (
                 container is not None
-                and container.container_type == ContainerType.FILLET
+                and container.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
                 and registry is not None
             ):
                 mesh = scene.mesh if scene is not None else None
@@ -19684,7 +19830,7 @@ class MainWindow(QMainWindow):
                     if mesh is not None
                     else 0
                 )
-                highlighted = self._fillet_boundary_edge_keys(container)
+                highlighted = self._edge_treatment_boundary_edge_keys(container)
         self.native_viewer.set_feature_hover_edges(highlighted)
         if highlighted or self.native_viewer._interaction_mode == "object":
             signals_were_blocked = self.native_viewer.blockSignals(True)
@@ -19695,19 +19841,22 @@ class MainWindow(QMainWindow):
             finally:
                 self.native_viewer.blockSignals(signals_were_blocked)
 
-    def _fillet_face_keys(
+    def _edge_treatment_face_keys(
         self,
         container: ZimaEntity,
     ) -> set[tuple[str, int]]:
         if (
             self.document is None
-            or container.container_type != ContainerType.FILLET
+            or container.container_type not in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
         ):
             return set()
         feature_ids = {
             child.entity_id
             for child in container.children
-            if child.kind == EntityKind.FILLET
+            if child.kind in (EntityKind.FILLET, EntityKind.CHAMFER)
         }
         registry = self._reference_topology_registry(
             self.document.history_cursor()
@@ -19743,13 +19892,13 @@ class MainWindow(QMainWindow):
             )
         }
 
-    def _fillet_boundary_edge_keys(
+    def _edge_treatment_boundary_edge_keys(
         self,
         container: ZimaEntity,
     ) -> set[tuple[str, int]]:
         if self.document is None:
             return set()
-        face_keys = self._fillet_face_keys(container)
+        face_keys = self._edge_treatment_face_keys(container)
         if not face_keys:
             return set()
         scene = self._native_viewer_scene
@@ -19798,10 +19947,10 @@ class MainWindow(QMainWindow):
             if count == 1
         }
 
-    def _show_fillet_radius_dimension(
+    def _show_edge_treatment_dimension(
         self,
         container: ZimaEntity,
-        dialog: FilletPropertiesDialog | None = None,
+        dialog: EdgeTreatmentPropertiesDialog | None = None,
         *,
         apply_callback: Callable[[], None] | None = None,
     ) -> None:
@@ -19817,7 +19966,7 @@ class MainWindow(QMainWindow):
             return
         selected_indices = {
             index for _owner, index
-            in self._fillet_boundary_edge_keys(container)
+            in self._edge_treatment_boundary_edge_keys(container)
         }
         edges = []
         explorer = TopExp_Explorer(shape, TopAbs_EDGE)
@@ -19826,6 +19975,105 @@ class MainWindow(QMainWindow):
             if not any(edge.IsSame(existing) for existing in edges):
                 edges.append(edge)
             explorer.Next()
+        if container.container_type == ContainerType.CHAMFER:
+            feature = next((
+                child for child in container.children
+                if child.kind == EntityKind.CHAMFER
+            ), None)
+            index = next(iter(sorted(selected_indices)), 0)
+            if feature is None or not 1 <= index <= len(edges):
+                return
+            try:
+                adaptor = BRepAdaptor_Curve(edges[index - 1])
+                first = adaptor.Value(adaptor.FirstParameter())
+                second = adaptor.Value(adaptor.LastParameter())
+                first_point = np.array((first.X(), first.Y(), first.Z()))
+                second_point = np.array((second.X(), second.Y(), second.Z()))
+                edge_direction = second_point - first_point
+                edge_length = float(np.linalg.norm(edge_direction))
+                if edge_length <= 1.0e-9:
+                    return
+                edge_direction /= edge_length
+                trial = np.array((0.0, 0.0, 1.0))
+                if abs(float(edge_direction @ trial)) > 0.9:
+                    trial = np.array((0.0, 1.0, 0.0))
+                side = np.cross(edge_direction, trial)
+                side /= np.linalg.norm(side)
+                distance = float(feature.parameters.get("distance", 1.0))
+                midpoint = (first_point + second_point) * 0.5
+                measured_end = midpoint + side * distance
+                offset = edge_direction * max(edge_length * 0.15, distance)
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                return
+            key = f"chamfer_distance:{container.entity_id}"
+            dimension = LinearDimension(
+                key=key,
+                first_point=tuple(float(value) for value in midpoint),
+                second_point=tuple(float(value) for value in measured_end),
+                first_dimension_point=tuple(float(value) for value in midpoint + offset),
+                second_dimension_point=tuple(float(value) for value in measured_end + offset),
+                direction=tuple(float(value) for value in side),
+            )
+            self._dimension_object_id = feature.entity_id
+            self.native_viewer.set_dimensions((dimension,))
+            overlay = ParameterEditOverlay(self.native_viewer)
+            self._configure_dimension_overlay(
+                overlay, feature, dimension, distance
+            )
+
+            def refresh_chamfer_overlay(value: float) -> None:
+                self._configure_dimension_overlay(
+                    overlay, feature, dimension, value
+                )
+                self._position_dimension_overlays()
+
+            def update_chamfer_distance(raw_value: str) -> None:
+                value_text = raw_value.strip()
+                if value_text.lower().endswith("mm"):
+                    value_text = value_text[:-2].strip()
+                try:
+                    value = evaluate_numeric_expression(value_text)
+                except NumericExpressionError:
+                    value = -1.0
+                if not math.isfinite(value) or value <= 0.0:
+                    self.statusBar().showMessage(
+                        tr("dimension.invalid_value", value=raw_value)
+                    )
+                    return
+                if dialog is not None:
+                    dialog.size_spin.setValue(value)
+                    if apply_callback is not None:
+                        apply_callback()
+                    return
+                previous = str(feature.parameters.get("distance", value))
+                feature.parameters["distance"] = f"{value:.12g}"
+                self._mark_model_for_regeneration()
+                self.document.build_active_shape()
+                if feature.parameters.get("build_status"):
+                    error = str(feature.parameters["build_status"])
+                    feature.parameters["distance"] = previous
+                    self.document.build_active_shape()
+                    self.statusBar().showMessage(
+                        tr("edge_treatment.status.failed", error=error)
+                    )
+                    refresh_chamfer_overlay(float(previous))
+                    return
+                self.rebuild_view(fit=False, rebuild_geometry=True)
+                self._clear_dimension_overlays()
+                self._show_edge_treatment_dimension(container)
+
+            overlay.valueCommitted.connect(update_chamfer_distance)
+            overlay.selected.connect(
+                lambda dimension_key=key:
+                self._select_dimension_overlay(dimension_key)
+            )
+            self._dimension_overlays[key] = overlay
+            self._dimension_bindings[key] = ("chamfer_distance_preview",)
+            if dialog is not None:
+                dialog.size_spin.valueChanged.connect(refresh_chamfer_overlay)
+            self._position_dimension_overlays()
+            QTimer.singleShot(0, self._position_dimension_overlays)
+            return
         for index in sorted(selected_indices):
             if not 1 <= index <= len(edges):
                 continue
@@ -19903,7 +20151,7 @@ class MainWindow(QMainWindow):
                         return
                     self.rebuild_view(fit=False, rebuild_geometry=True)
                     self._clear_dimension_overlays()
-                    self._show_fillet_radius_dimension(container)
+                    self._show_edge_treatment_dimension(container)
 
             overlay.valueCommitted.connect(update_dialog_radius)
             overlay.selected.connect(
@@ -21028,19 +21276,22 @@ class MainWindow(QMainWindow):
     def _show_native_viewer_context_menu(self, position: QPoint) -> None:
         if self.native_viewer.consume_context_menu_suppression():
             return
-        selected_fillet = (
-            self.document.find_entity(self._selected_view_fillet_id)
+        selected_edge_treatment = (
+            self.document.find_entity(self._selected_view_edge_treatment_id)
             if self.document is not None
-            and self._selected_view_fillet_id is not None
+            and self._selected_view_edge_treatment_id is not None
             else None
         )
         if (
-            selected_fillet is not None
-            and selected_fillet.kind == EntityKind.CONTAINER
-            and selected_fillet.container_type == ContainerType.FILLET
+            selected_edge_treatment is not None
+            and selected_edge_treatment.kind == EntityKind.CONTAINER
+            and selected_edge_treatment.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
         ):
             self._show_selected_view_context_menu(
-                selected_fillet,
+                selected_edge_treatment,
                 self.native_viewer.mapToGlobal(position),
             )
             return
@@ -21768,18 +22019,21 @@ class MainWindow(QMainWindow):
         ) ** 0.5
 
     def _show_selected_view_context_menu(self, obj: ZimaEntity, global_position) -> None:
-        selected_fillet = (
-            self.document.find_entity(self._selected_view_fillet_id)
+        selected_edge_treatment = (
+            self.document.find_entity(self._selected_view_edge_treatment_id)
             if self.document is not None
-            and self._selected_view_fillet_id is not None
+            and self._selected_view_edge_treatment_id is not None
             else None
         )
         if (
-            selected_fillet is not None
-            and selected_fillet.kind == EntityKind.CONTAINER
-            and selected_fillet.container_type == ContainerType.FILLET
+            selected_edge_treatment is not None
+            and selected_edge_treatment.kind == EntityKind.CONTAINER
+            and selected_edge_treatment.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
         ):
-            obj = selected_fillet
+            obj = selected_edge_treatment
         menu = QMenu(self)
         if (
             self.selected_face is not None
@@ -22762,6 +23016,9 @@ class MainWindow(QMainWindow):
         if obj.container_type == ContainerType.FILLET:
             self._edit_fillet(obj)
             return
+        if obj.container_type == ContainerType.CHAMFER:
+            self._edit_chamfer(obj)
+            return
         if obj.kind != EntityKind.CONTAINER:
             return
         point_entity = self._user_point_entity(obj)
@@ -22850,7 +23107,10 @@ class MainWindow(QMainWindow):
             else None
         )
         resolution = None
-        if source is not None and source.container_type != ContainerType.FILLET:
+        if source is not None and source.container_type not in (
+            ContainerType.FILLET,
+            ContainerType.CHAMFER,
+        ):
             registry = standalone_topology_registry(source_document, source)
             resolution = (
                 registry.resolve(assembly_reference.face)
@@ -38906,10 +39166,13 @@ class MainWindow(QMainWindow):
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:
                 self._edit_revolve(owner)
-        elif obj.kind == EntityKind.FILLET and self.document is not None:
+        elif obj.kind in (
+            EntityKind.FILLET,
+            EntityKind.CHAMFER,
+        ) and self.document is not None:
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:
-                self._edit_fillet(owner)
+                self._edit_edge_treatment(owner)
         elif obj.kind == EntityKind.POINT and self.document is not None:
             owner = self.document.find_owning_object(obj.entity_id)
             if owner is not None:

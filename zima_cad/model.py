@@ -16,7 +16,10 @@ from OCC.Core.BRepAlgoAPI import (
 )
 from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
-from OCC.Core.BRepFilletAPI import BRepFilletAPI_MakeFillet
+from OCC.Core.BRepFilletAPI import (
+    BRepFilletAPI_MakeChamfer,
+    BRepFilletAPI_MakeFillet,
+)
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -256,6 +259,7 @@ class EntityKind(str, Enum):
     PROTRUSION = "protrusion"
     REVOLVE = "revolve"
     FILLET = "fillet"
+    CHAMFER = "chamfer"
     BOX = "box"
     SPHERE = "sphere"
     CYLINDER = "cylinder"
@@ -280,6 +284,7 @@ class ContainerType(str, Enum):
     PROTRUSION = "PROTRUSION"
     REVOLVE = "REVOLVE"
     FILLET = "FILLET"
+    CHAMFER = "CHAMFER"
     COMPONENT = "COMPONENT"
     IMPORTED_STEP = "IMPORTED_STEP"
 
@@ -313,6 +318,7 @@ ENTITY_KINDS = frozenset(
         EntityKind.PROTRUSION,
         EntityKind.REVOLVE,
         EntityKind.FILLET,
+        EntityKind.CHAMFER,
         EntityKind.BOX,
         EntityKind.SPHERE,
         EntityKind.CYLINDER,
@@ -439,7 +445,8 @@ class ZimaEntity:
         features = [
             entity for entity in entities
             if entity.kind in (
-                EntityKind.PROTRUSION, EntityKind.REVOLVE, EntityKind.FILLET
+                EntityKind.PROTRUSION, EntityKind.REVOLVE,
+                EntityKind.FILLET, EntityKind.CHAMFER,
             )
         ]
         solids = [entity for entity in entities if entity.kind in SOLID_KINDS]
@@ -493,6 +500,7 @@ class ZimaEntity:
                 EntityKind.PROTRUSION,
                 EntityKind.REVOLVE,
                 EntityKind.FILLET,
+                EntityKind.CHAMFER,
                 EntityKind.BOX,
                 EntityKind.SPHERE,
                 EntityKind.CYLINDER,
@@ -1207,8 +1215,8 @@ class PartDocument:
                 builder.Add(result_shape, shape)
                 has_shape = True
             return result_shape if has_shape else None
-        # Fillets need both the incoming shape and its topology registry.  A
-        # fillet used to reconstruct that registry from the beginning of the
+        # Edge treatments need both the incoming shape and its topology
+        # registry. A treatment used to reconstruct that registry from the beginning of the
         # history independently for every step, producing triangular work as
         # blends accumulated.  Prepare all prefix registries in one linear
         # pass and share them for this shape evaluation.
@@ -1236,19 +1244,23 @@ class PartDocument:
             result_shape = cached_shape
             _clear_entity_build_status(objects[index - 1])
         snapshots: dict[int, TopologyRegistry] | None = None
-        fillets_need_boolean_topology = False
+        edge_features_need_boolean_topology = False
         for index, candidate in enumerate(objects):
-            if candidate.container_type != ContainerType.FILLET:
+            if candidate.container_type not in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            ):
                 continue
-            fillet_feature = next((
+            edge_feature = next((
                 child for child in candidate.children
-                if child.kind == EntityKind.FILLET and not child.locked
+                if child.kind in (EntityKind.FILLET, EntityKind.CHAMFER)
+                and not child.locked
             ), None)
-            fillet_references = fillet_edge_references(fillet_feature)
-            fillet_reference = fillet_references[0] if fillet_references else None
+            edge_references = edge_feature_references(edge_feature)
+            edge_reference = edge_references[0] if edge_references else None
             source_entity = (
-                self.find_entity(fillet_reference.feature_id)
-                if fillet_reference is not None
+                self.find_entity(edge_reference.feature_id)
+                if edge_reference is not None
                 else None
             )
             source_owner = (
@@ -1265,9 +1277,9 @@ class PartDocument:
                 else None
             )
             if not (index == 1 and source_index == 0):
-                fillets_need_boolean_topology = True
+                edge_features_need_boolean_topology = True
                 break
-        if is_history_prefix and fillets_need_boolean_topology:
+        if is_history_prefix and edge_features_need_boolean_topology:
             snapshots = {}
             boolean_topology_registry_at(
                 self,
@@ -1556,20 +1568,25 @@ def apply_object_to_shape(
         obj.kind == EntityKind.CONTAINER
         and feature_type == ContainerType.FILLET.value
     )
+    is_chamfer = (
+        obj.kind == EntityKind.CONTAINER
+        and feature_type == ContainerType.CHAMFER.value
+    )
     is_component = (
         obj.kind == EntityKind.CONTAINER
         and feature_type == ContainerType.COMPONENT.value
     )
-    if is_fillet:
+    if is_fillet or is_chamfer:
+        feature_kind = EntityKind.FILLET if is_fillet else EntityKind.CHAMFER
         feature = next((
             child for child in obj.children
-            if child.kind == EntityKind.FILLET and not child.locked
+            if child.kind == feature_kind and not child.locked
         ), None)
         if result_shape is None or feature is None or document is None:
             if feature is not None and not accept_first_shape:
                 feature.parameters["build_status"] = "missing_input"
             return result_shape
-        references = fillet_edge_references(feature)
+        references = edge_feature_references(feature)
         reference = references[0] if references else None
         history_index = document.history_index(obj.entity_id)
         # Do not call ``face_registry_at`` here.  For multi-feature history it
@@ -1627,16 +1644,18 @@ def apply_object_to_shape(
                 geometric_feature_id,
             )
         try:
-            radius = float(feature.parameters.get("radius", 1.0))
+            size_key = "radius" if is_fillet else "distance"
+            size = float(feature.parameters.get(size_key, 1.0))
             if not references:
-                raise ValueError("Fillet requires a stable edge reference")
-            result_shape, _registry = make_fillet_shape(
-                result_shape,
-                registry,
-                references,
-                radius,
-                feature.entity_id,
-            )
+                raise ValueError("Edge treatment requires a stable edge reference")
+            if is_fillet:
+                result_shape, _registry = make_fillet_shape(
+                    result_shape, registry, references, size, feature.entity_id
+                )
+            else:
+                result_shape, _registry = make_chamfer_shape(
+                    result_shape, registry, references, size, feature.entity_id
+                )
         except (RuntimeError, TypeError, ValueError) as error:
             if not accept_first_shape:
                 feature.parameters["build_status"] = str(error)
@@ -4455,8 +4474,8 @@ def _propagate_boolean_registry(
     return result
 
 
-def fillet_edge_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
-    """Read new multi-edge fillets and legacy single-edge documents."""
+def edge_feature_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
+    """Read multi-edge treatments and legacy single-edge payloads."""
     if feature is None:
         return ()
     raw = feature.parameters.get("edge_refs")
@@ -4475,6 +4494,12 @@ def fillet_edge_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
                 return tuple(dict.fromkeys(references))
     legacy = parse_edge_reference(feature.parameters.get("edge_ref"))
     return (legacy,) if legacy is not None else ()
+
+
+def fillet_edge_references(feature: ZimaEntity | None) -> tuple[EdgeRef, ...]:
+    """Backward-compatible Fillet API backed by shared edge references."""
+
+    return edge_feature_references(feature)
 
 
 def make_fillet_shape(
@@ -4565,6 +4590,119 @@ def make_fillet_shape(
     )
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Fillet did not produce a solid")
+
+    result_registry = _propagate_boolean_registry(
+        builder, result_shape, registry, TopologyRegistry()
+    )
+    final_faces = _unique_subshapes(result_shape, TopAbs_FACE)
+    generated_indices = {
+        index
+        for resolution in resolutions
+        for generated in _boolean_history_shapes(builder, resolution.shape)
+        for index, candidate in enumerate(final_faces)
+        if generated.ShapeType() == TopAbs_FACE and generated.IsSame(candidate)
+    }
+    generated_reference = FaceRef(
+        feature_id,
+        "generated",
+        semantic_provenance_id(*edge_references),
+    )
+    _register_derived_references(
+        result_registry,
+        {generated_reference: list(generated_indices)},
+        final_faces,
+        result_registry.register_face,
+    )
+    _register_feature_incidence_topology(
+        result_registry,
+        result_shape,
+        feature_id,
+    )
+    return result_shape, result_registry
+
+
+def make_chamfer_shape(
+    shape,
+    registry: TopologyRegistry,
+    edge_reference: EdgeRef | Iterable[EdgeRef],
+    distance: float,
+    feature_id: str,
+) -> tuple[Any, TopologyRegistry]:
+    """Chamfer persistently named edges in one symmetric OCCT operation."""
+
+    if shape is None:
+        raise ValueError("Chamfer requires an input shape")
+    if distance <= 0.0 or not math.isfinite(distance):
+        raise ValueError("Chamfer distance must be a positive finite number")
+    edge_references = (
+        (edge_reference,)
+        if isinstance(edge_reference, EdgeRef)
+        else tuple(dict.fromkeys(edge_reference))
+    )
+    if not edge_references:
+        raise ValueError("Chamfer requires at least one edge")
+    resolutions = []
+    for reference in edge_references:
+        resolution = registry.resolve_edge(reference)
+        if (
+            reference.role == "geometric"
+            and resolution.state.value == "ambiguous"
+            and resolution.candidates
+        ):
+            candidates = sorted(
+                resolution.candidates,
+                key=lambda candidate: _topology_fragment_key(
+                    candidate, TopAbs_EDGE
+                ),
+            )
+            resolution = TopologyResolution(
+                TopologyResolutionState.RESOLVED,
+                shape=candidates[0],
+                candidates=tuple(candidates),
+            )
+        if resolution.state.value != "resolved" or resolution.shape is None:
+            raise ValueError(
+                f"Chamfer edge is {resolution.state.value}: "
+                f"{reference.serialize()}"
+            )
+        resolutions.append(resolution)
+    input_solids = _unique_subshapes(shape, TopAbs_SOLID)
+    owning_solids = []
+    for solid in input_solids:
+        explorer = TopExp_Explorer(solid, TopAbs_EDGE)
+        while explorer.More():
+            if any(
+                resolution.shape.IsSame(explorer.Current())
+                for resolution in resolutions
+            ):
+                owning_solids.append(solid)
+                break
+            explorer.Next()
+    chamfer_input = (
+        owning_solids[0]
+        if len(input_solids) > 1 and len(owning_solids) == 1
+        else shape
+    )
+    builder = BRepFilletAPI_MakeChamfer(chamfer_input)
+    for resolution in resolutions:
+        builder.Add(float(distance), resolution.shape)
+    builder.Build()
+    if not builder.IsDone():
+        raise ValueError("Chamfer could not be built with the requested distance")
+    chamfered_shape = builder.Shape()
+    result_shape = (
+        _compound_shapes([
+            chamfered_shape,
+            *(
+                solid for solid in input_solids
+                if not solid.IsSame(chamfer_input)
+            ),
+        ])
+        if chamfer_input is not shape
+        else chamfered_shape
+    )
+    if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
+        raise ValueError("Chamfer did not produce a solid")
 
     result_registry = _propagate_boolean_registry(
         builder, result_shape, registry, TopologyRegistry()
@@ -4917,12 +5055,20 @@ def boolean_topology_registry_at(
     ):
         if snapshots is not None:
             snapshots[history_index] = result_registry
-        if container.container_type == ContainerType.FILLET:
+        if container.container_type in (
+            ContainerType.FILLET,
+            ContainerType.CHAMFER,
+        ):
+            feature_kind = (
+                EntityKind.FILLET
+                if container.container_type == ContainerType.FILLET
+                else EntityKind.CHAMFER
+            )
             feature = next((
                 child for child in container.children
-                if child.kind == EntityKind.FILLET and not child.locked
+                if child.kind == feature_kind and not child.locked
             ), None)
-            references = fillet_edge_references(feature)
+            references = edge_feature_references(feature)
             if result_shape is None or feature is None or not references:
                 continue
             try:
@@ -4937,13 +5083,22 @@ def boolean_topology_registry_at(
                         result_shape,
                         geometric_feature_id,
                     )
-                result_shape, result_registry = make_fillet_shape(
-                    result_shape,
-                    result_registry,
-                    references,
-                    float(feature.parameters.get("radius", 1.0)),
-                    feature.entity_id,
-                )
+                if feature_kind == EntityKind.FILLET:
+                    result_shape, result_registry = make_fillet_shape(
+                        result_shape,
+                        result_registry,
+                        references,
+                        float(feature.parameters.get("radius", 1.0)),
+                        feature.entity_id,
+                    )
+                else:
+                    result_shape, result_registry = make_chamfer_shape(
+                        result_shape,
+                        result_registry,
+                        references,
+                        float(feature.parameters.get("distance", 1.0)),
+                        feature.entity_id,
+                    )
             except (RuntimeError, TypeError, ValueError):
                 pass
             continue

@@ -13,6 +13,7 @@ from zima_cad.model import (
     create_empty_part,
     make_protrusion_shape,
     make_revolve_shape,
+    make_chamfer_shape,
     make_fillet_shape,
     _unique_subshapes,
     protrusion_face_registry,
@@ -432,6 +433,64 @@ class StableTopologyTests(unittest.TestCase):
                 active_face_registry(loaded).resolve(generated).state,
                 TopologyResolutionState.RESOLVED,
             )
+
+    def test_chamfer_history_regenerates_and_reloads(self) -> None:
+        document = create_empty_part()
+        box_container = document.create_container("Box", ContainerType.BOX)
+        box = document.create_primitive(box_container.entity_id, EntityKind.BOX)
+        self.assertIsNotNone(box)
+        source_shape = document.build_active_shape()
+        source_registry = active_face_registry(document)
+        edge = source_registry.edge_references[0]
+
+        direct_shape, direct_registry = make_chamfer_shape(
+            source_shape, source_registry, edge, 3.0, "direct-chamfer"
+        )
+        self.assertEqual(self._subshape_count(direct_shape, TopAbs_SOLID), 1)
+        direct_generated = FaceRef(
+            "direct-chamfer", "generated", semantic_provenance_id(edge)
+        )
+        self.assertEqual(
+            direct_registry.resolve(direct_generated).state,
+            TopologyResolutionState.RESOLVED,
+        )
+
+        chamfer_container = document.create_container(
+            "Chamfer", ContainerType.CHAMFER
+        )
+        chamfer = ZimaEntity(
+            name="Chamfer",
+            kind=EntityKind.CHAMFER,
+            parameters={"edge_ref": edge.serialize(), "distance": "3"},
+        )
+        chamfer_container.add_child(chamfer)
+        result = document.build_active_shape()
+        self.assertEqual(self._subshape_count(result, TopAbs_SOLID), 1)
+        self.assertNotIn("build_status", chamfer.parameters)
+
+        chamfer.parameters["distance"] = "5"
+        box.parameters["length"] = "140"
+        edited = document.build_active_shape()
+        self.assertEqual(self._subshape_count(edited, TopAbs_SOLID), 1)
+        self.assertNotIn("build_status", chamfer.parameters)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chamfer.prtz"
+            save_part_document(document, path)
+            loaded = load_part_document(path)
+            loaded_chamfer = next(
+                child
+                for obj in loaded.history_objects()
+                if obj.container_type == ContainerType.CHAMFER
+                for child in obj.children
+                if child.kind == EntityKind.CHAMFER
+            )
+            self.assertEqual(loaded_chamfer.parameters["distance"], "5")
+            self.assertEqual(
+                self._subshape_count(loaded.build_active_shape(), TopAbs_SOLID),
+                1,
+            )
+            self.assertNotIn("build_status", loaded_chamfer.parameters)
 
     def test_fillet_names_every_result_edge_for_following_features(self) -> None:
         document = create_empty_part()

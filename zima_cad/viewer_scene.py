@@ -254,7 +254,10 @@ def build_document_viewer_scene_data(
                             == "+"
                         )
                     return (
-                        obj.container_type != ContainerType.FILLET
+                        obj.container_type not in (
+                            ContainerType.FILLET,
+                            ContainerType.CHAMFER,
+                        )
                         and str(obj.combine_mode.value) == "+"
                     )
 

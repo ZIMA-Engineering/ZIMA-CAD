@@ -571,7 +571,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._gpu_ready = False
         self._hovered_edge: TopologyKey | None = None
         self._selected_edge: TopologyKey | None = None
-        self._fillet_selection_edges: frozenset[TopologyKey] = frozenset()
+        self._edge_treatment_selection_edges: frozenset[TopologyKey] = frozenset()
         self._hovered_face: TopologyKey | None = None
         self._selected_face: TopologyKey | None = None
         self._feature_hover_edges: frozenset[TopologyKey] = frozenset()
@@ -10848,7 +10848,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
             if (
                 key == self._selected_edge
-                or key in self._fillet_selection_edges
+                or key in self._edge_treatment_selection_edges
                 or key in self._feature_selected_edges
                 or key in self._constraint_reference_edges
                 or key in self._assembly_reference_edges
@@ -10873,7 +10873,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             if (
                 not edge_visible_in_display(edge, self._display_mode)
-                and key not in self._fillet_selection_edges
+                and key not in self._edge_treatment_selection_edges
                 and key not in self._feature_hover_edges
                 and key not in self._feature_selected_edges
             ):
@@ -11544,14 +11544,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.selectedEdgeChanged.emit(*(edge or ("", 0)))
         self.update()
 
-    def set_fillet_selection_edges(
+    def set_edge_treatment_selection_edges(
         self,
         edges: set[TopologyKey] | frozenset[TopologyKey],
     ) -> None:
         selected = frozenset(edges)
-        if selected == self._fillet_selection_edges:
+        if selected == self._edge_treatment_selection_edges:
             return
-        self._fillet_selection_edges = selected
+        self._edge_treatment_selection_edges = selected
         self.update()
 
     def _set_hovered_face(self, face: TopologyKey | None) -> None:

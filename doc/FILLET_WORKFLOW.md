@@ -1,5 +1,9 @@
 # Fillet workflow contract
 
+Fillet now shares the broader edge-treatment implementation with Chamfer. The
+common contract is in [`EDGE_TREATMENTS.md`](EDGE_TREATMENTS.md); this document
+retains the Fillet-specific background and invariants.
+
 This document is the implementation contract for Part Fillet creation and
 editing. User-facing behaviour is also described in
 [`UZIVATELSKY_MANUAL.md`](UZIVATELSKY_MANUAL.md).

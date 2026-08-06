@@ -65,5 +65,5 @@ Closing the internal title-bar cross has the same cancellation semantics.
 - A calculation failure preserves the last valid stored result and leaves
   Properties open for correction.
 
-Feature-specific documents, such as [`FILLET_WORKFLOW.md`](FILLET_WORKFLOW.md),
+Feature-specific documents, such as [`EDGE_TREATMENTS.md`](EDGE_TREATMENTS.md),
 only describe the additional rules layered on this common mechanism.

@@ -97,8 +97,8 @@ full closed-spline Revolve and repeated full center-arc Revolve cuts are covered
 through dimension changes and save/reload. Three-level Extrusion nesting keeps
 outer/hole/island lateral provenance and deterministically fragments multiple
 cap faces. Partial Revolve now applies the same rule to its repeated start/end
-faces, edges and vertices. General multi-body Booleans and Chamfer are not yet
-implemented. The first history/UI Fillet resolves its input through a stable
+faces, edges and vertices. General multi-body Booleans remain incomplete.
+History/UI Fillet and symmetric Chamfer resolve their input through stable
 edge reference, propagates existing ancestry and names its generated face from
 that edge. Edges and vertices of the Fillet result are derived from their
 semantic face incidence, so every result edge remains selectable as a stable
@@ -232,7 +232,8 @@ completion/cancellation callbacks. The viewer only reports transient picked
 candidates; the resolver converts supported topology to stable references.
 Fillet is the first migrated client and requests one or more stable `EdgeRef`
 values after command activation. The complete selection is stored as one
-multi-edge feature with a shared radius. Chamfer, Assembly and Sketch reference workflows should be
+multi-edge feature with a shared radius. Chamfer reuses the same request with a
+shared symmetric distance. Assembly and Sketch reference workflows should be
 migrated to the same controller instead of adding command-specific pick flags.
 
 ## Operation contract
@@ -324,8 +325,8 @@ correct result.
    Part-history feature with a shared editable radius. Ancestry is propagated,
    generated faces are named and result edges receive stable incidence-derived
    identities for following features. Creation and editing share one properties
-   dialog and staged Apply/OK calculation. Next apply the same topology contract
-   to Chamfer.
+   dialog and staged Apply/OK calculation. Symmetric Chamfer now applies the
+   same contract and shares the Edge Properties workflow.
 10. Consider legacy numerical-reference migration only if it becomes a product
     requirement; current development intentionally requires recreation.
 

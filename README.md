@@ -66,6 +66,9 @@ supports a shared radius over multiple stable edge references; Apply previews
 without inserting a history feature and OK commits exactly one feature. The
 detailed implementation contract is documented in
 [doc/FILLET_WORKFLOW.md](doc/FILLET_WORKFLOW.md).
+Chamfer uses the same Edge Properties workflow, multi-edge selection, stable
+references and rollback. The shared contract is in
+[doc/EDGE_TREATMENTS.md](doc/EDGE_TREATMENTS.md).
 Editing any Part history container follows the common rollback, tree, and view
 contract in [doc/HISTORY_EDITING.md](doc/HISTORY_EDITING.md): the view is
 evaluated before the edited container, that container stays visible and green,

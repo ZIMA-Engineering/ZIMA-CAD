@@ -238,6 +238,23 @@ nikoliv pořadovými čísly geometrického jádra. Neproveditelný poloměr neb
 nekompatibilní kombinace hran zachová poslední platné těleso a okno zůstane
 otevřené.
 
+### Sražení hrany
+
+**Sražení** používá stejné uspořádání a ovládání jako Zaoblení, ale jde o
+samostatný příkaz a samostatný typ kontejneru. **Vlastnosti zaoblení** obsahují
+jen poloměr a **Vlastnosti sražení** jen vzdálenost sražení; žádné z těchto oken
+nenabízí přepnutí na druhou operaci. První verze Sražení je symetrická: stejná
+vzdálenost se měří na obou sousedních plochách.
+
+Výběr více hran pomocí `Ctrl`, seznam hran, **Použít**, **OK**, prostřední
+tlačítko, rollback stromu a chování náhledu jsou shodné se Zaoblením. Změna
+Existující Zaoblení ani Sražení se ve Vlastnostech na druhý typ nepřevádí.
+
+Kliknutí ve view zvýrazní pouze hraniční hrany sražené plochy. Dvojklik zobrazí
+editovatelnou lineární kótu vzdálenosti a pravé tlačítko → **Vlastnosti** otevře
+společné okno. Neproveditelná vzdálenost nebo kombinace hran zachová poslední
+platné těleso.
+
 ## Režim skici
 
 Ve Vlastnostech skici tlačítko **SKETCH** potvrdí její umístění a otevře
