@@ -638,12 +638,17 @@ class PartDocument:
             )
 
     def visible_objects(self) -> list[ZimaEntity]:
-        return [obj for obj in self.root.children if obj.kind != EntityKind.ORIGIN]
+        return [
+            obj for obj in self.root.children
+            if obj.kind != EntityKind.ORIGIN
+            and not bool(getattr(obj, "_transient_history_preview", False))
+        ]
 
     def history_objects(self) -> list[ZimaEntity]:
         return [
             obj for obj in self.root.children
             if obj.kind == EntityKind.CONTAINER
+            and not bool(getattr(obj, "_transient_history_preview", False))
         ]
 
     def history_cursor(self) -> int:
@@ -1186,6 +1191,16 @@ class PartDocument:
 
     def build_shape_at(self, cursor: int):
         """Build the automatic solid result at an explicit history boundary."""
+        preview_index = next(
+            (
+                index
+                for index, obj in enumerate(self.history_objects())
+                if bool(getattr(obj, "_history_edit_preview", False))
+            ),
+            None,
+        )
+        if preview_index is not None:
+            cursor = min(cursor, preview_index)
         return self.build_shape_for_objects(self.history_objects_at(cursor))
 
     def build_shape_for_object_ids(self, object_ids: list[str]):
@@ -1531,10 +1546,37 @@ def apply_object_to_shape(
                 feature.parameters["build_status"] = "missing_input"
             return result_shape
         references = edge_feature_references(feature)
-        registry = _registry_for_geometric_edge_references(
-            result_shape,
-            references,
+        semantic_references = tuple(
+            reference
+            for reference in references
+            if reference.role != "geometric"
         )
+        if semantic_references:
+            history_index = document.history_index(obj.entity_id)
+            registry = (
+                boolean_topology_registry_at(document, history_index)
+                if history_index is not None
+                else TopologyRegistry()
+            )
+            registry = _rebind_registry_to_shape(registry, result_shape)
+            # A multi-edge treatment may mix semantic ancestry with an
+            # on-demand geometric fallback.  Keep the latter local to this
+            # feature instead of bloating every normal topology registry.
+            for feature_id in {
+                reference.feature_id
+                for reference in references
+                if reference.role == "geometric"
+            }:
+                _register_geometric_fallback_edges(
+                    registry,
+                    result_shape,
+                    feature_id,
+                )
+        else:
+            registry = _registry_for_geometric_edge_references(
+                result_shape,
+                references,
+            )
         try:
             size_key = "radius" if is_fillet else "distance"
             size = float(feature.parameters.get(size_key, 1.0))

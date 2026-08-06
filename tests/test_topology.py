@@ -395,7 +395,10 @@ class StableTopologyTests(unittest.TestCase):
         fillet = ZimaEntity(
             name="Fillet",
             kind=EntityKind.FILLET,
-            parameters={"edge_ref": edge.serialize(), "radius": "4"},
+            parameters={
+                "edge_refs": json.dumps([edge.to_dict()]),
+                "radius": "4",
+            },
         )
         fillet_container.add_child(fillet)
         result = document.build_active_shape()
@@ -461,7 +464,10 @@ class StableTopologyTests(unittest.TestCase):
         chamfer = ZimaEntity(
             name="Chamfer",
             kind=EntityKind.CHAMFER,
-            parameters={"edge_ref": edge.serialize(), "distance": "3"},
+            parameters={
+                "edge_refs": json.dumps([edge.to_dict()]),
+                "distance": "3",
+            },
         )
         chamfer_container.add_child(chamfer)
         result = document.build_active_shape()
@@ -1255,6 +1261,31 @@ class StableTopologyTests(unittest.TestCase):
         self.assertEqual(set(first.references), expected)
         self.assertEqual(set(first.edge_references), expected_edges)
         self.assertEqual(set(first.vertex_references), expected_vertices)
+        feature.parameters["extent_mode"] = "symmetric"
+        symmetric_shape = make_protrusion_shape(document, container)
+        symmetric = protrusion_face_registry(
+            document,
+            container,
+            symmetric_shape,
+        )
+        for role in ("start", "end"):
+            reference = FaceRef(feature.entity_id, role)
+            self.assertEqual(
+                symmetric.resolve(reference).state,
+                TopologyResolutionState.RESOLVED,
+            )
+            self.assertIsNotNone(
+                symmetric.runtime_index_for_reference(reference)
+            )
+        self.assertNotEqual(
+            symmetric.runtime_index_for_reference(
+                FaceRef(feature.entity_id, "start")
+            ),
+            symmetric.runtime_index_for_reference(
+                FaceRef(feature.entity_id, "end")
+            ),
+        )
+        feature.parameters["extent_mode"] = "one_side"
         feature.parameters["length_forward"] = "125"
         second_shape = make_protrusion_shape(document, container)
         second = protrusion_face_registry(document, container, second_shape)
@@ -1645,7 +1676,7 @@ class StableTopologyTests(unittest.TestCase):
             "EllipseFillet",
             EntityKind.FILLET,
             parameters={
-                "edge_ref": source_edge.serialize(),
+                "edge_refs": json.dumps([source_edge.to_dict()]),
                 "radius": "0.5",
             },
         )

@@ -8,6 +8,8 @@ from math import (
 import traceback
 from typing import Any
 
+import numpy as np
+
 from PySide6.QtCore import (
     QEasingCurve,
     QLineF,
@@ -42,6 +44,7 @@ from PySide6.QtOpenGL import (
     QOpenGLVertexArrayObject,
 )
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QApplication, QDialog
 
 from OCC.Core.gp import gp_Pnt
 
@@ -548,6 +551,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._mesh: ViewerMesh | None = None
         self._face_pick_cache_key: tuple[Any, ...] | None = None
         self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
+        self._face_pick_arrays: dict[str, Any] = {}
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
         self._gl: QOpenGLExtraFunctions | None = None
@@ -591,6 +595,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_face: TopologyKey | None = None
         self._feature_hover_edges: frozenset[TopologyKey] = frozenset()
         self._feature_selected_edges: frozenset[TopologyKey] = frozenset()
+        self._feature_preview_owner_ids: frozenset[str] = frozenset()
         self._hovered_point: TopologyKey | None = None
         self._selected_point: TopologyKey | None = None
         self._hovered_plane: TopologyKey | None = None
@@ -610,6 +615,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_mesh: ViewerMesh | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
         self._object_overlay_persistent = False
+        self._object_overlay_locks_interaction = False
         self._object_overlay_anchor: Point3 | None = None
         self._selected_reference_owner_id: str | None = None
         self._constraint_reference_owner_ids: frozenset[str] = frozenset()
@@ -1304,6 +1310,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         previous_zoom = self.camera.zoom
         self._mesh = mesh
         self._base_edge_mesh = base_edge_mesh
+        same_surface_buffers = (
+            previous_mesh is not None
+            and mesh is not None
+            and previous_mesh.triangle_positions is mesh.triangle_positions
+            and previous_mesh.triangle_normals is mesh.triangle_normals
+            and previous_mesh.triangle_face_indices is mesh.triangle_face_indices
+            and previous_mesh.triangle_owner_ids is mesh.triangle_owner_ids
+        )
         cached_silhouettes = (
             next(
                 (
@@ -1318,6 +1332,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
         if mesh is None:
             self._silhouette_edges = ()
+        elif same_surface_buffers:
+            # Opening a properties/reference dialog only adds lightweight
+            # datum overlays. Rebuilding silhouettes for the unchanged STEP
+            # surface made the command button itself appear frozen.
+            pass
         elif mesh.triangle_count > 100_000:
             # Large imported STEP models already carry their exact CAD edge
             # polylines.  Building tessellation silhouettes synchronously for
@@ -1341,14 +1360,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._set_selected_point(None)
         self._set_hovered_plane(None)
         self._set_selected_plane(None)
-        same_surface_buffers = (
-            previous_mesh is not None
-            and mesh is not None
-            and previous_mesh.triangle_positions is mesh.triangle_positions
-            and previous_mesh.triangle_normals is mesh.triangle_normals
-            and previous_mesh.triangle_face_indices is mesh.triangle_face_indices
-            and previous_mesh.triangle_owner_ids is mesh.triangle_owner_ids
-        )
         same_base_edges = (
             previous_base_edge_mesh is not None
             and base_edge_mesh is not None
@@ -1431,10 +1442,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         selected: bool = False,
         anchor: Point3 | None = None,
+        locks_interaction: bool | None = None,
     ) -> None:
         self._object_overlay_mesh = mesh
         self._object_overlay_anchor = anchor
         self._object_overlay_persistent = selected
+        self._object_overlay_locks_interaction = (
+            selected if locks_interaction is None else locks_interaction
+        ) and mesh is not None
         self._object_overlay_color = QColor.fromRgbF(
             0.0, 0.82, 1.0
         ) if selected else QColor.fromRgbF(1.0, 0.48, 0.0)
@@ -2324,6 +2339,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self._selection_preview_pending = False
                     if self._object_overlay_mesh is not None:
                         self._object_overlay_persistent = True
+                        self._object_overlay_locks_interaction = True
                         self._object_overlay_color = QColor.fromRgbF(
                             0.0, 0.82, 1.0
                         )
@@ -2939,6 +2955,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         if (
             self._sketch_frame is None
+            and (
+                self._selected_object_id is not None
+                or (
+                    self._object_overlay_mesh is not None
+                    and self._object_overlay_locks_interaction
+                )
+            )
+        ):
+            # A blue whole-object selection is an exclusive viewer state.
+            # Do not offer a second, orange topology/object candidate until
+            # the user clears the blue selection.
+            self._clear_topology_hover()
+            self._set_hovered_object(None)
+            super().mouseMoveEvent(event)
+            return
+        if (
+            self._sketch_frame is None
             and self._mesh is not None
             and self._mesh.triangle_count > 100_000
             and self._interaction_mode == "object"
@@ -3144,10 +3177,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and not self._middle_dragged
                 and not self._middle_chorded
             )
+            application = QApplication.instance()
+            middle_confirmation_target = (
+                getattr(application, "_middle_confirmation_target", None)
+                if application is not None
+                else None
+            )
+            properties_apply_active = (
+                isinstance(middle_confirmation_target, QDialog)
+                and middle_confirmation_target.isVisible()
+            )
             dismiss_view_selection = (
                 self._sketch_frame is None
                 and not self._middle_dragged
                 and not self._middle_chorded
+                and not properties_apply_active
             )
             self._last_mouse_position = None
             self._middle_press_position = None
@@ -3840,10 +3884,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             if edge.element_kind in {"axis", "sketch", "dimension"}:
                 gl.glDisable(GL_DEPTH_TEST)
+            preview_wire_color = (
+                (0.0, 0.82, 1.0)
+                if edge.owner_id in self._feature_preview_owner_ids
+                and self._display_mode in {
+                    "wire", "hidden_edges", "no_hidden",
+                }
+                else None
+            )
             program.setUniformValue(
                 "edgeColor",
                 QVector3D(*(
-                    (
+                    preview_wire_color
+                    if preview_wire_color is not None
+                    else (
                         self._edge_color_override.redF(),
                         self._edge_color_override.greenF(),
                         self._edge_color_override.blueF(),
@@ -6395,6 +6449,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_preview_position is not None
             and self._sketch_tool not in ("select", "dimension")
         ):
+            point_ids = {
+                str(entity.get("id", ""))
+                for entity in self._sketch_entities
+                if entity.get("type") == "point"
+            }
             preview = self._screen_point(
                 self._camera_point(
                     self._sketch_world_point(self._sketch_preview_position)
@@ -6413,7 +6472,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 else "Y"
                 if self._sketch_preview_constraint == "axis:y"
                 else "C"
-                if self._hovered_sketch_external_reference_id is not None
+                if (
+                    self._hovered_sketch_external_reference_id is not None
+                    or self._preview_sketch_entity_id in point_ids
+                )
                 else ""
             )
             if label:
@@ -11189,36 +11251,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             (0.0, -4.0),
             (0.0, 4.0),
         )
-        # Populate/reuse the camera projection cache maintained by face
-        # picking.  Reprojecting every triangle here on every click made
-        # topology selection scale with the complete tessellation.
-        self._pick_face(position)
-        for (
-            min_x, max_x, min_y, max_y,
-            screen_points, _depths, owner_id, face_index,
-        ) in self._face_pick_cache:
-            if not (
-                min_x - 4.0 <= position.x() <= max_x + 4.0
-                and min_y - 4.0 <= position.y() <= max_y + 4.0
-            ):
-                continue
-            if any(
-                self._triangle_weights(
+        for offset_x, offset_y in sample_offsets:
+            candidates.extend(
+                ("face", owner_id, face_index)
+                for _depth, owner_id, face_index in self._face_hits(
                     QPointF(
                         position.x() + offset_x,
                         position.y() + offset_y,
                     ),
-                    *screen_points,
-                ) is not None
-                for offset_x, offset_y in sample_offsets
-            ):
-                candidates.append(
-                    (
-                        "face",
-                        owner_id,
-                        face_index,
-                    )
+                    bounds_tolerance=4.0,
                 )
+            )
         unique_candidates = tuple(dict.fromkeys(candidates))
         return tuple(
             candidate for candidate in unique_candidates
@@ -11543,65 +11586,129 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._topology_owner_filter,
             self._excluded_topology_owner_ids,
         )
-        if cache_key != self._face_pick_cache_key:
-            cached: list[tuple[Any, ...]] = []
-            positions = mesh.triangle_positions
-            for triangle_index, face_index in enumerate(
-                mesh.triangle_face_indices
-            ):
-                owner_id = mesh.triangle_owner_ids[triangle_index]
-                if not self._topology_owner_is_selectable(owner_id):
-                    continue
-                offset = triangle_index * 9
-                camera_points = tuple(
-                    self._camera_point((
-                        positions[offset + vertex * 3],
-                        positions[offset + vertex * 3 + 1],
-                        positions[offset + vertex * 3 + 2],
-                    ))
-                    for vertex in range(3)
-                )
-                screen_points = tuple(
-                    self._screen_point(point) for point in camera_points
-                )
-                cached.append((
-                    min(point.x() for point in screen_points),
-                    max(point.x() for point in screen_points),
-                    min(point.y() for point in screen_points),
-                    max(point.y() for point in screen_points),
-                    screen_points,
-                    tuple(point[2] for point in camera_points),
-                    owner_id,
-                    face_index,
-                ))
-            self._face_pick_cache_key = cache_key
-            self._face_pick_cache = tuple(cached)
-
-        hits: list[tuple[float, str, int]] = []
-        for (
-            min_x, max_x, min_y, max_y,
-            screen_points, depths, owner_id, face_index,
-        ) in self._face_pick_cache:
-            if not (
-                min_x <= position.x() <= max_x
-                and min_y <= position.y() <= max_y
-            ):
-                continue
-            weights = self._triangle_weights(
-                position,
-                *screen_points,
-            )
-            if weights is None:
-                continue
-            depth = sum(
-                weight * point_depth
-                for weight, point_depth in zip(weights, depths)
-            )
-            hits.append((depth, owner_id, face_index))
+        self._ensure_face_pick_arrays(cache_key)
+        hits = self._face_hits(position)
         if not hits:
             return None
         selected = max(hits)
         return selected[1], selected[2]
+
+    def _ensure_face_pick_arrays(self, cache_key: tuple[Any, ...]) -> None:
+        if cache_key == self._face_pick_cache_key:
+            return
+        mesh = self._mesh
+        if mesh is None or not mesh.triangle_face_indices:
+            self._face_pick_arrays = {}
+            self._face_pick_cache_key = cache_key
+            return
+        world = np.asarray(mesh.triangle_positions, dtype=np.float64).reshape(
+            (-1, 3, 3)
+        )
+        rotation = np.asarray(
+            _camera_rotation_matrix(
+                self.camera.yaw_degrees,
+                self.camera.pitch_degrees,
+                self.camera.roll_degrees,
+            ),
+            dtype=np.float64,
+        )
+        camera = (world - np.asarray(self._scene_center)) @ rotation.T
+        scale = (
+            float(self.height()) * 0.5
+            / max(self._scene_radius, 1.0e-12)
+            * self.camera.zoom
+        )
+        screen = np.empty((len(camera), 3, 2), dtype=np.float64)
+        screen[:, :, 0] = (
+            self.width() * 0.5 + self.camera.pan_x + camera[:, :, 0] * scale
+        )
+        screen[:, :, 1] = (
+            self.height() * 0.5 + self.camera.pan_y - camera[:, :, 1] * scale
+        )
+        owners = np.asarray(mesh.triangle_owner_ids, dtype=object)
+        selectable = np.fromiter(
+            (self._topology_owner_is_selectable(str(owner)) for owner in owners),
+            dtype=bool,
+            count=len(owners),
+        )
+        self._face_pick_arrays = {
+            "screen": screen[selectable],
+            "depth": camera[:, :, 2][selectable],
+            "owners": owners[selectable],
+            "faces": np.asarray(mesh.triangle_face_indices)[selectable],
+        }
+        self._face_pick_cache = ()
+        self._face_pick_cache_key = cache_key
+
+    def _face_hits(
+        self,
+        position: QPointF,
+        *,
+        bounds_tolerance: float = 0.0,
+    ) -> list[tuple[float, str, int]]:
+        if not self._face_pick_arrays:
+            self._pick_face(position)
+            if not self._face_pick_arrays:
+                return []
+        screen = self._face_pick_arrays["screen"]
+        x = float(position.x())
+        y = float(position.y())
+        tolerance = float(bounds_tolerance)
+        candidate_mask = (
+            (screen[:, :, 0].min(axis=1) - tolerance <= x)
+            & (screen[:, :, 0].max(axis=1) + tolerance >= x)
+            & (screen[:, :, 1].min(axis=1) - tolerance <= y)
+            & (screen[:, :, 1].max(axis=1) + tolerance >= y)
+        )
+        candidate_indices = np.flatnonzero(candidate_mask)
+        if not len(candidate_indices):
+            return []
+        triangles = screen[candidate_indices]
+        first = triangles[:, 0]
+        second = triangles[:, 1]
+        third = triangles[:, 2]
+        denominator = (
+            (second[:, 1] - third[:, 1])
+            * (first[:, 0] - third[:, 0])
+            + (third[:, 0] - second[:, 0])
+            * (first[:, 1] - third[:, 1])
+        )
+        valid = np.abs(denominator) > 1.0e-12
+        safe_denominator = np.where(valid, denominator, 1.0)
+        first_weight = (
+            (second[:, 1] - third[:, 1]) * (x - third[:, 0])
+            + (third[:, 0] - second[:, 0]) * (y - third[:, 1])
+        ) / safe_denominator
+        second_weight = (
+            (third[:, 1] - first[:, 1]) * (x - third[:, 0])
+            + (first[:, 0] - third[:, 0]) * (y - third[:, 1])
+        ) / safe_denominator
+        third_weight = 1.0 - first_weight - second_weight
+        valid &= (
+            (first_weight >= -1.0e-8)
+            & (second_weight >= -1.0e-8)
+            & (third_weight >= -1.0e-8)
+        )
+        candidate_indices = candidate_indices[valid]
+        if not len(candidate_indices):
+            return []
+        weights = np.column_stack((
+            first_weight[valid],
+            second_weight[valid],
+            third_weight[valid],
+        ))
+        depths = self._face_pick_arrays["depth"]
+        owners = self._face_pick_arrays["owners"]
+        faces = self._face_pick_arrays["faces"]
+        hit_depths = np.sum(depths[candidate_indices] * weights, axis=1)
+        return [
+            (float(depth), str(owner), int(face))
+            for depth, owner, face in zip(
+                hit_depths,
+                owners[candidate_indices],
+                faces[candidate_indices],
+            )
+        ]
 
     def _pick_object(self, position: QPointF) -> str | None:
         face = self._pick_face(position)
@@ -11726,6 +11833,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if selected == self._feature_selected_edges:
             return
         self._feature_selected_edges = selected
+        self.update()
+
+    def set_feature_preview_owners(
+        self,
+        owner_ids: set[str] | frozenset[str],
+    ) -> None:
+        selected = frozenset(owner_ids)
+        if selected == self._feature_preview_owner_ids:
+            return
+        self._feature_preview_owner_ids = selected
         self.update()
 
     def _set_hovered_point(self, point: TopologyKey | None) -> None:
@@ -11887,15 +12004,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(
-            QPen(
-                QColor("#16191E"),
-                max(1.0, float(self.devicePixelRatioF())),
-            )
-        )
         for edge in mesh.edges:
             if not edge_visible_in_display(edge, self._display_mode):
                 continue
+            painter.setPen(QPen(
+                QColor("#00D1FF")
+                if edge.owner_id in self._feature_preview_owner_ids
+                and self._display_mode in {
+                    "wire", "hidden_edges", "no_hidden",
+                }
+                else QColor("#16191E"),
+                max(1.0, float(self.devicePixelRatioF())),
+            ))
             projected = [
                 self._screen_point(self._camera_point(point))
                 for point in edge.points

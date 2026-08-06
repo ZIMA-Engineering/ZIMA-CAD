@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import sqrt
 from typing import Any
 
@@ -41,6 +41,11 @@ class DocumentViewerScene:
     shapes_by_owner_id: dict[str, Any]
     surface_colors_by_owner_id: dict[str, str]
     body_mesh: ViewerMesh | None = None
+    _resolved_topology: dict[tuple[str, str, int], Any] = field(
+        default_factory=dict,
+        compare=False,
+        repr=False,
+    )
 
     def resolve_topology(
         self,
@@ -48,11 +53,16 @@ class DocumentViewerScene:
         element_kind: str,
         element_index: int,
     ) -> Any | None:
-        return topology_subshape(
+        cache_key = (owner_id, element_kind, element_index)
+        if cache_key in self._resolved_topology:
+            return self._resolved_topology[cache_key]
+        resolved = topology_subshape(
             self.shapes_by_owner_id.get(owner_id),
             element_kind=element_kind,
             element_index=element_index,
         )
+        self._resolved_topology[cache_key] = resolved
+        return resolved
 
 
 def build_document_viewer_scene(
@@ -369,20 +379,28 @@ def build_document_viewer_scene_data(
                 preview_transform,
             )
         )
-        preview_planes = (
-            ()
-            if preview_plane == ""
-            else (preview_plane,)
-            if preview_plane in ("xy", "yz", "xz")
-            else ("xy", "yz", "xz")
-        )
         plane_indices = {"xy": 1, "yz": 2, "xz": 3}
-        for plane_name in preview_planes:
-            local_plane_offset = {
-                "xy": (0.0, 0.0, preview_plane_offset),
-                "yz": (preview_plane_offset, 0.0, 0.0),
-                "xz": (0.0, preview_plane_offset, 0.0),
-            }[plane_name]
+        # A definition preview always exposes its complete local Origin.
+        # The feature plane is an additional datum; when it lies directly on
+        # its matching Origin plane, that one drawing represents both.
+        feature_plane = (
+            preview_plane
+            if preview_plane in ("xy", "yz", "xz")
+            else None
+        )
+        for plane_name in ("xy", "yz", "xz"):
+            is_feature_plane = plane_name == feature_plane
+            feature_is_offset = (
+                is_feature_plane and abs(preview_plane_offset) > 1.0e-12
+            )
+            if feature_is_offset:
+                local_plane_offset = (0.0, 0.0, 0.0)
+            else:
+                local_plane_offset = {
+                    "xy": (0.0, 0.0, preview_plane_offset),
+                    "yz": (preview_plane_offset, 0.0, 0.0),
+                    "xz": (0.0, preview_plane_offset, 0.0),
+                }[plane_name] if is_feature_plane else (0.0, 0.0, 0.0)
             layers.append(
                 transform_viewer_mesh(
                     transform_viewer_mesh(
@@ -391,13 +409,42 @@ def build_document_viewer_scene_data(
                             plane_index=plane_indices[plane_name],
                             size=(
                                 max(float(preview_plane_size), 0.001)
-                                if preview_plane_size is not None
-                                and len(preview_planes) == 1
+                                if is_feature_plane
+                                and not feature_is_offset
+                                and preview_plane_size is not None
                                 else max(reference_scene_size * 0.12, 4.0)
                             ),
                             plane=plane_name,
                             label=plane_name.upper(),
-                            screen_constant=preview_plane_size is None,
+                            screen_constant=(
+                                not is_feature_plane
+                                or feature_is_offset
+                                or preview_plane_size is None
+                            ),
+                        ),
+                        coordinate_system_transform(
+                            CoordinateSystem(origin=local_plane_offset)
+                        ),
+                    ),
+                    preview_transform,
+                )
+            )
+        if feature_plane is not None and abs(preview_plane_offset) > 1.0e-12:
+            local_plane_offset = {
+                "xy": (0.0, 0.0, preview_plane_offset),
+                "yz": (preview_plane_offset, 0.0, 0.0),
+                "xz": (0.0, preview_plane_offset, 0.0),
+            }[feature_plane]
+            layers.append(
+                transform_viewer_mesh(
+                    transform_viewer_mesh(
+                        datum_plane_mesh(
+                            owner_id=preview_owner_id,
+                            plane_index=4,
+                            size=max(float(preview_plane_size or 0.001), 0.001),
+                            plane=feature_plane,
+                            label=feature_plane.upper(),
+                            screen_constant=False,
                         ),
                         coordinate_system_transform(
                             CoordinateSystem(origin=local_plane_offset)
