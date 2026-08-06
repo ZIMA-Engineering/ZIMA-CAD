@@ -67,6 +67,8 @@ as the document model, geometric kernel integration and user workflows evolve.
   - Ctrl multi-selection in the tree and sketch view, rectangle selection and
     mirrored geometry with persistent point-pair symmetry constraints
 - remaining work:
+  - direct manipulation (dragging) of sketch points and geometry with the left
+    mouse button, including live constraint solving during the drag
   - intelligent entity input with inference, snapping and predictable
     continuation between consecutively created entities
   - finish the basic geometry set with polygons and ellipse support, and
@@ -243,6 +245,8 @@ as the document model, geometric kernel integration and user workflows evolve.
   activated; obsolete persisted 2D projection caches are intentionally not
   supported
 - remaining work:
+  - finish the Drawing workspace as a complete production workflow and verify
+    it progressively on real Part and Assembly examples
   - complete hover and selection of real model points, edges and faces through
     drawing views and reuse it consistently in every drawing command
   - continue stabilizing curved silhouettes, coincident geometry and hidden
