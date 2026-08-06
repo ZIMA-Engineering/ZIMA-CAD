@@ -3013,6 +3013,56 @@ def semantic_face_registry(
     return registry
 
 
+def cylinder_face_registry(
+    document: PartDocument,
+    cylinder: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    """Name cylinder caps by its local axis, independent of OCCT order."""
+
+    registry = TopologyRegistry()
+    if cylinder.kind != EntityKind.CYLINDER or shape is None:
+        return registry
+    world_transform = entity_world_transform(document, cylinder.entity_id)
+    axis = (
+        normalized(transform_vector(world_transform, (0.0, 0.0, 1.0)))
+        if world_transform is not None
+        else None
+    )
+    if axis is None:
+        return registry
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    runtime_index = 0
+    while explorer.More():
+        runtime_index += 1
+        face = explorer.Current()
+        adaptor = BRepAdaptor_Surface(face)
+        reference = None
+        if adaptor.GetType() == GeomAbs_Cylinder:
+            reference = FaceRef(cylinder.entity_id, "side")
+        elif adaptor.GetType() == GeomAbs_Plane:
+            direction = adaptor.Plane().Axis().Direction()
+            sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
+            normal = (
+                sign * direction.X(),
+                sign * direction.Y(),
+                sign * direction.Z(),
+            )
+            agreement = vector_dot(normal, axis)
+            if agreement > 1.0 - 1.0e-7:
+                reference = FaceRef(cylinder.entity_id, "end")
+            elif agreement < -1.0 + 1.0e-7:
+                reference = FaceRef(cylinder.entity_id, "start")
+        if reference is not None:
+            registry.register_face(
+                reference,
+                face,
+                runtime_index=runtime_index,
+            )
+        explorer.Next()
+    return registry
+
+
 def protrusion_face_registry(
     document: PartDocument,
     container: ZimaEntity,
@@ -4050,11 +4100,13 @@ def _standalone_topology_registry(
         return registry
     solid = next((
         child for child in container.children
-        if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
+        if child.kind in (EntityKind.BOX, EntityKind.WEDGE, EntityKind.CYLINDER)
         and not child.locked
     ), None)
     return (
-        semantic_face_registry(document, solid, shape)
+        cylinder_face_registry(document, solid, shape)
+        if solid is not None and solid.kind == EntityKind.CYLINDER
+        else semantic_face_registry(document, solid, shape)
         if solid is not None
         else TopologyRegistry()
     )
@@ -5199,13 +5251,19 @@ def face_registry_at(
             (
                 child
                 for child in container.children
-                if child.kind in (EntityKind.BOX, EntityKind.WEDGE)
+                if child.kind in (
+                    EntityKind.BOX,
+                    EntityKind.WEDGE,
+                    EntityKind.CYLINDER,
+                )
                 and not child.locked
             ),
             None,
         )
         registry = (
-            semantic_face_registry(document, solid, shape)
+            cylinder_face_registry(document, solid, shape)
+            if solid is not None and solid.kind == EntityKind.CYLINDER
+            else semantic_face_registry(document, solid, shape)
             if solid is not None
             else TopologyRegistry()
         )

@@ -628,6 +628,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
+        self._pending_model_hover_position: QPointF | None = None
+        self._model_hover_timer = QTimer(self)
+        self._model_hover_timer.setSingleShot(True)
+        self._model_hover_timer.setInterval(50)
+        self._model_hover_timer.timeout.connect(
+            self._apply_pending_model_hover
+        )
         self._dimensions: tuple[
             LinearDimension | AngularDimension | RadialDimension, ...
         ] = ()
@@ -2970,9 +2977,31 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._set_hovered_object(None)
             super().mouseMoveEvent(event)
             return
+        self._pending_model_hover_position = QPointF(event.position())
+        if not self._model_hover_timer.isActive():
+            self._model_hover_timer.start()
+        super().mouseMoveEvent(event)
+
+    def _apply_pending_model_hover(self) -> None:
+        position = self._pending_model_hover_position
+        self._pending_model_hover_position = None
         if (
-            self._sketch_frame is None
-            and self._mesh is not None
+            position is None
+            or self._sketch_frame is not None
+            or not self._selection_enabled
+            or self._navigation_active
+        ):
+            return
+        if (
+            self._selected_object_id is not None
+            or (
+                self._object_overlay_mesh is not None
+                and self._object_overlay_locks_interaction
+            )
+        ):
+            return
+        if (
+            self._mesh is not None
             and self._mesh.triangle_count > 100_000
             and self._interaction_mode == "object"
             and not self._large_mesh_topology_enabled
@@ -2981,16 +3010,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             # every cursor event.  While that O(N) scan was running, middle
             # press and wheel events accumulated in Qt's queue and navigation
             # appeared to start only after a long wait.
-            point = self._pick_point(event.position())
+            point = self._pick_point(position)
             plane = (
                 None
                 if point is not None
-                else self._pick_plane(event.position())
+                else self._pick_plane(position)
             )
             axis = (
                 None
                 if point is not None or plane is not None
-                else self._pick_axis(event.position())
+                else self._pick_axis(position)
             )
             self._set_hovered_object(None)
             # Update the resolved hover state directly. Clearing every kind
@@ -3001,19 +3030,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._set_hovered_point(point)
             self._set_hovered_plane(plane)
             self._set_hovered_edge(axis)
-            super().mouseMoveEvent(event)
             return
         if self._interaction_mode == "object":
-            point = self._pick_point(event.position())
+            point = self._pick_point(position)
             plane = (
                 None
                 if point is not None
-                else self._pick_plane(event.position())
+                else self._pick_plane(position)
             )
             axis = (
                 None
                 if point is not None or plane is not None
-                else self._pick_axis(event.position())
+                else self._pick_axis(position)
             )
             self._clear_topology_hover()
             self._set_hovered_object(None)
@@ -3024,31 +3052,29 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             elif axis is not None:
                 self._set_hovered_edge(axis)
             else:
-                face = self._pick_face(event.position())
+                face = self._pick_face(position)
                 self._set_hovered_object(
                     face[0] if face is not None
-                    else self._pick_object(event.position())
+                    else self._pick_object(position)
                 )
                 # Emit the face last. The application can then replace the
                 # whole-object hover with a feature-boundary highlight.
                 self._set_hovered_face(face)
-            super().mouseMoveEvent(event)
             return
-        point = self._pick_point(event.position())
-        edge = None if point is not None else self._pick_edge(event.position())
+        point = self._pick_point(position)
+        edge = None if point is not None else self._pick_edge(position)
         plane = (
             None
             if point is not None or edge is not None
-            else self._pick_plane(event.position())
+            else self._pick_plane(position)
         )
         self._set_hovered_point(point)
         self._set_hovered_edge(edge)
         self._set_hovered_plane(plane)
         self._set_hovered_face(
             None if point is not None or edge is not None or plane is not None
-            else self._pick_face(event.position())
+            else self._pick_face(position)
         )
-        super().mouseMoveEvent(event)
 
     def _request_navigation_repaint(self) -> None:
         if self._navigation_repaint_pending:

@@ -11,6 +11,7 @@ from zima_cad.model import (
     EntityKind,
     active_face_registry,
     create_empty_part,
+    cylinder_face_registry,
     make_protrusion_shape,
     make_revolve_shape,
     make_chamfer_shape,
@@ -308,6 +309,41 @@ class StableTopologyTests(unittest.TestCase):
                     loaded_registry.resolve(reference).state,
                     TopologyResolutionState.RESOLVED,
                 )
+
+    def test_cylinder_start_and_end_survive_height_and_rotation(self) -> None:
+        document = create_empty_part()
+        container = document.create_container(
+            "Cylinder",
+            ContainerType.CYLINDER,
+        )
+        cylinder = document.create_primitive(
+            container.entity_id,
+            EntityKind.CYLINDER,
+        )
+        self.assertIsNotNone(cylinder)
+        expected = {
+            FaceRef(cylinder.entity_id, "start"),
+            FaceRef(cylinder.entity_id, "end"),
+            FaceRef(cylinder.entity_id, "side"),
+        }
+        for height, rotation in (
+            (40.0, (0.0, 0.0, 0.0)),
+            (125.0, (35.0, 20.0, 70.0)),
+        ):
+            cylinder.parameters["height"] = str(height)
+            container.coordinate_system.rotation = rotation
+            document._shape_history_cache.clear()
+            shape = document.build_standalone_shape(container)
+            registry = cylinder_face_registry(document, cylinder, shape)
+            self.assertEqual(set(registry.references), expected)
+            self.assertNotEqual(
+                registry.runtime_index_for_reference(
+                    FaceRef(cylinder.entity_id, "start")
+                ),
+                registry.runtime_index_for_reference(
+                    FaceRef(cylinder.entity_id, "end")
+                ),
+            )
 
     def test_box_edge_and_vertex_roles_survive_dimension_changes(self) -> None:
         document = create_empty_part()
