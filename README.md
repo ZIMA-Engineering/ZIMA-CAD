@@ -133,6 +133,12 @@ after it is opened and saved once. Interactive File/Open loads `.prtz` documents
 and prepares large embedded-STEP display meshes outside the Qt GUI thread, so
 the main window remains responsive during the expensive restore.
 
+Part and Assembly documents can export their current evaluated result through
+**File → Export model to STEP…**. Part export writes the active solid body;
+Assembly export writes every resolved component in its assembled position.
+The neutral STEP file contains geometry only, not ZIMA feature history,
+constraints or assembly mates.
+
 The Drawing workspace supports `.drwz` documents linked to either a part or an
 assembly, multiple independently sized sheets, A4 through A0 paper outlines,
 first- and third-angle projected views in eight 45-degree placement directions,

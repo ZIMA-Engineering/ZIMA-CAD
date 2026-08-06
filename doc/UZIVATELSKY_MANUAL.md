@@ -482,6 +482,19 @@ BREP a příprava zobrazovacího meshe velkého vloženého STEP mimo hlavní GU
 vlákno. Hlavní okno proto během této práce zůstává překreslované a stavový
 řádek zobrazuje načítaný soubor.
 
+### Export STEP
+
+Příkaz **Soubor → Exportovat model do STEP…** je dostupný pro díl i sestavu.
+U dílu zapíše právě aktivní výsledné těleso. U sestavy zapíše všechny načtené
+komponenty v jejich výsledných sestavových polohách jako samostatná tělesa.
+Podporované přípony jsou `.step` a `.stp`; pokud přípona chybí, doplní se
+`.step`.
+
+STEP obsahuje pouze výslednou geometrii. Strom historie, skici, vazby,
+materiály ani sestavové vazby se do něj nepřenášejí. Prázdný model nebo model
+bez solidu nelze exportovat. Výkres `.drwz` se exportuje prostřednictvím svého
+zdrojového dílu nebo sestavy, nikoliv přímo.
+
 ### Barvy a přejmenování
 
 Barva nastavená pro vložený díl patří konkrétní instanci a nemění barvy

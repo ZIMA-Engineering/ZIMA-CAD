@@ -256,6 +256,7 @@ from zima_cad.step_import import (
     INTERACTIVE_TOPOLOGY_FACE_LIMIT,
     import_step_file,
 )
+from zima_cad.step_export import export_step_shape
 
 _RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
 FEATURE_PREVIEW_COLOR = "#00D1FF"
@@ -9128,7 +9129,11 @@ class MainWindow(QMainWindow):
 
     def _on_reference_visibility_changed(self, _checked: bool) -> None:
         if hasattr(self, "_viewer_initialized"):
-            self.rebuild_view(fit=False)
+            # Origins, planes, axes, points and sketches are renderer-only
+            # layers.  Preserve the evaluated body and its triangulation;
+            # rebuilding them makes a visibility toggle needlessly expensive
+            # for large imported STEP models.
+            self.rebuild_view(fit=False, rebuild_geometry=False)
 
     def set_view_selection_enabled(self, enabled: bool) -> None:
         self.view_selection_enabled = enabled
@@ -13435,6 +13440,12 @@ class MainWindow(QMainWindow):
         import_step_action.setIcon(resource_icon("open"))
         import_step_action.triggered.connect(self.import_step_into_part)
 
+        export_step_action = file_menu.addAction(
+            tr("menu.file.export_step")
+        )
+        export_step_action.setIcon(resource_icon("save"))
+        export_step_action.triggered.connect(self.export_model_to_step)
+
         close_action = file_menu.addAction(tr("menu.file.close"))
         close_action.triggered.connect(self.close_document)
 
@@ -15631,6 +15642,56 @@ class MainWindow(QMainWindow):
         self._step_import_path = path
         self._step_import_document = self.document
         poll_timer.start()
+
+    def export_model_to_step(self) -> None:
+        document = self.document
+        document_type = self._document_type(document)
+        if document is None or document_type not in ("part", "assembly"):
+            QMessageBox.information(
+                self,
+                tr("menu.file.export_step"),
+                tr("step.export.model_required"),
+            )
+            return
+        source_stem = (
+            self.current_file_path.stem
+            if self.current_file_path is not None
+            else document.root.name
+        )
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("menu.file.export_step"),
+            str(self.working_directory / f"{source_stem}.step"),
+            tr("file.filter.step"),
+        )
+        if not file_name:
+            return
+        self.statusBar().showMessage(
+            tr("step.export.writing", name=Path(file_name).name)
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = export_step_shape(
+                document.build_active_shape(),
+                Path(file_name),
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            QMessageBox.critical(
+                self,
+                tr("step.export.failed"),
+                str(error),
+            )
+            self.statusBar().clearMessage()
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(
+            tr(
+                "step.export.complete",
+                name=result.path.name,
+                solids=result.solid_count,
+            )
+        )
 
     def _poll_step_import(self) -> None:
         future = self._step_import_future
