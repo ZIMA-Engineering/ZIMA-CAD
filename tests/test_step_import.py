@@ -4,7 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from OCC.Core.BRep import BRep_Builder
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCC.Core.TopoDS import TopoDS_Compound
 from OCC.Core.IFSelect import IFSelect_RetDone
 from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
 from OCC.Core.TopAbs import TopAbs_SOLID
@@ -23,6 +25,32 @@ from zima_cad.storage import load_part_document, save_part_document
 
 
 class StepImportTests(unittest.TestCase):
+    def test_first_solid_mode_embeds_only_one_assembly_body(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            step_path = Path(directory) / "assembly.step"
+            compound = TopoDS_Compound()
+            builder = BRep_Builder()
+            builder.MakeCompound(compound)
+            builder.Add(compound, BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape())
+            builder.Add(compound, BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape())
+            writer = STEPControl_Writer()
+            writer.Transfer(compound, STEPControl_AsIs)
+            self.assertEqual(writer.Write(str(step_path)), IFSelect_RetDone)
+
+            imported = import_step_file(step_path, first_solid_only=True)
+            self.assertEqual(imported.solid_count, 1)
+            self.assertEqual(imported.face_count, 6)
+
+            from zima_cad.step_import import shape_from_embedded_step
+
+            restored = shape_from_embedded_step(imported.step_data)
+            explorer = TopExp_Explorer(restored, TopAbs_SOLID)
+            count = 0
+            while explorer.More():
+                count += 1
+                explorer.Next()
+            self.assertEqual(count, 1)
+
     def test_step_geometry_is_embedded_in_part_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             directory_path = Path(directory)

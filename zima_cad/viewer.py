@@ -620,6 +620,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_reference_owner_id: str | None = None
         self._constraint_reference_owner_ids: frozenset[str] = frozenset()
         self._excluded_topology_owner_ids: frozenset[str] = frozenset()
+        self._constraint_reference_faces: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_edges: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_points: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_planes: frozenset[TopologyKey] = frozenset()
@@ -1470,12 +1471,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self,
         *,
         owner_ids: set[str],
+        faces: set[TopologyKey],
         edges: set[TopologyKey],
         points: set[TopologyKey],
         planes: set[TopologyKey],
         positions: set[Point3],
     ) -> None:
         self._constraint_reference_owner_ids = frozenset(owner_ids)
+        self._constraint_reference_faces = frozenset(faces)
         self._constraint_reference_edges = frozenset(edges)
         self._constraint_reference_points = frozenset(points)
         self._constraint_reference_planes = frozenset(planes)
@@ -1958,6 +1961,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             for face in self._assembly_reference_faces
             if face != self._selected_face
         )
+        highlights.extend(
+            (face, QColor.fromRgbF(0.0, 0.82, 1.0))
+            for face in self._constraint_reference_faces
+            if face != self._selected_face
+        )
         if not any(face is not None for face, _color in highlights):
             return
         positions = mesh.triangle_positions
@@ -2413,14 +2421,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if point is not None or edge is not None
                 else self._pick_plane(event.position())
             )
-            self._set_selected_point(point)
-            self._set_selected_edge(edge)
-            self._set_selected_plane(plane)
-            self._set_selected_face(
+            face = (
                 None
                 if point is not None or edge is not None or plane is not None
                 else self._pick_face(event.position())
             )
+            self._set_selected_point(point)
+            self._set_selected_edge(edge)
+            self._set_selected_plane(plane)
+            self._set_selected_face(face)
             event.accept()
             return
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -11530,6 +11539,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         allowed_element_kinds: frozenset[str] | None = None,
     ) -> TopologyKey | None:
+        if (
+            allowed_element_kinds is None
+            and self._selection_filter not in {"all", "edge"}
+        ):
+            return None
         mesh = self._mesh
         if mesh is None or mesh.is_empty:
             return None
@@ -11598,7 +11612,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if mesh is None or not mesh.triangle_face_indices:
             return None
         cache_key = (
-            id(mesh),
+            # Definition/property dialogs add datum overlays by wrapping the
+            # unchanged body buffers in a new ViewerMesh.  Keying by the
+            # wrapper identity discarded the already warm face picker and
+            # made the first placement reference reproject every STEP
+            # triangle; the second and third reference then appeared fast.
+            id(mesh.triangle_positions),
+            id(mesh.triangle_face_indices),
+            id(mesh.triangle_owner_ids),
             self.width(),
             self.height(),
             self.camera.yaw_degrees,

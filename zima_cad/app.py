@@ -11609,6 +11609,11 @@ class MainWindow(QMainWindow):
         def enable_live_preview() -> None:
             if (
                 getattr(dialog, "_live_preview_connected", False)
+                # Feature dialogs own their staged Apply/OK contract.  The
+                # generic edit-dialog live submit turned the first placement
+                # reference into an implicit feature update and full STEP
+                # history rebuild before the user pressed Apply.
+                or isinstance(dialog, ProtrusionConstraintDialog)
                 or not dialog.edit_mode
                 or dialog.point_object is None
             ):
@@ -12032,6 +12037,40 @@ class MainWindow(QMainWindow):
             or self.document is None
         ):
             return None
+        # An imported STEP body is immutable inside its history container.
+        # Face-picking already stores the exact oriented plane equation, so
+        # rebuilding the complete history shape merely to initialize the
+        # container-placement controls adds no information.  On a detailed
+        # STEP this used to make the Protrusion Properties window appear to
+        # hang after an otherwise fast pick.  Keep semantic/parametric faces
+        # on the resolving path below because their upstream geometry can
+        # legitimately change.
+        if (
+            shape_reference_type == "face"
+            and descriptor.get("reference_scope") == "history_result"
+        ):
+            stable_reference = parse_face_reference(
+                descriptor.get("face_ref")
+            )
+            equations = descriptor.get("equations", ())
+            if (
+                stable_reference is not None
+                and stable_reference.role == "imported"
+                and isinstance(equations, (list, tuple))
+                and equations
+                and isinstance(equations[0], (list, tuple))
+                and len(equations[0]) >= 4
+            ):
+                try:
+                    stored = [float(value) for value in equations[0][:4]]
+                except (TypeError, ValueError):
+                    stored = []
+                if (
+                    len(stored) == 4
+                    and all(math.isfinite(value) for value in stored)
+                    and sum(value * value for value in stored[:3]) > 1.0e-24
+                ):
+                    return [stored]
         reference = self.document.find_entity(
             str(descriptor.get("entity_id", ""))
         )
@@ -14284,6 +14323,63 @@ class MainWindow(QMainWindow):
         if imported is None or face_index <= 0:
             return None
         return FaceRef(imported.entity_id, "imported", str(face_index))
+
+    def _sole_imported_body_source(
+        self,
+        boundary: int,
+    ) -> ZimaEntity | None:
+        """Return an imported body when all other history is construction."""
+        if self.document is None:
+            return None
+        construction_types = {
+            ContainerType.POINT,
+            ContainerType.AXIS,
+            ContainerType.PLANE,
+            ContainerType.SKETCH,
+        }
+        objects = self.document.history_objects_at(boundary)
+        imported_sources = [
+            obj for obj in objects
+            if any(
+                child.kind == EntityKind.IMPORTED_STEP
+                and not child.locked
+                for child in obj.children
+            )
+        ]
+        return (
+            imported_sources[0]
+            if len(imported_sources) == 1
+            and all(
+                obj is imported_sources[0]
+                or obj.container_type in construction_types
+                for obj in objects
+            )
+            else None
+        )
+
+    def _unique_imported_face_reference(
+        self,
+        face_index: int,
+    ) -> FaceRef | None:
+        """Name a face directly when the document has one STEP entity."""
+        if self.document is None or face_index <= 0:
+            return None
+
+        def descendants(entity: ZimaEntity):
+            for child in entity.children:
+                yield child
+                yield from descendants(child)
+
+        imported = [
+            entity
+            for entity in descendants(self.document.root)
+            if entity.kind == EntityKind.IMPORTED_STEP and not entity.locked
+        ]
+        return (
+            FaceRef(imported[0].entity_id, "imported", str(face_index))
+            if len(imported) == 1
+            else None
+        )
 
     def _component_source_face_from_displayed_face(
         self,
@@ -18957,6 +19053,15 @@ class MainWindow(QMainWindow):
             and self._history_source_cycle_active
             else None
         )
+        if (
+            source_face is None
+            and self._container_orientation_selection_is_active()
+            and self._add_mesh_face_placement_reference(
+                owner_id,
+                face_index,
+            )
+        ):
+            return
         if source_face is not None:
             owner_id, face_index, source_shape = source_face
             shape = self._subshape_from_shape(
@@ -19091,6 +19196,86 @@ class MainWindow(QMainWindow):
                 shape,
                 topology_index=face_index,
             )
+
+    def _add_mesh_face_placement_reference(
+        self,
+        owner_id: str,
+        face_index: int,
+    ) -> bool:
+        """Accept a planar placement face without resolving OCCT topology."""
+        dialog = self.point_constraint_dialog
+        scene = self._native_viewer_scene
+        if (
+            self.document is None
+            or dialog is None
+            or scene is None
+            or face_index <= 0
+        ):
+            return False
+        mesh = scene.mesh
+        face_indices = np.asarray(mesh.triangle_face_indices)
+        owner_ids = np.asarray(mesh.triangle_owner_ids, dtype=object)
+        mask = (face_indices == face_index) & (owner_ids == owner_id)
+        if not np.any(mask):
+            return False
+        triangles = np.asarray(
+            mesh.triangle_positions,
+            dtype=np.float64,
+        ).reshape((-1, 3, 3))[mask]
+        if not len(triangles):
+            return False
+        normal = None
+        point = None
+        for triangle in triangles:
+            candidate = np.cross(
+                triangle[1] - triangle[0],
+                triangle[2] - triangle[0],
+            )
+            length = float(np.linalg.norm(candidate))
+            if length > 1.0e-12:
+                normal = candidate / length
+                point = triangle[0]
+                break
+        if normal is None or point is None:
+            return False
+        distance = float(np.dot(normal, point))
+        tolerance = max(
+            float(self.native_viewer._scene_radius) * 1.0e-8,
+            1.0e-7,
+        )
+        if np.any(
+            np.abs(triangles.reshape((-1, 3)) @ normal - distance)
+            > tolerance
+        ):
+            # Curved faces must still use their exact OCCT adaptor so they
+            # can be rejected by the existing unsupported-surface path.
+            return False
+        obj = self.document.find_entity(owner_id)
+        if obj is None:
+            return False
+        metadata = self._shape_reference_metadata(obj)
+        if metadata.get("reference_scope") == "history_result":
+            boundary = int(metadata.get("history_cursor", 0))
+            source = obj
+            if obj.kind == EntityKind.PART:
+                source = self._sole_imported_body_source(boundary) or obj
+            reference = self._lazy_imported_face_reference(source, face_index)
+            if reference is not None:
+                metadata["face_ref"] = reference.to_dict()
+        dialog.add_shape_reference(
+            owner_id,
+            self._topology_reference_label(obj, "face", face_index),
+            "face",
+            [[
+                float(normal[0]),
+                float(normal[1]),
+                float(normal[2]),
+                distance,
+            ]],
+            str(face_index),
+            metadata,
+        )
+        return True
 
     def _source_topology_reference_at_cursor(
         self,
@@ -20517,10 +20702,26 @@ class MainWindow(QMainWindow):
             stable_metadata = dict(reference_metadata)
             if stable_metadata.get("reference_scope") == "history_result":
                 boundary = int(stable_metadata.get("history_cursor", 0))
+                # Viewer triangles of the evaluated Part are owned by the
+                # document root, while the stable imported FaceRef is owned
+                # by the IMPORTED_STEP entity inside its history container.
+                # Looking for that entity below the root always failed and
+                # forced the first placement pick to build the complete
+                # topology registry.  Later picks looked fast only because
+                # that expensive registry had then been cached.
+                lazy_reference_source = obj
+                if obj.kind == EntityKind.PART:
+                    lazy_reference_source = (
+                        self._sole_imported_body_source(boundary) or obj
+                    )
                 reference = self._lazy_imported_face_reference(
-                    obj,
+                    lazy_reference_source,
                     topology_index,
                 )
+                if reference is None and obj.kind == EntityKind.PART:
+                    reference = self._unique_imported_face_reference(
+                        topology_index
+                    )
                 if reference is None:
                     registry = self._reference_topology_registry(boundary)
                     reference = registry.reference_for_runtime_index(
@@ -39213,8 +39414,21 @@ class MainWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.tree.blockSignals(False)
             self.selected_object_id = None
+        dialog = self.point_constraint_dialog
+        active_row = (
+            getattr(dialog, "_active_container_orientation_row", None)
+            if active
+            else None
+        )
         self.native_viewer.set_selection_filter(
-            "all" if active else self.view_selection_filter.value
+            # FRONT/BACK accepts only a planar face or datum plane.  Using
+            # `all` here made the first reference scan every STEP vertex and
+            # edge before it even attempted the already-fast face picker.
+            "surface"
+            if active and active_row == 0
+            else "all"
+            if active
+            else self.view_selection_filter.value
         )
         self.native_viewer.set_interaction_mode("topology")
         self.native_viewer.set_selection_enabled(True)
@@ -42601,6 +42815,7 @@ class MainWindow(QMainWindow):
             else []
         )
         owner_ids: set[str] = set()
+        faces: set[tuple[str, int]] = set()
         edges: set[tuple[str, int]] = set()
         points: set[tuple[str, int]] = set()
         planes: set[tuple[str, int]] = set()
@@ -42658,49 +42873,11 @@ class MainWindow(QMainWindow):
                 continue
             key = (entity_id, topology_index)
             if reference_type == "face":
-                scene = self._native_viewer_scene
-                face = (
-                    scene.resolve_topology(
-                        entity_id,
-                        "face",
-                        topology_index,
-                    )
-                    if scene is not None
-                    else None
-                )
-                owner_shape = (
-                    scene.shapes_by_owner_id.get(entity_id)
-                    if scene is not None
-                    else None
-                )
-                if face is not None and owner_shape is not None:
-                    boundary_edges: list[Any] = []
-                    face_explorer = TopExp_Explorer(face, TopAbs_EDGE)
-                    while face_explorer.More():
-                        boundary_edges.append(face_explorer.Current())
-                        face_explorer.Next()
-                    seen_edges: list[Any] = []
-                    edge_index = 0
-                    shape_explorer = TopExp_Explorer(
-                        owner_shape,
-                        TopAbs_EDGE,
-                    )
-                    while shape_explorer.More():
-                        candidate = shape_explorer.Current()
-                        if any(
-                            candidate.IsSame(existing)
-                            for existing in seen_edges
-                        ):
-                            shape_explorer.Next()
-                            continue
-                        seen_edges.append(candidate)
-                        edge_index += 1
-                        if any(
-                            candidate.IsSame(boundary)
-                            for boundary in boundary_edges
-                        ):
-                            edges.add((entity_id, edge_index))
-                        shape_explorer.Next()
+                # The rendered mesh already carries this face identity.
+                # Resolving the OCCT face and scanning every edge of a large
+                # STEP just to draw its outline made the first placement
+                # reference needlessly expensive.
+                faces.add(key)
             elif reference_type == "edge":
                 edges.add(key)
             elif reference_type == "vertex":
@@ -42718,6 +42895,7 @@ class MainWindow(QMainWindow):
                     pass
         self.native_viewer.set_constraint_reference_highlights(
             owner_ids=owner_ids,
+            faces=faces,
             edges=edges,
             points=points,
             planes=planes,

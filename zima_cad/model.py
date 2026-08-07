@@ -1779,19 +1779,104 @@ def apply_object_to_shape(
             and operation == CombineMode.SUBTRACT
             and result_shape is not None
         ):
-            common = BRepAlgoAPI_Common(result_shape, shape).Shape()
-            common_properties = GProp_GProps()
-            brepgprop.VolumeProperties(common, common_properties)
-            common_volume = abs(float(common_properties.Mass()))
-            if common_volume <= 1.0e-9:
-                if record_build_status:
-                    status_owner.parameters["build_status"] = "no_intersection"
+            def bounds(candidate):
+                box = Bnd_Box()
+                brepbndlib.Add(candidate, box)
+                return box.Get()
+
+            def bounds_overlap(first, second) -> bool:
+                tolerance = 1.0e-7
+                return not any(
+                    first[axis + 3] < second[axis] - tolerance
+                    or second[axis + 3] < first[axis] - tolerance
+                    for axis in range(3)
+                )
+
+            def volume(candidate) -> float:
+                properties = GProp_GProps()
+                brepgprop.VolumeProperties(candidate, properties)
+                return abs(float(properties.Mass()))
+
+            existing_solids = unique_solids(result_shape)
+            tool_solids = unique_solids(shape)
+            tool_bounds = [bounds(tool) for tool in tool_solids]
+            if len(existing_solids) == 1:
+                overlaps = any(
+                    bounds_overlap(bounds(existing_solids[0]), tool_box)
+                    for tool_box in tool_bounds
+                )
+                if not overlaps:
+                    if record_build_status:
+                        status_owner.parameters["build_status"] = (
+                            "no_intersection"
+                        )
+                else:
+                    cut_operation = BRepAlgoAPI_Cut(result_shape, shape)
+                    cut = cut_operation.Shape() if cut_operation.IsDone() else None
+                    cut_solids = unique_solids(cut)
+                    removed_volume = (
+                        volume(result_shape) - sum(
+                            volume(item) for item in cut_solids
+                        )
+                        if cut is not None
+                        else 0.0
+                    )
+                    if removed_volume > 1.0e-9 and cut_solids:
+                        result_shape = cut
+                        if record_build_status:
+                            status_owner.parameters.pop("build_status", None)
+                    elif record_build_status:
+                        status_owner.parameters["build_status"] = (
+                            "boolean_failed"
+                            if not cut_operation.IsDone()
+                            else "empty_result"
+                            if not cut_solids
+                            else "no_intersection"
+                        )
             else:
-                cut = BRepAlgoAPI_Cut(result_shape, shape).Shape()
-                if solid_count(cut) >= 1:
-                    result_shape = cut
-                elif record_build_status:
-                    status_owner.parameters["build_status"] = "empty_result"
+                unaffected_solids: list[Any] = []
+                affected_solids: list[Any] = []
+                for existing in existing_solids:
+                    existing_bounds = bounds(existing)
+                    if not any(
+                        bounds_overlap(existing_bounds, tool_box)
+                        for tool_box in tool_bounds
+                    ):
+                        unaffected_solids.append(existing)
+                    else:
+                        affected_solids.append(existing)
+                if not affected_solids:
+                    if record_build_status:
+                        status_owner.parameters["build_status"] = (
+                            "no_intersection"
+                        )
+                else:
+                    affected_shape = _compound_shapes(affected_solids)
+                    cut_operation = BRepAlgoAPI_Cut(affected_shape, shape)
+                    cut = (
+                        cut_operation.Shape()
+                        if cut_operation.IsDone()
+                        else None
+                    )
+                    cut_solids = unique_solids(cut)
+                    before_volume = sum(
+                        volume(item) for item in affected_solids
+                    )
+                    after_volume = sum(volume(item) for item in cut_solids)
+                    removed_volume = max(0.0, before_volume - after_volume)
+                    result_solids = [*unaffected_solids, *cut_solids]
+                    if removed_volume > 1.0e-9 and result_solids:
+                        result_shape = _compound_shapes(result_solids)
+                        if record_build_status:
+                            status_owner.parameters.pop("build_status", None)
+                    elif record_build_status:
+                        status_owner.parameters["build_status"] = (
+                            "boolean_failed"
+                            if not cut_operation.IsDone()
+                            else "empty_result"
+                            if not result_solids
+                            else "no_intersection"
+                        )
 
     for child in obj.children:
         if child.locked or child.kind == EntityKind.SKETCH:

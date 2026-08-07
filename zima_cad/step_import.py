@@ -11,9 +11,13 @@ import tempfile
 from typing import Any
 
 from OCC.Core.IFSelect import IFSelect_RetDone
-from OCC.Core.STEPControl import STEPControl_Reader
+from OCC.Core.STEPControl import (
+    STEPControl_AsIs,
+    STEPControl_Reader,
+    STEPControl_Writer,
+)
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
-from OCC.Core.TopExp import topexp
+from OCC.Core.TopExp import TopExp_Explorer, topexp
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 from zima_cad.viewer_mesh import triangulate_shape
 
@@ -39,10 +43,42 @@ def _subshape_count(shape, shape_type: int) -> int:
     return int(indexed.Size())
 
 
+def _first_solid(shape):
+    explorer = TopExp_Explorer(shape, TopAbs_SOLID)
+    if not explorer.More():
+        raise ValueError("STEP file contains no solid body")
+    return explorer.Current()
+
+
+def _write_step_shape(shape, path: Path) -> None:
+    writer = STEPControl_Writer()
+    if writer.Transfer(shape, STEPControl_AsIs) != IFSelect_RetDone:
+        raise ValueError("Selected STEP solid could not be transferred")
+    if writer.Write(str(path)) != IFSelect_RetDone:
+        raise ValueError("Selected STEP solid could not be stored")
+
+
+def _compressed_step_payload(path: Path) -> tuple[str, str]:
+    digest = hashlib.sha256()
+    with tempfile.TemporaryFile() as compressed:
+        with path.open("rb") as source, gzip.GzipFile(
+            fileobj=compressed,
+            mode="wb",
+            compresslevel=6,
+        ) as destination:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+                destination.write(chunk)
+        compressed.seek(0)
+        payload = base64.b64encode(compressed.read()).decode("ascii")
+    return payload, digest.hexdigest()
+
+
 def import_step_file(
     file_path: Path,
     *,
     mesh_owner_id: str | None = None,
+    first_solid_only: bool = False,
 ) -> StepImportResult:
     """Read a STEP document and return a self-contained compressed BREP."""
     path = Path(file_path)
@@ -56,18 +92,18 @@ def import_step_file(
     shape = reader.OneShape()
     if shape is None or shape.IsNull():
         raise ValueError(f"STEP file contains no geometry: {path.name}")
-    digest = hashlib.sha256()
-    with tempfile.TemporaryFile() as compressed:
-        with path.open("rb") as source, gzip.GzipFile(
-            fileobj=compressed,
-            mode="wb",
-            compresslevel=6,
-        ) as destination:
-            while chunk := source.read(1024 * 1024):
-                digest.update(chunk)
-                destination.write(chunk)
-        compressed.seek(0)
-        encoded_step = base64.b64encode(compressed.read()).decode("ascii")
+    payload_path = path
+    selected_directory = None
+    if first_solid_only:
+        shape = _first_solid(shape)
+        selected_directory = tempfile.TemporaryDirectory()
+        payload_path = Path(selected_directory.name) / "first-solid.step"
+        _write_step_shape(shape, payload_path)
+    try:
+        encoded_step, step_sha256 = _compressed_step_payload(payload_path)
+    finally:
+        if selected_directory is not None:
+            selected_directory.cleanup()
     solid_count = _subshape_count(shape, TopAbs_SOLID)
     face_count = _subshape_count(shape, TopAbs_FACE)
     mesh = None
@@ -89,7 +125,7 @@ def import_step_file(
         )
     return StepImportResult(
         step_data=encoded_step,
-        step_sha256=digest.hexdigest(),
+        step_sha256=step_sha256,
         solid_count=solid_count,
         face_count=face_count,
         shape=shape,
