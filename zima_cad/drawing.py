@@ -1375,6 +1375,11 @@ class DrawingCanvas(QWidget):
         frame = definition["frame"]
         geometry = frame.get("geometry", [])
         if geometry:
+            geometry_point = (
+                self._screen_point
+                if definition.get("coordinate_system") == "bottom_right"
+                else self._format_point
+            )
             cache_key = (
                 id(definition),
                 self.width(),
@@ -1405,8 +1410,8 @@ class DrawingCanvas(QWidget):
                 format_painter.setPen(pen)
                 if entity["kind"] == "line":
                     format_painter.drawLine(
-                        self._format_point(float(entity["x1"]), float(entity["y1"])),
-                        self._format_point(float(entity["x2"]), float(entity["y2"])),
+                        geometry_point(float(entity["x1"]), float(entity["y1"])),
+                        geometry_point(float(entity["x2"]), float(entity["y2"])),
                     )
                 elif entity["kind"] == "text":
                     font = QFont(original_font)
@@ -1415,10 +1420,16 @@ class DrawingCanvas(QWidget):
                         round(float(entity["height"]) * self._pixels_per_mm),
                     ))
                     format_painter.setFont(font)
-                    format_painter.drawText(
-                        self._format_point(float(entity["x"]), float(entity["y"])),
-                        str(entity["text"]),
+                    position = geometry_point(
+                        float(entity["x"]), float(entity["y"])
                     )
+                    text = str(entity["text"])
+                    if entity.get("align") == "center":
+                        bounds = QFontMetricsF(font).tightBoundingRect(text)
+                        position.setX(
+                            position.x() - (bounds.left() + bounds.right()) * 0.5
+                        )
+                    format_painter.drawText(position, text)
             format_painter.end()
             self._format_picture = picture
             self._format_picture_key = cache_key
@@ -1494,8 +1505,13 @@ class DrawingCanvas(QWidget):
         block_painter.setFont(painter.font())
         original_font = block_painter.font()
         pens = definition.get("pens", {})
+        bottom_right_coordinates = (
+            definition.get("coordinate_system") == "bottom_right"
+        )
 
         def point(x: float, y: float) -> QPointF:
+            if bottom_right_coordinates:
+                return self._screen_point(10.0 + x, block_bottom + y)
             return self._format_point(block_left + x, block_bottom + y)
 
         def draw_box_text(
@@ -1519,12 +1535,17 @@ class DrawingCanvas(QWidget):
             font = QFont(original_font)
             font.setPixelSize(max(1, round(text_height * self._pixels_per_mm)))
             block_painter.setFont(font)
-            top_left = point(x, y + height)
-            rectangle = QRectF(
-                top_left.x(), top_left.y(),
-                width * self._pixels_per_mm,
-                height * self._pixels_per_mm,
-            )
+            if bottom_right_coordinates:
+                rectangle = QRectF(
+                    point(x + width, y + height), point(x, y)
+                ).normalized()
+            else:
+                top_left = point(x, y + height)
+                rectangle = QRectF(
+                    top_left.x(), top_left.y(),
+                    width * self._pixels_per_mm,
+                    height * self._pixels_per_mm,
+                )
             metrics = QFontMetricsF(font)
             ink_bounds = metrics.tightBoundingRect(text)
             if align == "right":
@@ -2430,7 +2451,7 @@ class DrawingWorkspace(QWidget):
         self.canvas.viewMoveFinished.connect(self._store)
         self._pending_view: dict | None = None
         self.formats_directory = Path("config/formats")
-        self.title_blocks_directory = Path("config/title_blocks")
+        self.title_blocks_directory = self.formats_directory
 
         self.sheet_tabs = QTabBar()
         self.sheet_tabs.setExpanding(False)
@@ -2526,9 +2547,7 @@ class DrawingWorkspace(QWidget):
 
     def set_formats_directory(self, directory: Path) -> None:
         self.formats_directory = directory.resolve()
-        self.title_blocks_directory = (
-            self.formats_directory.parent / "title_blocks"
-        )
+        self.title_blocks_directory = self.formats_directory
         self._load_active_format()
         self._load_active_title_block()
 

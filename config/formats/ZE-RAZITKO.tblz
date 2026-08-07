@@ -1,0 +1,270 @@
+[TitleBlock]
+SchemaVersion = 3
+Name = ZE RAZITKO
+Width = 180
+Height = 60
+Anchor = bottom-right
+
+[Field.DRAWN_BY]
+Parameter = kreslil
+Default = ING. VLADIMÍR ZIMA
+X = 81.5
+Y = 15
+BoxWidth = 32.5
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+OffsetY = -0.7
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+
+[Field.APPROVED_BY]
+Parameter = schvalil
+Default = -
+X = 81.5
+Y = 10
+BoxWidth = 32.5
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+OffsetY = -0.5
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+
+[Field.DATE]
+Parameter = datum
+Default = 31.08.2009
+X = 81.5
+Y = 5
+BoxWidth = 46
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+OffsetY = -0.3
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+
+[Field.DOCUMENT_NUMBER]
+Source = document.file_stem
+Default = ZE0019-0200-0001
+X = 79.5
+Y = 1.5
+Height = 5
+Pen = WHITE
+Editable = no
+WriteBack = no
+Align = left
+VerticalAlign = baseline
+
+[Field.VERSION]
+Parameter = verze
+Default = 00
+X = 39
+Y = 1.5
+Height = 5
+Pen = WHITE
+Editable = yes
+WriteBack = yes
+Align = left
+VerticalAlign = baseline
+
+[Field.SHEET_NUMBER]
+Source = sheet.position
+Format = {index}/{count}
+Default = 1/1
+X = 1.5
+Y = 5
+BoxWidth = 5
+BoxHeight = 5
+Align = left
+VerticalAlign = center
+Height = 2.5
+Pen = GREEN
+Editable = no
+WriteBack = no
+
+[Field.NAME]
+Parameter = nazev
+Default = OBJÍMKA
+X = 79.5
+Y = 11.5
+Height = 5
+Pen = WHITE
+Editable = yes
+WriteBack = yes
+Align = left
+VerticalAlign = baseline
+
+[Field.SCALE]
+Source = sheet.scale
+Format = M{numerator}:{denominator}
+Default = M1:2
+X = 81
+Y = 20
+BoxWidth = 22
+BoxHeight = 15
+Align = center
+VerticalAlign = center
+Height = 5
+Pen = WHITE
+Editable = no
+WriteBack = no
+
+[Field.SHEET_FORMAT]
+Source = sheet.format
+Default = A4
+X = 36
+Y = 35
+BoxWidth = 14
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+Height = 2.5
+Pen = GREEN
+Editable = no
+WriteBack = no
+
+[Field.ACCURACY]
+Parameter = presnost
+Default = ISO 2768-mK
+X = 36
+Y = 25
+BoxWidth = 29
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+
+[Field.TOLERANCING]
+Parameter = tolerovani
+Default = ISO 8015
+X = 36
+Y = 20
+BoxWidth = 29
+BoxHeight = 5
+Align = right
+VerticalAlign = center
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+
+[Field.ASSEMBLY_WEIGHT]
+Parameter = hmotnost_sestavy
+Default = -
+X = 33.5
+Y = 31.5
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+Align = left
+VerticalAlign = baseline
+
+[Field.ASSEMBLY_QUANTITY]
+Parameter = mnozstvi_sestav
+Default = -
+X = 33.5
+Y = 21.5
+Height = 2.5
+Pen = GREEN
+Editable = yes
+WriteBack = yes
+Align = left
+VerticalAlign = baseline
+
+[Sketch]
+Data = {"version":3,"points":{"p1":{"x":113.0,"y":28.0},"p2":{"x":116.0,"y":26.0},"p3":{"x":132.0,"y":26.0},"p4":{"x":129.0,"y":28.0},"p5":{"x":38.46497,"y":34.43095},"p6":{"x":38.46497,"y":30.43095},"p7":{"x":41.47243,"y":33.6191},"p8":{"x":41.46918,"y":31.25325},"p9":{"x":116.0,"y":26.0},"p10":{"x":114.96543,"y":27.5596},"p11":{"x":44.45067,"y":33.09972},"p12":{"x":44.45256,"y":31.78896},"p13":{"x":132.0,"y":26.0},"p14":{"x":130.86561,"y":27.50557},"p15":{"x":112.95597,"y":32.38847},"p16":{"x":112.95597,"y":28.38847},"p17":{"x":116.0,"y":26.0},"p18":{"x":116.0,"y":30.0},"p19":{"x":129.0,"y":32.41293},"p20":{"x":129.0,"y":28.41293},"p21":{"x":132.0,"y":22.0},"p22":{"x":132.0,"y":26.0},"p23":{"x":44.45256,"y":31.78896},"p24":{"x":41.46918,"y":31.25325},"p25":{"x":45.46497,"y":32.43095},"p26":{"x":36.203,"y":32.4347},"p27":{"x":132.0,"y":26.0},"p28":{"x":130.17394,"y":26.46806},"p29":{"x":112.99721,"y":28.02344},"p30":{"x":105.0,"y":28.0},"p31":{"x":112.95597,"y":28.38847},"p32":{"x":104.95597,"y":28.38847},"p33":{"x":129.0,"y":28.0},"p34":{"x":121.0,"y":28.0},"p35":{"x":116.0,"y":26.0},"p36":{"x":112.0,"y":26.0},"p37":{"x":136.0,"y":26.0},"p38":{"x":132.0,"y":26.0},"p39":{"x":129.0,"y":28.41293},"p40":{"x":121.04046,"y":28.42272},"p41":{"x":44.45808,"y":33.09645},"p42":{"x":41.47243,"y":33.61909},"p43":{"x":116.0,"y":26.0},"p44":{"x":114.16246,"y":26.35515},"p45":{"x":0.0,"y":0.0},"p46":{"x":81.0,"y":0.0},"p47":{"x":180.0,"y":0.0},"p48":{"x":180.0,"y":60.0},"p49":{"x":165.0,"y":40.0},"p50":{"x":165.0,"y":60.0},"p51":{"x":138.0,"y":20.0},"p52":{"x":138.0,"y":40.0},"p53":{"x":128.0,"y":0.0},"p54":{"x":128.0,"y":20.0},"p55":{"x":103.0,"y":20.0},"p56":{"x":103.0,"y":60.0},"p57":{"x":81.0,"y":20.0},"p58":{"x":81.0,"y":40.0},"p59":{"x":35.0,"y":20.0},"p60":{"x":35.0,"y":60.0},"p61":{"x":17.5,"y":40.0},"p62":{"x":17.5,"y":60.0},"p63":{"x":0.0,"y":60.0},"p64":{"x":180.0,"y":60.0},"p65":{"x":35.0,"y":55.0},"p66":{"x":165.0,"y":55.0},"p67":{"x":0.0,"y":50.0},"p68":{"x":180.0,"y":50.0},"p69":{"x":35.0,"y":45.0},"p70":{"x":165.0,"y":45.0},"p71":{"x":0.0,"y":40.0},"p72":{"x":180.0,"y":40.0},"p73":{"x":35.0,"y":35.0},"p74":{"x":81.0,"y":35.0},"p75":{"x":0.0,"y":30.0},"p76":{"x":81.0,"y":30.0},"p77":{"x":35.0,"y":25.0},"p78":{"x":81.0,"y":25.0},"p79":{"x":81.0,"y":20.0},"p80":{"x":180.0,"y":20.0},"p81":{"x":81.0,"y":15.0},"p82":{"x":128.0,"y":15.0},"p83":{"x":0.0,"y":10.0},"p84":{"x":81.0,"y":10.0},"p85":{"x":81.0,"y":10.0},"p86":{"x":128.0,"y":10.0},"p87":{"x":81.0,"y":5.0},"p88":{"x":128.0,"y":5.0},"p89":{"x":0.0,"y":20.0},"p90":{"x":0.0,"y":60.0},"p91":{"x":81.0,"y":0.0},"p92":{"x":180.0,"y":0.0},"p93":{"x":81.0,"y":0.0},"p94":{"x":81.0,"y":20.0},"p95":{"x":0.0,"y":0.0},"p96":{"x":0.0,"y":20.0},"p97":{"x":0.0,"y":20.0},"p98":{"x":81.0,"y":20.0},"p99":{"x":38.46497,"y":32.43095},"p100":{"x":38.46497,"y":32.43095},"p101":{"text_group":"text:101","text_role":"anchor","text_value":"POLOTOVAR","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":101.5,"y":46.5},"p102":{"text_group":"text:102","text_role":"anchor","text_value":"položky","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":42.5},"p103":{"text_group":"text:103","text_role":"anchor","text_value":"Číslo","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":46.0},"p104":{"text_group":"text:104","text_role":"anchor","text_value":"VÝKRES – NORMA","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":163.5,"y":41.5},"p105":{"text_group":"text:105","text_role":"anchor","text_value":"MATERIÁL","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":101.5,"y":41.5},"p106":{"text_group":"text:106","text_role":"anchor","text_value":"[kg]","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":33.5,"y":42.5},"p107":{"text_group":"text:107","text_role":"anchor","text_value":"Hmotnost:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":33.5,"y":46.0},"p108":{"text_group":"text:108","text_role":"anchor","text_value":"[ks]","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":16.0,"y":42.5},"p109":{"text_group":"text:109","text_role":"anchor","text_value":"Množství:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":16.0,"y":46.0},"p110":{"text_group":"text:110","text_role":"anchor","text_value":"Formát:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":36.5},"p111":{"text_group":"text:111","text_role":"anchor","text_value":"Promítání:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":31.5},"p112":{"text_group":"text:112","text_role":"anchor","text_value":"Hmotnost sestavy:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":33.5,"y":36.5},"p113":{"text_group":"text:113","text_role":"anchor","text_value":"Přesnost:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":26.5},"p114":{"text_group":"text:114","text_role":"anchor","text_value":"Drsnost povrchu:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":36.5},"p115":{"text_group":"text:115","text_role":"anchor","text_value":"Hrany:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":136.5,"y":36.5},"p116":{"text_group":"text:116","text_role":"anchor","text_value":"Měřítko:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":101.5,"y":36.5},"p117":{"text_group":"text:117","text_role":"anchor","text_value":"Tolerování:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":21.5},"p118":{"text_group":"text:118","text_role":"anchor","text_value":"Množství sestav:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":33.5,"y":26.5},"p119":{"text_group":"text:119","text_role":"anchor","text_value":"Kreslil:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":127.0,"y":16.5},"p120":{"text_group":"text:120","text_role":"anchor","text_value":"Název:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":16.5},"p121":{"text_group":"text:121","text_role":"anchor","text_value":"Schválil:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":127.0,"y":11.5},"p122":{"text_group":"text:122","text_role":"anchor","text_value":"Dne:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":127.0,"y":6.5},"p123":{"text_group":"text:123","text_role":"anchor","text_value":"e-mail: vladimir.zima@zima-engineering.cz","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":1.5},"p124":{"text_group":"text:124","text_role":"anchor","text_value":"tel.: +420 774 206 965","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":5.0},"p125":{"text_group":"text:125","text_role":"anchor","text_value":"www.zima-engineering.cz","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":178.5,"y":8.5},"p126":{"text_group":"text:126","text_role":"anchor","text_value":"ZIMA-Engineering","text_height":5.0,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","x":178.5,"y":14.5},"p127":{"text_group":"text:127","text_role":"anchor","text_value":"Chráněno podle ISO 16016","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":127.0,"y":1.5},"p128":{"text_group":"text:128","text_role":"anchor","text_value":"Číslo:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":79.5,"y":6.5},"p129":{"text_group":"text:129","text_role":"anchor","text_value":"List:","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":13.5,"y":6.5},"p130":{"text_group":"text:130","text_role":"anchor","text_value":".","text_height":5.0,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","x":41.0,"y":2.08856},"p131":{"text_group":"text:131","text_role":"anchor","text_value":"NÁZEV – OZNAČENÍ","text_height":2.5,"text_horizontal":"left","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":163.5,"y":46.5},"field1":{"text_group":"field:DRAWN_BY","text_role":"anchor","text_value":"&kreslil","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"DRAWN_BY","template_field_box_width":32.5,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":81.5,"y":17.5},"field2":{"text_group":"field:APPROVED_BY","text_role":"anchor","text_value":"&schvalil","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"APPROVED_BY","template_field_box_width":32.5,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":81.5,"y":12.5},"field3":{"text_group":"field:DATE","text_role":"anchor","text_value":"&datum","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"DATE","template_field_box_width":46.0,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":81.5,"y":7.5},"field4":{"text_group":"field:DOCUMENT_NUMBER","text_role":"anchor","text_value":"&document.file_stem","text_height":5.0,"text_horizontal":"left","text_vertical":"baseline","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","template_field_id":"DOCUMENT_NUMBER","template_field_box_width":0.0,"template_field_box_height":0.0,"template_coordinate_width":180.0,"x":79.5,"y":1.5},"field5":{"text_group":"field:VERSION","text_role":"anchor","text_value":"&verze","text_height":5.0,"text_horizontal":"left","text_vertical":"baseline","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","template_field_id":"VERSION","template_field_box_width":0.0,"template_field_box_height":0.0,"template_coordinate_width":180.0,"x":39.0,"y":1.5},"field6":{"text_group":"field:SHEET_NUMBER","text_role":"anchor","text_value":"&sheet.position","text_height":2.5,"text_horizontal":"left","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"SHEET_NUMBER","template_field_box_width":5.0,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":6.5,"y":7.5},"field7":{"text_group":"field:NAME","text_role":"anchor","text_value":"&nazev","text_height":5.0,"text_horizontal":"left","text_vertical":"baseline","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","template_field_id":"NAME","template_field_box_width":0.0,"template_field_box_height":0.0,"template_coordinate_width":180.0,"x":79.5,"y":11.5},"field8":{"text_group":"field:SCALE","text_role":"anchor","text_value":"&sheet.scale","text_height":5.0,"text_horizontal":"center","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"white","text_font":"osifont","pen":"WHITE","template_field_id":"SCALE","template_field_box_width":22.0,"template_field_box_height":15.0,"template_coordinate_width":180.0,"x":92.0,"y":27.5},"field9":{"text_group":"field:SHEET_FORMAT","text_role":"anchor","text_value":"&sheet.format","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"SHEET_FORMAT","template_field_box_width":14.0,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":36.0,"y":37.5},"field10":{"text_group":"field:ACCURACY","text_role":"anchor","text_value":"&presnost","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"ACCURACY","template_field_box_width":29.0,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":36.0,"y":27.5},"field11":{"text_group":"field:TOLERANCING","text_role":"anchor","text_value":"&tolerovani","text_height":2.5,"text_horizontal":"right","text_vertical":"center","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"TOLERANCING","template_field_box_width":29.0,"template_field_box_height":5.0,"template_coordinate_width":180.0,"x":36.0,"y":22.5},"field12":{"text_group":"field:ASSEMBLY_WEIGHT","text_role":"anchor","text_value":"&hmotnost_sestavy","text_height":2.5,"text_horizontal":"left","text_vertical":"baseline","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"ASSEMBLY_WEIGHT","template_field_box_width":0.0,"template_field_box_height":0.0,"template_coordinate_width":180.0,"x":33.5,"y":31.5},"field13":{"text_group":"field:ASSEMBLY_QUANTITY","text_role":"anchor","text_value":"&mnozstvi_sestav","text_height":2.5,"text_horizontal":"left","text_vertical":"baseline","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","template_field_id":"ASSEMBLY_QUANTITY","template_field_box_width":0.0,"template_field_box_height":0.0,"template_coordinate_width":180.0,"x":33.5,"y":21.5}},"geometry":{"g1":{"pen":"YELLOW","type":"segment","points":["p1","p2"]},"g2":{"pen":"YELLOW","type":"segment","points":["p3","p4"]},"g3":{"pen":"GREEN","type":"segment","points":["p5","p6"]},"g4":{"pen":"GREEN","type":"segment","points":["p7","p8"]},"g5":{"pen":"YELLOW","type":"segment","points":["p9","p10"]},"g6":{"pen":"GREEN","type":"segment","points":["p11","p12"]},"g7":{"pen":"YELLOW","type":"segment","points":["p13","p14"]},"g8":{"pen":"YELLOW","type":"segment","points":["p15","p16"]},"g9":{"pen":"WHITE","type":"segment","points":["p17","p18"]},"g10":{"pen":"YELLOW","type":"segment","points":["p19","p20"]},"g11":{"pen":"WHITE","type":"segment","points":["p21","p22"]},"g12":{"pen":"GREEN","type":"segment","points":["p23","p24"]},"g13":{"pen":"GREEN","type":"segment","points":["p25","p26"]},"g14":{"pen":"YELLOW","type":"segment","points":["p27","p28"]},"g15":{"pen":"YELLOW","type":"segment","points":["p29","p30"]},"g16":{"pen":"YELLOW","type":"segment","points":["p31","p32"]},"g17":{"pen":"YELLOW","type":"segment","points":["p33","p34"]},"g18":{"pen":"WHITE","type":"segment","points":["p35","p36"]},"g19":{"pen":"WHITE","type":"segment","points":["p37","p38"]},"g20":{"pen":"YELLOW","type":"segment","points":["p39","p40"]},"g21":{"pen":"GREEN","type":"segment","points":["p41","p42"]},"g22":{"pen":"YELLOW","type":"segment","points":["p43","p44"]},"g23":{"pen":"WHITE","type":"segment","points":["p45","p46"]},"g24":{"pen":"YELLOW","type":"segment","points":["p47","p48"]},"g25":{"pen":"YELLOW","type":"segment","points":["p49","p50"]},"g26":{"pen":"YELLOW","type":"segment","points":["p51","p52"]},"g27":{"pen":"YELLOW","type":"segment","points":["p53","p54"]},"g28":{"pen":"YELLOW","type":"segment","points":["p55","p56"]},"g29":{"pen":"YELLOW","type":"segment","points":["p57","p58"]},"g30":{"pen":"YELLOW","type":"segment","points":["p59","p60"]},"g31":{"pen":"YELLOW","type":"segment","points":["p61","p62"]},"g32":{"pen":"YELLOW","type":"segment","points":["p63","p64"]},"g33":{"pen":"YELLOW","type":"segment","points":["p65","p66"]},"g34":{"pen":"YELLOW","type":"segment","points":["p67","p68"]},"g35":{"pen":"YELLOW","type":"segment","points":["p69","p70"]},"g36":{"pen":"YELLOW","type":"segment","points":["p71","p72"]},"g37":{"pen":"YELLOW","type":"segment","points":["p73","p74"]},"g38":{"pen":"YELLOW","type":"segment","points":["p75","p76"]},"g39":{"pen":"YELLOW","type":"segment","points":["p77","p78"]},"g40":{"pen":"YELLOW","type":"segment","points":["p79","p80"]},"g41":{"pen":"YELLOW","type":"segment","points":["p81","p82"]},"g42":{"pen":"WHITE","type":"segment","points":["p83","p84"]},"g43":{"pen":"YELLOW","type":"segment","points":["p85","p86"]},"g44":{"pen":"YELLOW","type":"segment","points":["p87","p88"]},"g45":{"pen":"YELLOW","type":"segment","points":["p89","p90"]},"g46":{"pen":"YELLOW","type":"segment","points":["p91","p92"]},"g47":{"pen":"WHITE","type":"segment","points":["p93","p94"]},"g48":{"pen":"WHITE","type":"segment","points":["p95","p96"]},"g49":{"pen":"WHITE","type":"segment","points":["p97","p98"]},"g50":{"radius":1.0,"pen":"GREEN","type":"circle","points":["p99"]},"g51":{"radius":1.48227,"pen":"GREEN","type":"circle","points":["p100"]}},"constraints":{},"dimensions":{}}
+
+[Geometry]
+Text001 = POLOTOVAR, 101.5, 46.5, 2.5, GREEN, LEFT
+Text002 = položky, 178.5, 42.5, 2.5, GREEN, LEFT
+Text003 = Číslo, 178.5, 46, 2.5, GREEN, LEFT
+Text004 = VÝKRES – NORMA, 163.5, 41.5, 2.5, GREEN, LEFT
+Text005 = MATERIÁL, 101.5, 41.5, 2.5, GREEN, LEFT
+Text006 = [kg], 33.5, 42.5, 2.5, GREEN, LEFT
+Text007 = Hmotnost:, 33.5, 46, 2.5, GREEN, LEFT
+Text008 = [ks], 16, 42.5, 2.5, GREEN, LEFT
+Text009 = Množství:, 16, 46, 2.5, GREEN, LEFT
+Text010 = Formát:, 79.5, 36.5, 2.5, GREEN, LEFT
+Text011 = Promítání:, 79.5, 31.5, 2.5, GREEN, LEFT
+Text012 = Hmotnost sestavy:, 33.5, 36.5, 2.5, GREEN, LEFT
+Text013 = Přesnost:, 79.5, 26.5, 2.5, GREEN, LEFT
+Text014 = Drsnost povrchu:, 178.5, 36.5, 2.5, GREEN, LEFT
+Text015 = Hrany:, 136.5, 36.5, 2.5, GREEN, LEFT
+Text016 = Měřítko:, 101.5, 36.5, 2.5, GREEN, LEFT
+Text017 = Tolerování:, 79.5, 21.5, 2.5, GREEN, LEFT
+Text018 = Množství sestav:, 33.5, 26.5, 2.5, GREEN, LEFT
+Text019 = Kreslil:, 127, 16.5, 2.5, GREEN, LEFT
+Text020 = Název:, 79.5, 16.5, 2.5, GREEN, LEFT
+Text021 = Schválil:, 127, 11.5, 2.5, GREEN, LEFT
+Text022 = Dne:, 127, 6.5, 2.5, GREEN, LEFT
+Text023 = e-mail: vladimir.zima@zima-engineering.cz, 178.5, 1.5, 2.5, GREEN, LEFT
+Text024 = tel.: +420 774 206 965, 178.5, 5, 2.5, GREEN, LEFT
+Text025 = www.zima-engineering.cz, 178.5, 8.5, 2.5, GREEN, LEFT
+Text026 = ZIMA-Engineering, 178.5, 14.5, 5, WHITE, LEFT
+Text027 = Chráněno podle ISO 16016, 127, 1.5, 2.5, GREEN, LEFT
+Text028 = Číslo:, 79.5, 6.5, 2.5, GREEN, LEFT
+Text029 = List:, 13.5, 6.5, 2.5, GREEN, LEFT
+Text030 = ., 41, 2.08856, 5, WHITE, LEFT
+Text031 = NÁZEV – OZNAČENÍ, 163.5, 46.5, 2.5, GREEN, LEFT
+Line001 = 113, 28, 116, 26, YELLOW
+Line002 = 132, 26, 129, 28, YELLOW
+Line003 = 38.46497, 34.43095, 38.46497, 30.43095, GREEN
+Line004 = 41.47243, 33.6191, 41.46918, 31.25325, GREEN
+Line005 = 116, 26, 114.96543, 27.5596, YELLOW
+Line006 = 44.45067, 33.09972, 44.45256, 31.78896, GREEN
+Line007 = 132, 26, 130.86561, 27.50557, YELLOW
+Line008 = 112.95597, 32.38847, 112.95597, 28.38847, YELLOW
+Line009 = 116, 26, 116, 30, WHITE
+Line010 = 129, 32.41293, 129, 28.41293, YELLOW
+Line011 = 132, 22, 132, 26, WHITE
+Line012 = 44.45256, 31.78896, 41.46918, 31.25325, GREEN
+Line013 = 45.46497, 32.43095, 36.203, 32.4347, GREEN
+Line014 = 132, 26, 130.17394, 26.46806, YELLOW
+Line015 = 112.99721, 28.02344, 105, 28, YELLOW
+Line016 = 112.95597, 28.38847, 104.95597, 28.38847, YELLOW
+Line017 = 129, 28, 121, 28, YELLOW
+Line018 = 116, 26, 112, 26, WHITE
+Line019 = 136, 26, 132, 26, WHITE
+Line020 = 129, 28.41293, 121.04046, 28.42272, YELLOW
+Line021 = 44.45808, 33.09645, 41.47243, 33.61909, GREEN
+Line022 = 116, 26, 114.16246, 26.35515, YELLOW
+Line023 = 0, 0, 81, 0, WHITE
+Line024 = 180, 0, 180, 60, YELLOW
+Line025 = 165, 40, 165, 60, YELLOW
+Line026 = 138, 20, 138, 40, YELLOW
+Line027 = 128, 0, 128, 20, YELLOW
+Line028 = 103, 20, 103, 60, YELLOW
+Line029 = 81, 20, 81, 40, YELLOW
+Line030 = 35, 20, 35, 60, YELLOW
+Line031 = 17.5, 40, 17.5, 60, YELLOW
+Line032 = 0, 60, 180, 60, YELLOW
+Line033 = 35, 55, 165, 55, YELLOW
+Line034 = 0, 50, 180, 50, YELLOW
+Line035 = 35, 45, 165, 45, YELLOW
+Line036 = 0, 40, 180, 40, YELLOW
+Line037 = 35, 35, 81, 35, YELLOW
+Line038 = 0, 30, 81, 30, YELLOW
+Line039 = 35, 25, 81, 25, YELLOW
+Line040 = 81, 20, 180, 20, YELLOW
+Line041 = 81, 15, 128, 15, YELLOW
+Line042 = 0, 10, 81, 10, WHITE
+Line043 = 81, 10, 128, 10, YELLOW
+Line044 = 81, 5, 128, 5, YELLOW
+Line045 = 0, 20, 0, 60, YELLOW
+Line046 = 81, 0, 180, 0, YELLOW
+Line047 = 81, 0, 81, 20, WHITE
+Line048 = 0, 0, 0, 20, WHITE
+Line049 = 0, 20, 81, 20, WHITE
+Circle001 = 38.46497, 32.43095, 1, GREEN
+Circle002 = 38.46497, 32.43095, 1.48227, GREEN

@@ -5623,6 +5623,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         equal_circle_markers: list[tuple[QPointF, str]] = []
         for entity in self._sketch_entities:
             entity_type = str(entity.get("type", ""))
+            configured_pen = str(entity.get("pen", "")).upper()
+            configured_color = (
+                QColor(str(load_drawing_style()["pens"][configured_pen]["color"]))
+                if configured_pen in ("WHITE", "GREEN", "YELLOW")
+                else yellow
+            )
             selected = (
                 str(entity.get("id", ""))
                 == self._selected_sketch_entity_id
@@ -5758,7 +5764,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         if selected
                         else QColor("#FF7A00")
                         if previewed
-                        else yellow,
+                        else configured_color,
                         3.0 if selected or previewed else 2.0,
                     )
                 )
@@ -5819,15 +5825,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     painter.setWorldTransform(transform)
                     painter.setFont(font)
                     value = str(entity.get("text_value", ""))
+                    text_pen = str(
+                        entity.get("pen", entity.get("text_color", "WHITE"))
+                    ).upper()
                     text_color = (
                         cyan
                         if selected
                         else QColor("#FF7A00")
                         if previewed
-                        else QColor(str(
-                            load_drawing_style()["pens"]["GREEN"]["color"]
-                        ))
-                        if entity.get("text_color") == "green"
+                        else QColor(str(load_drawing_style()["pens"][text_pen]["color"]))
+                        if text_pen in ("WHITE", "GREEN", "YELLOW")
                         else QColor("#FFFFFF")
                     )
                     painter.setPen(QPen(text_color, 1.0))
@@ -5852,7 +5859,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawPolyline(QPolygonF(points))
                 painter.setPen(QPen(yellow, 2.0))
             elif len(points) >= 2:
-                painter.setPen(QPen(yellow, 2.0))
+                painter.setPen(QPen(configured_color, 2.0))
                 painter.drawPolyline(QPolygonF(points))
 
         painter.setBrush(Qt.BrushStyle.NoBrush)

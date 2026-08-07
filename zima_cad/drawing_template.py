@@ -1,0 +1,414 @@
+from __future__ import annotations
+
+import configparser
+import io
+import json
+from pathlib import Path
+from typing import Any
+
+from zima_cad.drawing_format import load_native_geometry
+from zima_cad.model import (
+    CombineMode,
+    EntityKind,
+    PartDocument,
+    SketchRole,
+    ZimaEntity,
+    default_document_settings,
+)
+from zima_cad.sketch_model import (
+    GeometryType,
+    SketchGeometry,
+    SketchModel,
+    SketchPoint,
+)
+from zima_cad.sketch_geometry import (
+    center_arc_points,
+    ellipse_points,
+    elliptical_arc_points,
+)
+from zima_cad.versioned_io import write_text_versioned
+
+
+TEMPLATE_TYPES = {".frmz": "drawing_format", ".tblz": "title_block"}
+TEMPLATE_PENS = {"WHITE", "GREEN", "YELLOW"}
+
+
+def _parser(path: Path) -> configparser.ConfigParser:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    with path.open("r", encoding="utf-8-sig") as stream:
+        parser.read_file(stream)
+    return parser
+
+
+def _parser_data(parser: configparser.ConfigParser) -> dict[str, dict[str, str]]:
+    return {
+        section: dict(parser.items(section))
+        for section in parser.sections()
+        if section not in {"Sketch", "FrameGeometry", "Geometry"}
+    }
+
+
+def _legacy_model(
+    parser: configparser.ConfigParser,
+    section: str,
+    coordinate_width: float,
+) -> SketchModel:
+    geometry, _pens = load_native_geometry(parser, section)
+    model = SketchModel()
+    point_index = 0
+    geometry_index = 0
+
+    def point(x: float, y: float, **attributes: Any) -> str:
+        nonlocal point_index
+        point_index += 1
+        point_id = f"p{point_index}"
+        model.add_point(SketchPoint(
+            point_id, round(x, 12), round(y, 12), attributes=attributes
+        ))
+        return point_id
+
+    for item in geometry:
+        pen = str(item.get("pen", "GREEN")).upper()
+        if pen not in TEMPLATE_PENS:
+            raise ValueError(f"Unsupported drawing pen: {pen}")
+        kind = str(item["kind"])
+        if kind == "text":
+            point(
+                coordinate_width - float(item["x"]),
+                float(item["y"]),
+                text_group=f"text:{point_index + 1}",
+                text_role="anchor",
+                text_value=str(item["text"]),
+                text_height=float(item["height"]),
+                text_horizontal=str(item.get("align", "left")),
+                text_vertical="bottom",
+                text_angle=0.0,
+                text_flip=True,
+                text_color=pen.lower(),
+                text_font="osifont",
+                pen=pen,
+            )
+            continue
+        geometry_index += 1
+        geometry_id = f"g{geometry_index}"
+        if kind == "line":
+            points = (
+                point(coordinate_width - float(item["x1"]), float(item["y1"])),
+                point(coordinate_width - float(item["x2"]), float(item["y2"])),
+            )
+            model.add_geometry(SketchGeometry(
+                geometry_id, GeometryType.SEGMENT, points, {"pen": pen}
+            ))
+        elif kind == "circle":
+            centre = point(coordinate_width - float(item["x"]), float(item["y"]))
+            model.add_geometry(SketchGeometry(
+                geometry_id,
+                GeometryType.CIRCLE,
+                (centre,),
+                {"radius": float(item["radius"]), "pen": pen},
+            ))
+    return model
+
+
+def _field_code(parser: configparser.ConfigParser, section: str) -> str:
+    parameter = parser.get(section, "Parameter", fallback="").strip()
+    source = parser.get(section, "Source", fallback="").strip()
+    return f"&{parameter or source}"
+
+
+def _add_title_block_fields(
+    model: SketchModel,
+    parser: configparser.ConfigParser,
+    coordinate_width: float,
+) -> None:
+    existing = {
+        str(point.attributes.get("template_field_id", ""))
+        for point in model.points.values()
+    }
+    point_index = 1
+    while f"field{point_index}" in model.points:
+        point_index += 1
+    for section in parser.sections():
+        if not section.startswith("Field."):
+            continue
+        field_id = section.removeprefix("Field.").strip()
+        if not field_id or field_id in existing:
+            continue
+        x = parser.getfloat(section, "X")
+        y = parser.getfloat(section, "Y")
+        width = parser.getfloat(section, "BoxWidth", fallback=0.0)
+        height = parser.getfloat(section, "BoxHeight", fallback=0.0)
+        align = parser.get(section, "Align", fallback="left").lower()
+        vertical = parser.get(
+            section, "VerticalAlign", fallback="baseline"
+        ).lower()
+        box_x = coordinate_width - x - width if width > 0.0 else coordinate_width - x
+        anchor_x = box_x + (
+            width if align == "left" else width * 0.5 if align == "center" else 0.0
+        )
+        anchor_y = y + (
+            height if vertical == "top"
+            else height * 0.5 if vertical == "center"
+            else 0.0
+        )
+        pen = parser.get(section, "Pen", fallback="GREEN").upper()
+        point_id = f"field{point_index}"
+        point_index += 1
+        model.add_point(SketchPoint(
+            point_id,
+            anchor_x,
+            anchor_y,
+            attributes={
+                "text_group": f"field:{field_id}",
+                "text_role": "anchor",
+                "text_value": _field_code(parser, section),
+                "text_height": parser.getfloat(section, "Height"),
+                "text_horizontal": align,
+                "text_vertical": vertical,
+                "text_angle": 0.0,
+                "text_flip": True,
+                "text_color": pen.lower(),
+                "text_font": "osifont",
+                "pen": pen,
+                "template_field_id": field_id,
+                "template_field_box_width": width,
+                "template_field_box_height": height,
+                "template_coordinate_width": coordinate_width,
+            },
+        ))
+
+
+def load_drawing_template(
+    path: Path,
+    *,
+    template_type: str | None = None,
+) -> PartDocument:
+    path = Path(path)
+    template_type = template_type or TEMPLATE_TYPES.get(path.suffix.lower())
+    if template_type is None:
+        raise ValueError(f"Unsupported drawing template: {path.suffix}")
+    parser = _parser(path)
+    required = "Format" if template_type == "drawing_format" else "TitleBlock"
+    if not parser.has_section(required):
+        raise ValueError(f"The {path.suffix} file must contain [{required}].")
+    geometry_section = "FrameGeometry" if template_type == "drawing_format" else "Geometry"
+    if template_type == "drawing_format":
+        sheet_format = parser.get("Format", "SheetFormat").upper()
+        paper_width, paper_height = {
+            "A4": (210.0, 297.0), "A3": (297.0, 420.0),
+            "A2": (420.0, 594.0), "A1": (594.0, 841.0),
+            "A0": (841.0, 1189.0),
+        }[sheet_format]
+        coordinate_width = (
+            paper_width if parser.get("Format", "Orientation").lower() == "portrait"
+            else paper_height
+        )
+    else:
+        coordinate_width = parser.getfloat("TitleBlock", "Width")
+    if parser.has_section("Sketch"):
+        model = SketchModel.from_dict(json.loads(parser.get("Sketch", "Data")))
+    else:
+        model = _legacy_model(parser, geometry_section, coordinate_width)
+    if template_type == "title_block":
+        _add_title_block_fields(model, parser, coordinate_width)
+
+    settings = default_document_settings()
+    settings.update({
+        "type": template_type,
+        "template_coordinate_system": "bottom_right",
+        "template_coordinate_width": f"{coordinate_width:.12g}",
+        "template_sections": json.dumps(_parser_data(parser), ensure_ascii=False),
+    })
+    root = ZimaEntity(path.stem, EntityKind.PART, combine_mode=CombineMode.NONE)
+    container = ZimaEntity(
+        "Frame" if template_type == "drawing_format" else "Title block",
+        EntityKind.CONTAINER,
+        combine_mode=CombineMode.NONE,
+        parameters={"container_type": "SKETCH"},
+    )
+    sketch = ZimaEntity(
+        "Frame geometry" if template_type == "drawing_format" else "Title-block geometry",
+        EntityKind.SKETCH,
+        combine_mode=CombineMode.NONE,
+        parameters={
+            "plane": "xy",
+            "profile": "entities",
+            "sketch_data": json.dumps(model.to_dict(), ensure_ascii=False),
+            "external_references": "[]",
+            "unit": "mm",
+            "role": SketchRole.PROFILE.value,
+            "template_editor": "true",
+        },
+    )
+    container.add_child(sketch)
+    root.add_child(container)
+    document = PartDocument(document_settings=settings, root=root)
+    document.source_file_path = path.resolve()
+    document.regeneration_required = False
+    return document
+
+
+def template_sketch(document: PartDocument) -> ZimaEntity:
+    sketch = next((
+        child
+        for container in document.history_objects()
+        for child in container.children
+        if child.kind == EntityKind.SKETCH
+    ), None)
+    if sketch is None:
+        raise ValueError("Drawing template has no editable sketch.")
+    return sketch
+
+
+def _native_geometry(model: SketchModel) -> list[tuple[str, str]]:
+    entities, _dimensions = model.to_editor_data()
+    points = {
+        str(item["id"]): item for item in entities if item.get("type") == "point"
+    }
+    result: list[tuple[str, str]] = []
+    counts = {"Line": 0, "Circle": 0, "Text": 0}
+
+    def number(value: Any) -> str:
+        return f"{float(value):.12g}"
+
+    def add_polyline(polyline: list[tuple[float, float]], pen: str) -> None:
+        for first, second in zip(polyline, polyline[1:]):
+            counts["Line"] += 1
+            result.append((f"Line{counts['Line']:03d}", ", ".join(map(str, (
+                number(first[0]), number(first[1]),
+                number(second[0]), number(second[1]), pen,
+            )))))
+
+    for item in entities:
+        if item.get("text_role") in {"outline", "outline_point"}:
+            continue
+        if item.get("template_field_id"):
+            continue
+        if item.get("type") == "point" and item.get("text_role") == "anchor":
+            counts["Text"] += 1
+            pen = str(item.get("pen", item.get("text_color", "GREEN"))).upper()
+            pen = pen if pen in TEMPLATE_PENS else "GREEN"
+            value = str(item.get("text_value", "")).replace(",", " ")
+            result.append((f"Text{counts['Text']:03d}", ", ".join((
+                value, number(item.get("x", 0.0)), number(item.get("y", 0.0)),
+                number(item.get("text_height", 2.5)), pen,
+                str(item.get("text_horizontal", "left")).upper(),
+            ))))
+            continue
+        kind = item.get("type")
+        pen = str(item.get("pen", "GREEN")).upper()
+        if pen not in TEMPLATE_PENS:
+            raise ValueError(f"Unsupported drawing pen: {pen}")
+        point_ids = list(item.get("point_ids", ()))
+        if kind in ("segment", "construction") and len(point_ids) == 2:
+            first, second = points[point_ids[0]], points[point_ids[1]]
+            counts["Line"] += 1
+            result.append((f"Line{counts['Line']:03d}", ", ".join((
+                number(first["x"]), number(first["y"]),
+                number(second["x"]), number(second["y"]), pen,
+            ))))
+        elif kind == "circle" and len(point_ids) == 1:
+            centre = points[point_ids[0]]
+            counts["Circle"] += 1
+            result.append((f"Circle{counts['Circle']:03d}", ", ".join((
+                number(centre["x"]), number(centre["y"]),
+                number(item.get("radius", 0.0)), pen,
+            ))))
+        elif kind in ("arc", "ellipse", "elliptical_arc", "spline"):
+            raw = [
+                (float(points[point_id]["x"]), float(points[point_id]["y"]))
+                for point_id in point_ids if point_id in points
+            ]
+            sampled: list[tuple[float, float]]
+            if kind == "arc" and len(raw) >= 3:
+                sampled = list(center_arc_points(
+                    raw[0], raw[1], raw[2],
+                    clockwise=bool(item.get("clockwise", False)),
+                ))
+            elif kind == "ellipse" and len(raw) >= 3:
+                sampled = list(ellipse_points(raw[0], raw[1], raw[2]))
+            elif kind == "elliptical_arc" and len(raw) >= 5:
+                sampled = list(elliptical_arc_points(
+                    raw[0], raw[1], raw[2], raw[3], raw[4],
+                    clockwise=bool(item.get("clockwise", False)),
+                ))
+            else:
+                # The canonical spline remains in [Sketch].  The native
+                # compatibility layer uses its control polygon so drawings
+                # never silently omit it when rendered by the lightweight
+                # format canvas.
+                sampled = raw
+            add_polyline(sampled, pen)
+    return result
+
+
+def _serialize(document: PartDocument) -> str:
+    template_type = str(document.document_settings.get("type", ""))
+    if template_type not in TEMPLATE_TYPES.values():
+        raise ValueError("Document is not a drawing template.")
+    raw_sections = json.loads(str(document.document_settings["template_sections"]))
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    for section, values in raw_sections.items():
+        parser[section] = {str(key): str(value) for key, value in values.items()}
+    header = "Format" if template_type == "drawing_format" else "TitleBlock"
+    parser[header]["SchemaVersion"] = "3"
+    model = SketchModel.from_dict(json.loads(str(template_sketch(document).parameters["sketch_data"])))
+    if template_type == "title_block":
+        _store_title_block_fields(parser, model)
+    parser["Sketch"] = {"Data": json.dumps(model.to_dict(), ensure_ascii=False, separators=(",", ":"))}
+    geometry_section = "FrameGeometry" if template_type == "drawing_format" else "Geometry"
+    parser[geometry_section] = dict(_native_geometry(model))
+    buffer = io.StringIO()
+    parser.write(buffer)
+    return buffer.getvalue().rstrip() + "\n"
+
+
+def _store_title_block_fields(
+    parser: configparser.ConfigParser,
+    model: SketchModel,
+) -> None:
+    for point in model.points.values():
+        field_id = str(point.attributes.get("template_field_id", ""))
+        if not field_id:
+            continue
+        section = f"Field.{field_id}"
+        if not parser.has_section(section):
+            parser.add_section(section)
+        values = parser[section]
+        align = str(point.attributes.get("text_horizontal", "left"))
+        vertical = str(point.attributes.get("text_vertical", "baseline"))
+        width = float(point.attributes.get("template_field_box_width", 0.0))
+        height = float(point.attributes.get("template_field_box_height", 0.0))
+        values["X"] = f"{point.x - (width if align == 'left' else width * 0.5 if align == 'center' else 0.0):.12g}"
+        values["Y"] = f"{point.y - (height if vertical == 'top' else height * 0.5 if vertical == 'center' else 0.0):.12g}"
+        values["Height"] = f"{float(point.attributes.get('text_height', 2.5)):.12g}"
+        values["Align"] = align
+        values["VerticalAlign"] = vertical
+        values["Pen"] = str(point.attributes.get("pen", "GREEN")).upper()
+        code = str(point.attributes.get("text_value", "")).strip()
+        if code.startswith("&") and len(code) > 1:
+            reference = code[1:].strip()
+            if "." in reference:
+                values["Source"] = reference
+                values.pop("Parameter", None)
+            else:
+                values["Parameter"] = reference
+                values.pop("Source", None)
+
+
+def save_drawing_template(document: PartDocument, path: Path) -> None:
+    suffix = Path(path).suffix.lower()
+    expected = {
+        "drawing_format": ".frmz",
+        "title_block": ".tblz",
+    }.get(str(document.document_settings.get("type", "")))
+    if suffix != expected:
+        raise ValueError(f"Drawing template must use {expected}.")
+    template_type = str(document.document_settings.get("type", ""))
+    validator = lambda candidate: load_drawing_template(
+        candidate, template_type=template_type
+    )
+    write_text_versioned(Path(path), _serialize(document), validator=validator)
+    document.source_file_path = Path(path).resolve()

@@ -253,6 +253,11 @@ from zima_cad.storage import (
     save_part_document,
 )
 from zima_cad.versioned_io import validate_ini_file, write_text_versioned
+from zima_cad.drawing_template import (
+    load_drawing_template,
+    save_drawing_template,
+    template_sketch,
+)
 from zima_cad.step_import import (
     INTERACTIVE_TOPOLOGY_FACE_LIMIT,
     import_step_file,
@@ -266,6 +271,8 @@ FEATURE_PREVIEW_RGB = (0.0, 0.82, 1.0)
 
 def _load_document_for_interactive_open(file_path: Path) -> PartDocument:
     """Load a document and prepare expensive large-STEP display data."""
+    if file_path.suffix.lower() in (".frmz", ".tblz"):
+        return load_drawing_template(file_path)
     document = load_part_document(file_path)
     if document.document_settings.get("type", "part") != "part":
         return document
@@ -8186,6 +8193,7 @@ class SketchTextPropertiesDialog(QDialog):
         self.color_combo = QComboBox()
         self.color_combo.addItem(tr("sketch.text.color.green"), "green")
         self.color_combo.addItem(tr("sketch.text.color.white"), "white")
+        self.color_combo.addItem(tr("sketch.text.color.yellow"), "yellow")
         form.addRow(tr("sketch.text.dialog.color"), self.color_combo)
         self.angle_spin = QDoubleSpinBox()
         self.angle_spin.setRange(-360_000.0, 360_000.0)
@@ -9102,6 +9110,8 @@ class MainWindow(QMainWindow):
             return mode == ApplicationMode.DRAWING
         if self.document.document_settings.get("type") == "assembly":
             return mode == ApplicationMode.ASSEMBLY
+        if self._document_type(self.document) in ("drawing_format", "title_block"):
+            return mode == ApplicationMode.MODELING
         return True
 
     def _drawing_dimension_tool_cancelled(self) -> None:
@@ -16056,14 +16066,21 @@ class MainWindow(QMainWindow):
         # it for the initial view; replaying a long fillet history here would
         # make opening a small .prtz file needlessly expensive.
         cached_body_available = bool(document._shape_history_cache)
-        if self._document_type(document) != "drawing":
+        document_type = self._document_type(document)
+        if document_type not in ("drawing", "drawing_format", "title_block"):
             document.regeneration_required = not cached_body_available
         self._add_document_session(document, canonical_path)
+        if document_type in ("drawing_format", "title_block"):
+            sketch = template_sketch(document)
+            QTimer.singleShot(
+                0, lambda sketch_id=sketch.entity_id: self._enter_sketch_edit(sketch_id)
+            )
+            return
         # If no validated cache was persisted, perform the authoritative
         # regeneration now. Cached documents are rebuilt lazily only when a
         # later edit actually invalidates their geometry.
         if (
-            self._document_type(document) != "drawing"
+            document_type not in ("drawing", "drawing_format", "title_block")
             and not cached_body_available
         ):
             self.regenerate_model()
@@ -16090,15 +16107,24 @@ class MainWindow(QMainWindow):
         document_type = self._document_type(self.document)
         is_assembly = document_type == "assembly"
         is_drawing = document_type == "drawing"
-        extension = ".drwz" if is_drawing else ".asmz" if is_assembly else ".prtz"
+        is_format = document_type == "drawing_format"
+        is_title_block = document_type == "title_block"
+        extension = (
+            ".frmz" if is_format else ".tblz" if is_title_block else
+            ".drwz" if is_drawing else ".asmz" if is_assembly else ".prtz"
+        )
         default_path = self.working_directory / (
-            "drawing.drwz" if is_drawing else "assembly.asmz" if is_assembly else "part.prtz"
+            "format.frmz" if is_format else "title-block.tblz" if is_title_block
+            else "drawing.drwz" if is_drawing else "assembly.asmz" if is_assembly
+            else "part.prtz"
         )
         file_name, _ = QFileDialog.getSaveFileName(
             self,
-            tr("file.save_drawing" if is_drawing else "file.save_assembly" if is_assembly else "file.save_part"),
+            tr("file.save_format" if is_format else "file.save_title_block" if is_title_block
+               else "file.save_drawing" if is_drawing else "file.save_assembly" if is_assembly else "file.save_part"),
             str(default_path),
-            tr("file.filter.drawing" if is_drawing else "file.filter.assembly" if is_assembly else "file.filter.part"),
+            tr("drawing.file.filter.format" if is_format else "drawing.file.filter.title_block" if is_title_block
+               else "file.filter.drawing" if is_drawing else "file.filter.assembly" if is_assembly else "file.filter.part"),
         )
         if not file_name:
             return False
@@ -16208,10 +16234,12 @@ class MainWindow(QMainWindow):
                     and document_path == old_drawing_path
                     else document_path
                 )
-                save_part_document(
-                    document,
-                    save_path,
-                )
+                if self._document_type(document) in (
+                    "drawing_format", "title_block"
+                ):
+                    save_drawing_template(document, save_path)
+                else:
+                    save_part_document(document, save_path)
         except Exception as exc:
             QMessageBox.critical(self, tr("message.save_failed"), str(exc))
             return
@@ -16357,7 +16385,10 @@ class MainWindow(QMainWindow):
                     )
                     if part_document is not None:
                         save_part_document(part_document, part_path)
-            save_part_document(self.document, file_path)
+            if self._document_type(self.document) in ("drawing_format", "title_block"):
+                save_drawing_template(self.document, file_path)
+            else:
+                save_part_document(self.document, file_path)
         except ContainerEntityLimitError as exc:
             QMessageBox.critical(
                 self,
@@ -16430,7 +16461,7 @@ class MainWindow(QMainWindow):
                 continue
             document_path = candidate.with_suffix("")
             if document_path.suffix.lower() not in (
-                ".prtz", ".asmz", ".drwz"
+                ".prtz", ".asmz", ".drwz", ".frmz", ".tblz"
             ):
                 continue
             groups.setdefault(document_path, []).append(
@@ -16803,10 +16834,16 @@ class MainWindow(QMainWindow):
         if document is None:
             return "part"
         document_type = str(document.document_settings.get("type", "part"))
-        return document_type if document_type in ("part", "assembly", "drawing") else "part"
+        return document_type if document_type in (
+            "part", "assembly", "drawing", "drawing_format", "title_block"
+        ) else "part"
 
     def _document_tab_icon(self, document: PartDocument | None) -> QIcon:
-        return resource_icon(self._document_type(document))
+        document_type = self._document_type(document)
+        return resource_icon(
+            "sketch" if document_type in ("drawing_format", "title_block")
+            else document_type
+        )
 
     def _document_tree_header(self, document: PartDocument) -> str:
         document_type = self._document_type(document)
@@ -22087,6 +22124,14 @@ class MainWindow(QMainWindow):
             )
             return
         if self._sketch_edit_entity_id is not None:
+            # RMB acts on the object under the pointer even when it was not
+            # selected first. This is especially important for the template
+            # pen menu, which is intended as a direct per-object operation.
+            context_candidates = self.native_viewer._sketch_selection_candidates(
+                QPointF(position)
+            )
+            if context_candidates:
+                self._sketch_selected_entity_id = context_candidates[0]
             corner_radius = self.native_viewer._corner_radius_candidate(
                 QPointF(position)
             )
@@ -22124,7 +22169,6 @@ class MainWindow(QMainWindow):
                         for entity in self._stored_sketch_entities(sketch)
                         if str(entity.get("id", ""))
                         == self._sketch_selected_entity_id
-                        and entity.get("type") != "point"
                     ),
                     None,
                 )
@@ -22145,7 +22189,7 @@ class MainWindow(QMainWindow):
                     ),
                 )
             role_action = None
-            if geometry.get("type") != "construction":
+            if geometry.get("type") not in ("construction", "point"):
                 role_action = menu.addAction(
                     resource_icon("sketch-construction"),
                     tr(
@@ -22154,6 +22198,15 @@ class MainWindow(QMainWindow):
                         else "menu.context.to_auxiliary"
                     ),
                 )
+            color_actions: dict[QAction, str] = {}
+            if str(sketch.parameters.get("template_editor", "")).lower() == "true":
+                color_menu = menu.addMenu(tr("menu.context.geometry_color"))
+                for pen, label in (
+                    ("WHITE", "sketch.text.color.white"),
+                    ("GREEN", "sketch.text.color.green"),
+                    ("YELLOW", "sketch.text.color.yellow"),
+                ):
+                    color_actions[color_menu.addAction(tr(label))] = pen
             action = menu.exec(
                 self.native_viewer.mapToGlobal(position)
             )
@@ -22164,6 +22217,11 @@ class MainWindow(QMainWindow):
             elif action == role_action:
                 self._toggle_sketch_geometry_role(
                     self._sketch_selected_entity_id
+                )
+            elif action in color_actions:
+                self._set_sketch_geometry_pen(
+                    self._sketch_selected_entity_id,
+                    color_actions[action],
                 )
             return
         if self._view_hover_selection_locked():
@@ -25129,6 +25187,13 @@ class MainWindow(QMainWindow):
         entities: list[dict[str, Any]],
         dimensions: list[dict[str, Any]],
     ) -> None:
+        if str(sketch.parameters.get("template_editor", "")).lower() == "true":
+            for entity in entities:
+                if (
+                    entity.get("type") != "point"
+                    or entity.get("text_role") == "anchor"
+                ):
+                    entity.setdefault("pen", "GREEN")
         model = SketchModel.from_editor_data(entities, dimensions)
         sketch.parameters["sketch_data"] = json.dumps(
             model.to_dict(),
@@ -27909,6 +27974,8 @@ class MainWindow(QMainWindow):
         self._sketch_show_all_dimensions = True
         self._sketch_reference_mode = False
         self._sketch_selected_external_reference_id = None
+        if str(sketch.parameters.get("template_editor", "")).lower() == "true":
+            self._sketch_text_flip = True
         # The object that launched Sketcher was marked as a confirmed view
         # selection.  Keeping that latch after leaving Sketcher locks hover
         # cycling to the result body and prevents picking history containers.
@@ -27958,7 +28025,21 @@ class MainWindow(QMainWindow):
         frame = self._sketch_frame(sketch)
         if frame is None:
             return
-        view_direction, roll_degrees = self._sketch_view_orientation(frame)
+        if str(sketch.parameters.get("template_editor", "")).lower() == "true":
+            # Drawing sheets use a bottom-right origin: positive X goes to
+            # the left while positive Y stays upwards. View the XY sketch
+            # from its reverse side and align +X to screen-left to give the
+            # template editor exactly that handedness without rewriting a
+            # single stored coordinate.
+            frame_normal = self._normalized_vector(
+                self._cross_product(frame[1], frame[2])
+            )
+            view_direction = frame_normal
+            roll_degrees = self._camera_roll_for_direction(
+                view_direction, frame[1], 180.0
+            )
+        else:
+            view_direction, roll_degrees = self._sketch_view_orientation(frame)
         # The camera looks towards the plane from its positive-normal side.
         # With the agreed convention this opens XZ as Front (+X left, +Z up),
         # while an opposite orientation naturally opens Back.
@@ -36150,6 +36231,30 @@ class MainWindow(QMainWindow):
         self.rebuild_view(fit=False)
         self._refresh_sketch_overlay()
         self._rebuild_application_toolbar()
+
+    def _set_sketch_geometry_pen(self, entity_id: str, pen: str) -> None:
+        if (
+            pen not in {"WHITE", "GREEN", "YELLOW"}
+            or self.document is None
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        geometry = next((
+            entity for entity in entities
+            if str(entity.get("id", "")) == entity_id
+        ), None)
+        if geometry is None:
+            return
+        geometry["pen"] = pen
+        if geometry.get("text_role") == "anchor":
+            geometry["text_color"] = pen.lower()
+        self._store_sketch_entities(sketch, entities)
+        self._sketch_selected_entity_id = entity_id
+        self._refresh_sketch_overlay()
 
     def _toggle_sketch_line_type(self, entity_id: str) -> None:
         if self.document is None or self._sketch_edit_entity_id is None:

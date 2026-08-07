@@ -1,5 +1,5 @@
 [Format]
-SchemaVersion = 2
+SchemaVersion = 3
 Name = ZE A4 frame
 SheetFormat = A4
 Orientation = portrait
@@ -16,57 +16,51 @@ LineWidth = 0.50
 [TitleBlock]
 Enabled = no
 
+[Sketch]
+Data = {"version":3,"points":{"p1":{"x":195.0,"y":5.0},"p2":{"x":5.15,"y":5.0},"p3":{"x":5.15,"y":5.0},"p4":{"x":5.15,"y":292.0},"p5":{"x":5.15,"y":292.0},"p6":{"x":195.0,"y":292.0},"p7":{"x":195.0,"y":292.0},"p8":{"x":195.0,"y":5.0},"p9":{"x":190.0,"y":10.0},"p10":{"x":10.0,"y":10.0},"p11":{"x":10.0,"y":10.0},"p12":{"x":10.0,"y":287.0},"p13":{"x":10.0,"y":287.0},"p14":{"x":190.0,"y":287.0},"p15":{"x":190.0,"y":287.0},"p16":{"x":190.0,"y":10.0},"p17":{"x":195.0,"y":48.5},"p18":{"x":190.0,"y":48.5},"p19":{"x":5.15,"y":48.5},"p20":{"x":10.0,"y":48.5},"p21":{"x":195.0,"y":98.5},"p22":{"x":190.0,"y":98.5},"p23":{"x":5.15,"y":98.5},"p24":{"x":10.0,"y":98.5},"p25":{"x":194.85316,"y":148.38008},"p26":{"x":189.85316,"y":148.38008},"p27":{"x":5.14684,"y":148.38008},"p28":{"x":10.14684,"y":148.38008},"p29":{"x":195.0,"y":198.5},"p30":{"x":190.0,"y":198.5},"p31":{"x":5.15,"y":198.5},"p32":{"x":10.0,"y":198.5},"p33":{"x":195.0,"y":248.5},"p34":{"x":190.0,"y":248.5},"p35":{"x":5.15,"y":248.5},"p36":{"x":10.0,"y":248.5},"p37":{"x":145.0,"y":5.0},"p38":{"x":145.0,"y":10.0},"p39":{"x":95.0,"y":5.0},"p40":{"x":95.0,"y":10.0},"p41":{"x":49.0,"y":5.0},"p42":{"x":49.0,"y":10.0},"p43":{"x":145.0,"y":292.0},"p44":{"x":145.0,"y":287.0},"p45":{"x":50.0,"y":292.0},"p46":{"x":50.0,"y":287.0},"p47":{"x":95.0,"y":292.0},"p48":{"x":95.0,"y":287.0},"p49":{"text_group":"text:49","text_role":"anchor","text_value":"1","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":170.7609,"y":5.75},"p50":{"text_group":"text:50","text_role":"anchor","text_value":"2","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":121.08675,"y":5.75},"p51":{"text_group":"text:51","text_role":"anchor","text_value":"3","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":71.08675,"y":5.75},"p52":{"text_group":"text:52","text_role":"anchor","text_value":"4","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":31.08675,"y":5.75},"p53":{"text_group":"text:53","text_role":"anchor","text_value":"1","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":170.7609,"y":287.75},"p54":{"text_group":"text:54","text_role":"anchor","text_value":"2","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":121.08675,"y":287.75},"p55":{"text_group":"text:55","text_role":"anchor","text_value":"3","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":77.08675,"y":287.75},"p56":{"text_group":"text:56","text_role":"anchor","text_value":"4","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":29.08675,"y":287.75},"p57":{"text_group":"text:57","text_role":"anchor","text_value":"F","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.4324,"y":21.75},"p58":{"text_group":"text:58","text_role":"anchor","text_value":"E","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.501,"y":71.75},"p59":{"text_group":"text:59","text_role":"anchor","text_value":"D","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.6725,"y":121.75},"p60":{"text_group":"text:60","text_role":"anchor","text_value":"C","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.6725,"y":171.75},"p61":{"text_group":"text:61","text_role":"anchor","text_value":"B","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.6725,"y":221.75},"p62":{"text_group":"text:62","text_role":"anchor","text_value":"A","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":193.75825,"y":271.75},"p63":{"text_group":"text:63","text_role":"anchor","text_value":"F","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.4324,"y":21.75},"p64":{"text_group":"text:64","text_role":"anchor","text_value":"E","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.501,"y":71.75},"p65":{"text_group":"text:65","text_role":"anchor","text_value":"D","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.6725,"y":121.75},"p66":{"text_group":"text:66","text_role":"anchor","text_value":"C","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.6725,"y":171.75},"p67":{"text_group":"text:67","text_role":"anchor","text_value":"B","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.6725,"y":221.75},"p68":{"text_group":"text:68","text_role":"anchor","text_value":"A","text_height":3.5,"text_horizontal":"center","text_vertical":"bottom","text_angle":0.0,"text_flip":true,"text_color":"green","text_font":"osifont","pen":"GREEN","x":8.75825,"y":271.75}},"geometry":{"g1":{"pen":"GREEN","type":"segment","points":["p1","p2"]},"g2":{"pen":"GREEN","type":"segment","points":["p3","p4"]},"g3":{"pen":"GREEN","type":"segment","points":["p5","p6"]},"g4":{"pen":"GREEN","type":"segment","points":["p7","p8"]},"g5":{"pen":"WHITE","type":"segment","points":["p9","p10"]},"g6":{"pen":"WHITE","type":"segment","points":["p11","p12"]},"g7":{"pen":"WHITE","type":"segment","points":["p13","p14"]},"g8":{"pen":"WHITE","type":"segment","points":["p15","p16"]},"g9":{"pen":"GREEN","type":"segment","points":["p17","p18"]},"g10":{"pen":"GREEN","type":"segment","points":["p19","p20"]},"g11":{"pen":"GREEN","type":"segment","points":["p21","p22"]},"g12":{"pen":"GREEN","type":"segment","points":["p23","p24"]},"g13":{"pen":"GREEN","type":"segment","points":["p25","p26"]},"g14":{"pen":"GREEN","type":"segment","points":["p27","p28"]},"g15":{"pen":"GREEN","type":"segment","points":["p29","p30"]},"g16":{"pen":"GREEN","type":"segment","points":["p31","p32"]},"g17":{"pen":"GREEN","type":"segment","points":["p33","p34"]},"g18":{"pen":"GREEN","type":"segment","points":["p35","p36"]},"g19":{"pen":"GREEN","type":"segment","points":["p37","p38"]},"g20":{"pen":"GREEN","type":"segment","points":["p39","p40"]},"g21":{"pen":"GREEN","type":"segment","points":["p41","p42"]},"g22":{"pen":"GREEN","type":"segment","points":["p43","p44"]},"g23":{"pen":"GREEN","type":"segment","points":["p45","p46"]},"g24":{"pen":"GREEN","type":"segment","points":["p47","p48"]}},"constraints":{},"dimensions":{}}
+
 [FrameGeometry]
-; Green zone boundary. The paper-edge rectangle from DXF is intentionally omitted.
-Line001 = 15, 5, 204.85, 5, GREEN
-Line002 = 204.85, 5, 204.85, 292, GREEN
-Line003 = 204.85, 292, 15, 292, GREEN
-Line004 = 15, 292, 15, 5, GREEN
-
-; White main frame.
-Line005 = 20, 10, 200, 10, WHITE
-Line006 = 200, 10, 200, 287, WHITE
-Line007 = 200, 287, 20, 287, WHITE
-Line008 = 20, 287, 20, 10, WHITE
-
-; Side zone and folding marks.
-Line009 = 15, 48.5, 20, 48.5, GREEN
-Line010 = 204.85, 48.5, 200, 48.5, GREEN
-Line011 = 15, 98.5, 20, 98.5, GREEN
-Line012 = 204.85, 98.5, 200, 98.5, GREEN
-Line013 = 15.14684, 148.38008, 20.14684, 148.38008, GREEN
-Line014 = 204.85316, 148.38008, 199.85316, 148.38008, GREEN
-Line015 = 15, 198.5, 20, 198.5, GREEN
-Line016 = 204.85, 198.5, 200, 198.5, GREEN
-Line017 = 15, 248.5, 20, 248.5, GREEN
-Line018 = 204.85, 248.5, 200, 248.5, GREEN
-
-; Top and bottom zone/folding marks copied from the useful DXF geometry.
-Line019 = 65, 5, 65, 10, GREEN
-Line020 = 115, 5, 115, 10, GREEN
-Line021 = 161, 5, 161, 10, GREEN
-Line022 = 65, 292, 65, 287, GREEN
-Line023 = 160, 292, 160, 287, GREEN
-Line024 = 115, 292, 115, 287, GREEN
-
-; Fixed zone labels. Title-block text is intentionally not part of the frame.
-Text001 = 1, 39.2391, 5.75, 3.5, GREEN
-Text002 = 2, 88.91325, 5.75, 3.5, GREEN
-Text003 = 3, 138.91325, 5.75, 3.5, GREEN
-Text004 = 4, 178.91325, 5.75, 3.5, GREEN
-Text005 = 1, 39.2391, 287.75, 3.5, GREEN
-Text006 = 2, 88.91325, 287.75, 3.5, GREEN
-Text007 = 3, 132.91325, 287.75, 3.5, GREEN
-Text008 = 4, 180.91325, 287.75, 3.5, GREEN
-Text009 = F, 16.5676, 21.75, 3.5, GREEN
-Text010 = E, 16.499, 71.75, 3.5, GREEN
-Text011 = D, 16.3275, 121.75, 3.5, GREEN
-Text012 = C, 16.3275, 171.75, 3.5, GREEN
-Text013 = B, 16.3275, 221.75, 3.5, GREEN
-Text014 = A, 16.24175, 271.75, 3.5, GREEN
-Text015 = F, 201.5676, 21.75, 3.5, GREEN
-Text016 = E, 201.499, 71.75, 3.5, GREEN
-Text017 = D, 201.3275, 121.75, 3.5, GREEN
-Text018 = C, 201.3275, 171.75, 3.5, GREEN
-Text019 = B, 201.3275, 221.75, 3.5, GREEN
-Text020 = A, 201.24175, 271.75, 3.5, GREEN
+Text001 = 1, 170.7609, 5.75, 3.5, GREEN, CENTER
+Text002 = 2, 121.08675, 5.75, 3.5, GREEN, CENTER
+Text003 = 3, 71.08675, 5.75, 3.5, GREEN, CENTER
+Text004 = 4, 31.08675, 5.75, 3.5, GREEN, CENTER
+Text005 = 1, 170.7609, 287.75, 3.5, GREEN, CENTER
+Text006 = 2, 121.08675, 287.75, 3.5, GREEN, CENTER
+Text007 = 3, 77.08675, 287.75, 3.5, GREEN, CENTER
+Text008 = 4, 29.08675, 287.75, 3.5, GREEN, CENTER
+Text009 = F, 193.4324, 21.75, 3.5, GREEN, CENTER
+Text010 = E, 193.501, 71.75, 3.5, GREEN, CENTER
+Text011 = D, 193.6725, 121.75, 3.5, GREEN, CENTER
+Text012 = C, 193.6725, 171.75, 3.5, GREEN, CENTER
+Text013 = B, 193.6725, 221.75, 3.5, GREEN, CENTER
+Text014 = A, 193.75825, 271.75, 3.5, GREEN, CENTER
+Text015 = F, 8.4324, 21.75, 3.5, GREEN, CENTER
+Text016 = E, 8.501, 71.75, 3.5, GREEN, CENTER
+Text017 = D, 8.6725, 121.75, 3.5, GREEN, CENTER
+Text018 = C, 8.6725, 171.75, 3.5, GREEN, CENTER
+Text019 = B, 8.6725, 221.75, 3.5, GREEN, CENTER
+Text020 = A, 8.75825, 271.75, 3.5, GREEN, CENTER
+Line001 = 195, 5, 5.15, 5, GREEN
+Line002 = 5.15, 5, 5.15, 292, GREEN
+Line003 = 5.15, 292, 195, 292, GREEN
+Line004 = 195, 292, 195, 5, GREEN
+Line005 = 190, 10, 10, 10, WHITE
+Line006 = 10, 10, 10, 287, WHITE
+Line007 = 10, 287, 190, 287, WHITE
+Line008 = 190, 287, 190, 10, WHITE
+Line009 = 195, 48.5, 190, 48.5, GREEN
+Line010 = 5.15, 48.5, 10, 48.5, GREEN
+Line011 = 195, 98.5, 190, 98.5, GREEN
+Line012 = 5.15, 98.5, 10, 98.5, GREEN
+Line013 = 194.85316, 148.38008, 189.85316, 148.38008, GREEN
+Line014 = 5.14684, 148.38008, 10.14684, 148.38008, GREEN
+Line015 = 195, 198.5, 190, 198.5, GREEN
+Line016 = 5.15, 198.5, 10, 198.5, GREEN
+Line017 = 195, 248.5, 190, 248.5, GREEN
+Line018 = 5.15, 248.5, 10, 248.5, GREEN
+Line019 = 145, 5, 145, 10, GREEN
+Line020 = 95, 5, 95, 10, GREEN
+Line021 = 49, 5, 49, 10, GREEN
+Line022 = 145, 292, 145, 287, GREEN
+Line023 = 50, 292, 50, 287, GREEN
+Line024 = 95, 292, 95, 287, GREEN

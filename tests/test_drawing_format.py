@@ -32,8 +32,9 @@ class DrawingFormatTests(unittest.TestCase):
         self.assertFalse(definition["title_block"]["enabled"])
         geometry = definition["frame"]["geometry"]
         self.assertEqual(len(geometry), 44)
-        self.assertEqual(geometry[0]["pen"], "GREEN")
-        self.assertEqual(geometry[4]["pen"], "WHITE")
+        self.assertEqual(definition["coordinate_system"], "bottom_right")
+        self.assertTrue(any(entity["pen"] == "GREEN" for entity in geometry))
+        self.assertTrue(any(entity["pen"] == "WHITE" for entity in geometry))
         self.assertFalse(any(
             entity.get("text") == "ZIMA-Engineering"
             for entity in geometry
@@ -56,11 +57,12 @@ Line001 = 0, 0, 1, 1, BLUE
 
     def test_loads_static_reference_title_block(self) -> None:
         definition = load_title_block(
-            Path("config/title_blocks/ZE-RAZITKO.tblz")
+            Path("config/formats/ZE-RAZITKO.tblz")
         )
         self.assertEqual(definition["anchor"], "bottom-right")
         self.assertEqual(definition["width"], 180.0)
         self.assertEqual(definition["height"], 60.0)
+        self.assertEqual(definition["coordinate_system"], "bottom_right")
         self.assertTrue(any(
             entity.get("text") == "ZIMA-Engineering"
             for entity in definition["geometry"]
@@ -120,8 +122,8 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(fields["DATE"]["align"], "right")
         self.assertEqual(fields["DATE"]["offset_y"], -0.3)
         self.assertEqual(fields["DATE"]["box_height"], 5.0)
-        self.assertEqual(fields["DATE"]["x"], 52.5)
-        self.assertEqual(fields["DATE"]["x"] + fields["DATE"]["box_width"], 98.5)
+        self.assertEqual(fields["DATE"]["x"], 81.5)
+        self.assertEqual(fields["DATE"]["x"] + fields["DATE"]["box_width"], 127.5)
         self.assertEqual(fields["SCALE"]["source"], "sheet.scale")
         self.assertEqual(fields["SCALE"]["pen"], "WHITE")
         self.assertEqual(fields["SCALE"]["format"], "M{numerator}:{denominator}")
@@ -148,9 +150,9 @@ Line001 = 0, 0, 1, 1, BLUE
             for entity in definition["geometry"]
             if entity["kind"] == "line" and entity["pen"] == "WHITE"
         }
-        self.assertIn((99.0, 0.0, 99.0, 20.0), white_lines)
-        self.assertIn((180.0, 0.0, 180.0, 20.0), white_lines)
-        self.assertIn((180.0, 10.0, 99.0, 10.0), white_lines)
+        self.assertIn((81.0, 0.0, 81.0, 20.0), white_lines)
+        self.assertIn((0.0, 0.0, 0.0, 20.0), white_lines)
+        self.assertIn((0.0, 10.0, 81.0, 10.0), white_lines)
         self.assertIn(
             "e-mail: vladimir.zima@zima-engineering.cz", static_texts
         )

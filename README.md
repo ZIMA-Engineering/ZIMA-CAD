@@ -182,6 +182,7 @@ ZIMA-CAD/
   config/                   application configuration and editable libraries
     materials/              categorized material cards such as S235.matz
     templates/              starter part, assembly and drawing templates
+    formats/                editable .frmz sheet frames and .tblz title blocks
   resources/
     icons/
     branding/               app icon, symbol, splash and About artwork

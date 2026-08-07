@@ -65,9 +65,13 @@ def load_title_block(path: Path) -> dict:
         raise ValueError("Title-block dimensions must be positive.")
     geometry, pens = load_native_geometry(parser, "Geometry")
     fields = _load_fields(parser, pens)
+    schema_version = parser.getint(
+        "TitleBlock", "SchemaVersion", fallback=1
+    )
     return {
-        "schema_version": parser.getint(
-            "TitleBlock", "SchemaVersion", fallback=1
+        "schema_version": schema_version,
+        "coordinate_system": (
+            "bottom_right" if schema_version >= 3 else "bottom_left"
         ),
         "name": parser.get("TitleBlock", "Name", fallback=path.stem),
         "width": width,

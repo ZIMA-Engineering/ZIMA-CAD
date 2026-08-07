@@ -40,7 +40,7 @@ def load_native_geometry(
                 "radius": float(values[2]),
                 "pen": pen_name,
             })
-        elif kind == "text" and len(values) == 5:
+        elif kind == "text" and len(values) in (5, 6):
             pen_name = values[4].upper()
             if pen_name not in pens:
                 raise ValueError(f"Unsupported drawing pen: {values[4]}")
@@ -51,6 +51,11 @@ def load_native_geometry(
                 "y": float(values[2]),
                 "height": float(values[3]),
                 "pen": pen_name,
+                "align": (
+                    values[5].lower() if len(values) == 6
+                    else "center" if section == "FrameGeometry"
+                    else "left"
+                ),
             })
         else:
             raise ValueError(f"Invalid drawing geometry entry: {key}")
@@ -84,8 +89,12 @@ def load_drawing_format(path: Path) -> dict:
 
     geometry, frame_pens = load_native_geometry(parser, "FrameGeometry")
 
+    schema_version = parser.getint("Format", "SchemaVersion", fallback=1)
     return {
-        "schema_version": parser.getint("Format", "SchemaVersion", fallback=1),
+        "schema_version": schema_version,
+        "coordinate_system": (
+            "bottom_right" if schema_version >= 3 else "bottom_left"
+        ),
         "name": parser.get("Format", "Name", fallback=path.stem),
         "sheet_format": sheet_format,
         "orientation": orientation,

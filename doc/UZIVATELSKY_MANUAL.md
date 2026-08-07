@@ -525,6 +525,24 @@ plochou:
 Podporované formáty jsou A4, A3, A2, A1 a A0. A4 je vždy na výšku; A3 až A0
 jsou vždy na šířku. Rozměry odpovídají skutečnému papíru v milimetrech.
 
+Soubory formátů `.frmz` a razítek `.tblz` lze otevřít příkazem
+**Soubor → Otevřít**. ZIMA-CAD je otevře přímo ve Sketchi se stejnými
+nástroji, vazbami, kótami, posunem a přiblížením jako běžnou skicu. Pohled
+zůstává kolmý k šabloně, kladné X směřuje stejně jako na výkresu zprava
+doleva a pohled nelze prostorově otáčet. Kontextová nabídka nad
+geometrií umožňuje nastavit její barvu na bílou, zelenou nebo žlutou; stejná
+volba je dostupná také pro text.
+
+Automatická pole razítka jsou ve Sketchi zobrazena se znakem `&` na začátku.
+Například `&kreslil` odkazuje na uživatelský parametr a
+`&document.file_stem`, `&sheet.scale` nebo `&sheet.position` na systémovou
+hodnotu dokumentu či listu. Kód lze upravit jako běžný text; po uložení se
+zapíše zpět jako programovatelné pole razítka, nikoli jako statický nápis.
+
+Formáty a razítka jsou uloženy společně v adresáři `config/formats`. Při
+uložení se předchozí obsah automaticky archivuje jako `soubor.frmz.1`,
+`soubor.frmz.2` nebo obdobně `soubor.tblz.1`, `soubor.tblz.2`.
+
 Počátek každého listu leží v pravém dolním rohu. Kladná osa X směřuje zprava
 doleva a kladná osa Y zdola nahoru. Při změně formátu se proto list mění
 směrem doleva a nahoru a budoucí razítko může zůstat na místě.
