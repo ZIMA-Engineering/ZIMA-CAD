@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 import json
 import tempfile
 from math import cos, radians, sin
@@ -75,6 +76,77 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_external_segment_uses_original_topology_reference_picking(self):
+        window = MainWindow.__new__(MainWindow)
+        window._sketch_reference_mode = False
+        window.point_constraint_dialog = None
+        window._selection_controller = SimpleNamespace(
+            request=SimpleNamespace(command_id="sketch_external_segment")
+        )
+
+        self.assertTrue(window._original_topology_reference_pick_active())
+
+    def test_reverse_one_side_dimension_uses_the_dialog_forward_parameter(
+        self,
+    ) -> None:
+        feature = SimpleNamespace(parameters={
+            "extent_mode": "one_side",
+            "direction": "reverse",
+        })
+
+        self.assertEqual(
+            MainWindow._feature_dimension_parameter_key(
+                feature,
+                "length_reverse",
+            ),
+            "length_forward",
+        )
+        self.assertEqual(
+            MainWindow._feature_dimension_parameter_key(
+                feature,
+                "angle_reverse",
+            ),
+            "angle",
+        )
+
+    def test_two_side_dimension_keeps_its_own_dialog_parameter(self) -> None:
+        feature = SimpleNamespace(parameters={"extent_mode": "two_sides"})
+
+        self.assertEqual(
+            MainWindow._feature_dimension_parameter_key(
+                feature,
+                "length_reverse",
+            ),
+            "length_reverse",
+        )
+
+    def test_return_from_sketch_drops_hidden_properties_dialog_before_reopen(
+        self,
+    ) -> None:
+        document = create_empty_part()
+        protrusion = document.create_container(
+            "Protrusion001",
+            ContainerType.PROTRUSION,
+        )
+        reopened = []
+        selected = []
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._sketch_return_properties_id = protrusion.entity_id
+        window.point_constraint_dialog = SimpleNamespace(
+            isVisible=lambda: False,
+        )
+        window._select_tree_object_without_reference_event = selected.append
+        window._edit_protrusion = lambda target, rebuild_rollback: reopened.append(
+            (target, rebuild_rollback)
+        )
+
+        with patch("zima_cad.app.QTimer.singleShot"):
+            window._reopen_sketch_properties("unused-sketch")
+
+        self.assertEqual(selected, [protrusion.entity_id])
+        self.assertEqual(reopened, [(protrusion, False)])
+
     def test_properties_dialog_consumes_face_when_general_selection_is_disabled(
         self,
     ) -> None:
@@ -437,6 +509,45 @@ class DrawingViewConventionTests(unittest.TestCase):
             (0.0, 6.0, 0.0),
         )
 
+    def test_work_plane_dimension_respects_front_back_role(self):
+        document = create_empty_part()
+        container = document.create_container(
+            "Protrusion",
+            ContainerType.PROTRUSION,
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._resolved_shape_reference_equations = lambda _reference: None
+        primary = {
+            "type": "face",
+            "equations": [[0.0, 0.0, 1.0, 0.0]],
+        }
+
+        def dimension_for(role):
+            container.parameters["constraint_refs"] = json.dumps([{
+                "type": "container_orientation",
+                "work_plane_offset": 6.0,
+                "mappings": [{
+                    "slot": "primary",
+                    "role": role,
+                    "reference": primary,
+                }],
+            }])
+            return next(
+                dimension
+                for dimension in window._reference_dimensions(container)
+                if dimension.key == "work_plane_offset"
+            )
+
+        self.assertEqual(
+            dimension_for("front").second_point,
+            (0.0, 0.0, 6.0),
+        )
+        self.assertEqual(
+            dimension_for("back").second_point,
+            (0.0, 0.0, -6.0),
+        )
+
     def test_rotation_offsets_are_composed_in_local_container_frame(self):
         base = (25.0, -35.0, 40.0)
         offset = (15.0, 20.0, -10.0)
@@ -563,6 +674,83 @@ class DrawingViewConventionTests(unittest.TestCase):
         viewer.set_large_mesh_topology_enabled(True)
 
         self.assertTrue(viewer._large_mesh_topology_enabled)
+
+    def test_result_body_can_be_excluded_from_object_picking(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._excluded_object_owner_ids = frozenset({"result-body"})
+        viewer._pick_face = lambda _position: ("result-body", 1)
+        viewer._pick_edge = lambda _position: ("result-body", 1)
+
+        self.assertIsNone(viewer._pick_object(QPointF()))
+
+        viewer._excluded_object_owner_ids = frozenset()
+        self.assertEqual(viewer._pick_object(QPointF()), "result-body")
+
+    def test_part_hover_resolves_latest_historical_container(self) -> None:
+        document = create_empty_part()
+        first = document.create_container("First", ContainerType.BOX)
+        document.create_primitive(first.entity_id, EntityKind.BOX)
+        second = document.create_container("Second", ContainerType.BOX)
+        document.create_primitive(second.entity_id, EntityKind.BOX)
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._cached_source_model_shapes = []
+        window._cached_source_model_meshes = {}
+        window._definition_history_boundary = lambda: 2
+        window.native_viewer = SimpleNamespace(
+            mesh_is_under_cursor=lambda _mesh, _position: True,
+        )
+
+        hit = window._part_history_container_at_position(QPointF())
+
+        self.assertIsNotNone(hit)
+        self.assertIs(hit[0], second)
+
+    def test_new_container_origin_uses_fallback_before_references(self) -> None:
+        class Edit:
+            def __init__(self, value):
+                self._value = value
+
+            def value(self):
+                return self._value
+
+        dialog = SimpleNamespace(
+            point_object=None,
+            solution=None,
+            coordinate_edits=(Edit(4.0), Edit(5.0), Edit(6.0)),
+            rotation_edits=None,
+            point_rotation=lambda: (0.0, 0.0, 0.0),
+            _solution_references=lambda: [],
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.point_constraint_dialog = dialog
+        window._plane_reference_rotation = lambda _references: (0.0, 0.0, 0.0)
+        window._rotation_with_local_offset = lambda base, _offset: base
+
+        coordinate_system = window._definition_preview_coordinate_system()
+
+        self.assertEqual(coordinate_system.origin, (4.0, 5.0, 6.0))
+
+    def test_middle_dismiss_invalidates_the_stored_part_hover(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._sketch_edit_entity_id = None
+        window._sketch_show_all_dimensions = False
+        window._part_hover_container_id = "old-container"
+        window._part_hover_container_mesh = object()
+        window._dismiss_view_selection_requested = False
+        window._dimension_overlays = {}
+        window._dimension_object_id = None
+        window._dimension_bindings = {}
+        window._dimension_owner_ids = {}
+        window.native_viewer = SimpleNamespace(
+            set_dimensions=lambda _dimensions: None,
+        )
+
+        window._dismiss_dimension_overlays()
+
+        self.assertTrue(window._dismiss_view_selection_requested)
+        self.assertIsNone(window._part_hover_container_id)
+        self.assertIsNone(window._part_hover_container_mesh)
 
     def test_imported_face_reference_is_created_lazily(self) -> None:
         imported = SimpleNamespace(
@@ -693,6 +881,50 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
 
         window._on_native_object_double_clicked("owning-protrusion")
+
+    def test_view_double_click_uses_the_hovered_container_identity(self) -> None:
+        document = create_empty_part()
+        box = document.create_container("Box", ContainerType.BOX)
+        protrusion = document.create_container(
+            "Protrusion",
+            ContainerType.PROTRUSION,
+        )
+        activated = []
+        shown = []
+
+        class Viewer:
+            @staticmethod
+            def blockSignals(_blocked):
+                return False
+
+            @staticmethod
+            def _clear_topology_selection():
+                return None
+
+            @staticmethod
+            def set_selected_container_contents(_ids):
+                return None
+
+            @staticmethod
+            def set_selected_container_origin(_owner_id):
+                return None
+
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._sketch_edit_entity_id = None
+        window._part_hover_container_id = protrusion.entity_id
+        window._selected_object = lambda: box
+        window._edge_treatment_at_last_view_click = lambda _owner_id: None
+        window._activate_object_for_editing = (
+            lambda target: activated.append(target) or target
+        )
+        window._show_protrusion_profile_overlay = shown.append
+        window.native_viewer = Viewer()
+
+        window._on_native_object_double_clicked("")
+
+        self.assertEqual(activated, [protrusion])
+        self.assertEqual(shown, [protrusion])
 
     def test_sketch_placement_prefers_exact_clicked_result_face(self) -> None:
         exact = ("source-solid", 4, object())

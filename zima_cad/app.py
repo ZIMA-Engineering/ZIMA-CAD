@@ -363,17 +363,14 @@ TREE_ICON_NAMES = {
 def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
     ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
     cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-    apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
     if ok_button is not None:
         ok_button.setText(tr("button.ok"))
     if cancel_button is not None:
         cancel_button.setText(tr("button.cancel"))
-    if apply_button is not None:
-        apply_button.setText(tr("button.apply"))
 
 
 class DialogMiddleButtonFilter(QObject):
-    """Provide the shared middle-click Apply/OK convention to dialogs."""
+    """Provide the shared middle-button double-click OK convention."""
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -524,23 +521,11 @@ class DialogMiddleButtonFilter(QObject):
             event.type() == QEvent.Type.MouseButtonRelease
             and event.button() == Qt.MouseButton.MiddleButton
         ):
-            apply = (
-                self._dialog is dialog
-                and self._origin is not None
-                and not self._moved
-                and not self._chord
-                and not self._suppress_release
-            )
             self._dialog = None
             self._origin = None
             self._moved = False
             self._chord = False
             self._suppress_release = False
-            if apply:
-                self._click_standard_button(
-                    dialog,
-                    QDialogButtonBox.StandardButton.Apply,
-                )
         return False
 
 
@@ -1033,16 +1018,10 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         standard_buttons = (
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
-            | QDialogButtonBox.StandardButton.Apply
         )
         buttons = QDialogButtonBox(standard_buttons)
         localize_dialog_buttons(buttons)
         self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self.apply_button = buttons.button(
-            QDialogButtonBox.StandardButton.Apply
-        )
-        if self.apply_button is not None:
-            self.apply_button.clicked.connect(self.applied)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1067,8 +1046,6 @@ class EdgeTreatmentPropertiesDialog(QDialog):
             max(320, self.width()),
             max(230, self.height()),
         )
-        if self.apply_button is not None:
-            self.apply_button.show()
         super().showEvent(event)
         position_dialog_top_right_after_show(self)
 
@@ -1251,12 +1228,9 @@ class ContainerSummaryDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
-        apply_button.clicked.connect(self._apply_without_closing)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
@@ -1435,13 +1409,9 @@ class PrimitivePropertiesDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self._apply_without_closing
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
@@ -1736,15 +1706,11 @@ class PointConstraintDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
         self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         self.ok_button.clicked.connect(self._submit_and_accept)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self._apply
-        )
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._update_solution()
@@ -1907,15 +1873,9 @@ class PointConstraintDialog(QDialog):
             and event.button() == Qt.MouseButton.MiddleButton
             and self._middle_click_origin is not None
         ):
-            should_apply = (
-                not self._middle_click_moved
-                and not self._middle_click_chord
-            )
             self._middle_click_origin = None
             self._middle_click_moved = False
             self._middle_click_chord = False
-            if should_apply:
-                self._apply()
         if (
             event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.MiddleButton
@@ -2699,7 +2659,6 @@ class PointConstraintDialog(QDialog):
 
 
 class AxisConstraintDialog(PointConstraintDialog):
-    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = False
     createAxisRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, float
     )
@@ -3359,26 +3318,6 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             if callable(checker) and not checker([other], reference):
                 return False
         self._container_orientation_references[row] = dict(reference)
-        if (
-            row == 0
-            and self.AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE
-            and reference.get("type") == "face"
-        ):
-            # With the sketch camera convention BACK is the menu side that
-            # looks at an OCCT-oriented face from outside the solid.
-            back_index = self.container_orientation_roles[0].findData(
-                "back"
-            )
-            if back_index >= 0:
-                signals_were_blocked = self.container_orientation_roles[
-                    0
-                ].blockSignals(True)
-                self.container_orientation_roles[0].setCurrentIndex(
-                    back_index
-                )
-                self.container_orientation_roles[0].blockSignals(
-                    signals_were_blocked
-                )
         self._orientation_highlighted_reference_keys = {
             str(item.get("key", ""))
             for item in self._container_orientation_references
@@ -3947,7 +3886,6 @@ class ContainerPropertiesDialog(AxisConstraintDialog):
 
 
 class SketchConstraintDialog(PlaneConstraintDialog):
-    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = True
     createSketchRequested = Signal(
         list, tuple, str, bool, bool, tuple, float
     )
@@ -4115,7 +4053,6 @@ class SketchConstraintDialog(PlaneConstraintDialog):
 
 
 class ProtrusionConstraintDialog(PlaneConstraintDialog):
-    AUTO_OUTSIDE_VIEW_ON_SURFACE_REFERENCE = True
     createProtrusionRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str,
         float, float, str, str, str, str
@@ -4346,12 +4283,6 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         buttons = self.findChild(QDialogButtonBox)
         dialog_layout = self.layout()
         if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
-            apply_button = buttons.button(
-                QDialogButtonBox.StandardButton.Apply
-            )
-            if apply_button is not None:
-                apply_button.show()
-                apply_button.setEnabled(True)
             dialog_layout.insertLayout(1, operation_form)
             dialog_layout.insertLayout(dialog_layout.indexOf(buttons), feature_form)
         self.extent_mode_combo.currentIndexChanged.connect(
@@ -4879,12 +4810,10 @@ class DrawingViewPropertiesDialog(QDialog):
         self.caption_group.toggled.connect(self._preview)
         self.orientation_mode_combo.currentIndexChanged.connect(self._orientation_mode_changed)
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Apply
-            | QDialogButtonBox.StandardButton.Ok
+            QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._preview)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
@@ -4974,10 +4903,7 @@ class DrawingViewPropertiesDialog(QDialog):
             delta = event.globalPosition() - self._middle_click_origin
             self._middle_click_moved = abs(delta.x()) + abs(delta.y()) > 3.0
         elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton and self._middle_click_origin is not None:
-            apply = not self._middle_click_moved
             self._middle_click_origin = None
-            if apply:
-                self._preview()
         if event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.MiddleButton:
             self.accept()
             event.accept()
@@ -5166,13 +5092,9 @@ class OrientationDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            lambda: self.applyRequested.emit(self.orientation_rows())
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5212,15 +5134,9 @@ class OrientationDialog(QDialog):
             and event.button() == Qt.MouseButton.MiddleButton
             and self._middle_click_origin is not None
         ):
-            should_apply = (
-                not self._middle_click_moved
-                and not self._middle_click_chord
-            )
             self._middle_click_origin = None
             self._middle_click_moved = False
             self._middle_click_chord = False
-            if should_apply:
-                self.applyRequested.emit(self.orientation_rows())
         if (
             event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.MiddleButton
@@ -6135,13 +6051,9 @@ class FamilyTableDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -6446,13 +6358,9 @@ class UserParametersDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -6684,13 +6592,9 @@ class RelationsDialog(QDialog):
         layout.addWidget(self.saved_status)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -6836,13 +6740,9 @@ class FileSettingsDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -6983,13 +6883,9 @@ class OptionsDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         save_as_button = QPushButton(tr("button.save_as"))
         save_as_button.clicked.connect(self.save_as)
         buttons.addButton(save_as_button, QDialogButtonBox.ButtonRole.ActionRole)
@@ -7224,13 +7120,9 @@ class MaterialDialog(QDialog):
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -8033,13 +7925,9 @@ class DimensionPropertiesDialog(QDialog):
         layout.addStretch(1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(
-            QDialogButtonBox.StandardButton.Apply
-        ).clicked.connect(self._apply_without_closing)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         button_row = QHBoxLayout()
@@ -8312,13 +8200,9 @@ class SketchTextPropertiesDialog(QDialog):
         layout.addLayout(tools)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.applyRequested
-        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -8554,6 +8438,9 @@ class MainWindow(QMainWindow):
         self._cached_model_shapes: list[tuple[Any, str]] = []
         self._cached_source_model_shapes: list[tuple[Any, str]] = []
         self._cached_source_model_meshes: dict[str, ViewerMesh] = {}
+        self._part_hover_container_id: str | None = None
+        self._part_hover_container_mesh: ViewerMesh | None = None
+        self._dismiss_view_selection_requested = False
         self._reference_topology_registry_cache: dict[
             tuple[int, int], Any
         ] = {}
@@ -8718,7 +8605,7 @@ class MainWindow(QMainWindow):
         self._view_hover_label.setMinimumWidth(220)
         self.statusBar().addPermanentWidget(self._view_hover_label)
         self.native_viewer.hoveredObjectChanged.connect(
-            lambda owner_id: self._set_view_hover("object", owner_id, 0)
+            self._on_native_object_hovered
         )
         self.native_viewer.hoveredFaceChanged.connect(
             self._on_native_face_hovered
@@ -11710,10 +11597,55 @@ class MainWindow(QMainWindow):
         enable_live_preview()
         dialog.show()
         position_dialog_top_right_after_show(dialog)
+        QTimer.singleShot(
+            0,
+            lambda active_dialog=dialog:
+            self._restore_container_properties_presentation(active_dialog),
+        )
         # Every caller performs the single view rebuild required to activate
         # the edited container's local origin.  Rebuilding here as well used
         # to evaluate and triangulate the complete history twice, which is
         # particularly expensive for outline text.
+
+    def _restore_container_properties_presentation(
+        self,
+        dialog: PointConstraintDialog,
+    ) -> None:
+        """Restore cached edit wires and Origin without evaluating history."""
+        if (
+            self.document is None
+            or not dialog.isVisible()
+            or dialog is not self.point_constraint_dialog
+        ):
+            return
+        target = dialog.point_object
+        if target is None:
+            return
+        if target.kind != EntityKind.CONTAINER:
+            target = self.document.find_owning_object(target.entity_id)
+        if target is None:
+            return
+        origin = next(
+            (
+                child for child in target.children
+                if child.kind == EntityKind.ORIGIN
+            ),
+            None,
+        )
+        if origin is not None:
+            self.native_viewer.set_selected_container_origin(origin.entity_id)
+        if self.native_viewer._object_overlay_mesh is not None:
+            return
+        cached_mesh = self._cached_source_model_meshes.get(
+            f"object:{target.entity_id}"
+        )
+        if cached_mesh is not None:
+            self.native_viewer.set_object_overlay(
+                cached_mesh,
+                selected=True,
+                anchor=self._native_object_origin(target),
+                locks_interaction=False,
+            )
 
     def _activate_point_reference(self, descriptor: dict[str, Any]) -> None:
         if self.document is None:
@@ -18179,7 +18111,10 @@ class MainWindow(QMainWindow):
         if (
             not owner_id
             or edge_index <= 0
-            or self._current_definition_owns_reference(owner_id)
+            or (
+                owner_id != self.document.root.entity_id
+                and self._current_definition_owns_reference(owner_id)
+            )
         ):
             return
         edge_treatment_source_selection = (
@@ -18187,15 +18122,20 @@ class MainWindow(QMainWindow):
             and self._selection_controller.request.command_id
             in ("fillet", "fillet_edit", "chamfer", "chamfer_edit")
         )
+        source_reference_required = (
+            owner_id == self.document.root.entity_id
+            and self._original_topology_reference_pick_active()
+        )
         source_edge = (
             self._source_topology_reference_at_cursor("edge")
-            if owner_id == self.document.root.entity_id
-            and self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
-            and self._history_source_cycle_active
+            if source_reference_required
             else None
         )
+        if source_reference_required and source_edge is None:
+            self.native_viewer._set_selected_edge(None)
+            return
         if source_edge is not None:
+            self.native_viewer._set_selected_edge(None)
             owner_id, edge_index, source_shape = source_edge
             shape = self._subshape_from_shape(
                 source_shape,
@@ -18485,9 +18425,103 @@ class MainWindow(QMainWindow):
             document
         ).edge_reference_for_runtime_index(edge_index)
 
+    def _on_native_object_hovered(self, owner_id: str) -> None:
+        if self.document is None:
+            return
+        properties_active = (
+            getattr(self, "point_constraint_dialog", None) is not None
+            and self.point_constraint_dialog.isVisible()
+        )
+        if (
+            properties_active
+            and self.document.document_settings.get("type") != "assembly"
+        ):
+            # Properties own the persistent cyan standalone preview. Normal
+            # Part hover must not replace it with a disposable orange mesh,
+            # which mouse navigation intentionally drops on its first move.
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_object(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self._set_view_hover("object", "", 0)
+            return
+        is_part_object_mode = (
+            self.document.document_settings.get("type") != "assembly"
+            and self.native_viewer._interaction_mode == "object"
+            and self._sketch_edit_entity_id is None
+        )
+        if is_part_object_mode and owner_id in {
+            "",
+            self.document.root.entity_id,
+        }:
+            hit = self._part_history_container_at_position(
+                self.native_viewer._last_model_hover_position
+            )
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_object(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            if hit is not None:
+                source, source_mesh = hit
+                self._part_hover_container_id = source.entity_id
+                self._part_hover_container_mesh = source_mesh
+                self.native_viewer.set_object_overlay(
+                    source_mesh,
+                    anchor=self._native_object_origin(source),
+                )
+                self._set_view_hover("object", source.entity_id, 0)
+                return
+            self._part_hover_container_id = None
+            self._part_hover_container_mesh = None
+            if not self.native_viewer._object_overlay_persistent:
+                self.native_viewer.set_object_overlay(None)
+            self._set_view_hover("object", "", 0)
+            return
+        if is_part_object_mode:
+            self._part_hover_container_id = None
+            self._part_hover_container_mesh = None
+        self._set_view_hover("object", owner_id, 0)
+
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
             return
+        selected_source_mesh = None
+        force_clear = self._dismiss_view_selection_requested
+        self._dismiss_view_selection_requested = False
+        if (
+            not force_clear
+            and owner_id in {"", self.document.root.entity_id}
+            and self.document.document_settings.get("type") != "assembly"
+            and self.native_viewer._interaction_mode == "object"
+            and self._sketch_edit_entity_id is None
+        ):
+            hovered_id = self._part_hover_container_id
+            hovered = (
+                self.document.find_entity(hovered_id)
+                if hovered_id is not None else None
+            )
+            hover_still_under_click = (
+                hovered is not None
+                and hovered.kind == EntityKind.CONTAINER
+                and self._part_hover_container_mesh is not None
+                and self.native_viewer._last_click_position is not None
+                and self.native_viewer.mesh_is_under_cursor(
+                    self._part_hover_container_mesh,
+                    QPointF(self.native_viewer._last_click_position),
+                )
+            )
+            if hover_still_under_click:
+                owner_id = hovered.entity_id
+                selected_source_mesh = self._part_hover_container_mesh
+            else:
+                hit = self._part_history_container_at_position(
+                    self.native_viewer._last_click_position
+                )
+                if hit is not None:
+                    owner_id = hit[0].entity_id
+                    selected_source_mesh = hit[1]
         if owner_id and self._current_definition_owns_reference(owner_id):
             return
         if owner_id and self._submit_command_selection(
@@ -18635,6 +18669,13 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._history_source_cycle_active = False
         self._select_native_tree_object(tree_object_id)
+        if selected_source_mesh is not None:
+            selected_source = self.document.find_entity(tree_object_id)
+            self.native_viewer.set_object_overlay(
+                selected_source_mesh,
+                selected=True,
+                anchor=self._native_object_origin(selected_source),
+            )
         if self._dimension_overlays:
             assembly_dialog = self.assembly_component_dialog
             same_hidden_component = (
@@ -18654,6 +18695,17 @@ class MainWindow(QMainWindow):
         if self._sketch_edit_entity_id is not None:
             return
         obj = self._selected_object()
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") != "assembly"
+            and self._part_hover_container_id is not None
+        ):
+            hovered = self.document.find_entity(
+                self._part_hover_container_id
+            )
+            if hovered is not None and hovered.kind == EntityKind.CONTAINER:
+                obj = hovered
+                owner_id = hovered.entity_id
         if (
             self.document is not None
             and owner_id
@@ -18904,7 +18956,13 @@ class MainWindow(QMainWindow):
                         self._constraint_references(obj)
                     )
                     if dimension.key == "work_plane_offset"
-                    else feature.parameters.get(dimension.key, "0")
+                    else feature.parameters.get(
+                        self._feature_dimension_parameter_key(
+                            feature,
+                            dimension.key,
+                        ),
+                        "0",
+                    )
                 ),
             )
             if dimension.key == "work_plane_offset":
@@ -19010,6 +19068,23 @@ class MainWindow(QMainWindow):
             references,
             ensure_ascii=False,
         )
+        feature = next(
+            (
+                child for child in container.children
+                if child.kind in (
+                    EntityKind.PROTRUSION,
+                    EntityKind.REVOLVE,
+                )
+                and not child.locked
+            ),
+            None,
+        )
+        if feature is not None:
+            # The dimension belongs to the container work plane, while OCCT
+            # consumes the corresponding offset from the feature profile.
+            # Keep both representations atomic so regeneration cannot replay
+            # the feature at its previous plane.
+            feature.parameters["profile_offset"] = f"{value:.12g}"
         self._mark_model_for_regeneration()
         dialog = self.point_constraint_dialog
         staged_preview = (
@@ -19024,6 +19099,15 @@ class MainWindow(QMainWindow):
             for descriptor in dialog.references:
                 if descriptor.get("type") == "container_orientation":
                     descriptor["work_plane_offset"] = value
+            signals_were_blocked = dialog.container_plane_offset.blockSignals(
+                True
+            )
+            try:
+                dialog.container_plane_offset.setValue(value)
+            finally:
+                dialog.container_plane_offset.blockSignals(
+                    signals_were_blocked
+                )
             QTimer.singleShot(
                 0,
                 lambda target=container:
@@ -19062,6 +19146,7 @@ class MainWindow(QMainWindow):
         if value <= 1.0e-9:
             return
         formatted_value = f"{value:.12g}"
+        parameter_key = self._feature_dimension_parameter_key(feature, key)
         if (
             key in {"length_forward", "length_reverse"}
             and str(feature.parameters.get("extent_mode", "one_side"))
@@ -19080,7 +19165,7 @@ class MainWindow(QMainWindow):
             feature.parameters["angle"] = formatted_value
             feature.parameters["angle_reverse"] = formatted_value
         else:
-            feature.parameters[key] = formatted_value
+            feature.parameters[parameter_key] = formatted_value
         owner = self.document.find_owning_object(feature.entity_id)
         self._mark_model_for_regeneration()
         if (
@@ -19103,7 +19188,7 @@ class MainWindow(QMainWindow):
                     "angle": dialog.forward_length_spin,
                     "angle_reverse": dialog.reverse_length_spin,
                 }
-                affected_keys = {key}
+                affected_keys = {parameter_key}
                 if str(feature.parameters.get("extent_mode", "one_side")) == "symmetric":
                     if key in {"length_forward", "length_reverse"}:
                         affected_keys = {"length_forward", "length_reverse"}
@@ -19140,6 +19225,20 @@ class MainWindow(QMainWindow):
                 ),
             )
 
+    @staticmethod
+    def _feature_dimension_parameter_key(
+        feature: ZimaEntity,
+        dimension_key: str,
+    ) -> str:
+        """Map a displayed feature limit to the parameter used by its UI."""
+        if str(feature.parameters.get("extent_mode", "one_side")) != "one_side":
+            return dimension_key
+        if dimension_key in {"length_forward", "length_reverse"}:
+            return "length_forward"
+        if dimension_key in {"angle", "angle_reverse"}:
+            return "angle"
+        return dimension_key
+
     def _on_native_face_selected(
         self,
         owner_id: str,
@@ -19160,12 +19259,24 @@ class MainWindow(QMainWindow):
         # are not part of the viewer scene, so this is deliberately done only
         # while a reference dialog/Sketcher is consuming the click.
         result_face_index = face_index
+        source_reference_required = (
+            owner_id == self.document.root.entity_id
+            and (
+                getattr(self, "_sketch_reference_mode", False)
+                or (
+                    self.point_constraint_dialog is not None
+                    and self.point_constraint_dialog.isVisible()
+                )
+            )
+        )
         source_face = (
             self._source_face_reference_for_pick(face_index)
-            if owner_id == self.document.root.entity_id
-            and self._history_source_cycle_active
+            if source_reference_required
             else None
         )
+        if source_reference_required and source_face is None:
+            self.native_viewer._set_selected_face(None)
+            return
         if (
             source_face is None
             and self._container_orientation_selection_is_active()
@@ -19176,6 +19287,9 @@ class MainWindow(QMainWindow):
         ):
             return
         if source_face is not None:
+            # The result face was only the ray hit used to resolve the real
+            # historical source. Do not present it as the accepted reference.
+            self.native_viewer._set_selected_face(None)
             owner_id, face_index, source_shape = source_face
             shape = self._subshape_from_shape(
                 source_shape,
@@ -19403,12 +19517,9 @@ class MainWindow(QMainWindow):
         """
         if topology_kind not in {"face", "edge", "point"}:
             raise ValueError(f"Unsupported topology kind: {topology_kind}")
-        if self.document is None or not (
-            self._sketch_reference_mode
-            or (
-                self.point_constraint_dialog is not None
-                and self.point_constraint_dialog.isVisible()
-            )
+        if (
+            self.document is None
+            or not self._original_topology_reference_pick_active()
         ):
             return None
         position = getattr(self.native_viewer, "_last_click_position", None)
@@ -19450,6 +19561,21 @@ class MainWindow(QMainWindow):
                 return source.entity_id, picked_index, shape
         return None
 
+    def _original_topology_reference_pick_active(self) -> bool:
+        controller = getattr(self, "_selection_controller", None)
+        request = getattr(controller, "request", None)
+        return bool(
+            self._sketch_reference_mode
+            or (
+                request is not None
+                and request.command_id == "sketch_external_segment"
+            )
+            or (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+        )
+
     def _imported_source_container_at_cursor(self) -> ZimaEntity | None:
         """Resolve a Body click to an imported STEP history container."""
         if self.document is None:
@@ -19485,6 +19611,56 @@ class MainWindow(QMainWindow):
                 QPointF(position),
             ):
                 return source
+        return None
+
+    def _part_history_container_at_position(
+        self,
+        position: QPointF | QPoint | None,
+    ) -> tuple[ZimaEntity, ViewerMesh] | None:
+        """Resolve a Part viewport hit to one historical container shape."""
+        if (
+            self.document is None
+            or position is None
+            or self.document.document_settings.get("type") == "assembly"
+        ):
+            return None
+        cached_shapes = {
+            owner_id: shape
+            for shape, owner_id in self._cached_source_model_shapes
+        }
+        boundary = self._definition_history_boundary()
+        for source in reversed(self.document.history_objects_at(boundary)):
+            source_shape = cached_shapes.get(source.entity_id)
+            if source_shape is None:
+                source_shape = self.document.build_standalone_shape(source)
+            if source_shape is None:
+                continue
+            cache_key = f"object:{source.entity_id}"
+            source_mesh = self._cached_source_model_meshes.get(cache_key)
+            if source_mesh is None:
+                source_mesh = triangulate_shape(
+                    source_shape,
+                    owner_id=source.entity_id,
+                    linear_deflection=(
+                        5.0
+                        if source.container_type == ContainerType.IMPORTED_STEP
+                        else 0.2
+                    ),
+                    angular_deflection=(
+                        1.2
+                        if source.container_type == ContainerType.IMPORTED_STEP
+                        else 0.35
+                    ),
+                    include_topology=(
+                        source.container_type != ContainerType.IMPORTED_STEP
+                    ),
+                )
+                self._cached_source_model_meshes[cache_key] = source_mesh
+            if self.native_viewer.mesh_is_under_cursor(
+                source_mesh,
+                QPointF(position),
+            ):
+                return source, source_mesh
         return None
 
     def _source_face_reference_for_pick(
@@ -19624,33 +19800,36 @@ class MainWindow(QMainWindow):
         if (
             not owner_id
             or self.document is None
-            or self._current_definition_owns_reference(owner_id)
+            or (
+                owner_id != self.document.root.entity_id
+                and self._current_definition_owns_reference(owner_id)
+            )
         ):
             return
         if (
             element_kind == "point"
             and owner_id == self.document.root.entity_id
-            and self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
-            and self._history_source_cycle_active
+            and self._original_topology_reference_pick_active()
         ):
             source_point = self._source_topology_reference_at_cursor("point")
             if source_point is None:
                 return
+            self.native_viewer._set_selected_point(None)
             owner_id, element_index, source_shape = source_point
-            vertex = self._subshape_from_shape(
-                source_shape,
-                TopAbs_VERTEX,
-                element_index,
-            )
-            owner = self.document.find_entity(owner_id)
-            if vertex is not None and owner is not None:
-                self._add_point_shape_constraint(
-                    owner,
-                    vertex,
-                    topology_index=element_index,
+            if not self._sketch_reference_mode:
+                vertex = self._subshape_from_shape(
+                    source_shape,
+                    TopAbs_VERTEX,
+                    element_index,
                 )
-            return
+                owner = self.document.find_entity(owner_id)
+                if vertex is not None and owner is not None:
+                    self._add_point_shape_constraint(
+                        owner,
+                        vertex,
+                        topology_index=element_index,
+                    )
+                return
         selection_kind = {
             "point": SelectionKind.POINT,
             "axis": SelectionKind.AXIS,
@@ -20368,6 +20547,19 @@ class MainWindow(QMainWindow):
         owner_id: str,
         face_index: int,
     ) -> None:
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") != "assembly"
+            and self.native_viewer._interaction_mode == "object"
+            and owner_id == self.document.root.entity_id
+        ):
+            self._view_hover_parts.pop("face", None)
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_face(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            return
         self._set_view_hover("face", owner_id, face_index)
         # Hover is a renderer-only operation. Stable topology/provenance is
         # intentionally resolved only after RMB activates candidate cycling
@@ -21812,11 +22004,20 @@ class MainWindow(QMainWindow):
         self,
         position: QPoint | QPointF,
     ) -> None:
-        if not self._sketch_reference_mode:
+        if not self._original_topology_reference_pick_active():
             return
         candidates = self.native_viewer.topology_candidates_at(
             QPointF(position)
         )
+        request = getattr(self._selection_controller, "request", None)
+        if (
+            request is not None
+            and request.command_id == "sketch_external_segment"
+        ):
+            candidates = tuple(
+                candidate for candidate in candidates
+                if candidate[0] == "edge"
+            )
         if not candidates:
             self._view_candidate_cycle_ids = ()
             self._view_candidate_cycle_index = -1
@@ -25323,16 +25524,18 @@ class MainWindow(QMainWindow):
         last = (float(points[-1][0]), float(points[-1][1]))
         dx, dy = last[0] - first[0], last[1] - first[1]
         length = math.hypot(dx, dy)
-        if length <= 1.0e-10 or any(
-            abs(dx * (float(point[1]) - first[1])
-                - dy * (float(point[0]) - first[0]))
-            > max(1.0, length) * 1.0e-7
-            for point in points[1:-1]
-        ):
+        source_curve_type = str(geometry.get("source_curve_type", ""))
+        if length <= 1.0e-10 and source_curve_type in ("", "line"):
             self.statusBar().showMessage(
                 tr("sketch.status.reference_unsupported")
             )
             return False
+        straight = source_curve_type in ("", "line") and not any(
+            abs(dx * (float(point[1]) - first[1])
+                - dy * (float(point[0]) - first[0]))
+            > max(1.0, length) * 1.0e-7
+            for point in points[1:-1]
+        )
         entities = self._stored_sketch_entities(sketch)
         if any(
             str(entity.get("external_profile_reference_id", ""))
@@ -25340,21 +25543,40 @@ class MainWindow(QMainWindow):
             for entity in entities
         ):
             return False
+        profile_points = (
+            (first, last)
+            if straight
+            else tuple(
+                (
+                    float(points[index][0]),
+                    float(points[index][1]),
+                )
+                for index in sorted(set(
+                    round(sample * (len(points) - 1) / 15)
+                    for sample in range(16)
+                ))
+            )
+        )
         point_ids = []
-        for endpoint, (x, y) in enumerate((first, last)):
+        for point_index, (x, y) in enumerate(profile_points):
             point_id = self._next_sketch_point_id(entities)
             point_ids.append(point_id)
-            entities.append({
+            point_entity = {
                 "id": point_id,
                 "type": "point",
                 "x": x,
                 "y": y,
                 "external_profile_reference_id": reference_id,
-                "external_profile_endpoint": endpoint,
-            })
+                "external_profile_fraction": (
+                    point_index / max(1, len(profile_points) - 1)
+                ),
+            }
+            if straight:
+                point_entity["external_profile_endpoint"] = point_index
+            entities.append(point_entity)
         entities.append({
             "id": self._next_sketch_geometry_id(entities),
-            "type": "segment",
+            "type": "segment" if straight else "spline",
             "point_ids": point_ids,
             "role": "profile",
             "external_profile_reference_id": reference_id,
@@ -25368,10 +25590,7 @@ class MainWindow(QMainWindow):
         sketch: ZimaEntity,
         references: list[dict[str, Any]],
     ) -> None:
-        endpoints: dict[
-            str,
-            tuple[tuple[float, float], tuple[float, float]],
-        ] = {}
+        profiles: dict[str, tuple[tuple[float, float], ...]] = {}
         for reference in references:
             geometry = reference.get("geometry", {})
             points = (
@@ -25380,11 +25599,11 @@ class MainWindow(QMainWindow):
                 else ()
             )
             if geometry.get("type") == "polyline" and len(points) >= 2:
-                endpoints[str(reference.get("id", ""))] = (
-                    (float(points[0][0]), float(points[0][1])),
-                    (float(points[-1][0]), float(points[-1][1])),
+                profiles[str(reference.get("id", ""))] = tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in points
                 )
-        if not endpoints:
+        if not profiles:
             return
         entities = self._stored_sketch_entities(sketch)
         changed = False
@@ -25395,12 +25614,23 @@ class MainWindow(QMainWindow):
             endpoint = entity.get("external_profile_endpoint")
             if (
                 entity.get("type") != "point"
-                or reference_id not in endpoints
+                or reference_id not in profiles
             ):
                 continue
-            if endpoint not in (0, 1):
+            points = profiles[reference_id]
+            fraction = entity.get("external_profile_fraction")
+            if fraction is not None:
+                try:
+                    point_index = round(
+                        float(fraction) * (len(points) - 1)
+                    )
+                except (TypeError, ValueError):
+                    continue
+            elif endpoint in (0, 1):
+                point_index = 0 if endpoint == 0 else len(points) - 1
+            else:
                 continue
-            x, y = endpoints[reference_id][endpoint]
+            x, y = points[max(0, min(len(points) - 1, point_index))]
             if entity.get("x") != x or entity.get("y") != y:
                 entity["x"], entity["y"] = x, y
                 changed = True
@@ -25729,13 +25959,11 @@ class MainWindow(QMainWindow):
                 return None
         # Reference picking maps hits on the displayed Boolean result back to
         # the original history solid.  That solid is intentionally absent
-        # from the viewer scene, so its face cannot be resolved through the
-        # scene owner below.  Read only the selected face from the original
-        # standalone feature; edges and vertices already have their working
-        # selection/projection paths and must remain unchanged.
+        # from the viewer scene, so every supported topology kind must be
+        # resolved directly from its standalone historical feature.
         if (
             stable_shape is None
-            and source_kind == "face"
+            and source_kind in ("face", "edge", "point")
             and descriptor.get("reference_scope") != "assembly_component"
             and owner is not None
             and owner.kind == EntityKind.CONTAINER
@@ -25746,9 +25974,14 @@ class MainWindow(QMainWindow):
             except (RuntimeError, ValueError):
                 source_shape = None
             if source_shape is not None:
+                shape_type = {
+                    "face": TopAbs_FACE,
+                    "edge": TopAbs_EDGE,
+                    "point": TopAbs_VERTEX,
+                }[source_kind]
                 stable_shape = self._subshape_from_shape(
                     source_shape,
-                    TopAbs_FACE,
+                    shape_type,
                     element_index,
                 )
         scene = self._native_viewer_scene
@@ -25922,7 +26155,15 @@ class MainWindow(QMainWindow):
                 }
             points = self._project_edge_polyline(shape, local_point)
             return (
-                {"type": "polyline", "points": points}
+                {
+                    "type": "polyline",
+                    "points": points,
+                    "source_curve_type": (
+                        "circle"
+                        if adaptor.GetType() == GeomAbs_Circle
+                        else "spline"
+                    ),
+                }
                 if points is not None
                 else None
             )
@@ -27704,7 +27945,6 @@ class MainWindow(QMainWindow):
                 sketch
             ),
         )
-        self._show_active_sketch_feature_extent_overlay(sketch)
         self._show_all_sketch_dimensions(sketch)
         self._rebuild_application_toolbar()
         self.statusBar().showMessage(tr("sketch.status.editing"))
@@ -30253,6 +30493,12 @@ class MainWindow(QMainWindow):
 
     def _finish_current_sketch_tool(self) -> None:
         if self._sketch_edit_entity_id is None:
+            return
+        if self._sketch_reference_mode:
+            self._set_sketch_reference_mode(False)
+            self._sketch_selected_external_reference_id = None
+            self._refresh_sketch_overlay()
+            self._rebuild_application_toolbar()
             return
         if (
             self._selection_controller.active
@@ -39430,6 +39676,12 @@ class MainWindow(QMainWindow):
             return_target is not None
             and return_target.kind == EntityKind.CONTAINER
         ):
+            stale_dialog = self.point_constraint_dialog
+            if stale_dialog is not None and not stale_dialog.isVisible():
+                # The accepted pre-Sketcher dialog can remain assigned until
+                # its queued finished notification is delivered.  It must
+                # not prevent creation of the returned Properties dialog.
+                self.point_constraint_dialog = None
             self._select_tree_object_without_reference_event(
                 return_target.entity_id
             )
@@ -39457,8 +39709,12 @@ class MainWindow(QMainWindow):
                 # settled; this never evaluates the history Boolean.
                 QTimer.singleShot(
                     0,
-                    lambda target=return_target:
-                    self._restore_returned_feature_wire_preview(target),
+                    lambda target=return_target: QTimer.singleShot(
+                        0,
+                        lambda: self._restore_returned_feature_wire_preview(
+                            target
+                        ),
+                    ),
                 )
 
     def _restore_returned_feature_wire_preview(
@@ -39468,10 +39724,20 @@ class MainWindow(QMainWindow):
         dialog = self.point_constraint_dialog
         if (
             isinstance(dialog, ProtrusionConstraintDialog)
-            and dialog.isVisible()
             and dialog.point_object is target
         ):
             self._show_protrusion_profile_overlay(target)
+            origin = next(
+                (
+                    child for child in target.children
+                    if child.kind == EntityKind.ORIGIN
+                ),
+                None,
+            )
+            if origin is not None:
+                self.native_viewer.set_selected_container_origin(
+                    origin.entity_id
+                )
 
     def _begin_definition_edit(self, obj: ZimaEntity) -> None:
         self._definition_dialog_depth += 1
@@ -39613,20 +39879,9 @@ class MainWindow(QMainWindow):
         dialog = self.point_constraint_dialog
         if dialog is None or dialog.point_object is not None:
             return None
-        has_position_reference = bool(dialog.references)
-        has_orientation_reference = any(
-            reference is not None
-            for reference in getattr(
-                dialog,
-                "_container_orientation_references",
-                (),
-            )
+        solution = dialog.solution or tuple(
+            float(edit.value()) for edit in dialog.coordinate_edits
         )
-        if not has_position_reference and not has_orientation_reference:
-            return None
-        solution = dialog.solution
-        if solution is None:
-            return None
         rotation_edits = getattr(dialog, "rotation_edits", None)
         rotation_offset = (
             tuple(float(edit.value()) for edit in rotation_edits)
@@ -40026,20 +40281,27 @@ class MainWindow(QMainWindow):
         unit = str(entity.parameters.get("unit", "mm"))
         for dimension in dimensions:
             overlay = ParameterEditOverlay(self.native_viewer)
+            dimension_references = self._constraint_references(entity)
+            if not dimension_references:
+                reference_owner = self.document.find_owning_object(
+                    entity.entity_id
+                )
+                if reference_owner is not None:
+                    dimension_references = self._constraint_references(
+                        reference_owner
+                    )
             if dimension.key.startswith("reference_offset:"):
                 reference_index = int(dimension.key.rsplit(":", 1)[1])
-                references = self._constraint_references(entity)
                 value = self._format_display_value(
-                    references[reference_index].get("offset", 0.0)
+                    dimension_references[reference_index].get("offset", 0.0)
                 )
                 self._dimension_bindings[dimension.key] = (
                     "reference_offset",
                     reference_index,
                 )
             elif dimension.key == "work_plane_offset":
-                references = self._constraint_references(entity)
                 value = self._format_display_value(
-                    self._container_plane_offset(references)
+                    self._container_plane_offset(dimension_references)
                 )
                 self._dimension_bindings[dimension.key] = (
                     "work_plane_offset",
@@ -40746,6 +41008,9 @@ class MainWindow(QMainWindow):
             and self._sketch_show_all_dimensions
         ):
             return
+        self._dismiss_view_selection_requested = True
+        self._part_hover_container_id = None
+        self._part_hover_container_mesh = None
         self._clear_dimension_overlays()
 
     def _position_dimension_overlays(self) -> None:
@@ -41240,21 +41505,21 @@ class MainWindow(QMainWindow):
             if owner is not None:
                 owner.coordinate_system.origin = solution
         elif binding[0] == "work_plane_offset":
-            references = self._constraint_references(entity)
-            frame = next(
-                (
-                    descriptor for descriptor in references
-                    if descriptor.get("type") == "container_orientation"
-                ),
-                None,
+            container = (
+                entity
+                if entity.kind == EntityKind.CONTAINER
+                else self.document.find_owning_object(entity.entity_id)
             )
-            if frame is None:
+            if container is None:
                 return
-            frame["work_plane_offset"] = value
-            entity.parameters["constraint_refs"] = json.dumps(
-                references,
-                ensure_ascii=False,
+            # Use the same commit path as the dedicated feature-properties
+            # overlay. It updates the container reference and the consuming
+            # feature parameter, regenerates, and recreates the dimensions.
+            self._commit_container_work_plane_offset(
+                container.entity_id,
+                f"{value:.12g}",
             )
+            return
         else:
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
@@ -41497,9 +41762,18 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return ()
         references = self._constraint_references(entity)
+        owner = self.document.find_owning_object(entity.entity_id)
+        if not references and owner is not None:
+            # Feature dimensions are displayed for the internal Protrusion /
+            # Revolve entity, but its work-plane definition is owned by the
+            # surrounding history container.
+            references = [
+                descriptor
+                for descriptor in self._constraint_references(owner)
+                if descriptor.get("type") == "container_orientation"
+            ]
         if not references:
             return ()
-        owner = self.document.find_owning_object(entity.entity_id)
         anchor = (
             owner.coordinate_system.origin
             if owner is not None
@@ -41636,6 +41910,17 @@ class MainWindow(QMainWindow):
                     )
                     for axis in range(3)
                 )
+                primary_role = next(
+                    (
+                        str(mapping.get("role", "front"))
+                        for mapping in mappings
+                        if isinstance(mapping, dict)
+                        and mapping.get("slot") == "primary"
+                    ),
+                    "front",
+                )
+                if primary_role == "back":
+                    normal = tuple(-value for value in normal)
                 offset_point = tuple(
                     base[axis] + normal[axis] * offset for axis in range(3)
                 )
@@ -42591,6 +42876,12 @@ class MainWindow(QMainWindow):
             base_edge_mesh=self._native_viewer_scene.body_mesh,
         )
         self.native_viewer.set_feature_preview_owners(set())
+        self.native_viewer.set_excluded_object_owners(
+            {self.document.root.entity_id}
+            if self.document.document_settings.get("type") != "assembly"
+            and not self.document.body_is_suppressed()
+            else set()
+        )
         self.native_viewer.set_excluded_topology_owners(
             self._definition_reference_excluded_ids()
         )

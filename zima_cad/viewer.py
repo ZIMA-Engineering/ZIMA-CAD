@@ -574,7 +574,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._surface_owner_ranges_cache: tuple[
             tuple[str, int, int], ...
         ] = ()
-        self._base_edge_cache_key: int | None = None
+        # Keep the actual edge collection alive while its serialized GPU
+        # data is cached.  Caching only id(edges) allowed CPython to recycle
+        # the integer after a regenerated mesh was released, making a new
+        # body's wireframe accidentally reuse the previous edge buffer.
+        self._base_edge_cache_source: object | None = None
         self._base_edge_cache_data = b""
         self._base_edge_cache_ranges: tuple[tuple[int, int], ...] = ()
         self._base_edge_cache_vertex_count = 0
@@ -620,6 +624,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_reference_owner_id: str | None = None
         self._constraint_reference_owner_ids: frozenset[str] = frozenset()
         self._excluded_topology_owner_ids: frozenset[str] = frozenset()
+        self._excluded_object_owner_ids: frozenset[str] = frozenset()
         self._constraint_reference_faces: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_edges: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_points: frozenset[TopologyKey] = frozenset()
@@ -630,6 +635,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
         self._pending_model_hover_position: QPointF | None = None
+        self._last_model_hover_position: QPointF | None = None
         self._model_hover_timer = QTimer(self)
         self._model_hover_timer.setSingleShot(True)
         self._model_hover_timer.setInterval(50)
@@ -1726,6 +1732,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._excluded_topology_owner_ids = frozenset(owner_ids)
         self._clear_topology_hover()
 
+    def set_excluded_object_owners(self, owner_ids: set[str]) -> None:
+        """Disable viewport object picks while retaining tree highlights."""
+        excluded = frozenset(owner_ids)
+        if excluded == self._excluded_object_owner_ids:
+            return
+        self._excluded_object_owner_ids = excluded
+        if self._hovered_object_id in excluded:
+            self._set_hovered_object(None)
+        if self._selected_object_id in excluded:
+            self._set_selected_object(None)
+        self.update()
+
     def _topology_owner_is_selectable(self, owner_id: str) -> bool:
         return (
             owner_id not in self._excluded_topology_owner_ids
@@ -2343,6 +2361,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             candidate for candidate
                             in self._mesh.triangle_owner_ids
                             if candidate
+                            and candidate
+                            not in self._excluded_object_owner_ids
                         ),
                         "",
                     )
@@ -2996,11 +3016,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._pending_model_hover_position = None
         if (
             position is None
-            or self._sketch_frame is not None
+            or (
+                self._sketch_frame is not None
+                and not self._sketch_reference_selection_mode
+            )
             or not self._selection_enabled
             or self._navigation_active
         ):
             return
+        self._last_model_hover_position = QPointF(position)
         if (
             self._selected_object_id is not None
             or (
@@ -3645,10 +3669,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and len(base_edge_mesh.edges) <= len(mesh.edges)
                 else 0
             )
-            base_cache_key = (
-                id(base_edge_mesh.edges) if base_edge_count else None
+            base_cache_source = (
+                base_edge_mesh.edges if base_edge_count else None
             )
-            if base_cache_key != self._base_edge_cache_key:
+            if base_cache_source is not self._base_edge_cache_source:
                 base_values = array("f")
                 base_ranges: list[tuple[int, int]] = []
                 base_vertex_start = 0
@@ -3662,7 +3686,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         (base_vertex_start, len(display_points))
                     )
                     base_vertex_start += len(display_points)
-                self._base_edge_cache_key = base_cache_key
+                self._base_edge_cache_source = base_cache_source
                 self._base_edge_cache_data = base_values.tobytes()
                 self._base_edge_cache_ranges = tuple(base_ranges)
                 self._base_edge_cache_vertex_count = base_vertex_start
@@ -11752,11 +11776,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ]
 
     def _pick_object(self, position: QPointF) -> str | None:
+        excluded = getattr(
+            self,
+            "_excluded_object_owner_ids",
+            frozenset(),
+        )
         face = self._pick_face(position)
-        if face is not None:
+        if (
+            face is not None
+            and face[0] not in excluded
+        ):
             return face[0]
         edge = self._pick_edge(position)
-        return edge[0] if edge is not None else None
+        return (
+            edge[0]
+            if edge is not None
+            and edge[0] not in excluded
+            else None
+        )
 
     def _pick_axis(self, position: QPointF) -> TopologyKey | None:
         # Do not call the unrestricted edge picker and filter its result
