@@ -6516,6 +6516,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if label:
                 orange = QColor("#FF7A00")
                 painter.setPen(QPen(orange, 2.0))
+                painter.setBrush(QBrush(orange))
+                painter.drawEllipse(preview, 5.0, 5.0)
                 painter.drawText(QPointF(preview.x() + 8.0, preview.y() - 8.0), label)
 
         if self._sketch_pending_points:
@@ -6938,14 +6940,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     infinite_line(pending[-1], preview)
                 else:
                     painter.drawLine(pending[-1], preview)
-                if self._sketch_tool in (
-                    "segment", "construction", "polyline", "polyline_arc",
-                ):
-                    # The cursor controls the second point. Keep it visible
-                    # even when the active inference only has an H/V label.
-                    painter.setPen(QPen(QColor("#FF7A00"), 2.0))
-                    painter.setBrush(QBrush(QColor("#FF7A00")))
-                    painter.drawEllipse(preview, 4.5, 4.5)
                 preview_labels: list[str] = []
                 if (
                     self._sketch_tool == "spline"

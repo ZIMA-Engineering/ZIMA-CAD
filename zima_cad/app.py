@@ -1469,6 +1469,7 @@ class PointConstraintDialog(QDialog):
     createRequested = Signal(list, tuple, str, bool, bool)
     updateRequested = Signal(list, tuple, str, bool, bool)
     referenceActivated = Signal(dict)
+    referenceHighlightsChanged = Signal()
     definitionChanged = Signal()
     applied = Signal()
     entityAdopted = Signal()
@@ -1520,10 +1521,7 @@ class PointConstraintDialog(QDialog):
             reference for reference in self.references
             if reference.get("type") != "container_orientation"
         ]
-        self.highlighted_reference_keys = {
-            str(reference.get("key", ""))
-            for reference in self.references
-        }
+        self.highlighted_reference_keys: set[str] = set()
         self._middle_click_origin: QPointF | None = None
         self._middle_click_moved = False
         self._title_drag_origin: QPointF | None = None
@@ -2329,12 +2327,13 @@ class PointConstraintDialog(QDialog):
                     reference["orientation_role"] != "none"
                 )
                 self.references.append(reference)
-                self.highlighted_reference_keys.add(
+                self.highlighted_reference_keys = {
                     str(reference.get("key", ""))
-                )
+                }
                 self._append_reference_row(reference)
                 self._refresh_reference_item_warnings()
                 self._update_solution()
+                self.referenceHighlightsChanged.emit()
                 return
             reference.pop("plane_role", None)
             reference["orientation_role"] = "none"
@@ -2349,10 +2348,13 @@ class PointConstraintDialog(QDialog):
             reference["orientation_role"] = "none"
             reference["orientation_drives_rotation"] = False
         self.references.append(reference)
-        self.highlighted_reference_keys.add(str(reference.get("key", "")))
+        self.highlighted_reference_keys = {
+            str(reference.get("key", ""))
+        }
         self._append_reference_row(reference)
         self._refresh_reference_item_warnings()
         self._update_solution()
+        self.referenceHighlightsChanged.emit()
 
     def _orientation_is_independent(
         self,
@@ -2451,13 +2453,16 @@ class PointConstraintDialog(QDialog):
         # the maximum-reference policy.
         self._replacement_reference_row = row
         key = str(self.references[row].get("key", ""))
-        if key in self.highlighted_reference_keys:
-            self.highlighted_reference_keys.remove(key)
-        else:
-            self.highlighted_reference_keys.add(key)
+        self.highlighted_reference_keys = (
+            set()
+            if self.highlighted_reference_keys == {key}
+            else {key}
+        )
         self._refresh_reference_item_warnings()
         self.reference_list.clearSelection()
-        self.definitionChanged.emit()
+        # Highlighting is viewer-only state. It must never submit the dialog,
+        # rebuild a feature preview or regenerate model history.
+        self.referenceHighlightsChanged.emit()
 
     def _remove_reference_descriptor(
         self,
@@ -2483,6 +2488,7 @@ class PointConstraintDialog(QDialog):
         self._replacement_reference_row = None
         self._references_being_removed.add(removed_key)
         self.highlighted_reference_keys.discard(removed_key)
+        self.referenceHighlightsChanged.emit()
         self.references.pop(row)
         self.reference_list.removeRow(row)
         self._normalize_reference_orientation_roles()
@@ -2689,7 +2695,7 @@ class PointConstraintDialog(QDialog):
             parent._container_orientation_selection_changed(False)
         if hasattr(parent, "_reference_selection_confirmed"):
             parent._reference_selection_confirmed()
-        self.definitionChanged.emit()
+        self.referenceHighlightsChanged.emit()
 
 
 class AxisConstraintDialog(PointConstraintDialog):
@@ -3501,6 +3507,8 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self.blockSignals(signals_were_blocked)
         if len(self.references) > before and not signals_were_blocked:
             self.definitionChanged.emit()
+        if len(self.references) > before:
+            self.referenceHighlightsChanged.emit()
 
     def _remove_reference_at(self, row: int) -> None:
         removed_reference = (
@@ -4504,6 +4512,10 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         # handler must see it before it decides whether to rebuild the Part.
         self._defer_feature_rebuild_for_sketch = True
         if self._submit():
+            # Entering Sketcher ends the Properties reference interaction.
+            # Clear face/edge/point boundary highlights through the shared
+            # renderer-only path before the properties dialog is hidden.
+            self._clear_confirmed_reference_selection()
             self.editSketchRequested.emit(
                 self._profile_sketch_id
                 if self._profile_source == "external"
@@ -11606,6 +11618,59 @@ class MainWindow(QMainWindow):
         self,
         dialog: PointConstraintDialog,
     ) -> None:
+        def sync_property_reference_highlights() -> None:
+            # Property-table references use the QPainter boundary overlay,
+            # which is deliberately independent of the depth buffer.  Force
+            # that presentation before assigning the selected topology key so
+            # rear-facing and body-occluded faces remain visible as cyan wire
+            # instead of falling back to a depth-tested face fill.
+            self.native_viewer.set_outline_face_highlights(True)
+            self._sync_constraint_reference_highlights()
+
+        dialog.referenceHighlightsChanged.connect(
+            sync_property_reference_highlights
+        )
+
+        def enable_feature_live_preview() -> None:
+            if (
+                not isinstance(dialog, ProtrusionConstraintDialog)
+                or getattr(dialog, "_live_preview_connected", False)
+            ):
+                return
+            dialog._live_preview_connected = True
+            dialog._feature_preview_pending = False
+
+            def preview_changes() -> None:
+                if (
+                    not dialog.isVisible()
+                    or dialog._feature_preview_pending
+                ):
+                    return
+                dialog._feature_preview_pending = True
+
+                def rebuild_wire_preview() -> None:
+                    dialog._feature_preview_pending = False
+                    if not dialog.isVisible():
+                        return
+                    # Property changes are a staged visual preview only.  The
+                    # connected create/update handler stores the new values
+                    # and rebuilds the standalone cyan wire, while the input
+                    # body and downstream history stay untouched until OK.
+                    dialog._defer_feature_rebuild = True
+                    dialog._provisional_apply_pending = True
+                    try:
+                        if not dialog._submit():
+                            dialog._provisional_apply_pending = False
+                    finally:
+                        dialog._defer_feature_rebuild = False
+
+                # A spin box may emit several related changes (notably the
+                # symmetric forward/reverse pair). Coalesce one event-loop
+                # turn so the wire is constructed only once for that edit.
+                QTimer.singleShot(0, rebuild_wire_preview)
+
+            dialog.definitionChanged.connect(preview_changes)
+
         def enable_live_preview() -> None:
             if (
                 getattr(dialog, "_live_preview_connected", False)
@@ -11640,6 +11705,7 @@ class MainWindow(QMainWindow):
             dialog.applied.connect(accept_preview_as_baseline)
             dialog.rejected.connect(restore_baseline)
 
+        enable_feature_live_preview()
         dialog.entityAdopted.connect(enable_live_preview)
         enable_live_preview()
         dialog.show()
@@ -18865,6 +18931,53 @@ class MainWindow(QMainWindow):
             )
             self._dimension_overlays[dimension.key] = overlay
         QTimer.singleShot(0, self._position_dimension_overlays)
+
+    def _show_active_sketch_feature_extent_overlay(
+        self,
+        sketch: ZimaEntity,
+    ) -> None:
+        """Keep both feature limits visible while its profile is edited."""
+        if self.document is None:
+            return
+        owner = self.document.find_owning_object(sketch.entity_id)
+        if (
+            owner is None
+            or owner.container_type
+            not in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
+        ):
+            return
+        feature = next(
+            (
+                child for child in owner.children
+                if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+                and not child.locked
+                and str(child.parameters.get("sketch_id", ""))
+                == sketch.entity_id
+            ),
+            None,
+        )
+        if feature is None:
+            return
+        # Sketcher removes the result body at the edited feature's history
+        # boundary. Retain a display-only wire of the standalone feature so
+        # a two-sided protrusion still shows both terminal profiles.
+        shape = self.document.build_standalone_shape(owner)
+        preview_mesh = (
+            triangulate_shape(
+                shape,
+                owner_id=owner.entity_id,
+                edge_kind="sketch",
+                edge_color=FEATURE_PREVIEW_RGB,
+            )
+            if shape is not None
+            else None
+        )
+        self.native_viewer.set_feature_preview_owners(set())
+        self.native_viewer.set_object_overlay(
+            preview_mesh,
+            selected=True,
+            locks_interaction=False,
+        )
 
     def _commit_container_work_plane_offset(
         self,
@@ -27591,6 +27704,7 @@ class MainWindow(QMainWindow):
                 sketch
             ),
         )
+        self._show_active_sketch_feature_extent_overlay(sketch)
         self._show_all_sketch_dimensions(sketch)
         self._rebuild_application_toolbar()
         self.statusBar().showMessage(tr("sketch.status.editing"))
