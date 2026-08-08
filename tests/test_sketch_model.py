@@ -22,6 +22,31 @@ from zima_cad.sketch_geometry import (
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_satisfied_constraint_skips_numerical_jacobian(self):
+        model = SketchModel.from_editor_data(
+            [
+                {"id": "p1", "type": "point", "x": 0.0, "y": 2.0},
+                {
+                    "id": "p2",
+                    "type": "point",
+                    "x": 5.0,
+                    "y": 2.0,
+                    "constraints": [{
+                        "type": "horizontal",
+                        "point_id": "p1",
+                    }],
+                },
+            ],
+            [],
+        )
+
+        def unexpected_jacobian():
+            raise AssertionError("satisfied geometry must not be perturbed")
+
+        model._numerical_jacobian = unexpected_jacobian
+        self.assertTrue(model.solve())
+        self.assertEqual(model.points["p2"].position(), (5.0, 2.0))
+
     def test_driven_point_horizontal_constraint_round_trips(self):
         entities = [
             {"id": "reference", "type": "point", "x": 2.0, "y": 3.0},

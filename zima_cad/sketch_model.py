@@ -1290,6 +1290,12 @@ class SketchModel:
             residuals = list(self._equation_values())
             if not residuals:
                 return True
+            # Most interactive constraints are frequently added to geometry
+            # that already satisfies them (horizontal, vertical, coincident,
+            # parallel, equal length, ...). Avoid perturbing every free
+            # variable merely to discover a zero Jacobian step afterwards.
+            if max(map(abs, residuals), default=0.0) < 1.0e-10:
+                break
             jacobian = self._numerical_jacobian()
             normalized_residuals: list[float] = []
             normalized_jacobian: list[list[float]] = []
@@ -1305,8 +1311,6 @@ class SketchModel:
                 normalized_jacobian.append(
                     [value / scale for value in row]
                 )
-            if max(map(abs, normalized_residuals), default=0.0) < 1.0e-10:
-                break
             variables = len(solver_variables)
             normal = [
                 [0.0] * variables for _ in range(variables)

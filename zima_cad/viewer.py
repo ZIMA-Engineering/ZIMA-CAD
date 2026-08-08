@@ -546,6 +546,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_dragged = False
         self._middle_chorded = False
         self._middle_double_clicked = False
+        self._suppress_next_left_double_click = False
         self._navigation_active = False
         self._navigation_repaint_pending = False
         self._mesh: ViewerMesh | None = None
@@ -616,6 +617,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selection_enabled = True
         self._large_mesh_topology_enabled = False
         self._outline_face_highlights = False
+        self._face_outline_cache: dict[
+            TopologyKey, tuple[tuple[Point3, Point3], ...]
+        ] = {}
         self._object_overlay_mesh: ViewerMesh | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
         self._object_overlay_persistent = False
@@ -670,6 +674,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._sketch_constraint_selection_mode = False
         self._sketch_reference_selection_mode = False
         self._sketch_reference_snapping = False
+        self._sketch_display_only = False
         self._sketch_arc_clockwise: bool | None = None
         self._sketch_arc_last_angle: float | None = None
         self._sketch_arc_accumulated_sweep = 0.0
@@ -771,6 +776,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._sketch_arc_last_angle = None
             self._sketch_arc_accumulated_sweep = 0.0
         self._sketch_selection_mode = selection_mode
+        self._sketch_display_only = bool(
+            frame is not None
+            and not selection_mode
+            and not constraint_selection_mode
+            and sketch_tool is None
+        )
         self._sketch_constraint_selection_mode = (
             constraint_selection_mode
         )
@@ -1024,18 +1035,41 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._camera_animation = animation
         animation.start()
 
-    def set_view_normal(self, normal: Point3) -> None:
+    def set_view_normal(
+        self,
+        normal: Point3,
+        center_point: Point3 | None = None,
+        *,
+        roll_degrees: float = 0.0,
+    ) -> None:
         nx, ny, nz = normal
         length = sqrt(nx * nx + ny * ny + nz * nz)
         if length <= 1e-12:
             return
-        self.camera.yaw_degrees, self.camera.pitch_degrees = (
-            camera_angles_for_view_direction(normal)
-        )
-        self.camera.roll_degrees = 0.0
-        self.camera.pan_x = 0.0
-        self.camera.pan_y = 0.0
+        yaw_degrees, pitch_degrees = camera_angles_for_view_direction(normal)
+        self.camera.yaw_degrees = yaw_degrees
+        self.camera.pitch_degrees = pitch_degrees
+        self.camera.roll_degrees = roll_degrees
         self.camera.zoom = 1.0
+        target_center = self._scene_center if center_point is None else center_point
+        relative = tuple(
+            target_center[axis] - self._scene_center[axis]
+            for axis in range(3)
+        )
+        yaw = radians(yaw_degrees)
+        pitch = radians(pitch_degrees)
+        yaw_x = cos(yaw) * relative[0] - sin(yaw) * relative[1]
+        yaw_y = sin(yaw) * relative[0] + cos(yaw) * relative[1]
+        rotated_y = cos(pitch) * yaw_y - sin(pitch) * relative[2]
+        roll = radians(roll_degrees)
+        rolled_x = cos(roll) * yaw_x - sin(roll) * rotated_y
+        rolled_y = sin(roll) * yaw_x + cos(roll) * rotated_y
+        scale = (
+            float(self.height()) * 0.5
+            / max(self._scene_radius, 1e-9)
+        )
+        self.camera.pan_x = -rolled_x * scale
+        self.camera.pan_y = rolled_y * scale
         self.navigationChanged.emit(self.camera)
         self.update()
 
@@ -1318,6 +1352,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         base_edge_mesh: ViewerMesh | None = None,
     ) -> None:
         previous_mesh = self._mesh
+        if mesh is not previous_mesh:
+            self._face_outline_cache.clear()
         previous_base_edge_mesh = self._base_edge_mesh
         previous_center = self._scene_center
         previous_radius = self._scene_radius
@@ -1941,7 +1977,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         self._paint_screen_constant_edges()
         self._paint_centerlines()
-        self._paint_object_highlights()
         self._paint_reference_highlights()
         self._paint_face_highlight_outlines()
         self._paint_planes()
@@ -1992,42 +2027,48 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for highlighted_face, color in highlights:
             if highlighted_face is None:
                 continue
-            boundary_counts: dict[
-                tuple[Point3, Point3],
-                tuple[int, Point3, Point3],
-            ] = {}
-            for triangle_index, face_index in enumerate(
-                mesh.triangle_face_indices
-            ):
-                owner_id = mesh.triangle_owner_ids[triangle_index]
-                if (owner_id, face_index) != highlighted_face:
-                    continue
-                offset = triangle_index * 9
-                points = tuple(
-                    tuple(
-                        float(positions[offset + vertex * 3 + axis])
-                        for axis in range(3)
-                    )
-                    for vertex in range(3)
-                )
-                for first, second in (
-                    (points[0], points[1]),
-                    (points[1], points[2]),
-                    (points[2], points[0]),
+            boundary = self._face_outline_cache.get(highlighted_face)
+            if boundary is None:
+                boundary_counts: dict[
+                    tuple[Point3, Point3],
+                    tuple[int, Point3, Point3],
+                ] = {}
+                for triangle_index, face_index in enumerate(
+                    mesh.triangle_face_indices
                 ):
-                    key = tuple(sorted((first, second)))
-                    count, _, _ = boundary_counts.get(
-                        key,
-                        (0, first, second),
+                    owner_id = mesh.triangle_owner_ids[triangle_index]
+                    if (owner_id, face_index) != highlighted_face:
+                        continue
+                    offset = triangle_index * 9
+                    points = tuple(
+                        tuple(
+                            float(positions[offset + vertex * 3 + axis])
+                            for axis in range(3)
+                        )
+                        for vertex in range(3)
                     )
-                    boundary_counts[key] = (count + 1, first, second)
-            painter.setPen(QPen(color, 3.0))
-            for count, first, second in boundary_counts.values():
-                if count == 1:
-                    painter.drawLine(
-                        self._screen_point(self._camera_point(first)),
-                        self._screen_point(self._camera_point(second)),
-                    )
+                    for first, second in (
+                        (points[0], points[1]),
+                        (points[1], points[2]),
+                        (points[2], points[0]),
+                    ):
+                        key = tuple(sorted((first, second)))
+                        count, _, _ = boundary_counts.get(
+                            key, (0, first, second)
+                        )
+                        boundary_counts[key] = (count + 1, first, second)
+                boundary = tuple(
+                    (first, second)
+                    for count, first, second in boundary_counts.values()
+                    if count == 1
+                )
+                self._face_outline_cache[highlighted_face] = boundary
+            painter.setPen(QPen(color, 1.0))
+            for first, second in boundary:
+                painter.drawLine(
+                    self._screen_point(self._camera_point(first)),
+                    self._screen_point(self._camera_point(second)),
+                )
         painter.end()
 
     def keyPressEvent(self, event) -> None:
@@ -2041,6 +2082,33 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._sketch_display_only
+            and self._dimensions
+        ):
+            # Dimension inspection is navigation-only. A click on empty view
+            # closes it; clicks on the inspected model are deliberately
+            # swallowed instead of becoming sketch/model selections.
+            if self._pick_object(event.position()) is None:
+                # Qt will still deliver a double-click event if another click
+                # follows quickly. By then the inspection overlay is already
+                # gone, so remember that the sequence belongs to dismissal.
+                self._suppress_next_left_double_click = True
+                application = QApplication.instance()
+                QTimer.singleShot(
+                    (
+                        application.doubleClickInterval()
+                        if application is not None
+                        else 400
+                    ) + 50,
+                    lambda: setattr(
+                        self, "_suppress_next_left_double_click", False
+                    ),
+                )
+                self.dimensionsDismissRequested.emit()
+            event.accept()
+            return
         self._stop_camera_animation()
         if event.button() in (
             Qt.MouseButton.LeftButton,
@@ -3233,6 +3301,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 return
             confirm_sketch = (
                 self._sketch_frame is not None
+                and not self._sketch_display_only
                 and not self._middle_dragged
                 and not self._middle_chorded
             )
@@ -3469,9 +3538,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return suppressed
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._suppress_next_left_double_click
+        ):
+            self._suppress_next_left_double_click = False
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._middle_double_clicked = True
-            if self._sketch_frame is not None:
+            if (
+                self._sketch_frame is not None
+                and not self._sketch_display_only
+            ):
                 self.sketchFinishCurrentRequested.emit()
             else:
                 self.dimensionsDismissRequested.emit()
@@ -3974,14 +4053,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             program,
             self._hovered_edge,
             QVector3D(1.0, 0.48, 0.0),
-            3.0,
+            1.0,
         )
         self._draw_highlighted_object(
             gl,
             program,
             self._hovered_object_id,
             QVector3D(1.0, 0.48, 0.0),
-            3.0,
+            1.0,
         )
         self._draw_highlighted_reference(
             gl,
@@ -3993,14 +4072,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             program,
             self._selected_object_id,
             QVector3D(0.0, 0.82, 1.0),
-            3.0,
+            1.0,
         )
         self._draw_highlighted_edge(
             gl,
             program,
             self._selected_edge,
             QVector3D(0.0, 0.82, 1.0),
-            3.0,
+            1.0,
         )
         for edge in self._constraint_reference_edges:
             self._draw_highlighted_edge(
@@ -4008,7 +4087,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 program,
                 edge,
                 QVector3D(0.0, 0.82, 1.0),
-                3.0,
+                1.0,
             )
         for edge in self._assembly_reference_edges:
             self._draw_highlighted_edge(
@@ -4016,7 +4095,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 program,
                 edge,
                 QVector3D(0.0, 0.82, 1.0),
-                3.0,
+                1.0,
             )
         self._draw_gpu_silhouette_edges(gl, program)
         program.disableAttributeArray(0)
@@ -4153,7 +4232,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if mesh is None or owner_id is None:
             return
         program.setUniformValue("edgeColor", QVector3D(0.0, 0.82, 1.0))
-        gl.glLineWidth(max(3.0, 3.0 * float(self.devicePixelRatioF())))
+        gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         gl.glDisable(GL_DEPTH_TEST)
         for edge, (first_vertex, vertex_count) in zip(
             mesh.edges,
@@ -4313,7 +4392,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(self._object_overlay_color, 3.0))
+        painter.setPen(QPen(self._object_overlay_color, 1.0))
         for edge in mesh.edges:
             projected = [
                 self._screen_point(self._camera_point(point))
@@ -5060,7 +5139,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         dashed = QPen(brown, 1.2, Qt.PenStyle.DashLine)
         dashed.setDashPattern([12.0, 10.0])
         base_centerline_width = 1.2
-        highlight_centerline_width = 3.0
+        highlight_centerline_width = base_centerline_width
         highlight_dash_pattern = (9.0, 4.0, 2.0, 4.0)
         centerline = QPen(
             yellow,
@@ -5117,6 +5196,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._hovered_sketch_external_reference_id or ""
             ).split("||")
             if component
+        )
+        hovered_reference_is_point = any(
+            isinstance(reference.get("geometry"), dict)
+            and reference["geometry"].get("type") in ("point", "axis_point")
+            for reference in self._sketch_external_references
+            if str(reference.get("id", "")) in hovered_reference_ids
         )
         if (
             self._sketch_preview_constraint is not None
@@ -6333,21 +6418,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 ))
 
         for first_id, second_id, constraint_index in symmetric_point_pairs:
-            for point_id in (first_id, second_id):
-                local_point = point_positions.get(point_id)
-                if local_point is None:
-                    continue
-                point = self._screen_point(
-                    self._camera_point(
-                        self._sketch_world_point(local_point)
-                    )
+            del second_id
+            # The constraint record is owned by the driven/entered point.
+            # Drawing a second S at the referenced point incorrectly makes
+            # both operands look driven.
+            local_point = point_positions.get(first_id)
+            if local_point is None:
+                continue
+            point = self._screen_point(
+                self._camera_point(
+                    self._sketch_world_point(local_point)
                 )
-                constraint_markers.append(SketchConstraintMarker(
-                    "S",
-                    point_marker_position(point_id, point),
-                    first_id,
-                    constraint_index,
-                ))
+            )
+            constraint_markers.append(SketchConstraintMarker(
+                "S",
+                point_marker_position(first_id, point),
+                first_id,
+                constraint_index,
+            ))
 
         for position, circle_id in equal_circle_markers:
             key = (circle_id, -3)
@@ -6539,7 +6627,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if self._sketch_preview_constraint == "axis:y"
                 else "C"
                 if (
-                    self._hovered_sketch_external_reference_id is not None
+                    hovered_reference_is_point
                     or self._preview_sketch_entity_id in point_ids
                 )
                 else ""
@@ -7080,7 +7168,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 }
                 if (
                     (
-                        self._hovered_sketch_external_reference_id is not None
+                        hovered_reference_is_point
                         and self._sketch_preview_constraint != "intersection"
                         and not (
                             self._sketch_preview_constraint is not None
@@ -7159,74 +7247,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         "perpendicular:"
                     )
                 ):
-                    # This inference means that the new line leaves its
-                    # supporting geometry normally. Its contact is therefore
-                    # always the already confirmed first point; snapping the
-                    # cursor end elsewhere must not move the relation marker.
-                    perpendicular_contact = pending[-1]
-                    contact_point_id = next(
-                        (
-                            point_id
-                            for point_id, local_point
-                            in point_positions.items()
-                            if hypot(
-                                local_point[0]
-                                - self._sketch_pending_points[-1][0],
-                                local_point[1]
-                                - self._sketch_pending_points[-1][1],
-                            )
-                            <= 1.0e-9
-                        ),
-                        None,
-                    )
-                    perpendicular_slot = (
-                        point_marker_slots.get(contact_point_id, 0)
-                        if contact_point_id is not None
-                        else len(point_labels)
-                    )
+                    # Preview relations belong to the point currently being
+                    # entered. The supporting/reference point must not look
+                    # as though it owns the new constraint.
                     painter.setPen(QPen(QColor("#FF7A00"), 2.0))
                     painter.drawText(
-                        QPointF(
-                            perpendicular_contact.x()
-                            + 7.0
-                            + perpendicular_slot * marker_spacing,
-                            perpendicular_contact.y() - 9.0,
-                        ),
-                        "⊥",
-                    )
-                if preview_labels:
-                    label_position = (
                         QPointF(
                             preview.x()
                             + 9.0
                             + (point_label_width + 8.0 if point_labels else 0.0),
                             preview.y() - 9.0,
-                        )
-                        if self._sketch_preview_constraint
-                        in ("horizontal", "vertical")
-                        or (
-                            self._sketch_preview_constraint is not None
-                            and self._sketch_preview_constraint.startswith(
-                                "equal_length:"
-                            )
-                            and self._sketch_preview_constraint.endswith(
-                                (":horizontal", ":vertical")
-                            )
-                        )
-                        or (
-                            self._sketch_preview_constraint is not None
-                            and self._sketch_preview_constraint.startswith(
-                                "symmetric_point:"
-                            )
-                        )
-                        or self._sketch_tool in (
-                            "circle", "arc", "ellipse", "elliptical_arc",
-                            "hexagon",
-                        )
-                        else QPointF(
-                            (pending[-1].x() + preview.x()) * 0.5 + 6.0,
-                            (pending[-1].y() + preview.y()) * 0.5 - 9.0,
-                        )
+                        ),
+                        "⊥",
+                    )
+                if preview_labels:
+                    label_position = QPointF(
+                        preview.x()
+                        + 9.0
+                        + (point_label_width + 8.0 if point_labels else 0.0),
+                        preview.y() - 9.0,
                     )
                     painter.setPen(QPen(QColor("#FF7A00"), 2.0))
                     painter.setBrush(QBrush(QColor("#FF7A00")))
@@ -7510,7 +7549,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     and entity.get("text_role") == "anchor"
                     and entity.get("text_group") == text_group
                 ):
-                    candidates.append((-1, 0.0, order, str(entity.get("id", ""))))
+                    # A text anchor is still a point. Keep it in the point
+                    # priority tier instead of placing it ahead of every
+                    # ordinary sketch point under the cursor.
+                    candidates.append((0, 0.0, order, str(entity.get("id", ""))))
                     break
         for distance, vertex_id in self._corner_radius_handle_candidates(
             position
@@ -10995,35 +11037,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         position: QPointF,
     ) -> tuple[str, ...]:
         candidates = list(self._sketch_entity_candidates(position))
-        if (
-            self._sketch_tool == "dimension"
-            and len(self._selected_sketch_entity_ids) == 1
-        ):
-            selected_id = next(iter(self._selected_sketch_entity_ids))
-            entity_types = {
-                str(entity.get("id", "")): str(entity.get("type", ""))
-                for entity in self._sketch_entities
-            }
-            if entity_types.get(selected_id) in (
-                "segment",
-                "construction",
-            ):
-                # At a shared vertex the point normally wins hit-testing.
-                # For the second arm of an angular dimension, prefer the
-                # other line.  Keep the selected line behind the point so a
-                # point-to-line dimension remains available where no second
-                # line is present.
-                candidates.sort(
-                    key=lambda candidate: (
-                        0
-                        if candidate != selected_id
-                        and entity_types.get(candidate)
-                        in ("segment", "construction")
-                        else 2
-                        if candidate == selected_id
-                        else 1
-                    )
-                )
+        # Entity hit testing is already sorted with points first. Do not
+        # reorder a line ahead of a shared endpoint for individual tools;
+        # the same point-first interaction contract must hold everywhere.
         candidates.extend(
             f"constraint:{owner_id}:{constraint_index}"
             for bounds, owner_id, constraint_index
@@ -11034,63 +11050,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if reference is not None:
             candidates.append(f"reference:{reference[0]}")
         return tuple(candidates)
-
-    def _paint_object_highlights(self) -> None:
-        mesh = self._mesh
-        if mesh is None:
-            return
-        highlights = (
-            (self._hovered_object_id, QColor.fromRgbF(1.0, 0.48, 0.0)),
-            (self._selected_object_id, QColor.fromRgbF(0.0, 0.82, 1.0)),
-        )
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for owner_id, color in highlights:
-            if owner_id is None:
-                continue
-            painter.setPen(QPen(color, 3.0))
-            for edge in mesh.edges:
-                if (
-                    edge.owner_id != owner_id
-                    or edge.element_kind not in {"edge", "sketch"}
-                    # Object selection deliberately reveals tangent blend
-                    # boundaries which the normal shaded-with-edges mode
-                    # hides.  On a filleted cylinder these are the circular
-                    # curves at both ends of the radius and provide the only
-                    # clear visual description of the selected Body.
-                    or edge.topology_role in {"seam", "periodic_tangent"}
-                ):
-                    continue
-                projected = [
-                    self._screen_point(self._camera_point(point))
-                    for point in edge.points
-                ]
-                for index in range(1, len(projected)):
-                    painter.drawLine(
-                        projected[index - 1],
-                        projected[index],
-                    )
-            # A fully blended body may have no sharp topology edge on its
-            # visible outline.  In that case an object highlight made only
-            # from CAD edges disappears completely.  Include the owner-scoped
-            # tessellation silhouette so Body remains highlightable even when
-            # every boundary has been filleted smooth.
-            view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
-            silhouettes = tuple(
-                edge
-                for edge in self._silhouette_edges
-                if edge.owner_id == owner_id
-            )
-            for first, second in silhouette_segments_from_edges(
-                silhouettes,
-                view_direction,
-            ):
-                painter.drawLine(
-                    self._screen_point(self._camera_point(first)),
-                    self._screen_point(self._camera_point(second)),
-                )
-        painter.end()
 
     def _paint_reference_highlights(self) -> None:
         mesh = self._mesh
@@ -11122,12 +11081,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and key not in self._feature_selected_edges
             ):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
-            if color is None or edge.element_kind not in {
-                "axis",
-                "centerline",
-                "edge",
-                "sketch",
-            }:
+            # Ordinary model/sketch edges are recoloured by the GPU edge
+            # pass. QPainter remains only for screen-constant datum geometry.
+            if color is None or edge.element_kind not in {"axis", "centerline"}:
                 continue
             if (
                 not edge_visible_in_display(edge, self._display_mode)
@@ -11139,7 +11095,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(
                 self._datum_centerline_pen(color, 3.0)
                 if edge.element_kind == "centerline"
-                else QPen(color, 3.0, Qt.PenStyle.SolidLine)
+                else QPen(color, 1.0, Qt.PenStyle.SolidLine)
             )
             projected = [
                 self._screen_point(self._camera_point(point))

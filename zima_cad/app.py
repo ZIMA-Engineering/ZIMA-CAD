@@ -1744,6 +1744,14 @@ class PointConstraintDialog(QDialog):
         )
         self.container_type_combo.setEnabled(editable)
 
+    def basic_container_references_only(self) -> bool:
+        """Whether placement must use datum entities, never Body topology."""
+        return str(self.container_type_combo.currentData()) in {
+            ContainerType.SKETCH.value,
+            ContainerType.PROTRUSION.value,
+            ContainerType.REVOLVE.value,
+        }
+
     def _apply_compact_reference_layout(self, minimum_width: int = 460) -> None:
         """Apply the shared three-row reference-table geometry."""
         reference_row_height = 34
@@ -2193,6 +2201,11 @@ class PointConstraintDialog(QDialog):
         topology_key: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        if self.basic_container_references_only():
+            # Sketch/Extrude/Revolve placement is defined exclusively by
+            # Point/Axis/Plane containers. Result-body faces and edges are
+            # neither valid nor silently converted into stored references.
+            return
         if self._is_own_reference(entity_id):
             return
         descriptor = {
@@ -8579,6 +8592,8 @@ class MainWindow(QMainWindow):
         self._selection_controller = SelectionController()
         self._dimension_overlays: dict[str, ParameterEditOverlay] = {}
         self._dimension_object_id: str | None = None
+        self._dimension_selection_suspended = False
+        self._dimension_inspection_visuals = False
         self._dimension_bindings: dict[str, tuple[Any, ...]] = {}
         self._dimension_owner_ids: dict[str, str] = {}
         self.native_viewer.navigationChanged.connect(
@@ -9324,11 +9339,22 @@ class MainWindow(QMainWindow):
                 )
                 self._mark_application_command(action)
             self.tools_toolbar.addSeparator()
+            template_editor = self._document_type(self.document) in (
+                "drawing_format", "title_block"
+            )
             finish_action = self.tools_toolbar.addAction(
-                tr("sketch.command.finish")
+                tr(
+                    "sketch.command.save_and_close"
+                    if template_editor
+                    else "sketch.command.finish"
+                )
             )
             finish_action.setIcon(resource_icon("sketch"))
-            finish_action.triggered.connect(self._finish_sketch_edit)
+            finish_action.triggered.connect(
+                self._save_and_close_template_sketch
+                if template_editor
+                else self._finish_sketch_edit
+            )
             self._mark_application_command(finish_action)
             finish_button = self.tools_toolbar.widgetForAction(finish_action)
             if finish_button is not None:
@@ -18145,6 +18171,8 @@ class MainWindow(QMainWindow):
         owner_id: str,
         edge_index: int,
     ) -> None:
+        if self._dimension_inspection_visuals:
+            return
         if (
             not owner_id
             or edge_index <= 0
@@ -18465,6 +18493,15 @@ class MainWindow(QMainWindow):
     def _on_native_object_hovered(self, owner_id: str) -> None:
         if self.document is None:
             return
+        if self._dimension_inspection_visuals:
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_object(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self._view_hover_parts.clear()
+            self._view_hover_label.clear()
+            return
         properties_active = (
             getattr(self, "point_constraint_dialog", None) is not None
             and self.point_constraint_dialog.isVisible()
@@ -18523,6 +18560,8 @@ class MainWindow(QMainWindow):
 
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
+            return
+        if self._dimension_inspection_visuals:
             return
         selected_source_mesh = None
         force_clear = self._dismiss_view_selection_requested
@@ -18736,6 +18775,8 @@ class MainWindow(QMainWindow):
             self.document is not None
             and self.document.document_settings.get("type") != "assembly"
             and self._part_hover_container_id is not None
+            and not self._view_selection_confirmed
+            and not self.native_viewer._object_overlay_persistent
         ):
             hovered = self.document.find_entity(
                 self._part_hover_container_id
@@ -18800,12 +18841,6 @@ class MainWindow(QMainWindow):
             self.native_viewer.blockSignals(signals_were_blocked)
         if target.kind == EntityKind.SKETCH:
             self._show_all_sketch_dimensions(target)
-        elif (
-            target.kind == EntityKind.CONTAINER
-            and target.container_type
-            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
-        ):
-            self._show_protrusion_profile_overlay(target)
         else:
             self._show_edit_overlays(
                 target,
@@ -18906,34 +18941,27 @@ class MainWindow(QMainWindow):
             if feature is not None
             else None
         )
-        transform = entity_world_transform(self.document, obj.entity_id)
-        if sketch is None or transform is None:
+        if sketch is None:
             return
-        dialog = self.point_constraint_dialog
-        feature_preview_active = (
-            isinstance(dialog, ProtrusionConstraintDialog)
-            and dialog.point_object is obj
-        )
-        shape = (
-            self.document.build_standalone_shape(obj)
-            if feature_preview_active else None
-        )
-        if shape is None:
-            shape = make_sketch_shape(
-                obj,
-                sketch,
-                transform,
-                plane_offset=float(
-                    feature.parameters.get("profile_offset", 0.0)
-                ) if feature is not None else 0.0,
+        sketch_frame = self._sketch_frame(sketch)
+        if sketch_frame is not None:
+            # Properties and dimension inspection share the same visual
+            # contract: the defining profile is always ordinary thin yellow
+            # sketch geometry. It is display-only and never selectable here.
+            self.native_viewer.set_sketch_overlay(
+                sketch_frame,
+                [
+                    item for item in self._stored_sketch_entities(sketch)
+                    if item.get("text_role")
+                    not in ("outline", "outline_point")
+                ],
+                selection_mode=False,
             )
+        shape = self.document.build_standalone_shape(obj)
         preview_mesh = (
             triangulate_shape(
                 shape,
-                owner_id=(
-                    obj.entity_id if feature_preview_active
-                    else sketch.entity_id
-                ),
+                owner_id=obj.entity_id,
                 edge_kind="sketch",
                 edge_color=FEATURE_PREVIEW_RGB,
             )
@@ -19281,6 +19309,8 @@ class MainWindow(QMainWindow):
         owner_id: str,
         face_index: int,
     ) -> None:
+        if self._dimension_inspection_visuals:
+            return
         if (
             not owner_id
             or face_index <= 0
@@ -19834,6 +19864,8 @@ class MainWindow(QMainWindow):
         element_index: int,
         element_kind: str,
     ) -> None:
+        if self._dimension_inspection_visuals:
+            return
         if (
             not owner_id
             or self.document is None
@@ -20532,6 +20564,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Show the most specific selectable item below the 3D cursor."""
 
+        if self._dimension_inspection_visuals:
+            self._view_hover_parts.clear()
+            self._view_hover_label.clear()
+            return
+
         if owner_id and self._current_definition_owns_reference(owner_id):
             self._view_hover_parts.pop(kind, None)
             signals_were_blocked = self.native_viewer.blockSignals(True)
@@ -20584,6 +20621,9 @@ class MainWindow(QMainWindow):
         owner_id: str,
         face_index: int,
     ) -> None:
+        if self._dimension_inspection_visuals:
+            self.native_viewer._set_hovered_face(None)
+            return
         if (
             self.document is not None
             and self.document.document_settings.get("type") != "assembly"
@@ -21898,6 +21938,7 @@ class MainWindow(QMainWindow):
             operation_target = self._operation_target(obj)
             if (
                 operation_target is not None
+                and operation_target.kind not in SOLID_KINDS
                 and self.document is not None
                 and self.document.document_settings.get("type") != "assembly"
             ):
@@ -22087,6 +22128,14 @@ class MainWindow(QMainWindow):
     def _show_native_viewer_context_menu(self, position: QPoint) -> None:
         if self.native_viewer.consume_context_menu_suppression():
             return
+        hovered_selection_candidate = bool(
+            self._part_hover_container_id
+            or self.native_viewer._hovered_object_id
+            or (
+                self.native_viewer._object_overlay_mesh is not None
+                and not self.native_viewer._object_overlay_persistent
+            )
+        )
         selected_edge_treatment = (
             self.document.find_entity(self._selected_view_edge_treatment_id)
             if self.document is not None
@@ -22224,7 +22273,10 @@ class MainWindow(QMainWindow):
                     color_actions[action],
                 )
             return
-        if self._view_hover_selection_locked():
+        if (
+            self._view_hover_selection_locked()
+            and not hovered_selection_candidate
+        ):
             # Once a whole object is confirmed in blue, RMB belongs only to
             # that selection. Candidate cycling/topology picking resumes
             # after the blue selection is cleared.
@@ -22423,6 +22475,7 @@ class MainWindow(QMainWindow):
                 not is_assembly
                 and self._view_selection_confirmed
                 and selected is not None
+                and not hovered_selection_candidate
             ):
                 self._show_selected_view_context_menu(
                     selected,
@@ -23437,6 +23490,13 @@ class MainWindow(QMainWindow):
 
     def _on_view_selection_preview_confirmed(self) -> None:
         self._view_selection_confirmed = self.selected_object_id is not None
+        self._part_hover_container_id = None
+        self._part_hover_container_mesh = None
+        signals_were_blocked = self.native_viewer.blockSignals(True)
+        try:
+            self.native_viewer._set_hovered_object(None)
+        finally:
+            self.native_viewer.blockSignals(signals_were_blocked)
         selected = self._selected_object()
         if selected is not None and selected.kind == EntityKind.SKETCH:
             self.native_viewer._set_selected_object(selected.entity_id)
@@ -28043,11 +28103,18 @@ class MainWindow(QMainWindow):
         # The camera looks towards the plane from its positive-normal side.
         # With the agreed convention this opens XZ as Front (+X left, +Z up),
         # while an opposite orientation naturally opens Back.
-        self.native_viewer.animate_view_normal(
-            view_direction,
-            frame[0],
-            roll_degrees=roll_degrees,
-        )
+        if str(sketch.parameters.get("template_editor", "")).lower() == "true":
+            self.native_viewer.set_view_normal(
+                view_direction,
+                frame[0],
+                roll_degrees=roll_degrees,
+            )
+        else:
+            self.native_viewer.animate_view_normal(
+                view_direction,
+                frame[0],
+                roll_degrees=roll_degrees,
+            )
 
     @classmethod
     def _sketch_view_orientation(
@@ -39605,6 +39672,17 @@ class MainWindow(QMainWindow):
                 lambda: self._reopen_sketch_properties(sketch_id),
             )
 
+    def _save_and_close_template_sketch(self) -> None:
+        if self._document_type(self.document) not in (
+            "drawing_format", "title_block"
+        ):
+            self._finish_sketch_edit()
+            return
+        tab_index = self.active_document_index
+        self._finish_sketch_edit()
+        if self.save_document():
+            self.close_document_tab(tab_index)
+
     def _cancel_sketch_edit(self) -> None:
         if self._sketch_edit_entity_id is None:
             return
@@ -39939,6 +40017,19 @@ class MainWindow(QMainWindow):
             self._sync_constraint_reference_highlights()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+        dialog = self.point_constraint_dialog
+        preview_target = (
+            dialog.point_object
+            if isinstance(dialog, ProtrusionConstraintDialog)
+            and dialog.isVisible()
+            else None
+        )
+        if preview_target is not None:
+            QTimer.singleShot(
+                0,
+                lambda target=preview_target:
+                self._restore_returned_feature_wire_preview(target),
+            )
 
     def _definition_edit_object(self) -> ZimaEntity | None:
         if (
@@ -39965,6 +40056,17 @@ class MainWindow(QMainWindow):
             and self.point_constraint_dialog.isVisible()
             else set()
         )
+        dialog = self.point_constraint_dialog
+        if (
+            self.document is not None
+            and dialog is not None
+            and dialog.isVisible()
+            and dialog.basic_container_references_only()
+        ):
+            # The Body is a calculated history result, not a basic placement
+            # container. Excluding its owner removes its faces/edges from
+            # hover, candidate cycling and confirmation in one place.
+            excluded.add(self.document.root.entity_id)
         if editing is None:
             return excluded
         if editing.kind != EntityKind.CONTAINER and self.document is not None:
@@ -40371,6 +40473,13 @@ class MainWindow(QMainWindow):
         if not dimensions:
             return False
         self._clear_dimension_overlays()
+        self._dimension_selection_suspended = True
+        self.native_viewer.set_selection_enabled(False)
+        self.selection_filter_combo.setEnabled(False)
+        self.native_viewer._clear_topology_hover()
+        self.native_viewer._clear_topology_selection()
+        self.native_viewer._set_hovered_object(None)
+        self._show_dimension_inspection_visuals(obj, entity)
         self._dimension_object_id = entity.entity_id
         self.native_viewer.set_dimensions(dimensions)
         self.native_viewer.set_locked_dimension_keys({
@@ -40435,7 +40544,93 @@ class MainWindow(QMainWindow):
             )
             self._dimension_overlays[dimension.key] = overlay
         QTimer.singleShot(0, self._position_dimension_overlays)
+        QTimer.singleShot(
+            0,
+            lambda requested_id=obj.entity_id, entity_id=entity.entity_id:
+            self._restore_dimension_inspection_visuals(
+                requested_id, entity_id
+            ),
+        )
         return True
+
+    def _restore_dimension_inspection_visuals(
+        self,
+        requested_id: str,
+        entity_id: str,
+    ) -> None:
+        """Repair overlays after the final queued event of a double-click."""
+        if (
+            not self._dimension_inspection_visuals
+            or self.document is None
+            or self._dimension_object_id != entity_id
+            or (
+                self.native_viewer._sketch_frame is not None
+                and self.native_viewer._object_overlay_mesh is not None
+            )
+        ):
+            return
+        requested = self.document.find_entity(requested_id)
+        entity = self.document.find_entity(entity_id)
+        if requested is not None and entity is not None:
+            self._show_dimension_inspection_visuals(requested, entity)
+
+    def _show_dimension_inspection_visuals(
+        self,
+        requested: ZimaEntity,
+        entity: ZimaEntity,
+    ) -> None:
+        """Show only the inspected result and its defining sketch."""
+        if self.document is None or self._sketch_edit_entity_id is not None:
+            return
+        owner = (
+            requested
+            if requested.kind == EntityKind.CONTAINER
+            else self.document.find_owning_object(requested.entity_id)
+        )
+        if owner is None:
+            owner = self.document.find_owning_object(entity.entity_id)
+        feature = entity
+        if owner is not None and entity.kind not in (
+            EntityKind.PROTRUSION,
+            EntityKind.REVOLVE,
+        ):
+            feature = next((
+                child for child in owner.children
+                if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+            ), entity)
+        sketch = (
+            self.document.find_entity(
+                str(feature.parameters.get("sketch_id", ""))
+            )
+            if feature.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+            else None
+        )
+        if sketch is not None and sketch.kind == EntityKind.SKETCH:
+            frame = self._sketch_frame(sketch)
+            if frame is not None:
+                self.native_viewer.set_sketch_overlay(
+                    frame,
+                    [
+                        item for item in self._stored_sketch_entities(sketch)
+                        if item.get("text_role")
+                        not in ("outline", "outline_point")
+                    ],
+                    selection_mode=False,
+                )
+        if owner is not None:
+            shape = self.document.build_standalone_shape(owner)
+            if shape is not None:
+                self.native_viewer.set_object_overlay(
+                    triangulate_shape(
+                        shape,
+                        owner_id=owner.entity_id,
+                        edge_color=FEATURE_PREVIEW_RGB,
+                    ),
+                    selected=True,
+                    anchor=self._native_object_origin(owner),
+                    locks_interaction=False,
+                )
+        self._dimension_inspection_visuals = True
 
     def _format_display_value(self, value: Any) -> str:
         try:
@@ -41106,6 +41301,18 @@ class MainWindow(QMainWindow):
         self._dimension_bindings.clear()
         self._dimension_owner_ids.clear()
         self.native_viewer.set_dimensions(())
+        if self._dimension_inspection_visuals:
+            self._dimension_inspection_visuals = False
+            self.native_viewer.set_sketch_overlay(None)
+            self.native_viewer.set_object_overlay(None)
+        if self._dimension_selection_suspended:
+            self._dimension_selection_suspended = False
+            self.native_viewer.set_selection_enabled(
+                self.view_selection_enabled
+            )
+            self.selection_filter_combo.setEnabled(
+                self.view_selection_enabled
+            )
 
     def _dismiss_dimension_overlays(self) -> None:
         if (
@@ -43071,6 +43278,19 @@ class MainWindow(QMainWindow):
     def _sync_native_tree_selection(self) -> None:
         if self.document is None:
             return
+        if self._dimension_inspection_visuals:
+            return
+        dialog = self.point_constraint_dialog
+        if (
+            isinstance(dialog, ProtrusionConstraintDialog)
+            and dialog.isVisible()
+            and not dialog.container_orientation_selection_active()
+            and not dialog.profile_pick_active()
+        ):
+            # Feature Properties own the yellow source sketch and cyan
+            # transient result. A late tree-selection event (common after
+            # returning from Sketcher in a long history) must not erase them.
+            return
         signals_were_blocked = self.native_viewer.blockSignals(True)
         try:
             # A tree selection replaces every previous viewport selection.
@@ -43242,9 +43462,10 @@ class MainWindow(QMainWindow):
                 )
                 if obj.kind == EntityKind.CONTAINER:
                     if obj.container_type == ContainerType.IMPORTED_STEP:
-                        self.native_viewer._set_selected_object(
-                            self.document.root.entity_id
-                        )
+                        # Large imported topology is intentionally not walked
+                        # merely because its history container was selected.
+                        # The container Origin, assigned above, is the complete
+                        # and stable selection indication for STEP imports.
                         return
                     source_shape = self.document.build_standalone_shape(obj)
                     if source_shape is not None:
