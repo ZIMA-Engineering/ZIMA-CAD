@@ -4,7 +4,7 @@ type = part
 format_version = 11
 body_visible = true
 body_suppressed = false
-history_cursor = 1
+history_cursor = 0
 
 [DocumentUnits]
 Length = mm
@@ -91,7 +91,7 @@ tolerovani\en = Tolerancing
 tolerovani\fr = Tolérancement
 
 [UserParameterValues]
-nazev = Vzor relace hmotnosti
+nazev =
 norma = 
 polotovar = 
 material = S235JR
@@ -104,51 +104,10 @@ presnost = ISO 2768-mK
 tolerovani = ISO 8015
 hmotnost_sestavy = 
 mnozstvi_sestav = 
-hmotnost = 0.188
+hmotnost = 0
 
 [Relations]
 Data = [{"target":"hmotnost","expression":"model.mass"}]
 
 [Containers]
-items = f809181ec9444edabd9fe44c8bb002e8
-
-[Container.f809181ec9444edabd9fe44c8bb002e8]
-id = f809181ec9444edabd9fe44c8bb002e8
-name = Vzorový kvádr001
-kind = container
-combine_mode = 0
-x = 0
-y = 0
-z = 0
-rx = 0
-ry = 0
-rz = 0
-user_visible = true
-suppressed = false
-tree_exposure = public
-show_auxiliary_geometry = false
-TYPE = BOX
-param.container_type = BOX
-
-[Children.f809181ec9444edabd9fe44c8bb002e8]
-items = 2f4bb2e7d18e4f23b87767b6dc65e4ba
-
-[Entity.2f4bb2e7d18e4f23b87767b6dc65e4ba]
-id = 2f4bb2e7d18e4f23b87767b6dc65e4ba
-name = Cube001
-kind = box
-combine_mode = +
-x = 0
-y = 0
-z = 0
-rx = 0
-ry = 0
-rz = 0
-user_visible = true
-suppressed = false
-tree_exposure = public
-show_auxiliary_geometry = false
-param.length = 40
-param.width = 30
-param.height = 20
-param.unit = mm
+items =
