@@ -10802,30 +10802,22 @@ class MainWindow(QMainWindow):
         # An earlier Apply may currently be displayed as a cached preview.
         # Restore the real document shape first, so every recalculation starts
         # from the same unmodified body and stable topology keys stay valid.
-        self.rebuild_view(fit=False, rebuild_geometry=True)
-        scene = self._native_viewer_scene
-        input_shape = (
-            scene.shapes_by_owner_id.get(self.document.root.entity_id)
-            if scene is not None
-            else None
+        # A document opened from format 11 normally has only BodyResult in its
+        # viewer scene. Fillet/Chamfer are real body calculations, so this is
+        # the correct boundary at which the OCCT input body is materialized.
+        input_shape = self.document.build_shape_at(
+            self._definition_history_boundary()
         )
         if input_shape is None:
             return False
-        preview_registry = TopologyRegistry()
-        for reference, (kind, owner_id, edge_index) in zip(
-            references, keys
-        ):
-            edge = (
-                scene.resolve_topology(owner_id, "edge", edge_index)
-                if scene is not None
-                and kind == SelectionKind.EDGE.value
-                and owner_id
-                and edge_index > 0
-                else None
-            )
-            if edge is None:
-                return False
-            preview_registry.register_edge(reference, edge)
+        # Bind the stable ZIMA references directly to the authoritative input
+        # body. The viewer supplied only EdgeRef values and is deliberately
+        # absent from this body-calculation pipeline.
+        preview_registry = topology_registry_at_shape(
+            self.document,
+            self._definition_history_boundary(),
+            input_shape,
+        )
         try:
             dialog = self.edge_treatment_properties_dialog
             if dialog.operation == ContainerType.FILLET:
@@ -11029,38 +11021,13 @@ class MainWindow(QMainWindow):
         self,
         candidate: SelectionCandidate,
     ) -> SelectionResolution:
-        reference = None
-        # A fillet acts on the accumulated result, never on an isolated
-        # source feature. Resolve the clicked live OCCT edge back into the
-        # displayed result even when a source overlay reported the click.
-        if self.document is not None and candidate.shape is not None:
-            scene = self._native_viewer_scene
-            displayed_shape = (
-                scene.shapes_by_owner_id.get(self.document.root.entity_id)
-                if scene is not None
-                else None
-            )
-            if displayed_shape is not None:
-                explorer = TopExp_Explorer(displayed_shape, TopAbs_EDGE)
-                seen_edges = []
-                runtime_index = 0
-                while explorer.More():
-                    edge = explorer.Current()
-                    if not any(edge.IsSame(existing) for existing in seen_edges):
-                        seen_edges.append(edge)
-                        runtime_index += 1
-                        if candidate.shape.IsSame(edge):
-                            reference = self._cached_fillet_edge_reference(
-                                self.document.root.entity_id,
-                                runtime_index,
-                            )
-                            break
-                    explorer.Next()
-        if reference is None:
-            reference = self._cached_fillet_edge_reference(
-                candidate.owner_id,
-                candidate.element_index,
-            )
+        # Picking already returns the runtime index of the accumulated ZIMA
+        # body. Convert that directly to its stored EdgeRef; no TopoDS edge
+        # from the viewer participates in selection.
+        reference = self._cached_fillet_edge_reference(
+            candidate.owner_id,
+            candidate.element_index,
+        )
         return SelectionResolution(
             value=reference,
             error=(
@@ -11075,14 +11042,7 @@ class MainWindow(QMainWindow):
         owner_id: str,
         edge_index: int,
     ) -> EdgeRef | None:
-        """Resolve a picked body edge without rebuilding displayed history.
-
-        The viewer already owns the live result shape.  Going through
-        ``active_face_registry`` here rebuilt the entire OCCT history before
-        the radius dialog could even be shown.  The shared reference cache
-        reuses that displayed shape for the common single-feature case and
-        retains the registry for subsequent selections.
-        """
+        """Read the picked body's stable edge identity from BodyResult."""
         document = self.document
         if (
             document is None
@@ -11091,6 +11051,18 @@ class MainWindow(QMainWindow):
         ):
             return None
         scene = self._native_viewer_scene
+        curve = (
+            scene.curve_reference(owner_id, edge_index)
+            if scene is not None
+            else None
+        )
+        stored_reference = (
+            parse_edge_reference(curve.reference_id)
+            if curve is not None
+            else None
+        )
+        if stored_reference is not None:
+            return stored_reference
         displayed_shape = (
             scene.shapes_by_owner_id.get(document.root.entity_id)
             if scene is not None

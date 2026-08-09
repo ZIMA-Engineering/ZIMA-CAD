@@ -62,6 +62,30 @@ class OcctBoundaryTests(unittest.TestCase):
             "Opening and saving current documents must use ZIMA data only.",
         )
 
+    def test_edge_treatment_calculation_does_not_resolve_viewer_topology(self) -> None:
+        source_path = PROJECT_ROOT / "zima_cad" / "app.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        function = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_preview_new_fillet"
+        )
+        called_attributes = {
+            node.func.attr
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+        }
+        called_names = {
+            node.func.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("resolve_topology", called_attributes)
+        self.assertIn("topology_registry_at_shape", called_names)
+
     def test_body_result_builds_zima_topology_from_viewer_data(self) -> None:
         mesh = ViewerMesh(
             triangle_positions=(

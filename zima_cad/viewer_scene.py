@@ -372,7 +372,11 @@ def build_document_viewer_scene_data(
     else:
         history_objects = document.history_objects_at(boundary)
         cache_keys = document._shape_history_cache_keys(history_objects)
-        if cached_body_result is None and cache_keys:
+        if (
+            cached_body_result is None
+            and cached_body_shape is None
+            and cache_keys
+        ):
             cached_body_result = document._body_result_cache.get(
                 cache_keys[-1]
             )
