@@ -26948,6 +26948,79 @@ class MainWindow(QMainWindow):
                             locked.add("y")
         return locked
 
+    @staticmethod
+    def _sketch_coordinate_has_dependencies(
+        entities: list[dict[str, Any]],
+        dimensions: list[dict[str, Any]],
+        point_id: str,
+        coordinate: str,
+    ) -> bool:
+        """Whether changing one point coordinate must use the full solver."""
+        if coordinate not in ("x", "y"):
+            return True
+        direction_constraint = "vertical" if coordinate == "x" else "horizontal"
+        perpendicular_constraint = "horizontal" if coordinate == "x" else "vertical"
+        for entity in entities:
+            entity_id = str(entity.get("id", ""))
+            entity_type = str(entity.get("type", ""))
+            entity_point_ids = tuple(map(str, entity.get("point_ids", ())))
+            constraints = entity.get("constraints", ())
+            if entity_type == "point":
+                if entity_id == point_id and isinstance(
+                    entity.get("curve_attachment"), dict
+                ):
+                    return True
+                if not isinstance(constraints, list):
+                    continue
+                for constraint in constraints:
+                    if not isinstance(constraint, dict):
+                        continue
+                    constraint_type = str(constraint.get("type", ""))
+                    related_ids = {
+                        entity_id,
+                        str(constraint.get("point_id", "")),
+                        *map(str, constraint.get("point_ids", ())),
+                    }
+                    if point_id not in related_ids:
+                        continue
+                    if constraint_type == direction_constraint:
+                        return True
+                    if constraint_type == perpendicular_constraint:
+                        continue
+                    if constraint_type == "point_on_reference":
+                        reference_id = str(constraint.get("reference_id", ""))
+                        if reference_id == "sketch_axis:x":
+                            if coordinate == "y":
+                                return True
+                            continue
+                        if reference_id == "sketch_axis:y":
+                            if coordinate == "x":
+                                return True
+                            continue
+                    return True
+                continue
+            if point_id not in entity_point_ids or not isinstance(constraints, list):
+                continue
+            for constraint in constraints:
+                if not isinstance(constraint, dict):
+                    continue
+                constraint_type = str(constraint.get("type", ""))
+                if constraint_type == direction_constraint:
+                    return True
+                if constraint_type != perpendicular_constraint:
+                    return True
+        for dimension in dimensions:
+            if point_id not in map(str, dimension.get("point_ids", ())):
+                continue
+            dimension_type = str(dimension.get("type", ""))
+            if dimension_type == f"distance_{coordinate}":
+                return True
+            if dimension_type not in (
+                "distance_x" if coordinate == "y" else "distance_y",
+            ):
+                return True
+        return False
+
     def _apply_sketch_geometry_constraints(
         self,
         entities: list[dict[str, Any]],
@@ -27664,7 +27737,10 @@ class MainWindow(QMainWindow):
                 target_length = float(dimension.get("value", 0.0))
             except (TypeError, ValueError):
                 continue
-            if target_length <= 1.0e-12:
+            if (
+                dimension_type not in ("distance_x", "distance_y")
+                and target_length <= 1.0e-12
+            ):
                 continue
             first_x, first_y = self._sketch_point_position(first)
             second_x, second_y = self._sketch_point_position(second)
@@ -27674,33 +27750,31 @@ class MainWindow(QMainWindow):
             first_locks = group_locks(first_group)
             second_locks = group_locks(second_group)
             if dimension_type == "distance_x":
-                sign = -1.0 if dx < 0.0 else 1.0
                 if "x" in second_locks and "x" not in first_locks:
                     set_group_position(
                         first_group,
-                        second_x - sign * target_length,
+                        second_x - target_length,
                         first_y,
                     )
                 elif "x" not in second_locks:
                     set_group_position(
                         second_group,
-                        first_x + sign * target_length,
+                        first_x + target_length,
                         second_y,
                     )
                 continue
             if dimension_type == "distance_y":
-                sign = -1.0 if dy < 0.0 else 1.0
                 if "y" in second_locks and "y" not in first_locks:
                     set_group_position(
                         first_group,
                         first_x,
-                        second_y - sign * target_length,
+                        second_y - target_length,
                     )
                 elif "y" not in second_locks:
                     set_group_position(
                         second_group,
                         second_x,
-                        first_y + sign * target_length,
+                        first_y + target_length,
                     )
                 continue
             current_length = math.hypot(dx, dy)
@@ -33774,15 +33848,18 @@ class MainWindow(QMainWindow):
         second_position = self._sketch_point_position(second)
         dimension_type = self._sketch_dimension_preview_type
         if dimension_type == "distance_x":
-            value = abs(second_position[0] - first_position[0])
+            value = second_position[0] - first_position[0]
         elif dimension_type == "distance_y":
-            value = abs(second_position[1] - first_position[1])
+            value = second_position[1] - first_position[1]
         else:
             value = math.hypot(
                 second_position[0] - first_position[0],
                 second_position[1] - first_position[1],
             )
-        if value <= 1.0e-12:
+        if (
+            dimension_type not in ("distance_x", "distance_y")
+            and value <= 1.0e-12
+        ):
             return False
         dimensions = self._stored_sketch_dimensions(sketch)
         if any(
@@ -39747,12 +39824,12 @@ class MainWindow(QMainWindow):
                 first_dimension = (first_x, placement_y)
                 second_dimension = (second_x, placement_y)
                 direction = x_axis
-                display_value = abs(dx)
+                display_value = dx
             elif dimension_type == "distance_y":
                 first_dimension = (placement_x, first_y)
                 second_dimension = (placement_x, second_y)
                 direction = y_axis
-                display_value = abs(dy)
+                display_value = dy
             else:
                 nx, ny = -dy / length, dx / length
                 offset = (
@@ -41875,7 +41952,11 @@ class MainWindow(QMainWindow):
                         and (
                             edited_sketch_dimension is None
                             or edited_sketch_dimension.get("type")
-                            != "distance_line"
+                            not in (
+                                "distance_line",
+                                "distance_x",
+                                "distance_y",
+                            )
                         )
                     )
                 )
@@ -41922,39 +42003,49 @@ class MainWindow(QMainWindow):
                 str(item.get("id", "")): bool(item.get("locked", False))
                 for item in dimensions
             }
-            candidate_model = self._sketch_dimension_independence_model(
-                entity,
+            if not self._sketch_coordinate_has_dependencies(
                 entities,
                 dimensions,
-            )
-            candidate_model.drive_all_dimensions_at_current_values()
-            coordinate_dimension = candidate_model.dimensions.get(
-                f"coordinate:{point_id}:{coordinate}"
-            )
-            if coordinate_dimension is None:
-                coordinate_dimension = SketchDimension(
-                    dimension_id=f"coordinate:{point_id}:{coordinate}",
-                    dimension_type=f"coordinate_{coordinate}",
-                    value=coordinate_value,
-                    point_ids=(point_id,),
-                    driving=True,
-                )
-                candidate_model.add_dimension(coordinate_dimension)
+                point_id,
+                coordinate,
+            ):
+                point[coordinate] = coordinate_value
+                solved_entities = entities
+                solved_dimensions = dimensions
             else:
-                coordinate_dimension.value = coordinate_value
-                coordinate_dimension.driving = True
-            if not candidate_model.solve():
-                self.statusBar().showMessage(
-                    tr("sketch.status.dimension.overconstrained")
+                candidate_model = self._sketch_dimension_independence_model(
+                    entity,
+                    entities,
+                    dimensions,
                 )
-                if self._sketch_show_all_dimensions:
-                    self._show_all_sketch_dimensions(entity)
+                candidate_model.drive_all_dimensions_at_current_values()
+                coordinate_dimension = candidate_model.dimensions.get(
+                    f"coordinate:{point_id}:{coordinate}"
+                )
+                if coordinate_dimension is None:
+                    coordinate_dimension = SketchDimension(
+                        dimension_id=f"coordinate:{point_id}:{coordinate}",
+                        dimension_type=f"coordinate_{coordinate}",
+                        value=coordinate_value,
+                        point_ids=(point_id,),
+                        driving=True,
+                    )
+                    candidate_model.add_dimension(coordinate_dimension)
                 else:
-                    self._show_sketch_point_dimensions(entity, point)
-                return
-            solved_entities, solved_dimensions = (
-                candidate_model.to_editor_data()
-            )
+                    coordinate_dimension.value = coordinate_value
+                    coordinate_dimension.driving = True
+                if not candidate_model.solve():
+                    self.statusBar().showMessage(
+                        tr("sketch.status.dimension.overconstrained")
+                    )
+                    if self._sketch_show_all_dimensions:
+                        self._show_all_sketch_dimensions(entity)
+                    else:
+                        self._show_sketch_point_dimensions(entity, point)
+                    return
+                solved_entities, solved_dimensions = (
+                    candidate_model.to_editor_data()
+                )
             for solved_point in solved_entities:
                 if solved_point.get("type") != "point":
                     continue

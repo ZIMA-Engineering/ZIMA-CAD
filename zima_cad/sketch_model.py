@@ -1229,9 +1229,9 @@ class SketchModel:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
                 if dimension.dimension_type == "distance_x":
-                    actual = abs(dx)
+                    actual = dx
                 elif dimension.dimension_type == "distance_y":
-                    actual = abs(dy)
+                    actual = dy
                 elif dimension.dimension_type == "distance":
                     actual = math.hypot(dx, dy)
                 elif (
@@ -1423,9 +1423,9 @@ class SketchModel:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
                 if dimension.dimension_type == "distance_x":
-                    actual = abs(dx)
+                    actual = dx
                 elif dimension.dimension_type == "distance_y":
-                    actual = abs(dy)
+                    actual = dy
                 elif dimension.dimension_type == "distance":
                     actual = math.hypot(dx, dy)
                 elif (
@@ -1688,9 +1688,9 @@ class SketchModel:
                 dx = positions[1][0] - positions[0][0]
                 dy = positions[1][1] - positions[0][1]
                 if dimension_type == "distance_x":
-                    values.append(dx * dx - target * target)
+                    values.append(dx - target)
                 elif dimension_type == "distance_y":
-                    values.append(dy * dy - target * target)
+                    values.append(dy - target)
                 elif dimension_type == "distance":
                     values.append(
                         dx * dx + dy * dy - target * target

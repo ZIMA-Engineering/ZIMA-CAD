@@ -22,6 +22,27 @@ from zima_cad.sketch_geometry import (
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_signed_horizontal_dimension_changes_point_side(self):
+        model = SketchModel()
+        model.add_point(SketchPoint("origin", 0.0, 0.0))
+        model.add_point(SketchPoint("point", 5.0, 2.0))
+        model.add_constraint(SketchConstraint(
+            "fixed",
+            "point_on_reference",
+            ("origin",),
+            ("sketch_origin",),
+        ))
+        model.add_dimension(SketchDimension(
+            "x",
+            "distance_x",
+            -10.0,
+            ("origin", "point"),
+        ))
+
+        self.assertTrue(model.solve())
+        self.assertAlmostEqual(model.points["point"].x, -10.0)
+        self.assertAlmostEqual(model.points["point"].y, 2.0)
+
     def test_satisfied_constraint_skips_numerical_jacobian(self):
         model = SketchModel.from_editor_data(
             [
@@ -1139,7 +1160,7 @@ class SketchModelTests(unittest.TestCase):
         )
         sketch.add_dimension(
             SketchDimension(
-                "d2", "distance_y", height, ("p2", "p3")
+                "d2", "distance_y", -height, ("p2", "p3")
             )
         )
 

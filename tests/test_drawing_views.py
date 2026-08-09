@@ -2103,6 +2103,58 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual((second["x"], second["y"]), (7.0, 9.0))
         self.assertEqual((first["x"], first["y"]), (-5.0, 3.0))
 
+        second.pop("dimension_locks")
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [first, second],
+            [{
+                "type": "distance_x",
+                "point_ids": ["first", "second"],
+                "value": -4.0,
+                "driving": True,
+            }],
+        )
+
+        self.assertEqual((first["x"], first["y"]), (-5.0, 3.0))
+        self.assertEqual((second["x"], second["y"]), (-9.0, 9.0))
+
+    def test_coordinate_dependencies_are_evaluated_per_direction(self) -> None:
+        entities = [
+            {"type": "point", "id": "p1", "x": 0.0, "y": 0.0},
+            {"type": "point", "id": "p2", "x": 5.0, "y": 0.0},
+            {
+                "type": "segment",
+                "id": "g1",
+                "point_ids": ["p1", "p2"],
+                "constraints": [{"type": "horizontal"}],
+            },
+        ]
+
+        self.assertFalse(MainWindow._sketch_coordinate_has_dependencies(
+            entities, [], "p1", "x"
+        ))
+        self.assertTrue(MainWindow._sketch_coordinate_has_dependencies(
+            entities, [], "p1", "y"
+        ))
+        self.assertFalse(MainWindow._sketch_coordinate_has_dependencies(
+            entities,
+            [{
+                "type": "distance_y",
+                "point_ids": ["p1", "p2"],
+            }],
+            "p1",
+            "x",
+        ))
+        self.assertTrue(MainWindow._sketch_coordinate_has_dependencies(
+            entities,
+            [{
+                "type": "distance_x",
+                "point_ids": ["p1", "p2"],
+            }],
+            "p1",
+            "x",
+        ))
+
     def test_point_line_dimension_placement_slides_along_line(self) -> None:
         first_dimension, second_dimension = (
             MainWindow._point_line_dimension_placement(
