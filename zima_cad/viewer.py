@@ -46,8 +46,6 @@ from PySide6.QtOpenGL import (
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QApplication, QDialog
 
-from OCC.Core.gp import gp_Pnt
-
 from zima_cad.animation import ANIMATION_DURATION_MS
 from zima_cad.sketch_geometry import (
     arc_cardinal_keypoints,
@@ -69,7 +67,7 @@ from zima_cad.spline_geometry import (
     stored_spline_tangent,
 )
 from zima_cad.opengl_platform import OPENGL_CONFIG, platform_shader
-from zima_cad.viewer_mesh import (
+from zima_cad.viewer_data import (
     Point3,
     SilhouetteEdge,
     ViewerMesh,

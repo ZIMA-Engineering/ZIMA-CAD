@@ -14415,51 +14415,22 @@ class MainWindow(QMainWindow):
         component: ZimaEntity,
         face_index: int,
     ) -> tuple[str, str] | None:
-        source_document = self._component_source_document(component)
-        if source_document is None:
-            return None
         scene = self._native_viewer_scene
-        displayed_face = (
-            scene.resolve_topology(
-                component.entity_id,
-                "face",
-                face_index,
-            )
+        surface = (
+            scene.surface_reference(component.entity_id, face_index)
             if scene is not None
             else None
         )
-        source_pick = self._component_source_face_from_displayed_face(
-            component,
-            source_document,
-            displayed_face,
+        reference = (
+            parse_assembly_face_descriptor(surface.reference_id)
+            if surface is not None
+            else None
         )
-        if source_pick is None:
-            source_pick = self._component_source_topology_at_cursor(
-                component,
-                source_document,
-                "face",
-            )
-        if source_pick is not None:
-            source, source_index, source_shape = source_pick
-            reference = standalone_topology_registry(
-                source_document,
-                source,
-                source_shape,
-            ).reference_for_runtime_index(source_index)
-            if reference is None:
-                reference = self._lazy_imported_face_reference(
-                    source,
-                    source_index,
-                )
-        else:
-            reference = None
-        if reference is None:
+        if reference is None or reference.instance_id != component.entity_id:
             return None
         return (
-            assembly_face_descriptor(AssemblyFaceRef(
-                component.entity_id, reference
-            )),
-            f"{component.name} / {reference.role}",
+            surface.reference_id,
+            f"{component.name} / {reference.face.role}",
         )
 
     @staticmethod
@@ -14617,30 +14588,22 @@ class MainWindow(QMainWindow):
     def _stable_component_edge_descriptor(
         self, component: ZimaEntity, edge_index: int
     ) -> tuple[str, str] | None:
-        source_document = self._component_source_document(component)
-        if source_document is None:
-            return None
-        source_pick = self._component_source_topology_at_cursor(
-            component,
-            source_document,
-            "edge",
+        scene = self._native_viewer_scene
+        curve = (
+            scene.curve_reference(component.entity_id, edge_index)
+            if scene is not None
+            else None
         )
-        if source_pick is not None:
-            source, source_index, source_shape = source_pick
-            reference = standalone_topology_registry(
-                source_document,
-                source,
-                source_shape,
-            ).edge_reference_for_runtime_index(source_index)
-        else:
-            reference = None
-        if reference is None:
+        reference = (
+            parse_assembly_edge_descriptor(curve.reference_id)
+            if curve is not None
+            else None
+        )
+        if reference is None or reference.instance_id != component.entity_id:
             return None
         return (
-            assembly_edge_descriptor(AssemblyEdgeRef(
-                component.entity_id, reference
-            )),
-            f"{component.name} / {reference.role}",
+            curve.reference_id,
+            f"{component.name} / {reference.edge.role}",
         )
 
     def _component_source_topology_at_cursor(
@@ -18456,6 +18419,26 @@ class MainWindow(QMainWindow):
             )
         ):
             return
+        if self._accept_assembly_edge_reference(owner_id, edge_index):
+            return
+        if self._sketch_reference_mode:
+            # The displayed ZIMA curve already contains the bounded geometry
+            # needed by Sketcher. Do not rebuild a historical OCCT edge just
+            # to project the same points again.
+            owner = (
+                self.document.find_entity(owner_id)
+                if self.document is not None
+                else None
+            )
+            self._add_sketch_external_reference(
+                "axis"
+                if owner is not None
+                and owner.kind in (EntityKind.ORIGIN, EntityKind.AXIS)
+                else "edge",
+                owner_id,
+                edge_index,
+            )
+            return
         edge_treatment_source_selection = (
             self._selection_controller.request is not None
             and self._selection_controller.request.command_id
@@ -18516,69 +18499,6 @@ class MainWindow(QMainWindow):
             SelectionKind.EDGE, owner_id, edge_index, shape
         ):
             return
-        assembly_dialog = self.assembly_component_dialog
-        if (
-            assembly_dialog is not None
-            and assembly_dialog.isVisible()
-            and not assembly_dialog.selection_paused
-        ):
-            component_id, separator, source_axis_id = owner_id.partition(":")
-            if separator and source_axis_id:
-                descriptor = f"{component_id}:datum_axis:{source_axis_id}"
-                if assembly_dialog.accept_axis(descriptor):
-                    return
-            component = (
-                self.document.find_entity(owner_id)
-                if self.document is not None else None
-            )
-            scene = self._native_viewer_scene
-            edge = (
-                scene.resolve_topology(owner_id, "edge", edge_index)
-                if scene is not None else None
-            )
-            if (
-                component is not None
-                and component.container_type == ContainerType.COMPONENT
-                and edge is not None
-                and BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle
-            ):
-                stable_edge = self._stable_component_edge_descriptor(
-                    component, edge_index
-                )
-                if stable_edge is not None:
-                    descriptor, _label = stable_edge
-                    circle = BRepAdaptor_Curve(edge).Circle()
-                    center = circle.Location()
-                    direction = circle.Axis().Direction()
-                    self._register_lazy_assembly_frame(
-                        assembly_dialog,
-                        descriptor,
-                        (center.X(), center.Y(), center.Z()),
-                        (direction.X(), direction.Y(), direction.Z()),
-                        component.entity_id == assembly_dialog.component.entity_id,
-                    )
-                    if assembly_dialog.accept_axis(descriptor):
-                        return
-        if self._sketch_reference_mode:
-            owner = (
-                self.document.find_entity(owner_id)
-                if self.document is not None
-                else None
-            )
-            self._add_sketch_external_reference(
-                (
-                    "axis"
-                    if owner is not None
-                    and owner.kind in (
-                        EntityKind.ORIGIN,
-                        EntityKind.AXIS,
-                    )
-                    else "edge"
-                ),
-                owner_id,
-                edge_index,
-            )
-            return
         self.native_viewer.set_object_overlay(None)
         if self.document is not None:
             owner = self.document.find_entity(owner_id)
@@ -18608,6 +18528,60 @@ class MainWindow(QMainWindow):
             shape,
             topology_index=edge_index,
         )
+
+    def _accept_assembly_edge_reference(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> bool:
+        """Accept an Assembly axis from calculated ZIMA curve data."""
+        dialog = self.assembly_component_dialog
+        if dialog is None or not dialog.isVisible() or dialog.selection_paused:
+            return False
+        component_id, separator, source_axis_id = owner_id.partition(":")
+        if separator and source_axis_id:
+            descriptor = f"{component_id}:datum_axis:{source_axis_id}"
+            dialog.accept_axis(descriptor)
+            return True
+        component = (
+            self.document.find_entity(owner_id)
+            if self.document is not None
+            else None
+        )
+        scene = self._native_viewer_scene
+        curve = (
+            scene.curve_reference(owner_id, edge_index)
+            if scene is not None
+            else None
+        )
+        if (
+            component is None
+            or component.container_type != ContainerType.COMPONENT
+            or curve is None
+            or curve.kind != "circle"
+            or curve.origin is None
+            or curve.direction is None
+        ):
+            return True
+        stable_edge = self._stable_component_edge_descriptor(
+            component, edge_index
+        )
+        if stable_edge is None:
+            self.statusBar().showMessage(
+                tr("assembly.properties.edge_without_stable_identity"),
+                4000,
+            )
+            return True
+        descriptor, _label = stable_edge
+        self._register_lazy_assembly_frame(
+            dialog,
+            descriptor,
+            curve.origin,
+            curve.direction,
+            component.entity_id == dialog.component.entity_id,
+        )
+        dialog.accept_axis(descriptor)
+        return True
 
     @staticmethod
     def _register_lazy_assembly_frame(
@@ -19607,6 +19581,60 @@ class MainWindow(QMainWindow):
         # are not part of the viewer scene, so this is deliberately done only
         # while a reference dialog/Sketcher is consuming the click.
         result_face_index = face_index
+        if (
+            self._container_orientation_selection_is_active()
+            and self._add_mesh_face_placement_reference(owner_id, face_index)
+        ):
+            # Placement references consume the already calculated ZIMA mesh.
+            # Do this before any historical source lookup, which otherwise
+            # rebuilds and traverses OCCT shapes merely to reopen Properties.
+            return
+        if self._normal_view_selection_active:
+            scene = self._native_viewer_scene
+            surface = (
+                scene.surface_reference(owner_id, face_index)
+                if scene is not None
+                else None
+            )
+            if (
+                surface is None
+                or surface.kind != "plane"
+                or surface.normal is None
+            ):
+                return
+            self.selected_face_object_id = owner_id
+            self._set_view_normal(surface.normal, surface.origin)
+            self.normal_view_action.setChecked(False)
+            return
+        if (
+            self.orientation_dialog is not None
+            and self.orientation_dialog.isVisible()
+            and not self.orientation_dialog.selection_paused
+        ):
+            scene = self._native_viewer_scene
+            surface = (
+                scene.surface_reference(owner_id, face_index)
+                if scene is not None
+                else None
+            )
+            if surface is not None and surface.kind == "plane":
+                owner = (
+                    self.document.find_entity(owner_id)
+                    if self.document is not None
+                    else None
+                )
+                self.orientation_dialog.accept_reference(
+                    f"{owner_id}:face:{face_index}",
+                    f"{owner.name if owner is not None else owner_id} / Face {face_index}",
+                )
+            return
+        if self._accept_assembly_face_reference(owner_id, face_index):
+            return
+        if self._sketch_reference_mode:
+            self._add_sketch_external_reference(
+                "face", owner_id, face_index
+            )
+            return
         source_reference_required = (
             owner_id == self.document.root.entity_id
             and (
@@ -19624,15 +19652,6 @@ class MainWindow(QMainWindow):
         )
         if source_reference_required and source_face is None:
             self.native_viewer._set_selected_face(None)
-            return
-        if (
-            source_face is None
-            and self._container_orientation_selection_is_active()
-            and self._add_mesh_face_placement_reference(
-                owner_id,
-                face_index,
-            )
-        ):
             return
         if source_face is not None:
             # The result face was only the ray hit used to resolve the real
@@ -19670,85 +19689,6 @@ class MainWindow(QMainWindow):
             SelectionKind.FACE, owner_id, face_index, shape
         ):
             return
-        if (
-            self.orientation_dialog is not None
-            and self.orientation_dialog.isVisible()
-            and not self.orientation_dialog.selection_paused
-        ):
-            scene = self._native_viewer_scene
-            shape = scene.resolve_topology(owner_id, "face", face_index) if scene else None
-            if shape is not None and BRepAdaptor_Surface(shape).GetType() == GeomAbs_Plane:
-                owner = self.document.find_entity(owner_id) if self.document else None
-                self.orientation_dialog.accept_reference(
-                    f"{owner_id}:face:{face_index}",
-                    f"{owner.name if owner is not None else owner_id} / Face {face_index}",
-                )
-                return
-        assembly_dialog = self.assembly_component_dialog
-        if (
-            assembly_dialog is not None
-            and assembly_dialog.isVisible()
-            and not assembly_dialog.selection_paused
-        ):
-            owner = self.document.find_entity(owner_id) if self.document is not None else None
-            scene = self._native_viewer_scene
-            selected_shape = (
-                scene.resolve_topology(owner_id, "face", face_index)
-                if scene is not None
-                else None
-            )
-            is_planar = (
-                selected_shape is not None
-                and BRepAdaptor_Surface(selected_shape).GetType() == GeomAbs_Plane
-            )
-            stable_face = (
-                self._stable_component_face_descriptor(owner, face_index)
-                if owner is not None
-                and owner.container_type == ContainerType.COMPONENT
-                else None
-            )
-            if owner is not None and is_planar and stable_face is None:
-                self.statusBar().showMessage(
-                    tr("assembly.properties.face_without_stable_identity"),
-                    4000,
-                )
-                return
-            if owner is not None and is_planar and stable_face is not None:
-                descriptor, label = stable_face
-                properties = GProp_GProps()
-                brepgprop.SurfaceProperties(selected_shape, properties)
-                center = properties.CentreOfMass()
-                direction = BRepAdaptor_Surface(
-                    selected_shape
-                ).Plane().Axis().Direction()
-                self._register_lazy_assembly_frame(
-                    assembly_dialog,
-                    descriptor,
-                    (center.X(), center.Y(), center.Z()),
-                    (direction.X(), direction.Y(), direction.Z()),
-                    owner.entity_id == assembly_dialog.component.entity_id,
-                )
-                if assembly_dialog.accept_face(
-                    owner_id,
-                    face_index,
-                    owner.name,
-                    descriptor,
-                    label,
-                ):
-                    self._apply_native_view_selection(owner_id, selected_shape)
-                    return
-            if selected_shape is not None and not is_planar:
-                self.statusBar().showMessage(
-                    tr("assembly.properties.planar_faces_only"), 4000
-                )
-                return
-        if self._sketch_reference_mode:
-            self._add_sketch_external_reference(
-                "face",
-                owner_id,
-                face_index,
-            )
-            return
         self.native_viewer.set_object_overlay(None)
         scene = self._native_viewer_scene
         if scene is None:
@@ -19756,15 +19696,6 @@ class MainWindow(QMainWindow):
         scene_shape = scene.resolve_topology(owner_id, "face", face_index)
         if scene_shape is not None:
             shape = scene_shape
-        if self._normal_view_selection_active and shape is not None:
-            adaptor = BRepAdaptor_Surface(shape)
-            if adaptor.GetType() != GeomAbs_Plane:
-                return
-            self.selected_face = shape
-            self.selected_face_object_id = owner_id
-            self._view_normal_to_selected_face()
-            self.normal_view_action.setChecked(False)
-            return
         if shape is not None:
             self._apply_native_view_selection(
                 owner_id,
@@ -19787,44 +19718,19 @@ class MainWindow(QMainWindow):
             or face_index <= 0
         ):
             return False
-        mesh = scene.mesh
-        face_indices = np.asarray(mesh.triangle_face_indices)
-        owner_ids = np.asarray(mesh.triangle_owner_ids, dtype=object)
-        mask = (face_indices == face_index) & (owner_ids == owner_id)
-        if not np.any(mask):
-            return False
-        triangles = np.asarray(
-            mesh.triangle_positions,
-            dtype=np.float64,
-        ).reshape((-1, 3, 3))[mask]
-        if not len(triangles):
-            return False
-        normal = None
-        point = None
-        for triangle in triangles:
-            candidate = np.cross(
-                triangle[1] - triangle[0],
-                triangle[2] - triangle[0],
-            )
-            length = float(np.linalg.norm(candidate))
-            if length > 1.0e-12:
-                normal = candidate / length
-                point = triangle[0]
-                break
-        if normal is None or point is None:
-            return False
-        distance = float(np.dot(normal, point))
-        tolerance = max(
-            float(self.native_viewer._scene_radius) * 1.0e-8,
-            1.0e-7,
-        )
-        if np.any(
-            np.abs(triangles.reshape((-1, 3)) @ normal - distance)
-            > tolerance
+        surface = scene.surface_reference(owner_id, face_index)
+        if (
+            surface is None
+            or surface.kind != "plane"
+            or surface.origin is None
+            or surface.normal is None
         ):
-            # Curved faces must still use their exact OCCT adaptor so they
-            # can be rejected by the existing unsupported-surface path.
             return False
+        normal = surface.normal
+        distance = sum(
+            normal[index] * surface.origin[index]
+            for index in range(3)
+        )
         obj = self.document.find_entity(owner_id)
         if obj is None:
             return False
@@ -19850,6 +19756,67 @@ class MainWindow(QMainWindow):
             str(face_index),
             metadata,
         )
+        return True
+
+    def _accept_assembly_face_reference(
+        self,
+        owner_id: str,
+        face_index: int,
+    ) -> bool:
+        """Handle an Assembly properties pick from persisted scene data."""
+        dialog = self.assembly_component_dialog
+        if (
+            dialog is None
+            or not dialog.isVisible()
+            or dialog.selection_paused
+        ):
+            return False
+        owner = (
+            self.document.find_entity(owner_id)
+            if self.document is not None
+            else None
+        )
+        scene = self._native_viewer_scene
+        surface = (
+            scene.surface_reference(owner_id, face_index)
+            if scene is not None
+            else None
+        )
+        if surface is None or surface.kind != "plane":
+            self.statusBar().showMessage(
+                tr("assembly.properties.planar_faces_only"), 4000
+            )
+            return True
+        stable_face = (
+            self._stable_component_face_descriptor(owner, face_index)
+            if owner is not None
+            and owner.container_type == ContainerType.COMPONENT
+            else None
+        )
+        if owner is None or stable_face is None:
+            self.statusBar().showMessage(
+                tr("assembly.properties.face_without_stable_identity"),
+                4000,
+            )
+            return True
+        if surface.origin is None or surface.normal is None:
+            return True
+        descriptor, label = stable_face
+        self._register_lazy_assembly_frame(
+            dialog,
+            descriptor,
+            surface.origin,
+            surface.normal,
+            owner.entity_id == dialog.component.entity_id,
+        )
+        if dialog.accept_face(
+            owner_id,
+            face_index,
+            owner.name,
+            descriptor,
+            label,
+        ):
+            self._select_native_tree_object(owner_id)
         return True
 
     def _source_topology_reference_at_cursor(
@@ -20167,6 +20134,13 @@ class MainWindow(QMainWindow):
             )
         ):
             return
+        if self._sketch_reference_mode and element_kind == "point":
+            self._add_sketch_external_reference(
+                element_kind,
+                owner_id,
+                element_index,
+            )
+            return
         if (
             element_kind == "point"
             and owner_id == self.document.root.entity_id
@@ -20206,16 +20180,16 @@ class MainWindow(QMainWindow):
             and self.point_constraint_dialog.isVisible()
         ):
             scene = self._native_viewer_scene
-            vertex = (
-                scene.resolve_topology(owner_id, "point", element_index)
+            point = (
+                scene.vertex_reference(owner_id, element_index)
                 if scene is not None else None
             )
             owner = self.document.find_entity(owner_id)
-            if vertex is not None and owner is not None:
-                self._add_point_shape_constraint(
+            if point is not None and owner is not None:
+                self._add_mesh_point_placement_reference(
                     owner,
-                    vertex,
-                    topology_index=element_index,
+                    point.position,
+                    element_index,
                 )
                 return
         if (
@@ -21436,6 +21410,7 @@ class MainWindow(QMainWindow):
                     ),
                 },
             )
+
             return
         if shape_type == TopAbs_FACE:
             adaptor = BRepAdaptor_Surface(shape)
@@ -21550,6 +21525,32 @@ class MainWindow(QMainWindow):
                 str(topology_index),
                 reference_metadata,
             )
+
+    def _add_mesh_point_placement_reference(
+        self,
+        obj: ZimaEntity,
+        position: tuple[float, float, float],
+        topology_index: int,
+    ) -> None:
+        """Add a calculated vertex without reconstructing an OCCT vertex."""
+        dialog = self.point_constraint_dialog
+        if dialog is None or topology_index <= 0:
+            return
+        dialog.add_shape_reference(
+            obj.entity_id,
+            self._topology_reference_label(obj, "vertex", topology_index),
+            "vertex",
+            [
+                [1.0, 0.0, 0.0, float(position[0])],
+                [0.0, 1.0, 0.0, float(position[1])],
+                [0.0, 0.0, 1.0, float(position[2])],
+            ],
+            str(topology_index),
+            {
+                **self._shape_reference_metadata(obj),
+                "vertex_index": topology_index,
+            },
+        )
 
     def _reference_topology_registry(self, boundary: int):
         """Reuse the displayed result when creating stable pick identities."""
@@ -22683,15 +22684,8 @@ class MainWindow(QMainWindow):
             ):
                 if kind != "face":
                     continue
-                shape = scene.resolve_topology(
-                    owner_id,
-                    "face",
-                    element_index,
-                )
-                if shape is None:
-                    continue
-                adaptor = BRepAdaptor_Surface(shape)
-                if adaptor.GetType() == GeomAbs_Plane:
+                surface = scene.surface_reference(owner_id, element_index)
+                if surface is not None and surface.kind == "plane":
                     candidates.append(
                         (kind, owner_id, element_index)
                     )
@@ -22751,16 +22745,10 @@ class MainWindow(QMainWindow):
                         != (owner_id == assembly_dialog.component.entity_id)
                     ):
                         continue
-                    shape = scene.resolve_topology(
-                        owner_id,
-                        "face",
-                        element_index,
+                    surface = scene.surface_reference(
+                        owner_id, element_index
                     )
-                    if (
-                        shape is not None
-                        and BRepAdaptor_Surface(shape).GetType()
-                        == GeomAbs_Plane
-                    ):
+                    if surface is not None and surface.kind == "plane":
                         candidates.append((kind, owner_id, element_index))
                     continue
                 if kind != "plane":
@@ -23784,22 +23772,6 @@ class MainWindow(QMainWindow):
     def _cancel_normal_view_selection(self) -> None:
         if self._normal_view_selection_active:
             self.normal_view_action.setChecked(False)
-
-    def _view_normal_to_selected_face(self) -> None:
-        if self.selected_face is None:
-            return
-        adaptor = BRepAdaptor_Surface(self.selected_face)
-        if adaptor.GetType() != GeomAbs_Plane:
-            return
-        direction = adaptor.Plane().Axis().Direction()
-        sign = -1.0 if self.selected_face.Orientation() == TopAbs_REVERSED else 1.0
-        properties = GProp_GProps()
-        brepgprop.SurfaceProperties(self.selected_face, properties)
-        center = properties.CentreOfMass()
-        self._set_view_normal(
-            (sign * direction.X(), sign * direction.Y(), sign * direction.Z()),
-            (center.X(), center.Y(), center.Z()),
-        )
 
     def _world_transform_for_object(self, obj: ZimaEntity | None):
         chain: list[ZimaEntity] = []
@@ -25761,29 +25733,12 @@ class MainWindow(QMainWindow):
         ):
             descriptor["reference_scope"] = "history_result"
             if source_kind in ("face", "edge", "point"):
-                owner = self.document.find_owning_object(sketch.entity_id)
-                history_index = (
-                    self.document.history_index(owner.entity_id)
-                    if owner is not None
-                    else None
-                )
-                registry = (
-                    face_registry_at(self.document, history_index)
-                    if history_index is not None
-                    else None
-                )
                 reference = (
-                    registry.reference_for_runtime_index(element_index)
-                    if registry is not None and source_kind == "face"
-                    else registry.edge_reference_for_runtime_index(
-                        element_index
+                    self._body_result_topology_reference(
+                        source_kind,
+                        owner_id,
+                        element_index,
                     )
-                    if registry is not None and source_kind == "edge"
-                    else registry.vertex_reference_for_runtime_index(
-                        element_index
-                    )
-                    if registry is not None and source_kind == "point"
-                    else None
                 )
                 if reference is None:
                     self.statusBar().showMessage(
@@ -25858,6 +25813,39 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("sketch.status.reference_added")
         )
+
+    def _body_result_topology_reference(
+        self,
+        source_kind: str,
+        owner_id: str,
+        element_index: int,
+    ):
+        """Read a stable topology identity calculated with the body."""
+        scene = self._native_viewer_scene
+        if scene is None:
+            return None
+        if source_kind == "face":
+            surface = scene.surface_reference(owner_id, element_index)
+            return (
+                parse_face_reference(surface.reference_id)
+                if surface is not None
+                else None
+            )
+        if source_kind == "edge":
+            curve = scene.curve_reference(owner_id, element_index)
+            return (
+                parse_edge_reference(curve.reference_id)
+                if curve is not None
+                else None
+            )
+        if source_kind == "point":
+            point = scene.vertex_reference(owner_id, element_index)
+            return (
+                parse_vertex_reference(point.reference_id)
+                if point is not None
+                else None
+            )
+        return None
 
     def _resolved_sketch_external_references(
         self,
@@ -26399,6 +26387,47 @@ class MainWindow(QMainWindow):
                     sketch_normal,
                     self._reference_origin(coordinate_entity),
                     self._reference_direction(coordinate_entity, normal),
+                    local_point,
+                    projected_line,
+                )
+
+        # BodyResult is the normal interaction boundary.  Its data is already
+        # in world coordinates and is sufficient for bounded Sketcher point
+        # and edge references; resolving TopoDS topology here only repeats the
+        # body calculation on the first click.
+        scene = self._native_viewer_scene
+        if scene is not None and source_kind == "point":
+            point = scene.vertex_reference(owner_id, element_index)
+            if point is not None:
+                return {
+                    "type": "point",
+                    "point": list(local_point(point.position)),
+                }
+        if scene is not None and source_kind == "edge":
+            curve = scene.curve_reference(owner_id, element_index)
+            if curve is not None and len(curve.points) >= 2:
+                return {
+                    "type": "polyline",
+                    "points": [
+                        list(local_point(point)) for point in curve.points
+                    ],
+                    "source_curve_type": (
+                        curve.kind if curve.kind != "other" else "spline"
+                    ),
+                }
+        if scene is not None and source_kind == "face":
+            surface = scene.surface_reference(owner_id, element_index)
+            if (
+                surface is not None
+                and surface.kind == "plane"
+                and surface.origin is not None
+                and surface.normal is not None
+            ):
+                return self._project_plane_intersection(
+                    sketch_origin,
+                    sketch_normal,
+                    surface.origin,
+                    surface.normal,
                     local_point,
                     projected_line,
                 )
@@ -43789,6 +43818,16 @@ class MainWindow(QMainWindow):
                 if cached_body_shape is not None
                 and reuse_body_geometry
                 and previous_scene is not None
+                else None
+            ),
+            cached_body_result=(
+                previous_scene.body_result
+                if previous_scene is not None
+                and (
+                    cached_body_mesh is previous_scene.body_mesh
+                    or cached_body_shape is not None
+                    and reuse_body_geometry
+                )
                 else None
             ),
         )

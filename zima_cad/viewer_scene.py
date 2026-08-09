@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Any
 
+from zima_cad.body_result import BodyResult
 from zima_cad.model import (
     CoordinateSystem,
     ContainerType,
@@ -16,6 +17,15 @@ from zima_cad.model import (
     make_datum_axis_shape,
     multiply_transforms,
     transform_shape,
+    active_face_registry,
+)
+from zima_cad.topology import (
+    AssemblyEdgeRef,
+    AssemblyFaceRef,
+    EdgeRef,
+    FaceRef,
+    assembly_edge_descriptor,
+    assembly_face_descriptor,
 )
 from zima_cad.viewer_mesh import (
     BROWN,
@@ -40,12 +50,22 @@ class DocumentViewerScene:
     mesh: ViewerMesh
     shapes_by_owner_id: dict[str, Any]
     surface_colors_by_owner_id: dict[str, str]
-    body_mesh: ViewerMesh | None = None
+    body_result: BodyResult | None = None
+    calculated_body_mesh: ViewerMesh | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     _resolved_topology: dict[tuple[str, str, int], Any] = field(
         default_factory=dict,
         compare=False,
         repr=False,
     )
+
+    @property
+    def body_mesh(self) -> ViewerMesh | None:
+        """Compatibility view while callers migrate to ``body_result``."""
+        return self.calculated_body_mesh
 
     def resolve_topology(
         self,
@@ -63,6 +83,27 @@ class DocumentViewerScene:
         )
         self._resolved_topology[cache_key] = resolved
         return resolved
+
+    def surface_reference(self, owner_id: str, face_index: int):
+        return (
+            self.body_result.surface(owner_id, face_index)
+            if self.body_result is not None
+            else None
+        )
+
+    def curve_reference(self, owner_id: str, edge_index: int):
+        return (
+            self.body_result.curve(owner_id, edge_index)
+            if self.body_result is not None
+            else None
+        )
+
+    def vertex_reference(self, owner_id: str, point_index: int):
+        return (
+            self.body_result.vertex(owner_id, point_index)
+            if self.body_result is not None
+            else None
+        )
 
 
 def build_document_viewer_scene(
@@ -105,6 +146,7 @@ def build_document_viewer_scene_data(
     component_documents: dict[str, PartDocument] | None = None,
     cached_body_shape: Any | None = None,
     cached_body_mesh: ViewerMesh | None = None,
+    cached_body_result: BodyResult | None = None,
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -118,6 +160,18 @@ def build_document_viewer_scene_data(
     shapes_by_owner_id: dict[str, Any] = {}
     surface_colors_by_owner_id: dict[str, str] = {}
     body_mesh: ViewerMesh | None = None
+    face_reference_ids: dict[tuple[str, int], str] = {}
+    edge_reference_ids: dict[tuple[str, int], str] = {}
+    vertex_reference_ids: dict[tuple[str, int], str] = {}
+    imported_face_count = max(
+        (
+            int(child.parameters.get("face_count", 0) or 0)
+            for obj in document.history_objects_at(boundary)
+            for child in obj.children
+            if child.kind == EntityKind.IMPORTED_STEP
+        ),
+        default=0,
+    )
 
     is_assembly = document.document_settings.get("type") == "assembly"
     if is_assembly:
@@ -166,6 +220,54 @@ def build_document_viewer_scene_data(
                     else inherited_color
                 )
                 layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
+                component_mesh = layers[-1]
+                if source_document is not None:
+                    registry = active_face_registry(source_document)
+                    imported = next((
+                        child
+                        for source in source_document.history_objects()
+                        for child in source.children
+                        if child.kind == EntityKind.IMPORTED_STEP
+                        and not child.locked
+                    ), None)
+                    for face_index in set(
+                        component_mesh.triangle_face_indices
+                    ):
+                        reference = registry.reference_for_runtime_index(
+                            face_index
+                        )
+                        if reference is None and imported is not None:
+                            reference = FaceRef(
+                                imported.entity_id,
+                                "imported",
+                                str(face_index),
+                            )
+                        if reference is not None:
+                            face_reference_ids[(obj.entity_id, face_index)] = (
+                                assembly_face_descriptor(AssemblyFaceRef(
+                                    obj.entity_id,
+                                    reference,
+                                ))
+                            )
+                    for edge in component_mesh.edges:
+                        if edge.element_kind != "edge":
+                            continue
+                        reference = registry.edge_reference_for_runtime_index(
+                            edge.edge_index
+                        )
+                        if reference is None and imported is not None:
+                            reference = EdgeRef(
+                                imported.entity_id,
+                                "imported",
+                                str(edge.edge_index),
+                            )
+                        if reference is not None:
+                            edge_reference_ids[(
+                                obj.entity_id, edge.edge_index
+                            )] = assembly_edge_descriptor(AssemblyEdgeRef(
+                                obj.entity_id,
+                                reference,
+                            ))
             source_document = (component_documents or {}).get(obj.entity_id)
             if show_user_axes and source_document is not None:
                 source_document.sync_generated_axes()
@@ -337,6 +439,54 @@ def build_document_viewer_scene_data(
                     )
             layers.append(body_mesh)
 
+    if (
+        not is_assembly
+        and body_mesh is not None
+        and cached_body_result is None
+    ):
+        # Semantic identities are part of a newly calculated body result.
+        # Compute them here, while OCCT calculation is allowed, rather than
+        # lazily during the first Sketcher reference click.
+        root_id = document.root.entity_id
+        if imported_face_count > INTERACTIVE_TOPOLOGY_FACE_LIMIT:
+            imported = next((
+                child
+                for obj in document.history_objects_at(boundary)
+                for child in obj.children
+                if child.kind == EntityKind.IMPORTED_STEP
+            ), None)
+            if imported is not None:
+                for face_index in set(body_mesh.triangle_face_indices):
+                    face_reference_ids[(root_id, face_index)] = FaceRef(
+                        imported.entity_id,
+                        "imported",
+                        str(face_index),
+                    ).serialize()
+        else:
+            registry = active_face_registry(document)
+            for face_index in set(body_mesh.triangle_face_indices):
+                reference = registry.reference_for_runtime_index(face_index)
+                if reference is not None:
+                    face_reference_ids[(root_id, face_index)] = (
+                        reference.serialize()
+                    )
+            for edge in body_mesh.edges:
+                reference = registry.edge_reference_for_runtime_index(
+                    edge.edge_index
+                )
+                if reference is not None:
+                    edge_reference_ids[(root_id, edge.edge_index)] = (
+                        reference.serialize()
+                    )
+            for point in body_mesh.points:
+                reference = registry.vertex_reference_for_runtime_index(
+                    point.point_index
+                )
+                if reference is not None:
+                    vertex_reference_ids[(root_id, point.point_index)] = (
+                        reference.serialize()
+                    )
+
     reference_scene_size = _scene_diagonal(layers)
     for obj in document.visible_objects():
         _append_object_sketches(
@@ -479,11 +629,29 @@ def build_document_viewer_scene_data(
                     screen_constant=True,
                 )
             )
+    scene_mesh = combine_viewer_meshes(tuple(layers))
     return DocumentViewerScene(
-        mesh=combine_viewer_meshes(tuple(layers)),
+        mesh=scene_mesh,
         shapes_by_owner_id=shapes_by_owner_id,
         surface_colors_by_owner_id=surface_colors_by_owner_id,
-        body_mesh=body_mesh,
+        body_result=BodyResult.from_mesh(
+            scene_mesh,
+            face_reference_ids=face_reference_ids,
+            edge_reference_ids=edge_reference_ids,
+            vertex_reference_ids=vertex_reference_ids,
+            inherited=(
+                cached_body_result
+                if cached_body_mesh is not None
+                else None
+            ),
+            skip_triangle_count=(
+                cached_body_mesh.triangle_count
+                if cached_body_mesh is not None
+                and cached_body_result is not None
+                else 0
+            ),
+        ),
+        calculated_body_mesh=body_mesh,
     )
 
 
