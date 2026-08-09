@@ -39,6 +39,7 @@ from PySide6.QtGui import (
     QPen,
     QPicture,
     QPolygonF,
+    QTransform,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
@@ -1570,6 +1571,49 @@ class DrawingCanvas(QWidget):
             baseline_y -= offset_y * self._pixels_per_mm
             block_painter.drawText(QPointF(text_x, baseline_y), text)
 
+        def draw_sketch_text(text: str, entity: dict) -> QRectF:
+            anchor_x = float(entity.get("anchor_x", entity.get("x", 0.0)))
+            anchor_y = float(entity.get("anchor_y", entity.get("y", 0.0)))
+            anchor = point(anchor_x, anchor_y)
+            font = QFont(str(entity.get("font", "osifont")))
+            font.setPixelSize(1000)
+            metrics = QFontMetricsF(font)
+            ink = metrics.tightBoundingRect(text)
+            # ISO/CAD text height is the capital-letter height.  Scaling by
+            # this particular string's ink bounds made equal-height labels
+            # visibly different whenever accents or descenders were present.
+            scale = max(float(entity.get("height", 2.5)), 0.01) / max(
+                metrics.capHeight(), 1.0
+            )
+            angle = radians(float(entity.get("angle", 0.0)))
+            x_sign = -1.0 if bool(entity.get("flip", False)) else 1.0
+            x_local = (x_sign * cos(angle) * scale, x_sign * sin(angle) * scale)
+            y_local = (sin(angle) * scale, -cos(angle) * scale)
+            x_screen = point(anchor_x + x_local[0], anchor_y + x_local[1])
+            y_screen = point(anchor_x + y_local[0], anchor_y + y_local[1])
+            transform = QTransform(
+                x_screen.x() - anchor.x(), x_screen.y() - anchor.y(),
+                y_screen.x() - anchor.x(), y_screen.y() - anchor.y(),
+                anchor.x(), anchor.y(),
+            )
+            x_offset = {
+                "left": -ink.left(), "center": -(ink.left() + ink.right()) * 0.5,
+                "right": -ink.right(),
+            }.get(str(entity.get("align", "left")), -ink.left())
+            y_offset = {
+                "bottom": -ink.bottom(),
+                "middle": -(ink.top() + ink.bottom()) * 0.5,
+                "center": -(ink.top() + ink.bottom()) * 0.5,
+                "top": -ink.top(), "baseline": 0.0,
+            }.get(str(entity.get("vertical_align", "bottom")), -ink.bottom())
+            origin = QPointF(x_offset, y_offset)
+            block_painter.save()
+            block_painter.setFont(font)
+            block_painter.setTransform(transform, combine=True)
+            block_painter.drawText(origin, text)
+            block_painter.restore()
+            return transform.mapRect(ink.translated(origin)).normalized()
+
         for entity in definition.get("geometry", []):
             pen_definition = pens[str(entity["pen"])]
             block_painter.setPen(self._drawing_pen(
@@ -1586,15 +1630,13 @@ class DrawingCanvas(QWidget):
                 radius = float(entity["radius"]) * self._pixels_per_mm
                 block_painter.drawEllipse(center, radius, radius)
             elif entity["kind"] == "text":
-                font = QFont(original_font)
-                font.setPixelSize(max(
-                    1,
-                    round(float(entity["height"]) * self._pixels_per_mm),
-                ))
-                block_painter.setFont(font)
-                block_painter.drawText(
-                    point(float(entity["x"]), float(entity["y"])),
-                    str(entity["text"]),
+                draw_sketch_text(
+                    resolve_title_block_text(
+                        entity,
+                        context=self._title_block_context,
+                        sheet=self._sheet,
+                    ),
+                    entity,
                 )
         for field in definition.get("fields", []):
             pen_definition = pens[str(field["pen"])]
@@ -1603,6 +1645,10 @@ class DrawingCanvas(QWidget):
                 float(pen_definition["width"]),
             ))
             value = self._title_block_field_value(field)
+            if "anchor_x" in field:
+                bounds = draw_sketch_text(value, field)
+                self._title_block_field_screen_bounds[str(field["id"])] = bounds
+                continue
             box_width = float(field.get("box_width", 0.0))
             box_height = float(field.get("box_height", 0.0))
             if box_width > 0.0 and box_height > 0.0:
@@ -1659,24 +1705,6 @@ class DrawingCanvas(QWidget):
                     point(float(field["x"]), float(field["y"])),
                     value,
                 )
-        content_origin = definition.get("content_origin", (0.0, 0.0))
-        origin_x = float(content_origin[0])
-        origin_y = float(content_origin[1])
-
-        def head_point(x: float, y: float) -> QPointF:
-            return point(x + origin_x, y + origin_y)
-
-        def draw_head_text(text: str, **arguments) -> None:
-            arguments["x"] = float(arguments.get("x", 0.0)) + origin_x
-            arguments["y"] = float(arguments.get("y", 0.0)) + origin_y
-            draw_box_text(text, **arguments)
-
-        self._draw_title_block_head(
-            block_painter,
-            head_point,
-            draw_head_text,
-            pens,
-        )
         block_painter.end()
         self._title_block_picture = picture
         self._title_block_picture_key = cache_key
@@ -1688,31 +1716,6 @@ class DrawingCanvas(QWidget):
             context=self._title_block_context,
             sheet=self._sheet,
         )
-
-    def _draw_title_block_head(self, painter, point, draw_text, pens) -> None:
-        rows = list(self._title_block_context.get("head_rows", []))
-        if not rows:
-            return
-        line_pen = pens["YELLOW"]
-        painter.setPen(self._drawing_pen(
-            QColor(str(line_pen["color"])), float(line_pen["width"])
-        ))
-        for index in range(1, len(rows)):
-            bottom = 50.0 + index * 10.0
-            top = bottom + 10.0
-            for x in (0.0, 15.0, 77.0, 145.0, 162.5, 180.0):
-                painter.drawLine(point(x, bottom), point(x, top))
-            painter.drawLine(point(0.0, top), point(180.0, top))
-            painter.drawLine(point(15.0, bottom + 5.0), point(145.0, bottom + 5.0))
-        for index, row in enumerate(rows):
-            y = 50.0 + index * 10.0
-            draw_text(str(row.get("item", "-")), x=1.5, y=y, width=13.0, height=10.0)
-            draw_text(str(row.get("name", "-")), x=16.5, y=y + 5.0, width=59.0, height=5.0)
-            draw_text(str(row.get("drawing_norm", "")), x=16.5, y=y, width=59.0, height=5.0)
-            draw_text(str(row.get("stock", "")), x=78.5, y=y + 5.0, width=65.0, height=5.0)
-            draw_text(str(row.get("material", "")), x=78.5, y=y, width=65.0, height=5.0)
-            draw_text(str(row.get("weight", "-")), x=146.5, y=y, width=15.0, height=10.0)
-            draw_text(str(row.get("quantity", "1")), x=164.0, y=y, width=14.5, height=10.0)
 
     def _draw_origin_indicator(self, painter: QPainter) -> None:
         # Drawing coordinates use the lower-right paper corner as zero:

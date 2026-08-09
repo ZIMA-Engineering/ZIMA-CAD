@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import sqrt
 from typing import Literal, Mapping
 
@@ -62,6 +62,62 @@ class BodyResult:
     vertices: dict[str, VertexDescriptor] = field(default_factory=dict)
     physical: PhysicalProperties = field(default_factory=PhysicalProperties)
     source_bodies: dict[str, "BodyResult"] = field(default_factory=dict)
+
+    def with_inferred_face_boundaries(
+        self,
+        face_keys: set[str] | None = None,
+    ) -> "BodyResult":
+        """Fill missing face/edge incidence from persisted viewer geometry."""
+        missing = {
+            key for key, descriptor in self.faces.items()
+            if not descriptor.boundary_edge_ids
+            and (face_keys is None or key in face_keys)
+        }
+        if not missing or not self.mesh.edges:
+            return self
+        vertices_by_face: dict[str, set[tuple[float, float, float]]] = {}
+        for triangle_index, (owner_id, face_index) in enumerate(zip(
+            self.mesh.triangle_owner_ids,
+            self.mesh.triangle_face_indices,
+        )):
+            key = _reference_id(owner_id, "face", face_index)
+            if key not in missing:
+                continue
+            offset = triangle_index * 9
+            vertices_by_face.setdefault(key, set()).update(
+                tuple(
+                    round(float(self.mesh.triangle_positions[
+                        offset + vertex * 3 + axis
+                    ]), 7)
+                    for axis in range(3)
+                )
+                for vertex in range(3)
+            )
+        boundaries: dict[str, list[str]] = {
+            key: [] for key in vertices_by_face
+        }
+        for edge in self.mesh.edges:
+            descriptor = self.curve(edge.owner_id, edge.edge_index)
+            if descriptor is None or not edge.points:
+                continue
+            edge_points = {
+                tuple(round(float(value), 7) for value in point)
+                for point in edge.points
+            }
+            for face_key, face_vertices in vertices_by_face.items():
+                if edge_points.issubset(face_vertices):
+                    boundaries[face_key].append(descriptor.reference_id)
+        faces = dict(self.faces)
+        changed = False
+        for key, reference_ids in boundaries.items():
+            if not reference_ids:
+                continue
+            faces[key] = replace(
+                faces[key],
+                boundary_edge_ids=tuple(sorted(set(reference_ids))),
+            )
+            changed = True
+        return replace(self, faces=faces) if changed else self
 
     def to_dict(self) -> dict:
         return {
@@ -150,6 +206,9 @@ class BodyResult:
         mesh: ViewerMesh,
         *,
         face_reference_ids: Mapping[tuple[str, int], str] | None = None,
+        face_boundary_edge_ids: Mapping[
+            tuple[str, int], tuple[str, ...]
+        ] | None = None,
         edge_reference_ids: Mapping[tuple[str, int], str] | None = None,
         vertex_reference_ids: Mapping[tuple[str, int], str] | None = None,
         inherited: "BodyResult | None" = None,
@@ -191,6 +250,9 @@ class BodyResult:
                 kind="plane" if plane is not None else "other",
                 origin=plane[0] if plane is not None else None,
                 normal=plane[1] if plane is not None else None,
+                boundary_edge_ids=(face_boundary_edge_ids or {}).get(
+                    (owner_id, face_index), ()
+                ),
             )
         edges = dict(inherited.edges if inherited is not None else {})
         edges.update({

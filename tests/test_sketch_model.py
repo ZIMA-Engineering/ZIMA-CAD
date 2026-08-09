@@ -22,6 +22,43 @@ from zima_cad.sketch_geometry import (
 
 
 class SketchModelTests(unittest.TestCase):
+    def test_direct_axis_dimension_translates_the_free_entity(self):
+        model = SketchModel()
+        model.add_point(SketchPoint("fixed", 0.0, 0.0))
+        model.add_point(SketchPoint("free_a", 5.0, 2.0))
+        model.add_point(SketchPoint("free_b", 8.0, 2.0))
+        model.add_geometry(SketchGeometry(
+            "free_line",
+            GeometryType.SEGMENT,
+            ("free_a", "free_b"),
+        ))
+        model.add_constraint(SketchConstraint(
+            "fixed_origin",
+            "point_on_reference",
+            ("fixed",),
+            ("sketch_origin",),
+        ))
+        model.add_dimension(SketchDimension(
+            "gap", "distance_x", 5.0, ("fixed", "free_a")
+        ))
+
+        self.assertTrue(model.try_direct_axis_dimension_update("gap", 12.0))
+        self.assertAlmostEqual(model.points["fixed"].x, 0.0)
+        self.assertAlmostEqual(model.points["free_a"].x, 12.0)
+        self.assertAlmostEqual(model.points["free_b"].x, 15.0)
+
+    def test_direct_axis_dimension_rejects_two_free_sides(self):
+        model = SketchModel()
+        model.add_point(SketchPoint("first", 0.0, 0.0))
+        model.add_point(SketchPoint("second", 5.0, 0.0))
+        model.add_dimension(SketchDimension(
+            "gap", "distance_x", 5.0, ("first", "second")
+        ))
+
+        self.assertFalse(model.try_direct_axis_dimension_update("gap", 12.0))
+        self.assertAlmostEqual(model.points["first"].x, 0.0)
+        self.assertAlmostEqual(model.points["second"].x, 5.0)
+
     def test_signed_horizontal_dimension_changes_point_side(self):
         model = SketchModel()
         model.add_point(SketchPoint("origin", 0.0, 0.0))

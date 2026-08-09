@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Any
 
+from OCC.Core.TopAbs import TopAbs_EDGE
+from OCC.Core.TopExp import TopExp_Explorer, topexp
+from OCC.Core.TopTools import TopTools_IndexedMapOfShape
+
 from zima_cad.body_result import BodyResult
 from zima_cad.model import (
     CoordinateSystem,
@@ -165,6 +169,7 @@ def build_document_viewer_scene_data(
     surface_colors_by_owner_id: dict[str, str] = {}
     body_mesh: ViewerMesh | None = None
     face_reference_ids: dict[tuple[str, int], str] = {}
+    face_boundary_edge_ids: dict[tuple[str, int], tuple[str, ...]] = {}
     edge_reference_ids: dict[tuple[str, int], str] = {}
     vertex_reference_ids: dict[tuple[str, int], str] = {}
     imported_face_count = max(
@@ -590,6 +595,32 @@ def build_document_viewer_scene_data(
                     vertex_reference_ids[(root_id, point.point_index)] = (
                         reference.serialize()
                     )
+            if shape is not None:
+                global_edges = TopTools_IndexedMapOfShape()
+                topexp.MapShapes(shape, TopAbs_EDGE, global_edges)
+                for face_index in set(body_mesh.triangle_face_indices):
+                    face = topology_subshape(
+                        shape,
+                        element_kind="face",
+                        element_index=face_index,
+                    )
+                    if face is None:
+                        continue
+                    boundary_ids: set[str] = set()
+                    explorer = TopExp_Explorer(face, TopAbs_EDGE)
+                    while explorer.More():
+                        edge_index = global_edges.FindIndex(
+                            explorer.Current()
+                        )
+                        reference_id = edge_reference_ids.get(
+                            (root_id, edge_index)
+                        )
+                        if reference_id:
+                            boundary_ids.add(reference_id)
+                        explorer.Next()
+                    face_boundary_edge_ids[(root_id, face_index)] = tuple(
+                        sorted(boundary_ids)
+                    )
 
     reference_scene_size = _scene_diagonal(layers)
     for obj in document.visible_objects():
@@ -739,12 +770,39 @@ def build_document_viewer_scene_data(
         else BodyResult.from_mesh(
             body_mesh,
             face_reference_ids=face_reference_ids,
+            face_boundary_edge_ids=face_boundary_edge_ids,
             edge_reference_ids=edge_reference_ids,
             vertex_reference_ids=vertex_reference_ids,
         )
         if body_mesh is not None
         else None
     )
+    if calculated_body_result is not None:
+        treatment_feature_ids = {
+            child.entity_id
+            for obj in document.history_objects_at(boundary)
+            if obj.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
+            for child in obj.children
+            if child.kind in (EntityKind.FILLET, EntityKind.CHAMFER)
+        }
+        treatment_face_keys = {
+            key
+            for key, descriptor in calculated_body_result.faces.items()
+            if (
+                (reference := parse_face_reference(descriptor.reference_id))
+                is not None
+                and reference.feature_id in treatment_feature_ids
+                and reference.role == "generated"
+            )
+        }
+        calculated_body_result = (
+            calculated_body_result.with_inferred_face_boundaries(
+                treatment_face_keys
+            )
+        )
     if calculated_body_result is not None:
         cache_keys = document._shape_history_cache_keys(
             document.history_objects_at(boundary)
@@ -761,6 +819,7 @@ def build_document_viewer_scene_data(
         body_result=BodyResult.from_mesh(
             scene_mesh,
             face_reference_ids=face_reference_ids,
+            face_boundary_edge_ids=face_boundary_edge_ids,
             edge_reference_ids=edge_reference_ids,
             vertex_reference_ids=vertex_reference_ids,
             inherited=calculated_body_result,

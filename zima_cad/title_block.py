@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import configparser
+import json
 from pathlib import Path
 import re
 
 from zima_cad.drawing_format import load_native_geometry
+from zima_cad.sketch_geometry import (
+    center_arc_points,
+    ellipse_points,
+    elliptical_arc_points,
+)
+from zima_cad.sketch_model import SketchModel
 
 
 TITLE_BLOCK_TOKEN_PATTERN = re.compile(
@@ -150,6 +157,72 @@ def load_title_block(path: Path) -> dict:
     if width <= 0.0 or height <= 0.0:
         raise ValueError("Title-block dimensions must be positive.")
     geometry, pens = load_native_geometry(parser, "Geometry")
+    sketch_model = None
+    if parser.has_option("Sketch", "Data"):
+        sketch_model = SketchModel.from_dict(json.loads(parser.get("Sketch", "Data")))
+        entities, _dimensions = sketch_model.to_editor_data()
+        points = {
+            str(entity["id"]): entity
+            for entity in entities if entity.get("type") == "point"
+        }
+        geometry = []
+
+        def add_polyline(samples: list[tuple[float, float]], pen: str) -> None:
+            for first, second in zip(samples, samples[1:]):
+                geometry.append({
+                    "kind": "line", "x1": first[0], "y1": first[1],
+                    "x2": second[0], "y2": second[1], "pen": pen,
+                })
+
+        for entity in entities:
+            if entity.get("text_role") in {"outline", "outline_point"}:
+                continue
+            if entity.get("template_field_id"):
+                continue
+            kind = entity.get("type")
+            pen = str(entity.get("pen", "GREEN")).upper()
+            if pen not in pens:
+                raise ValueError(f"Unsupported drawing pen: {pen}")
+            if kind == "point" and entity.get("text_role") == "anchor":
+                geometry.append({
+                    "kind": "text", "text": str(entity.get("text_value", "")),
+                    "x": float(entity.get("x", 0.0)),
+                    "y": float(entity.get("y", 0.0)),
+                    "height": float(entity.get("text_height", 2.5)),
+                    "pen": pen,
+                    "align": str(entity.get("text_horizontal", "left")),
+                    "vertical_align": str(entity.get("text_vertical", "bottom")),
+                    "angle": float(entity.get("text_angle", 0.0)),
+                    "flip": bool(entity.get("text_flip", False)),
+                    "font": str(entity.get("text_font", "osifont")),
+                })
+                continue
+            point_ids = list(entity.get("point_ids", ()))
+            raw = [
+                (float(points[item]["x"]), float(points[item]["y"]))
+                for item in point_ids if item in points
+            ]
+            if kind in ("segment", "construction") and len(raw) == 2:
+                add_polyline(raw, pen)
+            elif kind == "circle" and len(raw) == 1:
+                geometry.append({
+                    "kind": "circle", "x": raw[0][0], "y": raw[0][1],
+                    "radius": float(entity.get("radius", 0.0)), "pen": pen,
+                })
+            elif kind == "arc" and len(raw) >= 3:
+                add_polyline(list(center_arc_points(
+                    raw[0], raw[1], raw[2],
+                    clockwise=bool(entity.get("clockwise", False)),
+                )), pen)
+            elif kind == "ellipse" and len(raw) >= 3:
+                add_polyline(list(ellipse_points(raw[0], raw[1], raw[2])), pen)
+            elif kind == "elliptical_arc" and len(raw) >= 5:
+                add_polyline(list(elliptical_arc_points(
+                    raw[0], raw[1], raw[2], raw[3], raw[4],
+                    clockwise=bool(entity.get("clockwise", False)),
+                )), pen)
+            elif kind == "spline":
+                add_polyline(raw, pen)
     geometry_x = [
         float(value)
         for entity in geometry
@@ -171,6 +244,26 @@ def load_title_block(path: Path) -> dict:
         if value is not None
     ]
     fields = _load_fields(parser, pens)
+    if sketch_model is not None:
+        anchors = {
+            str(point.attributes.get("template_field_id")): point
+            for point in sketch_model.points.values()
+            if point.attributes.get("template_field_id")
+        }
+        for field in fields:
+            anchor = anchors.get(str(field["id"]))
+            if anchor is None:
+                continue
+            field.update({
+                "anchor_x": anchor.x,
+                "anchor_y": anchor.y,
+                "align": str(anchor.attributes.get("text_horizontal", "left")),
+                "vertical_align": str(anchor.attributes.get("text_vertical", "bottom")),
+                "height": float(anchor.attributes.get("text_height", field["height"])),
+                "angle": float(anchor.attributes.get("text_angle", 0.0)),
+                "flip": bool(anchor.attributes.get("text_flip", False)),
+                "font": str(anchor.attributes.get("text_font", "osifont")),
+            })
     schema_version = parser.getint(
         "TitleBlock", "SchemaVersion", fallback=1
     )

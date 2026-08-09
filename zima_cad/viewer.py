@@ -3285,7 +3285,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._set_hovered_plane(None)
             self._set_hovered_edge(None)
             datum_container_id = self._datum_container_at(position)
-            face = None if datum_container_id is not None else self._pick_face(position)
+            face = (
+                None
+                if datum_container_id is not None
+                else self._pick_face(
+                    position, ignore_selection_filter=True
+                )
+            )
             owner_id = datum_container_id or (
                 face[0] if face is not None else self._pick_object(position)
             )
@@ -7803,8 +7809,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         metrics = QFontMetrics(font)
         value = str(entity.get("text_value", ""))
         ink = QRectF(metrics.tightBoundingRect(value))
-        ink_height = max(1.0, ink.height())
-        world_scale = max(float(entity.get("text_height", 10.0)), 0.01) / ink_height
+        # Keep the declared CAD height independent of the glyphs contained
+        # in this label.  It denotes cap height, not the current ink bounds.
+        world_scale = max(float(entity.get("text_height", 10.0)), 0.01) / max(
+            float(metrics.capHeight()), 1.0
+        )
         angle = radians(float(entity.get("text_angle", 0.0)))
         x_sign = -1.0 if bool(entity.get("text_flip", False)) else 1.0
         x_local = (
@@ -11540,13 +11549,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def topology_candidates_at(
         self,
         position: QPointF,
+        *,
+        include_model_topology: bool = False,
     ) -> tuple[tuple[str, str, int], ...]:
         mesh = self._mesh
         if mesh is None:
             return ()
         threshold = 9.0 * float(self.devicePixelRatioF())
         candidates: list[tuple[str, str, int]] = []
-        if self._selection_filter in {"all", "point"}:
+        if include_model_topology or self._selection_filter in {"all", "point"}:
             for marker in mesh.points:
                 if not self._point_marker_is_selectable(marker.element_kind):
                     continue
@@ -11561,7 +11572,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     candidates.append(
                         ("point", marker.owner_id, marker.point_index)
                     )
-        if self._selection_filter in {"all", "edge", "axis"}:
+        if include_model_topology or self._selection_filter in {"all", "edge", "axis"}:
             for edge in mesh.edges:
                 if (
                     not edge_visible_in_display(edge, self._display_mode)
@@ -11587,7 +11598,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     candidates.append(
                         ("edge", edge.owner_id, edge.edge_index)
                     )
-        if self._selection_filter in {"all", "plane", "normal", "surface"}:
+        if include_model_topology or self._selection_filter in {
+            "all", "plane", "normal", "surface"
+        }:
             for plane in mesh.planes:
                 projected = [
                     self._screen_point(self._camera_point(point))
@@ -11604,7 +11617,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     candidates.append(
                         ("plane", plane.owner_id, plane.plane_index)
                     )
-        if self._selection_filter in {"all", "face", "normal", "surface"}:
+        if include_model_topology or self._selection_filter in {
+            "all", "face", "normal", "surface"
+        }:
             # A tolerant bounding-box query already covers the neighbouring
             # pixels used by topology cycling.  Running five complete face
             # queries here multiplied the cost on large imported meshes while
@@ -11928,8 +11943,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         selected = min(depth_candidates, key=lambda candidate: candidate[1])
         return selected[2], selected[3]
 
-    def _pick_face(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "face", "normal", "surface"}:
+    def _pick_face(
+        self,
+        position: QPointF,
+        *,
+        ignore_selection_filter: bool = False,
+    ) -> TopologyKey | None:
+        if (
+            not ignore_selection_filter
+            and self._selection_filter
+            not in {"all", "face", "normal", "surface"}
+        ):
             return None
         mesh = self._mesh
         if mesh is None or not mesh.triangle_face_indices:

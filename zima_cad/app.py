@@ -8751,9 +8751,7 @@ class MainWindow(QMainWindow):
             self._on_native_face_hovered
         )
         self.native_viewer.hoveredEdgeChanged.connect(
-            lambda owner_id, index: self._on_native_source_topology_hovered(
-                "edge", owner_id, index
-            )
+            self._on_native_edge_hovered
         )
         self.native_viewer.hoveredPointChanged.connect(
             lambda owner_id, index: self._on_native_source_topology_hovered(
@@ -18683,6 +18681,24 @@ class MainWindow(QMainWindow):
             "",
             self.document.root.entity_id,
         }:
+            treatment = self._edge_treatment_at_position(
+                self.native_viewer._last_model_hover_position
+            )
+            if treatment is not None:
+                self._part_hover_container_id = None
+                self._part_hover_container_mesh = None
+                self.native_viewer.set_object_overlay(None)
+                signals_were_blocked = self.native_viewer.blockSignals(True)
+                try:
+                    self.native_viewer._set_hovered_object(None)
+                finally:
+                    self.native_viewer.blockSignals(signals_were_blocked)
+                self.native_viewer.set_feature_hover_edges(
+                    self._edge_treatment_boundary_edge_keys(treatment)
+                )
+                self._set_view_hover("object", treatment.entity_id, 0)
+                return
+            self.native_viewer.set_feature_hover_edges(set())
             hit = self._part_history_container_at_position(
                 self.native_viewer._last_model_hover_position
             )
@@ -18727,6 +18743,14 @@ class MainWindow(QMainWindow):
             and self.native_viewer._interaction_mode == "object"
             and self._sketch_edit_entity_id is None
         ):
+            treatment = self._edge_treatment_at_position(
+                self.native_viewer._last_click_position
+            )
+            if treatment is not None:
+                owner_id = self.document.root.entity_id
+                self._part_hover_container_id = None
+                self._part_hover_container_mesh = None
+                self.native_viewer.set_object_overlay(None)
             hovered_id = self._part_hover_container_id
             hovered = (
                 self.document.find_entity(hovered_id)
@@ -18742,7 +18766,9 @@ class MainWindow(QMainWindow):
                     QPointF(self.native_viewer._last_click_position),
                 )
             )
-            if hover_still_under_click:
+            if treatment is not None:
+                pass
+            elif hover_still_under_click:
                 owner_id = hovered.entity_id
                 selected_source_mesh = self._part_hover_container_mesh
             else:
@@ -18827,6 +18853,7 @@ class MainWindow(QMainWindow):
                 return
         self._selected_view_edge_treatment_id = None
         self.native_viewer.set_feature_selected_edges(set())
+        self.native_viewer.set_feature_hover_edges(set())
         view_entity = self.document.find_entity(owner_id)
         self._view_transform_sketch_id = (
             view_entity.entity_id
@@ -18921,6 +18948,20 @@ class MainWindow(QMainWindow):
         # container.  Do not let it reopen Protrusion/Revolve properties.
         if self._sketch_edit_entity_id is not None:
             return
+        treatment = self._edge_treatment_at_position(
+            getattr(self.native_viewer, "_last_click_position", None)
+        )
+        if treatment is not None:
+            self._selected_view_edge_treatment_id = treatment.entity_id
+            self._select_native_tree_object(treatment.entity_id)
+            self.native_viewer.set_feature_selected_edges(
+                self._edge_treatment_boundary_edge_keys(treatment)
+            )
+            self.native_viewer.set_feature_hover_edges(set())
+            self.native_viewer.set_object_overlay(None)
+            self._clear_dimension_overlays()
+            self._show_edge_treatment_dimension(treatment)
+            return
         obj = self._selected_object()
         if (
             self.document is not None
@@ -19011,61 +19052,51 @@ class MainWindow(QMainWindow):
         ):
             return None
         position = getattr(self.native_viewer, "_last_click_position", None)
+        return self._edge_treatment_at_position(position)
+
+    def _edge_treatment_at_position(
+        self,
+        position,
+    ) -> ZimaEntity | None:
+        if self.document is None:
+            return None
         if position is None:
             return None
-        registry = self._reference_topology_registry(
-            self.document.history_cursor()
-        )
-        if registry is None:
-            return None
-        references = []
-        edge_key = self.native_viewer._pick_edge(QPointF(position))
-        if edge_key is not None and edge_key[0] == owner_id:
-            reference = registry.edge_reference_for_runtime_index(edge_key[1])
-            if reference is not None:
-                references.append(reference)
-        face_key = self.native_viewer._pick_face(QPointF(position))
-        if face_key is not None and face_key[0] == owner_id:
-            scene = self._native_viewer_scene
-            face = (
-                scene.resolve_topology(owner_id, "face", face_key[1])
-                if scene is not None
-                else None
+        candidates = self._edge_treatments_in_selection_cycle(position)
+        return candidates[0] if candidates else None
+
+    def _edge_treatments_in_selection_cycle(
+        self,
+        position,
+    ) -> list[ZimaEntity]:
+        if self.document is None or position is None:
+            return []
+        hits = set(self.native_viewer.topology_candidates_at(
+            QPointF(position), include_model_topology=True
+        ))
+        face_keys, edge_keys = self._edge_treatment_view_keys()
+        return [
+            container
+            for container in reversed(self.document.active_history_objects())
+            if container.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
             )
-            if face is not None:
-                references.extend(registry.references_for_face(face))
-            else:
-                reference = registry.reference_for_runtime_index(face_key[1])
-                if reference is not None:
-                    references.append(reference)
-        edge_treatment_containers = []
-        for reference in references:
-            feature = self.document.find_entity(reference.feature_id)
-            if feature is None:
-                continue
-            container = (
-                feature
-                if feature.kind == EntityKind.CONTAINER
-                else self.document.find_owning_object(feature.entity_id)
-            )
-            if (
-                container is not None
-                and container.container_type in (
-                    ContainerType.FILLET,
-                    ContainerType.CHAMFER,
+            and (
+                any(
+                    ("face", owner_id, index) in hits
+                    for owner_id, index in face_keys.get(
+                        container.entity_id, ()
+                    )
                 )
-            ):
-                edge_treatment_containers.append(container)
-        return max(
-            edge_treatment_containers,
-            key=lambda candidate: (
-                self.document.history_index(candidate.entity_id)
-                if self.document.history_index(candidate.entity_id)
-                is not None
-                else -1
-            ),
-            default=None,
-        )
+                or any(
+                    ("edge", owner_id, index) in hits
+                    for owner_id, index in edge_keys.get(
+                        container.entity_id, ()
+                    )
+                )
+            )
+        ]
 
     def _show_protrusion_profile_overlay(self, obj: ZimaEntity) -> None:
         if (
@@ -19955,6 +19986,11 @@ class MainWindow(QMainWindow):
         boundary = self._definition_history_boundary()
         history_objects = self.document.history_objects_at(boundary)
         for source in reversed(history_objects):
+            if source.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            ):
+                continue
             result = source_bodies.get(source.entity_id)
             if result is None:
                 continue
@@ -20929,6 +20965,46 @@ class MainWindow(QMainWindow):
             and self.native_viewer._interaction_mode == "object"
             and owner_id == self.document.root.entity_id
         ):
+            face_key = (owner_id, face_index)
+            treatment = next((
+                candidate
+                for candidate in reversed(
+                    self.document.active_history_objects()
+                )
+                if candidate.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
+                and face_key in self._edge_treatment_face_keys(candidate)
+            ), None)
+            self.native_viewer.set_feature_hover_edges(
+                self._edge_treatment_boundary_edge_keys(treatment)
+                if treatment is not None
+                else set()
+            )
+            if treatment is not None:
+                self.native_viewer.set_object_overlay(None)
+                self._part_hover_container_id = None
+                self._part_hover_container_mesh = None
+                signals_were_blocked = self.native_viewer.blockSignals(True)
+                try:
+                    self.native_viewer._set_hovered_object(None)
+                finally:
+                    self.native_viewer.blockSignals(signals_were_blocked)
+            elif not self.native_viewer._object_overlay_persistent:
+                hit = self._part_history_container_at_position(
+                    self.native_viewer._last_model_hover_position
+                )
+                if hit is not None:
+                    source, source_mesh = hit
+                    self._part_hover_container_id = source.entity_id
+                    self._part_hover_container_mesh = source_mesh
+                    self.native_viewer.set_object_overlay(
+                        source_mesh,
+                        anchor=self._native_object_origin(source),
+                    )
+                else:
+                    self.native_viewer.set_object_overlay(None)
             self._view_hover_parts.pop("face", None)
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
@@ -20944,6 +21020,42 @@ class MainWindow(QMainWindow):
                 self.native_viewer._set_hovered_face(None)
             finally:
                 self.native_viewer.blockSignals(signals_were_blocked)
+
+    def _on_native_edge_hovered(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> None:
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") != "assembly"
+            and self.native_viewer._interaction_mode == "object"
+            and owner_id == self.document.root.entity_id
+        ):
+            edge_key = (owner_id, edge_index)
+            treatment = next((
+                candidate
+                for candidate in reversed(
+                    self.document.active_history_objects()
+                )
+                if candidate.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                )
+                and edge_key
+                in self._edge_treatment_boundary_edge_keys(candidate)
+            ), None)
+            self.native_viewer.set_feature_hover_edges(
+                self._edge_treatment_boundary_edge_keys(treatment)
+                if treatment is not None
+                else set()
+            )
+            self._set_view_hover("edge", owner_id, edge_index)
+            return
+        self.native_viewer.set_feature_hover_edges(set())
+        self._on_native_source_topology_hovered(
+            "edge", owner_id, edge_index
+        )
 
     def _on_native_source_topology_hovered(
         self,
@@ -21002,107 +21114,91 @@ class MainWindow(QMainWindow):
         self,
         container: ZimaEntity,
     ) -> set[tuple[str, int]]:
+        faces, _edges = self._edge_treatment_view_keys()
+        return set(faces.get(container.entity_id, ()))
+
+    def _edge_treatment_view_keys(
+        self,
+    ) -> tuple[
+        dict[str, set[tuple[str, int]]],
+        dict[str, set[tuple[str, int]]],
+    ]:
         if (
             self.document is None
-            or container.container_type not in (
+        ):
+            return {}, {}
+        scene = self._native_viewer_scene
+        result = scene.calculated_body_result if scene is not None else None
+        if result is None:
+            return {}, {}
+        cached = getattr(self, "_edge_treatment_view_key_cache", None)
+        if cached is not None and cached[0] is result:
+            return cached[1], cached[2]
+        owner_id = self.document.root.entity_id
+        containers_by_feature_id = {
+            child.entity_id: container.entity_id
+            for container in self.document.active_history_objects()
+            if container.container_type in (
                 ContainerType.FILLET,
                 ContainerType.CHAMFER,
             )
-        ):
-            return set()
-        feature_ids = {
-            child.entity_id
             for child in container.children
             if child.kind in (EntityKind.FILLET, EntityKind.CHAMFER)
         }
-        registry = self._reference_topology_registry(
-            self.document.history_cursor()
-        )
-        scene = self._native_viewer_scene
-        mesh = scene.mesh if scene is not None else None
-        shape = (
-            scene.shapes_by_owner_id.get(self.document.root.entity_id)
-            if scene is not None
-            else None
-        )
-        if registry is None or mesh is None or shape is None:
-            return set()
-        face_count = max(mesh.triangle_face_indices, default=0)
-        faces = []
-        explorer = TopExp_Explorer(shape, TopAbs_FACE)
-        while explorer.More():
-            face = explorer.Current()
-            if not any(face.IsSame(existing) for existing in faces):
-                faces.append(face)
-            explorer.Next()
-        owner_id = self.document.root.entity_id
-        return {
-            (owner_id, index)
-            for index in range(1, face_count + 1)
-            if index <= len(faces)
-            and any(
-                reference.feature_id in feature_ids
-                and reference.role == "generated"
-                for reference in registry.references_for_face(
-                    faces[index - 1]
-                )
+        faces_by_container: dict[str, set[tuple[str, int]]] = {}
+        boundary_ids_by_container: dict[str, set[str]] = {}
+        face_keys = set(zip(
+            result.mesh.triangle_owner_ids,
+            result.mesh.triangle_face_indices,
+        ))
+        for face_owner_id, face_index in face_keys:
+            if face_owner_id != owner_id:
+                continue
+            descriptor = result.surface(owner_id, face_index)
+            reference = (
+                parse_face_reference(descriptor.reference_id)
+                if descriptor is not None
+                else None
             )
-        }
+            if reference is not None and reference.role == "generated":
+                container_id = containers_by_feature_id.get(reference.feature_id)
+                if container_id is not None:
+                    faces_by_container.setdefault(container_id, set()).add(
+                        (owner_id, face_index)
+                    )
+                    boundary_ids_by_container.setdefault(
+                        container_id, set()
+                    ).update(descriptor.boundary_edge_ids)
+        edges_by_container: dict[str, set[tuple[str, int]]] = {}
+        containers_by_boundary_id: dict[str, list[str]] = {}
+        for container_id, reference_ids in boundary_ids_by_container.items():
+            for reference_id in reference_ids:
+                containers_by_boundary_id.setdefault(
+                    reference_id, []
+                ).append(container_id)
+        for edge in result.mesh.edges:
+            if edge.owner_id != owner_id:
+                continue
+            descriptor = result.curve(owner_id, edge.edge_index)
+            if descriptor is None:
+                continue
+            for container_id in containers_by_boundary_id.get(
+                descriptor.reference_id, ()
+            ):
+                edges_by_container.setdefault(container_id, set()).add(
+                    (owner_id, edge.edge_index)
+                )
+        self._edge_treatment_view_key_cache = (
+            result, faces_by_container, edges_by_container
+        )
+        return faces_by_container, edges_by_container
 
     def _edge_treatment_boundary_edge_keys(
         self,
         container: ZimaEntity,
     ) -> set[tuple[str, int]]:
-        if self.document is None:
-            return set()
-        face_keys = self._edge_treatment_face_keys(container)
-        if not face_keys:
-            return set()
-        scene = self._native_viewer_scene
-        shape = (
-            scene.shapes_by_owner_id.get(self.document.root.entity_id)
-            if scene is not None
-            else None
-        )
-        if shape is None:
-            return set()
-        faces = []
-        explorer = TopExp_Explorer(shape, TopAbs_FACE)
-        while explorer.More():
-            face = explorer.Current()
-            if not any(face.IsSame(existing) for existing in faces):
-                faces.append(face)
-            explorer.Next()
-        edges = []
-        explorer = TopExp_Explorer(shape, TopAbs_EDGE)
-        while explorer.More():
-            edge = explorer.Current()
-            if not any(edge.IsSame(existing) for existing in edges):
-                edges.append(edge)
-            explorer.Next()
-        selected_face_indices = {index for _owner, index in face_keys}
-        edge_face_counts: dict[int, int] = {}
-        for face_index in selected_face_indices:
-            if not 1 <= face_index <= len(faces):
-                continue
-            face_edges = TopExp_Explorer(faces[face_index - 1], TopAbs_EDGE)
-            face_indices: set[int] = set()
-            while face_edges.More():
-                edge = face_edges.Current()
-                face_indices.update(
-                    index
-                    for index, candidate in enumerate(edges, 1)
-                    if edge.IsSame(candidate)
-                )
-                face_edges.Next()
-            for index in face_indices:
-                edge_face_counts[index] = edge_face_counts.get(index, 0) + 1
-        owner_id = self.document.root.entity_id
-        return {
-            (owner_id, index)
-            for index, count in edge_face_counts.items()
-            if count == 1
-        }
+        _faces, edges = self._edge_treatment_view_keys()
+        return set(edges.get(container.entity_id, ()))
 
     def _show_edge_treatment_dimension(
         self,
@@ -21114,38 +21210,38 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
         scene = self._native_viewer_scene
-        shape = (
-            scene.shapes_by_owner_id.get(self.document.root.entity_id)
-            if scene is not None
-            else None
-        )
-        if shape is None:
+        result = scene.calculated_body_result if scene is not None else None
+        if result is None:
             return
-        selected_indices = {
-            index for _owner, index
-            in self._edge_treatment_boundary_edge_keys(container)
-        }
-        edges = []
-        explorer = TopExp_Explorer(shape, TopAbs_EDGE)
-        while explorer.More():
-            edge = explorer.Current()
-            if not any(edge.IsSame(existing) for existing in edges):
-                edges.append(edge)
-            explorer.Next()
+        owner_id = self.document.root.entity_id
+        selected_curves = [
+            descriptor
+            for _owner, index in sorted(
+                self._edge_treatment_boundary_edge_keys(container)
+            )
+            if (descriptor := result.curve(owner_id, index)) is not None
+        ]
         if container.container_type == ContainerType.CHAMFER:
             feature = next((
                 child for child in container.children
                 if child.kind == EntityKind.CHAMFER
             ), None)
-            index = next(iter(sorted(selected_indices)), 0)
-            if feature is None or not 1 <= index <= len(edges):
+            usable_curves = [
+                curve for curve in selected_curves
+                if len(curve.points) >= 2
+                and math.dist(curve.points[0], curve.points[-1]) > 1.0e-9
+            ]
+            if feature is None or not usable_curves:
                 return
             try:
-                adaptor = BRepAdaptor_Curve(edges[index - 1])
-                first = adaptor.Value(adaptor.FirstParameter())
-                second = adaptor.Value(adaptor.LastParameter())
-                first_point = np.array((first.X(), first.Y(), first.Z()))
-                second_point = np.array((second.X(), second.Y(), second.Z()))
+                curve = max(
+                    usable_curves,
+                    key=lambda candidate: math.dist(
+                        candidate.points[0], candidate.points[-1]
+                    ),
+                )
+                first_point = np.array(curve.points[0], dtype=float)
+                second_point = np.array(curve.points[-1], dtype=float)
                 edge_direction = second_point - first_point
                 edge_length = float(np.linalg.norm(edge_direction))
                 if edge_length <= 1.0e-9:
@@ -21170,6 +21266,7 @@ class MainWindow(QMainWindow):
                 first_dimension_point=tuple(float(value) for value in midpoint + offset),
                 second_dimension_point=tuple(float(value) for value in measured_end + offset),
                 direction=tuple(float(value) for value in side),
+                value_suffix=" × 45°",
             )
             self._dimension_object_id = feature.entity_id
             self.native_viewer.set_dimensions((dimension,))
@@ -21231,19 +21328,12 @@ class MainWindow(QMainWindow):
             self._position_dimension_overlays()
             QTimer.singleShot(0, self._position_dimension_overlays)
             return
-        for index in sorted(selected_indices):
-            if not 1 <= index <= len(edges):
-                continue
-            try:
-                adaptor = BRepAdaptor_Curve(edges[index - 1])
-                if adaptor.GetType() != GeomAbs_Circle:
-                    continue
-                circle = adaptor.Circle()
-                center = circle.Location()
-                point = adaptor.Value(
-                    (adaptor.FirstParameter() + adaptor.LastParameter()) * 0.5
-                )
-            except (AttributeError, RuntimeError, TypeError, ValueError):
+        for curve in selected_curves:
+            if (
+                curve.kind != "circle"
+                or curve.origin is None
+                or not curve.points
+            ):
                 continue
             feature = next((
                 child for child in container.children
@@ -21254,8 +21344,8 @@ class MainWindow(QMainWindow):
             key = f"fillet_radius:{container.entity_id}"
             dimension = RadialDimension(
                 key=key,
-                center=(center.X(), center.Y(), center.Z()),
-                radius_point=(point.X(), point.Y(), point.Z()),
+                center=curve.origin,
+                radius_point=curve.points[len(curve.points) // 2],
                 value_prefix="R",
                 arrow_placement="outside",
             )
@@ -21266,7 +21356,7 @@ class MainWindow(QMainWindow):
                 overlay,
                 feature,
                 dimension,
-                feature.parameters.get("radius", circle.Radius()),
+                feature.parameters.get("radius", curve.radius or 0.0),
             )
 
             def refresh_overlay(value: float) -> None:
@@ -22970,6 +23060,24 @@ class MainWindow(QMainWindow):
             history_objects = self.document.history_objects_at(
                 self._definition_history_boundary()
             )
+            if not is_assembly:
+                treatment_candidates = [
+                    ("edge-treatment", treatment.entity_id, 0)
+                    for treatment in self._edge_treatments_in_selection_cycle(
+                        position
+                    )
+                ]
+                if treatment_candidates:
+                    treatment_ids = {
+                        candidate[1] for candidate in treatment_candidates
+                    }
+                    candidates = treatment_candidates + [
+                        candidate
+                        for candidate in candidates
+                        if candidate != root_candidate
+                        and candidate[1] not in treatment_ids
+                    ]
+                    insert_at = len(treatment_candidates)
             if is_assembly:
                 component_ids = {
                     obj.entity_id
@@ -23062,6 +23170,11 @@ class MainWindow(QMainWindow):
                 if calculated_result is not None else {}
             )
             for source in ([] if is_assembly else history_objects):
+                if source.container_type in (
+                    ContainerType.FILLET,
+                    ContainerType.CHAMFER,
+                ):
+                    continue
                 source_result = persisted_sources.get(source.entity_id)
                 if source_result is None:
                     continue
@@ -23125,12 +23238,17 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_hover()
             self.native_viewer._set_hovered_object(None)
             self.native_viewer.set_object_overlay(None)
+            self.native_viewer.set_feature_hover_edges(set())
             if kind in (
                 "object",
                 "assembly-result",
                 "assembly-source",
+                "edge-treatment",
             ):
-                if kind.startswith("assembly-"):
+                if kind == "edge-treatment":
+                    tree_object_id = selected_owner_id
+                    selected_mesh = None
+                elif kind.startswith("assembly-"):
                     tree_object_id = selected_owner_id
                     selected_mesh = assembly_cycle_meshes.get(
                         (kind, selected_owner_id)
@@ -23164,7 +23282,13 @@ class MainWindow(QMainWindow):
                 selected_object = self.document.find_entity(
                     selected_owner_id
                 )
-                if (
+                if kind == "edge-treatment" and selected_object is not None:
+                    self.native_viewer.set_feature_hover_edges(
+                        self._edge_treatment_boundary_edge_keys(
+                            selected_object
+                        )
+                    )
+                elif (
                     selected_object is not None
                     and selected_object.kind == EntityKind.SKETCH
                 ):
@@ -23178,8 +23302,7 @@ class MainWindow(QMainWindow):
                         else self._native_object_origin(selected_object)
                     )
                     self.native_viewer.set_object_overlay(
-                        selected_mesh,
-                        anchor=overlay_anchor,
+                        selected_mesh, anchor=overlay_anchor
                     )
             else:
                 self._select_native_tree_object(selected_owner_id)
@@ -23898,6 +24021,17 @@ class MainWindow(QMainWindow):
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
         selected = self._selected_object()
+        if (
+            selected is not None
+            and selected.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
+        ):
+            self._selected_view_edge_treatment_id = selected.entity_id
+            self.native_viewer.set_feature_selected_edges(
+                self._edge_treatment_boundary_edge_keys(selected)
+            )
         if selected is not None and selected.kind == EntityKind.SKETCH:
             self.native_viewer._set_selected_object(selected.entity_id)
         self._history_source_cycle_active = False
@@ -37681,7 +37815,10 @@ class MainWindow(QMainWindow):
         bounds = path.boundingRect()
         if bounds.height() <= 1.0e-9 or height <= 1.0e-9:
             return ()
-        scale = height / bounds.height()
+        # The entered ISO text height is the capital height.  It must not
+        # change with accents, lowercase letters or descenders in `value`.
+        metrics = QFontMetricsF(font)
+        scale = height / max(metrics.capHeight(), 1.0)
         polygons: list[tuple[tuple[float, float], ...]] = []
         flatten_transform = QTransform.fromScale(scale, scale)
         scaled_left = bounds.left() * scale
@@ -40804,6 +40941,7 @@ class MainWindow(QMainWindow):
     def _definition_edit_object(self) -> ZimaEntity | None:
         if (
             self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
             and self.point_constraint_dialog.point_object is not None
         ):
             return self.point_constraint_dialog.point_object
@@ -42514,30 +42652,34 @@ class MainWindow(QMainWindow):
                 dimensions,
             )
             candidate_model.drive_all_dimensions_at_current_values()
-            # Seed the numerical solver with the obvious local move. Do this
-            # only after the other dimensions have captured their original
-            # values, so moving this endpoint cannot silently redefine a
-            # connected dimension before the numerical solve begins.
-            seeded_entities = copy.deepcopy(entities)
-            seeded_dimension = copy.deepcopy(dimension)
-            seeded_dimension["value"] = value
-            self._apply_sketch_distance_dimensions(
-                entity,
-                seeded_entities,
-                [seeded_dimension],
+            solved = candidate_model.try_direct_axis_dimension_update(
+                dimension_id, value
             )
-            for seeded_point in seeded_entities:
-                if seeded_point.get("type") != "point":
-                    continue
-                candidate_point = candidate_model.points.get(
-                    str(seeded_point.get("id", ""))
+            if not solved:
+                # Seed the numerical solver with the obvious local move. Do
+                # this only after the other dimensions have captured their
+                # original values, so moving this endpoint cannot silently
+                # redefine a connected dimension before solving begins.
+                seeded_entities = copy.deepcopy(entities)
+                seeded_dimension = copy.deepcopy(dimension)
+                seeded_dimension["value"] = value
+                self._apply_sketch_distance_dimensions(
+                    entity,
+                    seeded_entities,
+                    [seeded_dimension],
                 )
-                if candidate_point is not None:
-                    candidate_point.x, candidate_point.y = (
-                        self._sketch_point_position(seeded_point)
+                for seeded_point in seeded_entities:
+                    if seeded_point.get("type") != "point":
+                        continue
+                    candidate_point = candidate_model.points.get(
+                        str(seeded_point.get("id", ""))
                     )
-            candidate_model.dimensions[dimension_id].value = value
-            solved = candidate_model.solve()
+                    if candidate_point is not None:
+                        candidate_point.x, candidate_point.y = (
+                            self._sketch_point_position(seeded_point)
+                        )
+                candidate_model.dimensions[dimension_id].value = value
+                solved = candidate_model.solve()
             if not solved and dimension.get("type") == "angle":
                 angle_point_ids = list(
                     map(str, dimension.get("point_ids", ()))

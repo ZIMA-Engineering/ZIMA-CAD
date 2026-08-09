@@ -913,6 +913,107 @@ class SketchModel:
         after = candidate.dof_analysis().degrees_of_freedom
         return max(0, before - after)
 
+    def try_direct_axis_dimension_update(
+        self,
+        dimension_id: str,
+        value: float,
+    ) -> bool:
+        """Translate the uniquely free side of an X/Y dimension directly."""
+        dimension = self.dimensions.get(dimension_id)
+        if (
+            dimension is None
+            or dimension.dimension_type not in ("distance_x", "distance_y")
+            or len(dimension.point_ids) < 2
+        ):
+            return False
+        coordinate = "x" if dimension.dimension_type == "distance_x" else "y"
+        first_id, second_id = dimension.point_ids[:2]
+        if first_id not in self.points or second_id not in self.points:
+            return False
+
+        # The dimension being edited must not make both of its own endpoints
+        # appear constrained during the mobility test.
+        mobility_model = copy.deepcopy(self)
+        mobility_model.dimensions.pop(dimension_id, None)
+
+        def direction_is_constrained(point_id: str) -> bool:
+            probe = SketchDimension(
+                dimension_id=f"__mobility__:{point_id}:{coordinate}",
+                dimension_type=f"coordinate_{coordinate}",
+                value=float(getattr(mobility_model.points[point_id], coordinate)),
+                point_ids=(point_id,),
+                driving=True,
+            )
+            return mobility_model.dimension_dof_reduction(probe) == 0
+
+        first_constrained = direction_is_constrained(first_id)
+        second_constrained = direction_is_constrained(second_id)
+        if first_constrained == second_constrained:
+            return False
+        moving_id = second_id if first_constrained else first_id
+
+        neighbors: dict[str, set[str]] = {
+            point_id: set() for point_id in self.points
+        }
+        for geometry in self.geometry.values():
+            ids = tuple(
+                point_id
+                for point_id in geometry.point_ids
+                if point_id in neighbors
+            )
+            for point_id in ids:
+                neighbors[point_id].update(
+                    candidate for candidate in ids if candidate != point_id
+                )
+        for constraint in self.constraints.values():
+            if constraint.constraint_type != "coincident":
+                continue
+            ids = tuple(
+                point_id
+                for point_id in constraint.point_ids
+                if point_id in neighbors
+            )
+            for point_id in ids:
+                neighbors[point_id].update(
+                    candidate for candidate in ids if candidate != point_id
+                )
+        moving_points: set[str] = set()
+        pending = [moving_id]
+        while pending:
+            point_id = pending.pop()
+            if point_id in moving_points:
+                continue
+            moving_points.add(point_id)
+            pending.extend(neighbors[point_id])
+        stationary_id = first_id if moving_id == second_id else second_id
+        if stationary_id in moving_points:
+            return False
+
+        first_value = float(getattr(self.points[first_id], coordinate))
+        second_value = float(getattr(self.points[second_id], coordinate))
+        current = second_value - first_value
+        delta = float(value) - current
+        if moving_id == first_id:
+            delta = -delta
+        original = {
+            point_id: float(getattr(self.points[point_id], coordinate))
+            for point_id in moving_points
+        }
+        for point_id in moving_points:
+            setattr(
+                self.points[point_id],
+                coordinate,
+                original[point_id] + delta,
+            )
+        original_value = dimension.value
+        dimension.value = float(value)
+        if not self.violated_equations():
+            return True
+        for point_id, coordinate_value in original.items():
+            setattr(self.points[point_id], coordinate, coordinate_value)
+        dimension.value = original_value
+        return False
+
     def _dimension_angle(self, dimension: SketchDimension) -> float | None:
         positions = [
             self.points[point_id].position()
