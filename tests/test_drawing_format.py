@@ -80,7 +80,7 @@ Line001 = 0, 0, 1, 1, BLUE
         fields = {field["id"]: field for field in definition["fields"]}
         self.assertEqual(set(fields), {
             "DRAWN_BY", "APPROVED_BY", "DATE", "DOCUMENT_NUMBER",
-            "VERSION", "SHEET_NUMBER", "NAME", "SCALE", "SHEET_FORMAT",
+            "SHEET_NUMBER", "NAME", "SCALE", "SHEET_FORMAT",
             "ACCURACY", "TOLERANCING",
             "ASSEMBLY_WEIGHT", "ASSEMBLY_QUANTITY",
         })
@@ -96,7 +96,6 @@ Line001 = 0, 0, 1, 1, BLUE
             fields["DOCUMENT_NUMBER"]["text"],
             "&document.file_stem.&verze",
         )
-        self.assertEqual(fields["VERSION"]["text"], "&verze")
         self.assertEqual(fields["SHEET_NUMBER"]["text"], "&sheet.position")
         self.assertEqual(fields["SHEET_NUMBER"]["format"], "{index}/{count}")
         self.assertEqual(fields["SHEET_NUMBER"]["align"], "left")
@@ -106,10 +105,8 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(fields["NAME"]["text"], "&nazev")
         self.assertEqual(fields["NAME"]["pen"], "WHITE")
         self.assertEqual(fields["DOCUMENT_NUMBER"]["pen"], "WHITE")
-        self.assertEqual(fields["VERSION"]["pen"], "WHITE")
         self.assertEqual(fields["NAME"]["height"], 5.0)
         self.assertEqual(fields["DOCUMENT_NUMBER"]["height"], 5.0)
-        self.assertEqual(fields["VERSION"]["height"], 5.0)
         self.assertTrue(all(
             entity["height"] == 2.5
             for entity in definition["geometry"]

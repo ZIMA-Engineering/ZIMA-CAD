@@ -641,6 +641,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._constraint_reference_positions: tuple[Point3, ...] = ()
         self._selected_container_origin_id: str | None = None
         self._selected_container_content_ids: frozenset[str] = frozenset()
+        self._datum_container_owner_ids: dict[str, str] = {}
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
         self._selection_preview_pending = False
         self._pending_model_hover_position: QPointF | None = None
@@ -1647,6 +1648,30 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_content_ids = frozenset(owner_ids)
         self.update()
 
+    def set_datum_container_owners(
+        self,
+        owner_ids: dict[str, str],
+    ) -> None:
+        """Map rendered datum entities onto selectable history containers."""
+        self._datum_container_owner_ids = dict(owner_ids)
+
+    def _datum_container_at(self, position: QPointF) -> str | None:
+        """Pick a user datum container, excluding the document Origin."""
+        for picked in (
+            self._pick_point(position),
+            self._pick_plane(position),
+            self._pick_axis(position),
+        ):
+            if picked is None:
+                continue
+            container_id = self._datum_container_owner_ids.get(picked[0])
+            if container_id:
+                return container_id
+        return None
+
+    def _display_object_owner(self, owner_id: str) -> str:
+        return self._datum_container_owner_ids.get(owner_id, owner_id)
+
     def set_selection_preview_pending(self, pending: bool) -> None:
         self._selection_preview_pending = pending
 
@@ -2520,43 +2545,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and self._interaction_mode == "object"
                 and not self._large_mesh_topology_enabled
             ):
-                # Datum points, planes and axes are a tiny overlay and must
-                # remain selectable even when detailed STEP topology is
-                # disabled. Test those first without touching the triangle
-                # array; only a click on the body falls back to its owner.
-                point = self._pick_point(event.position())
-                plane = (
-                    None
-                    if point is not None
-                    else self._pick_plane(event.position())
-                )
-                axis = (
-                    None
-                    if point is not None or plane is not None
-                    else self._pick_axis(event.position())
-                )
+                # Ordinary object mode selects model objects only. Datum
+                # points, axes and planes remain available to explicit
+                # reference tools, but must not steal a solid-container
+                # click merely because they are visible.
                 self._clear_topology_selection()
-                if point is not None:
-                    self._set_selected_point(point)
-                elif plane is not None:
-                    self._set_selected_plane(plane)
-                elif axis is not None:
-                    self._set_selected_edge(axis)
-                elif self._interaction_mode == "object":
-                    # A linear CPU ray test over every display triangle
-                    # blocks the event loop for seconds. Select the single
-                    # display owner without that scan.
-                    owner_id = next(
-                        (
-                            candidate for candidate
-                            in self._mesh.triangle_owner_ids
-                            if candidate
-                            and candidate
-                            not in self._excluded_object_owner_ids
-                        ),
-                        "",
-                    )
-                    self._set_selected_object(owner_id or None)
+                # A linear CPU ray test over every display triangle blocks
+                # the event loop for seconds. Select the display owner
+                # without scanning detailed topology.
+                owner_id = self._datum_container_at(event.position()) or next(
+                    (
+                        candidate for candidate
+                        in self._mesh.triangle_owner_ids
+                        if candidate
+                        and candidate not in self._excluded_object_owner_ids
+                    ),
+                    "",
+                )
+                self._set_selected_object(owner_id or None)
                 event.accept()
                 return
             if self._cycled_topology_candidate is not None:
@@ -2622,34 +2628,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self._set_selected_face(face)
                         event.accept()
                         return
-                point = self._pick_point(event.position())
-                plane = (
-                    None
-                    if point is not None
-                    else self._pick_plane(event.position())
-                )
-                axis = (
-                    None
-                    if point is not None or plane is not None
-                    else self._pick_axis(event.position())
-                )
                 self._clear_topology_selection()
                 self._set_selected_object(None)
-                if point is not None:
-                    self._set_selected_point(point)
-                elif plane is not None:
-                    self._set_selected_plane(plane)
-                elif axis is not None:
-                    self._set_selected_edge(axis)
+                owner_id = (
+                    self._datum_container_at(event.position())
+                    or self._pick_object(event.position())
+                )
+                if owner_id is None and self._selected_object_id is None:
+                    self.selectedObjectChanged.emit("")
                 else:
-                    owner_id = self._pick_object(event.position())
-                    if (
-                        owner_id is None
-                        and self._selected_object_id is None
-                    ):
-                        self.selectedObjectChanged.emit("")
-                    else:
-                        self._set_selected_object(owner_id)
+                    self._set_selected_object(owner_id)
                 event.accept()
                 return
             point = self._pick_point(event.position())
@@ -3284,79 +3272,32 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             # every cursor event.  While that O(N) scan was running, middle
             # press and wheel events accumulated in Qt's queue and navigation
             # appeared to start only after a long wait.
-            point = self._pick_point(position)
-            plane = (
-                None
-                if point is not None
-                else self._pick_plane(position)
-            )
-            axis = (
-                None
-                if point is not None or plane is not None
-                else self._pick_axis(position)
-            )
-            self._set_hovered_object(None)
-            # Update the resolved hover state directly. Clearing every kind
-            # first and then restoring the same datum under the cursor emits
-            # several redundant signals and can create a self-sustaining
-            # repaint storm on a large imported STEP view.
+            # Normal object hover ignores datum overlays. They are reference
+            # geometry, not competing model objects.
             self._set_hovered_face(None)
-            self._set_hovered_point(point)
-            self._set_hovered_plane(plane)
-            self._set_hovered_edge(axis)
+            self._set_hovered_point(None)
+            self._set_hovered_plane(None)
+            self._set_hovered_edge(None)
+            self._set_hovered_object(self._datum_container_at(position))
             return
         if self._interaction_mode == "object":
-            point = self._pick_point(position)
-            plane = (
-                None
-                if point is not None
-                else self._pick_plane(position)
+            self._set_hovered_point(None)
+            self._set_hovered_plane(None)
+            self._set_hovered_edge(None)
+            datum_container_id = self._datum_container_at(position)
+            face = None if datum_container_id is not None else self._pick_face(position)
+            owner_id = datum_container_id or (
+                face[0] if face is not None else self._pick_object(position)
             )
-            axis = (
-                None
-                if point is not None or plane is not None
-                else self._pick_axis(position)
-            )
-            if point is not None:
-                self._model_hover_clear_timer.stop()
-                self._set_hovered_object(None)
-                self._set_hovered_face(None)
-                self._set_hovered_point(point)
-                self._set_hovered_plane(None)
-                self._set_hovered_edge(None)
-            elif plane is not None:
-                self._model_hover_clear_timer.stop()
-                self._set_hovered_object(None)
-                self._set_hovered_face(None)
-                self._set_hovered_point(None)
-                self._set_hovered_plane(plane)
-                self._set_hovered_edge(None)
-            elif axis is not None:
-                self._model_hover_clear_timer.stop()
-                self._set_hovered_object(None)
-                self._set_hovered_face(None)
-                self._set_hovered_point(None)
-                self._set_hovered_plane(None)
-                self._set_hovered_edge(axis)
-            else:
-                self._set_hovered_point(None)
-                self._set_hovered_plane(None)
-                self._set_hovered_edge(None)
-                face = self._pick_face(position)
-                owner_id = (
-                    face[0]
-                    if face is not None
-                    else self._pick_object(position)
-                )
-                if owner_id is None:
-                    if not self._model_hover_clear_timer.isActive():
-                        self._model_hover_clear_timer.start()
-                    return
-                self._model_hover_clear_timer.stop()
-                self._set_hovered_object(owner_id)
-                # Emit the face last. The application can then replace the
-                # whole-object hover with a feature-boundary highlight.
-                self._set_hovered_face(face)
+            if owner_id is None:
+                if not self._model_hover_clear_timer.isActive():
+                    self._model_hover_clear_timer.start()
+                return
+            self._model_hover_clear_timer.stop()
+            self._set_hovered_object(owner_id)
+            # Emit the face last. The application can then replace the
+            # whole-object hover with a feature-boundary highlight.
+            self._set_hovered_face(face)
             return
         point = self._pick_point(position)
         edge = None if point is not None else self._pick_edge(position)
@@ -4246,13 +4187,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def _edge_display_color(self, edge) -> tuple[float, float, float]:
         """Resolve one final GPU colour; an existing edge is drawn once."""
         key = (edge.owner_id, edge.edge_index)
+        display_owner_id = self._display_object_owner(edge.owner_id)
         selected = (
             key == self._selected_edge
             or key in self._edge_treatment_selection_edges
             or key in self._feature_selected_edges
             or key in self._constraint_reference_edges
             or key in self._assembly_reference_edges
-            or edge.owner_id == self._selected_object_id
+            or display_owner_id == self._selected_object_id
             or edge.owner_id == self._selected_reference_owner_id
             or edge.owner_id in self._constraint_reference_owner_ids
             or edge.owner_id in self._selected_container_content_ids
@@ -4268,7 +4210,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         hovered = (
             key == self._hovered_edge
             or key in self._feature_hover_edges
-            or edge.owner_id == self._hovered_object_id
+            or display_owner_id == self._hovered_object_id
         )
         if hovered:
             return (1.0, 0.48, 0.0)
@@ -4289,6 +4231,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _edge_is_highlighted(self, edge) -> bool:
         key = (edge.owner_id, edge.edge_index)
+        display_owner_id = self._display_object_owner(edge.owner_id)
         return bool(
             key == self._selected_edge
             or key == self._hovered_edge
@@ -4298,11 +4241,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             or key in self._constraint_reference_edges
             or key in self._assembly_reference_edges
             or key in self._object_overlay_main_edge_keys
-            or edge.owner_id in {
+            or display_owner_id in {
                 self._selected_object_id,
                 self._hovered_object_id,
-                self._selected_reference_owner_id,
             }
+            or edge.owner_id == self._selected_reference_owner_id
             or edge.owner_id in self._constraint_reference_owner_ids
             or edge.owner_id in self._selected_container_content_ids
             or (
@@ -4501,17 +4444,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         for edge in edges:
             color = edge.base_color
             key = (edge.owner_id, edge.edge_index)
+            display_owner_id = self._display_object_owner(edge.owner_id)
             width = 1.5
-            if key == self._hovered_edge:
+            if (
+                key == self._hovered_edge
+                or display_owner_id == self._hovered_object_id
+            ):
                 color = (1.0, 0.48, 0.0)
-                width = 3.0
             if (
                 key == self._selected_edge
+                or display_owner_id == self._selected_object_id
                 or edge.owner_id == self._selected_reference_owner_id
                 or edge.owner_id in self._selected_container_content_ids
             ):
                 color = (0.0, 0.82, 1.0)
-                width = 3.0
             painter.setPen(QPen(QColor.fromRgbF(*color, 1.0), width))
             projected = [
                 self._screen_point(self._camera_point(point))
@@ -4539,10 +4485,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setFont(font)
         for edge in labelled_edges:
             key = (edge.owner_id, edge.edge_index)
+            display_owner_id = self._display_object_owner(edge.owner_id)
             color = edge.base_color
-            if key == self._hovered_edge:
+            if (
+                key == self._hovered_edge
+                or display_owner_id == self._hovered_object_id
+            ):
                 color = (1.0, 0.48, 0.0)
-            if key == self._selected_edge:
+            if (
+                key == self._selected_edge
+                or display_owner_id == self._selected_object_id
+            ):
                 color = (0.0, 0.82, 1.0)
             if edge.owner_id in {
                 self._selected_reference_owner_id,
@@ -4605,11 +4558,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(self._object_overlay_color, 1.0))
         for edge in mesh.edges:
-            if (
-                edge.owner_id,
-                edge.edge_index,
-            ) in self._object_overlay_matched_edge_keys:
-                continue
+            # Matching visible result edges are already recoloured in the
+            # GPU pass. Paint the complete source wire once more at the same
+            # one-pixel colour so portions hidden inside/by the accumulated
+            # Body remain legible as part of the selected container. Since
+            # the underlying matching edge has the identical colour, this
+            # does not reintroduce the former white/orange mixed line.
             projected = [
                 self._screen_point(self._camera_point(point))
                 for point in edge.points
@@ -11404,7 +11358,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ):
                 continue
             painter.setPen(
-                self._datum_centerline_pen(color, 3.0)
+                self._datum_centerline_pen(color, 1.5)
                 if edge.element_kind == "centerline"
                 else QPen(color, 1.0, Qt.PenStyle.SolidLine)
             )
@@ -11428,7 +11382,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             painter.setPen(
                 self._datum_centerline_pen(
-                    QColor.fromRgbF(*edge.base_color, 1.0),
+                    QColor.fromRgbF(*self._edge_display_color(edge), 1.0),
                     1.5,
                 )
             )
@@ -11464,6 +11418,70 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         entity_id = self._pick_object(position)
         if entity_id is not None:
             candidates.append(("object", entity_id, 0))
+        if self._interaction_mode == "object" and not self._reference_picking_active:
+            # RMB cycling needs every user datum container under the cursor,
+            # not just the nearest primitive returned by _pick_*(). Map the
+            # rendered children back to their Point/Axis/Plane history
+            # container. The locked document Origin has no mapping and is
+            # therefore excluded automatically.
+            threshold = 9.0 * float(self.devicePixelRatioF())
+            datum_candidates: list[tuple[str, str, int]] = []
+            for marker in mesh.points:
+                container_id = self._datum_container_owner_ids.get(
+                    marker.owner_id
+                )
+                if not container_id:
+                    continue
+                screen = self._screen_point(
+                    self._camera_point(marker.position)
+                )
+                if hypot(
+                    position.x() - screen.x(),
+                    position.y() - screen.y(),
+                ) <= threshold:
+                    datum_candidates.append(("object", container_id, 0))
+            for edge in mesh.edges:
+                if edge.element_kind not in {"axis", "centerline"}:
+                    continue
+                container_id = self._datum_container_owner_ids.get(
+                    edge.owner_id
+                )
+                if not container_id:
+                    continue
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in self._display_edge_points(edge)
+                ]
+                if any(
+                    self._point_segment_distance(
+                        position,
+                        projected[index - 1],
+                        projected[index],
+                    )[0] <= threshold
+                    for index in range(1, len(projected))
+                ):
+                    datum_candidates.append(("object", container_id, 0))
+            for plane in mesh.planes:
+                container_id = self._datum_container_owner_ids.get(
+                    plane.owner_id
+                )
+                if not container_id:
+                    continue
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in self._display_plane_corners(plane)
+                ]
+                if any(
+                    self._point_segment_distance(
+                        position,
+                        projected[index],
+                        projected[(index + 1) % len(projected)],
+                    )[0] <= threshold
+                    for index in range(len(projected))
+                ):
+                    datum_candidates.append(("object", container_id, 0))
+            candidates[0:0] = datum_candidates
+            return tuple(dict.fromkeys(candidates))
         threshold = 9.0 * float(self.devicePixelRatioF())
         for marker in mesh.points:
             screen = self._screen_point(self._camera_point(marker.position))
@@ -11628,9 +11646,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for plane in mesh.planes:
             key = (plane.owner_id, plane.plane_index)
+            display_owner_id = self._display_object_owner(plane.owner_id)
             color = plane.base_color
-            if key == self._hovered_plane:
+            if (
+                key == self._hovered_plane
+                or display_owner_id == self._hovered_object_id
+            ):
                 color = (1.0, 0.48, 0.0)
+            if (
+                key == self._selected_plane
+                or display_owner_id == self._selected_object_id
+                or key in self._constraint_reference_planes
+                or plane.owner_id == self._selected_reference_owner_id
+                or plane.owner_id in self._selected_container_content_ids
+            ):
+                color = (0.0, 0.82, 1.0)
             polygon = QPolygonF(
                 [
                     self._screen_point(self._camera_point(point))
@@ -11639,17 +11669,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             )
             outline = QColor.fromRgbF(*color, 1.0)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(
-                QPen(
-                    outline,
-                    3.0
-                    if (
-                        key in (self._hovered_plane, self._selected_plane)
-                        or key in self._constraint_reference_planes
-                    )
-                    else 1.5,
-                )
-            )
+            # Datum selection follows the solid-object convention: change
+            # colour only, never paint a second/thicker outline.
+            painter.setPen(QPen(outline, 1.5))
             painter.drawPolyline(polygon)
             painter.drawLine(polygon[-1], polygon[0])
             if plane.label:
@@ -11711,15 +11733,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for marker in mesh.points:
             key = (marker.owner_id, marker.point_index)
+            display_owner_id = self._display_object_owner(marker.owner_id)
             if (
                 marker.element_kind == "vertex"
                 and key not in (self._hovered_point, self._selected_point)
             ):
                 continue
             color = marker.base_color
-            if key == self._hovered_point:
+            if (
+                key == self._hovered_point
+                or display_owner_id == self._hovered_object_id
+            ):
                 color = (1.0, 0.48, 0.0)
-            if key == self._selected_point:
+            if (
+                key == self._selected_point
+                or display_owner_id == self._selected_object_id
+            ):
                 color = (0.0, 0.82, 1.0)
             if (
                 key in self._constraint_reference_points
@@ -11735,18 +11764,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             marker_color = QColor.fromRgbF(*color, 1.0)
             painter.setPen(QPen(marker_color, 1.0))
             painter.setBrush(QBrush(marker_color))
-            radius = (
-                6.0
-                if (
-                    key in (self._hovered_point, self._selected_point)
-                    or key in self._constraint_reference_points
-                    or marker.owner_id == self._selected_reference_owner_id
-                    or marker.owner_id in self._constraint_reference_owner_ids
-                    or marker.owner_id == self._selected_container_origin_id
-                    or marker.owner_id in self._selected_container_content_ids
-                )
-                else 4.5
-            )
+            # As with solids, selection is expressed by colour rather than
+            # by stacking a larger marker over the original one.
+            radius = 4.5
             painter.drawEllipse(screen, radius, radius)
             if marker.label:
                 painter.setPen(

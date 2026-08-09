@@ -164,6 +164,66 @@ class DrawingViewConventionTests(unittest.TestCase):
             source,
         )
 
+    def test_loaded_point_vertical_relation_is_reapplied(self):
+        entities = [
+            {
+                "id": "driven",
+                "type": "point",
+                "x": 12.5,
+                "y": 20.0,
+                "constraints": [{
+                    "type": "vertical",
+                    "point_id": "reference",
+                    "relation_role": "driven",
+                }],
+            },
+            {
+                "id": "reference",
+                "type": "point",
+                "x": 10.0,
+                "y": 0.0,
+            },
+        ]
+
+        MainWindow._apply_sketch_coincident_constraints(entities)
+
+        self.assertEqual(entities[0]["x"], 10.0)
+        self.assertEqual(entities[0]["y"], 20.0)
+
+    def test_dimension_origin_axis_does_not_need_construction_proxy(self):
+        window = MainWindow.__new__(MainWindow)
+        sketch = SimpleNamespace(entity_id="sketch")
+        window.document = SimpleNamespace(
+            find_entity=lambda entity_id: sketch if entity_id == "sketch" else None
+        )
+        window._sketch_edit_entity_id = "sketch"
+        stored_reference = {
+            "id": "origin-axis-from-view",
+            "source_kind": "axis",
+            "owner_id": "origin",
+        }
+        window._stored_sketch_external_references = lambda _sketch: [
+            stored_reference
+        ]
+        window._external_reference_source = lambda _reference: SimpleNamespace(
+            kind=EntityKind.ORIGIN,
+            locked=True,
+        )
+        window._resolved_sketch_external_references = lambda _sketch: [{
+            "id": "origin-axis-from-view",
+            "geometry": {
+                "type": "line",
+                "point": [0.0, 0.0],
+                "direction": [3.0, 0.0],
+            },
+        }]
+
+        reference = window._canonical_dimension_origin_axis(
+            "origin-axis-from-view"
+        )
+
+        self.assertEqual(reference, "sketch_axis:x")
+
     def test_navigation_paints_datum_planes_continuously(self):
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         viewer._navigation_active = True

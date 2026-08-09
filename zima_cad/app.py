@@ -10817,6 +10817,67 @@ class MainWindow(QMainWindow):
         ):
             self._selection_controller.cancel()
 
+    def _edge_treatment_source_bodies(self) -> dict[str, BodyResult]:
+        """Return persisted viewer data for the individual history sources.
+
+        Fillet/Chamfer Apply and OK are explicit calculation boundaries, so
+        they may materialize missing source meshes here.  Hover, picking and
+        later viewer rebuilds only consume these ZIMA viewer packets.
+        """
+        scene = self._native_viewer_scene
+        source_bodies = dict(
+            scene.calculated_body_result.source_bodies
+            if scene is not None and scene.calculated_body_result is not None
+            else {}
+        )
+        if self.document is None:
+            return source_bodies
+        for obj in self.document.active_history_objects():
+            if obj.entity_id in source_bodies:
+                continue
+            source_shape = self.document.build_standalone_shape(obj)
+            if source_shape is None:
+                continue
+            source_mesh = triangulate_shape(
+                source_shape,
+                owner_id=obj.entity_id,
+            )
+            source_bodies[obj.entity_id] = BodyResult.from_mesh(source_mesh)
+        return source_bodies
+
+    def _install_scene_source_bodies(
+        self,
+        source_bodies: dict[str, BodyResult],
+        *,
+        persist: bool = True,
+    ) -> None:
+        """Attach source-container viewer packets to the current BodyResult."""
+        if not source_bodies:
+            return
+        scene = self._native_viewer_scene
+        if scene is None or scene.calculated_body_result is None:
+            return
+        calculated = replace(
+            scene.calculated_body_result,
+            source_bodies=source_bodies,
+        )
+        self._native_viewer_scene = replace(
+            scene,
+            body_result=(
+                replace(scene.body_result, source_bodies=source_bodies)
+                if scene.body_result is not None
+                else calculated
+            ),
+            calculated_body_result=calculated,
+        )
+        if self.document is None or not persist:
+            return
+        keys = self.document._shape_history_cache_keys(
+            self.document.active_history_objects()
+        )
+        if keys:
+            self.document._body_result_cache[keys[-1]] = calculated
+
     def _preview_new_fillet(self, *, show_preview: bool = True) -> bool:
         """Evaluate a new edge treatment without inserting it in history."""
 
@@ -10918,11 +10979,17 @@ class MainWindow(QMainWindow):
             )
             return False
         if show_preview:
+            source_bodies = self._edge_treatment_source_bodies()
             self.rebuild_view(
                 fit=False,
                 rebuild_geometry=True,
                 cached_body_shape=preview_shape,
             )
+            # A creation preview must never replace the cached result of its
+            # unchanged input history.  Keep the source packets only on the
+            # transient viewer scene; OK stores them under the new history
+            # signature after inserting the container.
+            self._install_scene_source_bodies(source_bodies, persist=False)
             self.native_viewer.set_edge_treatment_selection_edges(set())
         return True
 
@@ -11245,6 +11312,7 @@ class MainWindow(QMainWindow):
             )
             self.rebuild_view(fit=False, rebuild_geometry=False)
             return
+        source_bodies = self._edge_treatment_source_bodies()
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
         self.rebuild_view(
@@ -11252,6 +11320,7 @@ class MainWindow(QMainWindow):
             rebuild_geometry=True,
             cached_body_shape=built_shape,
         )
+        self._install_scene_source_bodies(source_bodies)
 
     def _edit_fillet(self, obj: ZimaEntity) -> None:
         self._edit_edge_treatment(obj)
@@ -11369,6 +11438,7 @@ class MainWindow(QMainWindow):
                     )
                 return False
             if keep_open:
+                source_bodies = self._edge_treatment_source_bodies()
                 self._populate_tree()
                 self._select_tree_object_without_reference_event(obj.entity_id)
                 self.rebuild_view(
@@ -11376,6 +11446,7 @@ class MainWindow(QMainWindow):
                     rebuild_geometry=True,
                     cached_body_shape=preview_shape,
                 )
+                self._install_scene_source_bodies(source_bodies)
                 self._clear_dimension_overlays()
                 self._show_edge_treatment_dimension(
                     obj, dialog, apply_callback=apply_from_dialog
@@ -11386,6 +11457,7 @@ class MainWindow(QMainWindow):
             apply_edit(keep_open=True)
 
         def finish_edit(result: int) -> None:
+            source_bodies = self._edge_treatment_source_bodies()
             self._clear_dimension_overlays()
             if (
                 self._selection_controller.request is not None
@@ -11395,6 +11467,7 @@ class MainWindow(QMainWindow):
                 self._selection_controller.cancel()
             self._clear_fillet_dialog(dialog)
             self._end_definition_edit()
+            self._install_scene_source_bodies(source_bodies)
 
         # OK validates and stores the same values as Apply, but does not paint
         # the transient preview/dimension for a single frame immediately
@@ -26823,6 +26896,13 @@ class MainWindow(QMainWindow):
         if not isinstance(constraints, list):
             constraints = []
         for constraint in constraints:
+            if isinstance(constraint, dict):
+                if constraint.get("type") == "horizontal":
+                    locked.add("y")
+                    continue
+                if constraint.get("type") == "vertical":
+                    locked.add("x")
+                    continue
             if (
                 isinstance(constraint, dict)
                 and constraint.get("type") == "coincident"
@@ -27154,6 +27234,12 @@ class MainWindow(QMainWindow):
                 if isinstance(point_constraints, list):
                     for point_constraint in point_constraints:
                         if not isinstance(point_constraint, dict):
+                            continue
+                        if point_constraint.get("type") == "horizontal":
+                            locked.add("y")
+                            continue
+                        if point_constraint.get("type") == "vertical":
+                            locked.add("x")
                             continue
                         if point_constraint.get("type") == "point_on_line":
                             # Keep a point already attached to construction
@@ -27856,7 +27942,11 @@ class MainWindow(QMainWindow):
             for entity in entities
             if entity.get("type") == "point"
         }
-        # Resolve chains such as p3 → p2 → p1 without merging point IDs.
+        # Resolve point-to-point relations such as p3 → p2 → p1
+        # without merging point IDs. Horizontal/Vertical created from two
+        # selected points use the same persisted representation as
+        # Coincident and must be reapplied after dimensions and after load;
+        # previously they were enforced only once at creation time.
         for _pass in range(max(1, len(points))):
             changed = False
             for point in points.values():
@@ -27864,9 +27954,13 @@ class MainWindow(QMainWindow):
                 if not isinstance(constraints, list):
                     continue
                 for constraint in constraints:
-                    if (
-                        not isinstance(constraint, dict)
-                        or constraint.get("type") != "coincident"
+                    if not isinstance(constraint, dict):
+                        continue
+                    constraint_type = str(constraint.get("type", ""))
+                    if constraint_type not in (
+                        "coincident",
+                        "horizontal",
+                        "vertical",
                     ):
                         continue
                     target = points.get(
@@ -27878,7 +27972,17 @@ class MainWindow(QMainWindow):
                         float(target.get("x", 0.0)),
                         float(target.get("y", 0.0)),
                     )
-                    if (
+                    if constraint_type == "horizontal":
+                        if float(point.get("y", 0.0)) == target_y:
+                            continue
+                        point["y"] = target_y
+                        changed = True
+                    elif constraint_type == "vertical":
+                        if float(point.get("x", 0.0)) == target_x:
+                            continue
+                        point["x"] = target_x
+                        changed = True
+                    elif (
                         float(point.get("x", 0.0)) != target_x
                         or float(point.get("y", 0.0)) != target_y
                     ):
@@ -29179,6 +29283,10 @@ class MainWindow(QMainWindow):
             self._sketch_tool == "dimension"
             and reference_id
         ):
+            reference_id = (
+                self._canonical_dimension_origin_axis(reference_id)
+                or reference_id
+            )
             if reference_id not in ("sketch_axis:x", "sketch_axis:y"):
                 proxy_id = self._external_dimension_reference_proxy(
                     reference_id
@@ -32630,6 +32738,31 @@ class MainWindow(QMainWindow):
         base_reference_id, separator, raw_line_index = (
             reference_id.partition("::line:")
         )
+        stored_reference = next(
+            (
+                reference
+                for reference in self._stored_sketch_external_references(
+                    sketch
+                )
+                if str(reference.get("id", "")) == base_reference_id
+            ),
+            None,
+        )
+        source = (
+            self._external_reference_source(stored_reference)
+            if isinstance(stored_reference, dict)
+            else None
+        )
+        if (
+            not isinstance(stored_reference, dict)
+            or stored_reference.get("source_kind") != "axis"
+            or source is None
+            or (
+                source.kind != EntityKind.ORIGIN
+                and not bool(source.locked)
+            )
+        ):
+            return None
         resolved = next(
             (
                 reference
@@ -32784,6 +32917,90 @@ class MainWindow(QMainWindow):
         self._mark_model_for_regeneration()
         self._refresh_sketch_overlay()
         return point_id
+
+    def _canonical_dimension_origin_axis(
+        self,
+        reference_id: str,
+    ) -> str | None:
+        """Map an external representation of Sketch Origin onto its axis.
+
+        A dimension to Origin must persist only ``sketch_axis:x/y``.  Older
+        generic line handling materialized the selected reference as a real
+        construction segment, polluting the sketch with geometry that was
+        merely an implementation detail of the dimension.
+        """
+        if reference_id in ("sketch_axis:x", "sketch_axis:y"):
+            return reference_id
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return None
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return None
+        base_reference_id, separator, raw_line_index = (
+            reference_id.partition("::line:")
+        )
+        resolved = next(
+            (
+                reference
+                for reference in self._resolved_sketch_external_references(
+                    sketch
+                )
+                if str(reference.get("id", "")) == base_reference_id
+            ),
+            None,
+        )
+        geometry = (
+            resolved.get("geometry")
+            if isinstance(resolved, dict)
+            else None
+        )
+        line = geometry if isinstance(geometry, dict) and geometry.get(
+            "type"
+        ) == "line" else None
+        if (
+            line is None
+            and isinstance(geometry, dict)
+            and geometry.get("type") == "lines"
+            and isinstance(geometry.get("lines"), list)
+            and separator
+            and raw_line_index.isdigit()
+        ):
+            requested_index = int(raw_line_index)
+            line = next(
+                (
+                    candidate
+                    for index, candidate in enumerate(geometry["lines"])
+                    if isinstance(candidate, dict)
+                    and int(candidate.get("_reference_line_index", index))
+                    == requested_index
+                ),
+                None,
+            )
+        if not isinstance(line, dict):
+            return None
+        point = line.get("point", ())
+        direction = line.get("direction", ())
+        if not (
+            isinstance(point, (list, tuple))
+            and isinstance(direction, (list, tuple))
+            and len(point) >= 2
+            and len(direction) >= 2
+        ):
+            return None
+        px, py = float(point[0]), float(point[1])
+        dx, dy = float(direction[0]), float(direction[1])
+        scale = max(abs(dx), abs(dy), 1.0e-12)
+        # The line must actually pass through the local sketch origin.  This
+        # prevents an ordinary horizontal/vertical model edge from being
+        # mistaken for Origin merely because it has the same direction.
+        cross = px * dy - py * dx
+        if abs(cross) > scale * 1.0e-8:
+            return None
+        if abs(dy) <= scale * 1.0e-8:
+            return "sketch_axis:x"
+        if abs(dx) <= scale * 1.0e-8:
+            return "sketch_axis:y"
+        return None
 
     def _on_sketch_dimension_dragged(
         self,
@@ -43880,6 +44097,35 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.set_surface_colors(
             self._native_viewer_scene.surface_colors_by_owner_id
+        )
+        datum_container_owners: dict[str, str] = {}
+
+        def register_datum_descendants(
+            entity: ZimaEntity,
+            container_id: str,
+        ) -> None:
+            datum_container_owners[entity.entity_id] = container_id
+            for child in entity.children:
+                register_datum_descendants(child, container_id)
+
+        for history_object in self.document.history_objects_at(
+            history_boundary
+        ):
+            if history_object.container_type not in (
+                ContainerType.POINT,
+                ContainerType.AXIS,
+                ContainerType.PLANE,
+            ):
+                continue
+            register_datum_descendants(
+                history_object,
+                history_object.entity_id,
+            )
+        # The locked document Origin is deliberately absent: it remains a
+        # reference for explicit tools but is not an ordinary selectable
+        # history object in the 3D view.
+        self.native_viewer.set_datum_container_owners(
+            datum_container_owners
         )
         self._selectable_model_shapes = list(
             (

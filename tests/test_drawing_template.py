@@ -146,6 +146,36 @@ class DrawingTemplateTests(unittest.TestCase):
                 "&document.file_stem / &model.verze / &drawing.edice",
             )
 
+    def test_deleted_title_block_field_does_not_return_after_reopen(self) -> None:
+        document = load_drawing_template(
+            Path("config/formats/ZE-RAZITKO.tblz")
+        )
+        sketch = template_sketch(document)
+        model = SketchModel.from_dict(json.loads(sketch.parameters["sketch_data"]))
+        deleted_ids = [
+            point_id
+            for point_id, point in model.points.items()
+            if point.attributes.get("template_field_id") == "DATE"
+        ]
+        self.assertEqual(len(deleted_ids), 1)
+        model.points.pop(deleted_ids[0])
+        sketch.parameters["sketch_data"] = json.dumps(
+            model.to_dict(), ensure_ascii=False
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "block.tblz"
+            save_drawing_template(document, target)
+            self.assertNotIn("[Field.DATE]", target.read_text(encoding="utf-8"))
+            reopened = load_drawing_template(target)
+            reopened_model = SketchModel.from_dict(json.loads(
+                template_sketch(reopened).parameters["sketch_data"]
+            ))
+            self.assertFalse(any(
+                point.attributes.get("template_field_id") == "DATE"
+                for point in reopened_model.points.values()
+            ))
+
     def test_field_box_coordinates_survive_sketch_round_trip(self) -> None:
         document = load_drawing_template(
             Path("config/formats/ZE-RAZITKO.tblz")

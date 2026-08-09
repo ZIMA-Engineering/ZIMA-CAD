@@ -486,6 +486,21 @@ def _store_title_block_fields(
     parser: configparser.ConfigParser,
     model: SketchModel,
 ) -> None:
+    stored_field_ids = {
+        str(point.attributes.get("template_field_id", ""))
+        for point in model.points.values()
+        if str(point.attributes.get("template_field_id", ""))
+    }
+    # The declarative Field.* sections are authoritative on load: every
+    # section missing from [Sketch] is recreated as a field anchor.  Saving
+    # an editor deletion must therefore remove both representations, or the
+    # supposedly deleted text (for example VERSION) returns on reopen.
+    for section in tuple(parser.sections()):
+        if not section.startswith("Field."):
+            continue
+        field_id = section.removeprefix("Field.").strip()
+        if field_id and field_id not in stored_field_ids:
+            parser.remove_section(section)
     for point in model.points.values():
         field_id = str(point.attributes.get("template_field_id", ""))
         if not field_id:
