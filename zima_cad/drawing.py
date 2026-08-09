@@ -59,7 +59,7 @@ from zima_cad.drawing_format import load_drawing_format
 from zima_cad.drawing_style import drawing_font_family, load_drawing_style
 from zima_cad.localization import tr
 from zima_cad.model import PartDocument
-from zima_cad.title_block import load_title_block
+from zima_cad.title_block import load_title_block, resolve_title_block_text
 from zima_cad.viewer_mesh import triangulate_shape
 
 
@@ -114,6 +114,7 @@ def default_sheet(index: int = 1) -> dict:
         "projection_method": "first_angle",
         "views": [],
         "dimensions": [],
+        "title_block_values": {},
     }
 
 
@@ -133,6 +134,7 @@ def drawing_sheets(document: PartDocument) -> list[dict]:
         sheet.setdefault("default_scale", 1.0)
         sheet.setdefault("projection_method", "first_angle")
         sheet.setdefault("dimensions", [])
+        sheet.setdefault("title_block_values", {})
     return sheets
 
 
@@ -927,6 +929,7 @@ class DrawingCanvas(QWidget):
     dimensionToolCancelled = Signal()
     viewDeleteRequested = Signal(str)
     viewMoveFinished = Signal()
+    titleBlockFieldDoubleClicked = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -950,6 +953,7 @@ class DrawingCanvas(QWidget):
         self._title_block_context: dict = {}
         self._title_block_picture: QPicture | None = None
         self._title_block_picture_key: tuple | None = None
+        self._title_block_field_screen_bounds: dict[str, QRectF] = {}
         self._lineweight_preview = False
         self._dimension_tool_active = False
         self._dimension_references: list[dict] = []
@@ -1086,6 +1090,7 @@ class DrawingCanvas(QWidget):
         self._title_block_definition = definition
         self._title_block_picture = None
         self._title_block_picture_key = None
+        self._title_block_field_screen_bounds = {}
         self.update()
 
     def set_title_block_context(self, context: dict | None) -> None:
@@ -1479,10 +1484,7 @@ class DrawingCanvas(QWidget):
         definition = self._title_block_definition
         if not definition:
             return
-        sheet_width, _sheet_height = self.sheet_size()
         block_width = float(definition["width"])
-        block_left = sheet_width - 10.0 - block_width
-        block_bottom = 10.0
         cache_key = (
             id(definition),
             self.width(),
@@ -1505,14 +1507,15 @@ class DrawingCanvas(QWidget):
         block_painter.setFont(painter.font())
         original_font = block_painter.font()
         pens = definition.get("pens", {})
+        self._title_block_field_screen_bounds = {}
         bottom_right_coordinates = (
             definition.get("coordinate_system") == "bottom_right"
         )
 
         def point(x: float, y: float) -> QPointF:
             if bottom_right_coordinates:
-                return self._screen_point(10.0 + x, block_bottom + y)
-            return self._format_point(block_left + x, block_bottom + y)
+                return self._screen_point(x, y)
+            return self._screen_point(block_width - x, y)
 
         def draw_box_text(
             text: str,
@@ -1603,6 +1606,17 @@ class DrawingCanvas(QWidget):
             box_width = float(field.get("box_width", 0.0))
             box_height = float(field.get("box_height", 0.0))
             if box_width > 0.0 and box_height > 0.0:
+                first = point(
+                    float(field["x"]),
+                    float(field["y"]),
+                )
+                second = point(
+                    float(field["x"]) + box_width,
+                    float(field["y"]) + box_height,
+                )
+                self._title_block_field_screen_bounds[str(field["id"])] = (
+                    QRectF(first, second).normalized()
+                )
                 draw_box_text(
                     value,
                     x=float(field["x"]), y=float(field["y"]),
@@ -1619,40 +1633,61 @@ class DrawingCanvas(QWidget):
                     1, round(float(field["height"]) * self._pixels_per_mm)
                 ))
                 block_painter.setFont(font)
+                anchor = point(float(field["x"]), float(field["y"]))
+                metrics = QFontMetricsF(font)
+                text_width = max(
+                    metrics.horizontalAdvance(value),
+                    float(field["height"]) * self._pixels_per_mm,
+                )
+                text_height = max(
+                    metrics.height(),
+                    float(field["height"]) * self._pixels_per_mm,
+                )
+                align = str(field.get("align", "left"))
+                left = (
+                    anchor.x() - text_width
+                    if align == "right"
+                    else anchor.x() - text_width * 0.5
+                    if align == "center"
+                    else anchor.x()
+                )
+                self._title_block_field_screen_bounds[str(field["id"])] = (
+                    QRectF(left, anchor.y() - text_height, text_width, text_height)
+                    .normalized()
+                )
                 block_painter.drawText(
                     point(float(field["x"]), float(field["y"])),
                     value,
                 )
-        self._draw_title_block_head(block_painter, point, draw_box_text, pens)
+        content_origin = definition.get("content_origin", (0.0, 0.0))
+        origin_x = float(content_origin[0])
+        origin_y = float(content_origin[1])
+
+        def head_point(x: float, y: float) -> QPointF:
+            return point(x + origin_x, y + origin_y)
+
+        def draw_head_text(text: str, **arguments) -> None:
+            arguments["x"] = float(arguments.get("x", 0.0)) + origin_x
+            arguments["y"] = float(arguments.get("y", 0.0)) + origin_y
+            draw_box_text(text, **arguments)
+
+        self._draw_title_block_head(
+            block_painter,
+            head_point,
+            draw_head_text,
+            pens,
+        )
         block_painter.end()
         self._title_block_picture = picture
         self._title_block_picture_key = cache_key
         painter.drawPicture(0, 0, picture)
 
     def _title_block_field_value(self, field: dict) -> str:
-        context = self._title_block_context
-        parameter = str(field.get("parameter", ""))
-        if parameter:
-            value = context.get("parameters", {}).get(parameter, "")
-            return str(value) if str(value).strip() else str(field.get("default", ""))
-        source = str(field.get("source", ""))
-        if source == "document.file_stem":
-            return str(context.get("file_stem") or field.get("default", ""))
-        if source == "sheet.format":
-            return str(self._sheet.get("format", field.get("default", "")))
-        if source == "sheet.position":
-            index = int(context.get("sheet_index", 0)) + 1
-            count = max(1, int(context.get("sheet_count", 1)))
-            return str(field.get("format", "{index}/{count}")).format(
-                index=index, count=count
-            )
-        if source == "sheet.scale":
-            numerator = int(round(float(self._sheet.get("default_scale_numerator", 1))))
-            denominator = int(round(float(self._sheet.get("default_scale", 1))))
-            return str(field.get("format", "{numerator}:{denominator}")).format(
-                numerator=numerator, denominator=denominator
-            )
-        return str(field.get("default", ""))
+        return resolve_title_block_text(
+            field,
+            context=self._title_block_context,
+            sheet=self._sheet,
+        )
 
     def _draw_title_block_head(self, painter, point, draw_text, pens) -> None:
         rows = list(self._title_block_context.get("head_rows", []))
@@ -2353,6 +2388,17 @@ class DrawingCanvas(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._pending_view is None:
+            field_id = next((
+                field_id
+                for field_id, bounds in self._title_block_field_screen_bounds.items()
+                if bounds.adjusted(-3.0, -3.0, 3.0, 3.0).contains(
+                    event.position()
+                )
+            ), None)
+            if field_id is not None:
+                self.titleBlockFieldDoubleClicked.emit(field_id)
+                event.accept()
+                return
             view = self._view_at(event.position())
             if view is not None:
                 view_id = str(view.get("id", ""))
@@ -2435,6 +2481,7 @@ class DrawingWorkspace(QWidget):
     viewDoubleClicked = Signal(str)
     insertViewRequested = Signal()
     projectViewRequested = Signal(str)
+    titleBlockFieldDoubleClicked = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -2446,6 +2493,9 @@ class DrawingWorkspace(QWidget):
         self.canvas.viewDoubleClicked.connect(self.viewDoubleClicked.emit)
         self.canvas.insertViewRequested.connect(self.insertViewRequested.emit)
         self.canvas.projectViewRequested.connect(self.projectViewRequested.emit)
+        self.canvas.titleBlockFieldDoubleClicked.connect(
+            self.titleBlockFieldDoubleClicked.emit
+        )
         self.canvas.dimensionCreated.connect(self._store)
         self.canvas.viewDeleteRequested.connect(self._delete_view)
         self.canvas.viewMoveFinished.connect(self._store)
@@ -2578,6 +2628,10 @@ class DrawingWorkspace(QWidget):
         context = dict(self._title_block_context)
         context["sheet_index"] = self.active_sheet_index
         context["sheet_count"] = len(self.sheets)
+        sheet = self.active_sheet()
+        context["local_parameters"] = dict(
+            sheet.get("title_block_values", {}) if sheet is not None else {}
+        )
         self.canvas.set_title_block_context(context)
 
     def copy_view_render_data(self, source_id: str, target_id: str) -> None:
@@ -2587,6 +2641,26 @@ class DrawingWorkspace(QWidget):
         if 0 <= self.active_sheet_index < len(self.sheets):
             return self.sheets[self.active_sheet_index]
         return None
+
+    def active_title_block_field(self, field_id: str) -> dict | None:
+        definition = self.canvas._title_block_definition
+        if definition is None:
+            return None
+        return next((
+            dict(field)
+            for field in definition.get("fields", [])
+            if str(field.get("id", "")) == str(field_id)
+        ), None)
+
+    def set_title_block_local_values(self, values: dict[str, str]) -> None:
+        sheet = self.active_sheet()
+        if sheet is None:
+            return
+        stored = dict(sheet.get("title_block_values", {}))
+        stored.update({str(key): str(value) for key, value in values.items()})
+        sheet["title_block_values"] = stored
+        self._apply_title_block_context()
+        self._store()
 
     def set_family_instances(self, instances: list[str]) -> None:
         self._family_instances = list(dict.fromkeys(

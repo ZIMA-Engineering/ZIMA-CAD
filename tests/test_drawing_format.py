@@ -3,7 +3,12 @@ import tempfile
 import unittest
 
 from zima_cad.drawing_format import load_drawing_format
-from zima_cad.title_block import load_title_block
+from zima_cad.title_block import (
+    load_title_block,
+    resolve_title_block_text,
+    title_block_token_scope,
+    title_block_tokens,
+)
 
 
 class DrawingFormatTests(unittest.TestCase):
@@ -63,6 +68,7 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(definition["width"], 180.0)
         self.assertEqual(definition["height"], 60.0)
         self.assertEqual(definition["coordinate_system"], "bottom_right")
+        self.assertEqual(definition["content_origin"], (10.0, 10.0))
         self.assertTrue(any(
             entity.get("text") == "ZIMA-Engineering"
             for entity in definition["geometry"]
@@ -78,23 +84,26 @@ Line001 = 0, 0, 1, 1, BLUE
             "ACCURACY", "TOLERANCING",
             "ASSEMBLY_WEIGHT", "ASSEMBLY_QUANTITY",
         })
-        self.assertEqual(fields["DRAWN_BY"]["parameter"], "kreslil")
+        self.assertEqual(fields["DRAWN_BY"]["text"], "&kreslil")
         self.assertEqual(fields["DRAWN_BY"]["default"], "ING. VLADIMÍR ZIMA")
         self.assertEqual(fields["DRAWN_BY"]["align"], "right")
         self.assertEqual(fields["DRAWN_BY"]["offset_y"], -0.7)
-        self.assertEqual(fields["APPROVED_BY"]["parameter"], "schvalil")
+        self.assertEqual(fields["APPROVED_BY"]["text"], "&schvalil")
         self.assertEqual(fields["APPROVED_BY"]["align"], "right")
         self.assertEqual(fields["APPROVED_BY"]["offset_y"], -0.5)
-        self.assertEqual(fields["DATE"]["parameter"], "datum")
-        self.assertEqual(fields["DOCUMENT_NUMBER"]["source"], "document.file_stem")
-        self.assertEqual(fields["VERSION"]["parameter"], "verze")
-        self.assertEqual(fields["SHEET_NUMBER"]["source"], "sheet.position")
+        self.assertEqual(fields["DATE"]["text"], "&datum")
+        self.assertEqual(
+            fields["DOCUMENT_NUMBER"]["text"],
+            "&document.file_stem.&verze",
+        )
+        self.assertEqual(fields["VERSION"]["text"], "&verze")
+        self.assertEqual(fields["SHEET_NUMBER"]["text"], "&sheet.position")
         self.assertEqual(fields["SHEET_NUMBER"]["format"], "{index}/{count}")
         self.assertEqual(fields["SHEET_NUMBER"]["align"], "left")
-        self.assertEqual(fields["SHEET_NUMBER"]["vertical_align"], "center")
+        self.assertEqual(fields["SHEET_NUMBER"]["vertical_align"], "bottom")
         self.assertFalse(fields["SHEET_NUMBER"]["editable"])
         self.assertFalse(fields["SHEET_NUMBER"]["write_back"])
-        self.assertEqual(fields["NAME"]["parameter"], "nazev")
+        self.assertEqual(fields["NAME"]["text"], "&nazev")
         self.assertEqual(fields["NAME"]["pen"], "WHITE")
         self.assertEqual(fields["DOCUMENT_NUMBER"]["pen"], "WHITE")
         self.assertEqual(fields["VERSION"]["pen"], "WHITE")
@@ -122,19 +131,19 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(fields["DATE"]["align"], "right")
         self.assertEqual(fields["DATE"]["offset_y"], -0.3)
         self.assertEqual(fields["DATE"]["box_height"], 5.0)
-        self.assertEqual(fields["DATE"]["x"], 81.5)
-        self.assertEqual(fields["DATE"]["x"] + fields["DATE"]["box_width"], 127.5)
-        self.assertEqual(fields["SCALE"]["source"], "sheet.scale")
+        self.assertEqual(fields["DATE"]["x"], 91.5)
+        self.assertEqual(fields["DATE"]["x"] + fields["DATE"]["box_width"], 137.5)
+        self.assertEqual(fields["SCALE"]["text"], "&sheet.scale")
         self.assertEqual(fields["SCALE"]["pen"], "WHITE")
         self.assertEqual(fields["SCALE"]["format"], "M{numerator}:{denominator}")
         self.assertEqual(fields["SHEET_FORMAT"]["align"], "right")
-        self.assertEqual(fields["ACCURACY"]["parameter"], "presnost")
-        self.assertEqual(fields["TOLERANCING"]["parameter"], "tolerovani")
+        self.assertEqual(fields["ACCURACY"]["text"], "&presnost")
+        self.assertEqual(fields["TOLERANCING"]["text"], "&tolerovani")
         self.assertEqual(
-            fields["ASSEMBLY_WEIGHT"]["parameter"], "hmotnost_sestavy"
+            fields["ASSEMBLY_WEIGHT"]["text"], "&hmotnost_sestavy"
         )
         self.assertEqual(
-            fields["ASSEMBLY_QUANTITY"]["parameter"], "mnozstvi_sestav"
+            fields["ASSEMBLY_QUANTITY"]["text"], "&mnozstvi_sestav"
         )
         static_texts = {
             entity.get("text") for entity in definition["geometry"]
@@ -150,11 +159,36 @@ Line001 = 0, 0, 1, 1, BLUE
             for entity in definition["geometry"]
             if entity["kind"] == "line" and entity["pen"] == "WHITE"
         }
-        self.assertIn((81.0, 0.0, 81.0, 20.0), white_lines)
-        self.assertIn((0.0, 0.0, 0.0, 20.0), white_lines)
-        self.assertIn((0.0, 10.0, 81.0, 10.0), white_lines)
+        self.assertIn((91.0, 10.0, 91.0, 30.0), white_lines)
+        self.assertIn((10.0, 10.0, 10.0, 30.0), white_lines)
+        self.assertIn((10.0, 20.0, 91.0, 20.0), white_lines)
         self.assertIn(
             "e-mail: vladimir.zima@zima-engineering.cz", static_texts
+        )
+
+    def test_one_field_resolves_multiple_model_system_and_local_tokens(self) -> None:
+        field = {
+            "text": "Číslo &document.file_stem.&model.verze / &drawing.edice",
+            "default": "-",
+        }
+        self.assertEqual(
+            title_block_tokens(field["text"]),
+            ("document.file_stem", "model.verze", "drawing.edice"),
+        )
+        self.assertEqual(title_block_token_scope("model.verze"), "model")
+        self.assertEqual(title_block_token_scope("drawing.edice"), "drawing")
+        self.assertEqual(title_block_token_scope("sheet.scale"), "system")
+        self.assertEqual(
+            resolve_title_block_text(
+                field,
+                context={
+                    "file_stem": "ZE0019-0200-0001",
+                    "parameters": {"verze": "03"},
+                    "local_parameters": {"edice": "A"},
+                },
+                sheet={},
+            ),
+            "Číslo ZE0019-0200-0001.03 / A",
         )
 
 

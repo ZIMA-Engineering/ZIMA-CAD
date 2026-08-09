@@ -100,7 +100,7 @@ def triangulate_shape(
     *,
     owner_id: str = "",
     edge_kind: str = "edge",
-    edge_color: Point3 = (0.086, 0.098, 0.118),
+    edge_color: Point3 = (1.0, 1.0, 1.0),
     edge_label: str = "",
     linear_deflection: float = 0.2,
     angular_deflection: float = 0.35,

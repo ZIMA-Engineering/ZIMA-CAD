@@ -548,6 +548,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_double_clicked = False
         self._suppress_next_left_double_click = False
         self._navigation_active = False
+        self._orbit_enabled = True
         self._navigation_repaint_pending = False
         self._mesh: ViewerMesh | None = None
         self._face_pick_cache_key: tuple[Any, ...] | None = None
@@ -621,6 +622,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             TopologyKey, tuple[tuple[Point3, Point3], ...]
         ] = {}
         self._object_overlay_mesh: ViewerMesh | None = None
+        self._passive_sketch_overlay_mesh: ViewerMesh | None = None
+        self._source_topology_hover_mesh: ViewerMesh | None = None
+        self._source_topology_hover_kind: str | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
         self._object_overlay_persistent = False
         self._object_overlay_locks_interaction = False
@@ -649,6 +653,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._dimensions: tuple[
             LinearDimension | AngularDimension | RadialDimension, ...
         ] = ()
+        self._dimension_inspection_active = False
         self._locked_dimension_keys: frozenset[str] = frozenset()
         self._selected_dimension_key: str | None = None
         self._hovered_dimension_key: str | None = None
@@ -1484,7 +1489,25 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self.update()
 
     def clear_scene(self) -> None:
+        self.set_passive_sketch_overlay(None)
+        self.set_source_topology_hover(None)
         self.set_mesh(None)
+
+    def set_passive_sketch_overlay(self, mesh: ViewerMesh | None) -> None:
+        """Display profile geometry without entering Sketch interaction."""
+        self._passive_sketch_overlay_mesh = mesh
+        self.update()
+
+    def set_source_topology_hover(
+        self,
+        mesh: ViewerMesh | None,
+        topology_kind: str | None = None,
+    ) -> None:
+        self._source_topology_hover_mesh = mesh
+        self._source_topology_hover_kind = (
+            topology_kind if mesh is not None else None
+        )
+        self.update()
 
     def set_object_overlay(
         self,
@@ -1572,6 +1595,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         }:
             self._hovered_dimension_key = None
         self.update()
+
+    def set_dimension_inspection_active(self, active: bool) -> None:
+        self._dimension_inspection_active = bool(active)
 
     def set_locked_dimension_keys(
         self,
@@ -1973,6 +1999,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._paint_sketch_trim_overlay()
             if self._object_overlay_persistent:
                 self._paint_object_overlay()
+            self._paint_passive_sketch_overlay()
+            self._paint_source_topology_hover()
             self._paint_edge_labels(screen_constant_only=True)
             return
         self._paint_screen_constant_edges()
@@ -1986,6 +2014,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_sketch_trim_overlay()
         self._paint_sketch_selection_box()
         self._paint_object_overlay()
+        self._paint_passive_sketch_overlay()
+        self._paint_source_topology_hover()
         self._paint_edge_labels()
 
     def _paint_face_highlight_outlines(self) -> None:
@@ -2084,7 +2114,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if (
             event.button() == Qt.MouseButton.LeftButton
-            and self._sketch_display_only
+            and self._dimension_inspection_active
             and self._dimensions
         ):
             # Dimension inspection is navigation-only. A click on empty view
@@ -2571,6 +2601,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self.camera.pan_x += float(delta.x())
                 self.camera.pan_y += float(delta.y())
             else:
+                if not self._orbit_enabled:
+                    event.accept()
+                    return
                 if self._sketch_frame is not None and not self._middle_dragged:
                     # Mouse hardware commonly reports a few pixels of jitter
                     # during a click.  Keep that motion available for the
@@ -3980,13 +4013,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
         mesh = self._mesh
         if self._display_mode == "hidden_edges":
-            # Paint the complete wire image in grey, then let the regular
+            # Paint the complete wire image in black, then let the regular
             # depth-tested pass below overwrite only visible edges.  This is
             # more robust than an inverse-depth pass around polygon offsets.
             gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
                 "edgeColor",
-                QVector3D(0.5, 0.5, 0.5),
+                QVector3D(0.0, 0.0, 0.0),
             )
             gl.glLineWidth(1.0)
             for edge, (first_vertex, vertex_count) in zip(
@@ -4136,7 +4169,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             gl.glDisable(GL_DEPTH_TEST)
             program.setUniformValue(
                 "edgeColor",
-                QVector3D(0.5, 0.5, 0.5),
+                QVector3D(0.0, 0.0, 0.0),
             )
             gl.glLineWidth(1.0)
             gl.glDrawArrays(GL_LINES, 0, len(values) // 3)
@@ -4151,7 +4184,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self._edge_color_override.blueF(),
                 )
                 if self._edge_color_override is not None
-                else (0.086, 0.098, 0.118)
+                else (1.0, 1.0, 1.0)
             )),
         )
         gl.glLineWidth(max(1.0, float(self.devicePixelRatioF())))
@@ -4407,6 +4440,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(QPen(self._object_overlay_color, 1.0))
             painter.setBrush(QBrush(self._object_overlay_color))
             painter.drawEllipse(screen, 6.0, 6.0)
+        painter.end()
+
+    def _paint_passive_sketch_overlay(self) -> None:
+        mesh = self._passive_sketch_overlay_mesh
+        if mesh is None or not mesh.edges:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor.fromRgbF(1.0, 0.843, 0.251), 1.0))
+        for edge in mesh.edges:
+            projected = [
+                self._screen_point(self._camera_point(point))
+                for point in edge.points
+            ]
+            for index in range(1, len(projected)):
+                painter.drawLine(projected[index - 1], projected[index])
+        painter.end()
+
+    def _paint_source_topology_hover(self) -> None:
+        mesh = self._source_topology_hover_mesh
+        if mesh is None:
+            return
+        color = QColor.fromRgbF(1.0, 0.48, 0.0)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(color, 2.0))
+        painter.setBrush(QBrush(color))
+        if self._source_topology_hover_kind in ("face", "edge"):
+            for edge in mesh.edges:
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in edge.points
+                ]
+                for index in range(1, len(projected)):
+                    painter.drawLine(projected[index - 1], projected[index])
+        elif self._source_topology_hover_kind == "point":
+            for marker in mesh.points:
+                point = self._screen_point(self._camera_point(marker.position))
+                painter.drawEllipse(point, 6.0, 6.0)
         painter.end()
 
     def _dimension_screen_geometry(
@@ -12117,3 +12190,5 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self.width() * 0.5 + self.camera.pan_x + point[0] * scale,
             self.height() * 0.5 + self.camera.pan_y - point[1] * scale,
         )
+    def set_orbit_enabled(self, enabled: bool) -> None:
+        self._orbit_enabled = bool(enabled)

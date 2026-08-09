@@ -534,10 +534,14 @@ geometrií umožňuje nastavit její barvu na bílou, zelenou nebo žlutou; stej
 volba je dostupná také pro text.
 
 Automatická pole razítka jsou ve Sketchi zobrazena se znakem `&` na začátku.
-Například `&kreslil` odkazuje na uživatelský parametr a
-`&document.file_stem`, `&sheet.scale` nebo `&sheet.position` na systémovou
-hodnotu dokumentu či listu. Kód lze upravit jako běžný text; po uložení se
-zapíše zpět jako programovatelné pole razítka, nikoli jako statický nápis.
+Jedno textové pole smí kombinovat běžný text s libovolným počtem tokenů,
+například `Číslo: &document.file_stem.&model.verze / &drawing.edice`.
+`&model.verze` odkazuje na parametr zdrojového modelu a `&verze` je jeho
+zkrácený zápis. Token `&drawing.edice` patří pouze konkrétnímu listu výkresu
+a nemění zdrojový model ani šablonu razítka. Tokeny `&document.file_stem`,
+`&sheet.format`, `&sheet.scale` a `&sheet.position` jsou automatické systémové
+hodnoty. Kód lze upravit jako běžný text; po uložení se zapíše zpět jako
+programovatelné pole razítka, nikoli jako statický nápis.
 
 Formáty a razítka jsou uloženy společně v adresáři `config/formats`. Při
 uložení se předchozí obsah automaticky archivuje jako `soubor.frmz.1`,

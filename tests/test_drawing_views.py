@@ -926,26 +926,16 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(activated, [protrusion])
         self.assertEqual(shown, [protrusion])
 
-    def test_sketch_placement_prefers_exact_clicked_result_face(self) -> None:
-        exact = ("source-solid", 4, object())
-
-        class VisibleDialog:
-            @staticmethod
-            def isVisible():
-                return True
-
+    def test_sketch_placement_picks_original_face_directly(self) -> None:
+        original = ("source-solid", 4, object())
         window = MainWindow.__new__(MainWindow)
-        window.point_constraint_dialog = VisibleDialog()
-        window._source_face_reference_from_result_face = (
-            lambda face_index: exact if face_index == 7 else None
-        )
-        window._source_topology_reference_at_cursor = lambda _kind: self.fail(
-            "Ambiguous source ray pick replaced an exact result-face match"
+        window._source_topology_reference_at_cursor = (
+            lambda kind: original if kind == "face" else None
         )
 
         self.assertIs(
             window._source_face_reference_for_pick(7),
-            exact,
+            original,
         )
 
     def test_stored_external_sketch_points_are_always_visible(self) -> None:

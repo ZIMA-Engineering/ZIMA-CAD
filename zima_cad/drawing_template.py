@@ -33,6 +33,44 @@ TEMPLATE_TYPES = {".frmz": "drawing_format", ".tblz": "title_block"}
 TEMPLATE_PENS = {"WHITE", "GREEN", "YELLOW"}
 
 
+def _strip_template_text_outlines(model: SketchModel) -> None:
+    """Keep semantic text anchors; outlines are regenerated only if needed."""
+    removed_points = {
+        point_id
+        for point_id, point in model.points.items()
+        if point.attributes.get("text_role") == "outline_point"
+    }
+    removed_geometry = {
+        geometry_id
+        for geometry_id, geometry in model.geometry.items()
+        if geometry.attributes.get("text_role") == "outline"
+    }
+    for geometry_id in removed_geometry:
+        model.geometry.pop(geometry_id, None)
+    for point_id in removed_points:
+        model.points.pop(point_id, None)
+    model.constraints = {
+        constraint_id: constraint
+        for constraint_id, constraint in model.constraints.items()
+        if not any(
+            point_id in removed_points
+            for point_id in constraint.point_ids
+        )
+        and not any(
+            reference_id in removed_geometry
+            for reference_id in constraint.reference_ids
+        )
+    }
+    model.dimensions = {
+        dimension_id: dimension
+        for dimension_id, dimension in model.dimensions.items()
+        if not any(
+            point_id in removed_points
+            for point_id in dimension.point_ids
+        )
+    }
+
+
 def _parser(path: Path) -> configparser.ConfigParser:
     parser = configparser.ConfigParser(interpolation=None)
     parser.optionxform = str
@@ -112,6 +150,9 @@ def _legacy_model(
 
 
 def _field_code(parser: configparser.ConfigParser, section: str) -> str:
+    text = parser.get(section, "Text", fallback="").strip()
+    if text:
+        return text
     parameter = parser.get(section, "Parameter", fallback="").strip()
     source = parser.get(section, "Source", fallback="").strip()
     return f"&{parameter or source}"
@@ -212,6 +253,7 @@ def load_drawing_template(
         model = _legacy_model(parser, geometry_section, coordinate_width)
     if template_type == "title_block":
         _add_title_block_fields(model, parser, coordinate_width)
+    _strip_template_text_outlines(model)
 
     settings = default_document_settings()
     settings.update({
@@ -245,6 +287,81 @@ def load_drawing_template(
     root.add_child(container)
     document = PartDocument(document_settings=settings, root=root)
     document.source_file_path = path.resolve()
+    document.regeneration_required = False
+    return document
+
+
+def create_empty_drawing_template(
+    template_type: str,
+    name: str,
+) -> PartDocument:
+    """Create a blank editable frame or title-block template."""
+    if template_type == "drawing_format":
+        coordinate_width = 297.0
+        sections = {
+            "Format": {
+                "SchemaVersion": "3",
+                "Name": name,
+                "SheetFormat": "A4",
+                "Orientation": "portrait",
+                "DocumentType": "any",
+            },
+            "Frame": {
+                "LeftMargin": "20",
+                "RightMargin": "10",
+                "TopMargin": "10",
+                "BottomMargin": "10",
+                "Color": "#FFFFFF",
+                "LineWidth": "0.7",
+            },
+            "TitleBlock": {"Enabled": "no"},
+        }
+    elif template_type == "title_block":
+        coordinate_width = 180.0
+        sections = {
+            "TitleBlock": {
+                "SchemaVersion": "3",
+                "Name": name,
+                "Width": "180",
+                "Height": "60",
+                "Anchor": "bottom-right",
+            },
+        }
+    else:
+        raise ValueError(f"Unsupported drawing template type: {template_type}")
+    settings = default_document_settings()
+    settings.update({
+        "type": template_type,
+        "template_coordinate_system": "bottom_right",
+        "template_coordinate_width": f"{coordinate_width:.12g}",
+        "template_sections": json.dumps(sections, ensure_ascii=False),
+    })
+    root = ZimaEntity(name, EntityKind.PART, combine_mode=CombineMode.NONE)
+    container = ZimaEntity(
+        "Frame" if template_type == "drawing_format" else "Title block",
+        EntityKind.CONTAINER,
+        combine_mode=CombineMode.NONE,
+        parameters={"container_type": "SKETCH"},
+    )
+    model = SketchModel()
+    sketch = ZimaEntity(
+        "Frame geometry" if template_type == "drawing_format"
+        else "Title-block geometry",
+        EntityKind.SKETCH,
+        combine_mode=CombineMode.NONE,
+        parameters={
+            "plane": "xy",
+            "profile": "entities",
+            "sketch_data": json.dumps(model.to_dict(), ensure_ascii=False),
+            "external_references": "[]",
+            "unit": "mm",
+            "role": SketchRole.PROFILE.value,
+            "template_editor": "true",
+        },
+    )
+    container.add_child(sketch)
+    root.add_child(container)
+    document = PartDocument(document_settings=settings, root=root)
     document.regeneration_required = False
     return document
 
@@ -387,15 +504,11 @@ def _store_title_block_fields(
         values["Align"] = align
         values["VerticalAlign"] = vertical
         values["Pen"] = str(point.attributes.get("pen", "GREEN")).upper()
-        code = str(point.attributes.get("text_value", "")).strip()
-        if code.startswith("&") and len(code) > 1:
-            reference = code[1:].strip()
-            if "." in reference:
-                values["Source"] = reference
-                values.pop("Parameter", None)
-            else:
-                values["Parameter"] = reference
-                values.pop("Source", None)
+        text = str(point.attributes.get("text_value", "")).strip()
+        if text:
+            values["Text"] = text
+            values.pop("Parameter", None)
+            values.pop("Source", None)
 
 
 def save_drawing_template(document: PartDocument, path: Path) -> None:
