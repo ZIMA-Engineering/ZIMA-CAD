@@ -646,9 +646,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._last_model_hover_position: QPointF | None = None
         self._model_hover_timer = QTimer(self)
         self._model_hover_timer.setSingleShot(True)
-        self._model_hover_timer.setInterval(50)
+        self._model_hover_timer.setInterval(60)
         self._model_hover_timer.timeout.connect(
             self._apply_pending_model_hover
+        )
+        self._model_hover_clear_timer = QTimer(self)
+        self._model_hover_clear_timer.setSingleShot(True)
+        self._model_hover_clear_timer.setInterval(150)
+        self._model_hover_clear_timer.timeout.connect(
+            self._clear_delayed_model_hover
         )
         self._dimensions: tuple[
             LinearDimension | AngularDimension | RadialDimension, ...
@@ -3108,9 +3114,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             super().mouseMoveEvent(event)
             return
         self._pending_model_hover_position = QPointF(event.position())
-        if not self._model_hover_timer.isActive():
-            self._model_hover_timer.start()
+        self._model_hover_clear_timer.stop()
+        # Debounce a new candidate. Merely crossing a triangle boundary or
+        # a narrow screen-space gap must not replace a stable solid hover.
+        self._model_hover_timer.start()
         super().mouseMoveEvent(event)
+
+    def _clear_delayed_model_hover(self) -> None:
+        if self._pending_model_hover_position is not None:
+            return
+        self._set_hovered_face(None)
+        self._set_hovered_object(None)
 
     def _apply_pending_model_hover(self) -> None:
         position = self._pending_model_hover_position
@@ -3177,20 +3191,43 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if point is not None or plane is not None
                 else self._pick_axis(position)
             )
-            self._clear_topology_hover()
-            self._set_hovered_object(None)
             if point is not None:
+                self._model_hover_clear_timer.stop()
+                self._set_hovered_object(None)
+                self._set_hovered_face(None)
                 self._set_hovered_point(point)
+                self._set_hovered_plane(None)
+                self._set_hovered_edge(None)
             elif plane is not None:
+                self._model_hover_clear_timer.stop()
+                self._set_hovered_object(None)
+                self._set_hovered_face(None)
+                self._set_hovered_point(None)
                 self._set_hovered_plane(plane)
+                self._set_hovered_edge(None)
             elif axis is not None:
+                self._model_hover_clear_timer.stop()
+                self._set_hovered_object(None)
+                self._set_hovered_face(None)
+                self._set_hovered_point(None)
+                self._set_hovered_plane(None)
                 self._set_hovered_edge(axis)
             else:
+                self._set_hovered_point(None)
+                self._set_hovered_plane(None)
+                self._set_hovered_edge(None)
                 face = self._pick_face(position)
-                self._set_hovered_object(
-                    face[0] if face is not None
+                owner_id = (
+                    face[0]
+                    if face is not None
                     else self._pick_object(position)
                 )
+                if owner_id is None:
+                    if not self._model_hover_clear_timer.isActive():
+                        self._model_hover_clear_timer.start()
+                    return
+                self._model_hover_clear_timer.stop()
+                self._set_hovered_object(owner_id)
                 # Emit the face last. The application can then replace the
                 # whole-object hover with a feature-boundary highlight.
                 self._set_hovered_face(face)
@@ -3225,6 +3262,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         QTimer.singleShot(16, repaint_latest_camera)
 
     def leaveEvent(self, event) -> None:
+        self._model_hover_timer.stop()
+        self._model_hover_clear_timer.stop()
+        self._pending_model_hover_position = None
         if self._hovered_sketch_corner_radius is not None:
             self._hovered_sketch_corner_radius = None
             self.update()
@@ -6701,15 +6741,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 else "C"
                 if (
                     hovered_reference_is_point
+                    or bool(hovered_reference_ids)
                     or self._preview_sketch_entity_id in point_ids
                 )
                 else ""
             )
+            orange = QColor("#FF7A00")
+            painter.setPen(QPen(orange, 2.0))
+            painter.setBrush(QBrush(orange))
+            painter.drawEllipse(preview, 5.0, 5.0)
             if label:
-                orange = QColor("#FF7A00")
-                painter.setPen(QPen(orange, 2.0))
-                painter.setBrush(QBrush(orange))
-                painter.drawEllipse(preview, 5.0, 5.0)
                 painter.drawText(QPointF(preview.x() + 8.0, preview.y() - 8.0), label)
 
         if self._sketch_pending_points:
@@ -7241,7 +7282,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 }
                 if (
                     (
-                        hovered_reference_is_point
+                        (
+                            hovered_reference_is_point
+                            or bool(hovered_reference_ids)
+                        )
                         and self._sketch_preview_constraint != "intersection"
                         and not (
                             self._sketch_preview_constraint is not None
@@ -7293,20 +7337,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     if point_label_text
                     else 0
                 )
-                if point_labels:
-                    tangent_at_preview = (
-                        self._sketch_preview_constraint is not None
-                        and self._sketch_preview_constraint.startswith(
-                            (
-                                "tangent:",
-                                "circle_tangent:",
-                                "circle_curve_tangent:",
-                            )
+                tangent_at_preview = (
+                    self._sketch_preview_constraint is not None
+                    and self._sketch_preview_constraint.startswith(
+                        (
+                            "tangent:",
+                            "circle_tangent:",
+                            "circle_curve_tangent:",
                         )
                     )
-                    painter.setPen(QPen(QColor("#FF7A00"), 2.0))
-                    painter.setBrush(QBrush(QColor("#FF7A00")))
-                    painter.drawEllipse(preview, 5.0, 5.0)
+                )
+                painter.setPen(QPen(QColor("#FF7A00"), 2.0))
+                painter.setBrush(QBrush(QColor("#FF7A00")))
+                painter.drawEllipse(preview, 5.0, 5.0)
+                if point_labels:
                     painter.drawText(
                         QPointF(
                             preview.x() + (23.0 if tangent_at_preview else 7.0),
@@ -8463,7 +8507,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 ),
                 f"sketch_geometry:{geometry_id}",
                 f"midpoint:{geometry_id}",
-                2,
+                -3,
             )
         for reference in self._sketch_external_references:
             reference_id = str(reference.get("id", ""))

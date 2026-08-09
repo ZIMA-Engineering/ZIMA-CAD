@@ -29972,8 +29972,14 @@ class MainWindow(QMainWindow):
         sketch: ZimaEntity,
         target_point_id: str,
         constrained_point_id: str,
+        *,
+        entities: list[dict[str, Any]] | None = None,
     ) -> bool:
-        entities = copy.deepcopy(self._stored_sketch_entities(sketch))
+        entities = copy.deepcopy(
+            self._stored_sketch_entities(sketch)
+            if entities is None
+            else entities
+        )
         dimensions = copy.deepcopy(
             self._stored_sketch_dimensions(sketch)
         )
@@ -30033,6 +30039,13 @@ class MainWindow(QMainWindow):
                             else str(point_id)
                             for point_id in point_ids
                         ]
+                    if (
+                        constraint.get("type")
+                        in ("coincident", "horizontal", "vertical")
+                        and str(constraint.get("point_id", ""))
+                        == str(entity.get("id", ""))
+                    ):
+                        continue
                     signature = json.dumps(
                         {
                             key: value
@@ -34668,7 +34681,34 @@ class MainWindow(QMainWindow):
                 "relation_role": "driven",
             })
             driven["constraints"] = constraints
-            self._store_sketch_entities(sketch, entities)
+            relation_types: set[str] = set()
+            relation_ids = {first_point_id, entity_id}
+            for owner in points.values():
+                owner_id = str(owner.get("id", ""))
+                owner_constraints = owner.get("constraints", ())
+                if not isinstance(owner_constraints, list):
+                    continue
+                for relation in owner_constraints:
+                    if not isinstance(relation, dict):
+                        continue
+                    relation_type = str(relation.get("type", ""))
+                    target_id = str(relation.get("point_id", ""))
+                    if (
+                        relation_type in ("horizontal", "vertical")
+                        and {owner_id, target_id} == relation_ids
+                    ):
+                        relation_types.add(relation_type)
+            merged = (
+                relation_types == {"horizontal", "vertical"}
+                and self._add_sketch_coincident_constraint(
+                    sketch,
+                    entity_id,
+                    first_point_id,
+                    entities=entities,
+                )
+            )
+            if not merged:
+                self._store_sketch_entities(sketch, entities)
             self._sketch_direction_first_point_id = None
             self._sketch_selected_entity_id = None
             self._regenerate_active_sketch_constraints(sketch)
