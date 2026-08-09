@@ -51,3 +51,18 @@
   that intentionally makes legacy documents unsupported.
 - When redesigning topology or serialization, remove obsolete compatibility
   code instead of preserving it behind conditionals.
+
+## OCCT boundary
+
+- Use OCCT only as the solid-modeling kernel for calculating body geometry.
+- Application UI, property dialogs, Sketcher entry and interaction, picking,
+  highlighting, topology identity, feature references, external sketch
+  references, and their projections must use ZIMA-CAD's persisted data model
+  and viewer data, not live OCCT traversal or reconstruction.
+- Resolve and persist all reference data needed by later editing when a body
+  calculation is explicitly performed. Opening or editing an already
+  calculated feature must consume that persisted data without invoking OCCT.
+- Do not hide OCCT work behind refresh, selection, overlay, tree, toolbar,
+  properties, or hover code paths. A user action may invoke OCCT only when it
+  explicitly requests a body calculation such as Apply, OK, or model
+  regeneration.

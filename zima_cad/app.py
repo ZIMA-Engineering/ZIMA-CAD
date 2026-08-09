@@ -4378,10 +4378,16 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
 
     def _update_result_controls(self, _index: int = -1) -> None:
         solid = self.result_type_combo.currentData() == "solid"
-        show_operation = solid and not self._subtract_only
+        # Creation and editing share one stable interaction contract.  Do not
+        # make Add/Subtract disappear merely because a stored/open profile is
+        # currently represented as a surface; keep the operation visible and
+        # disable it until a solid result is available.
+        show_operation = not self._subtract_only
         if hasattr(self, "operation_widget"):
             self.operation_widget.setVisible(show_operation)
             self.operation_label.setVisible(show_operation)
+            self.add_operation_button.setEnabled(solid)
+            self.subtract_operation_button.setEnabled(solid)
         self.definitionChanged.emit()
 
     def _update_extent_controls(self, _index: int = -1) -> None:
@@ -11950,6 +11956,8 @@ class MainWindow(QMainWindow):
         self,
         references: list[dict[str, Any]],
         fallback: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        *,
+        resolve_shape_references: bool = True,
     ) -> tuple[
         tuple[float, float, float] | None,
         int,
@@ -11976,7 +11984,11 @@ class MainWindow(QMainWindow):
                 # origin. The upper table remains the sole position solver.
                 continue
             if descriptor.get("type") != "entity":
-                resolved = self._resolved_shape_reference_equations(descriptor)
+                resolved = (
+                    self._resolved_shape_reference_equations(descriptor)
+                    if resolve_shape_references
+                    else None
+                )
                 rows = (
                     resolved
                     if resolved is not None
@@ -13075,6 +13087,8 @@ class MainWindow(QMainWindow):
     def _plane_reference_rotation(
         self,
         references: list[dict[str, Any]],
+        *,
+        resolve_shape_references: bool = True,
     ) -> tuple[float, float, float]:
         references = MainWindow._expanded_container_frame_references(
             references
@@ -13103,6 +13117,7 @@ class MainWindow(QMainWindow):
             direction = self._orientation_reference_vector(
                 descriptor,
                 allow_frame_fallback=False,
+                resolve_shape_references=resolve_shape_references,
             )
             direction = self._normalized_vector(direction)
             if direction == (0.0, 0.0, 0.0):
@@ -13255,13 +13270,18 @@ class MainWindow(QMainWindow):
         descriptor: dict[str, Any],
         *,
         allow_frame_fallback: bool,
+        resolve_shape_references: bool = True,
     ) -> tuple[float, float, float]:
         reference_type = descriptor.get("type")
         if reference_type == "fixed_direction":
             direction = descriptor.get("direction", (0.0, 0.0, 0.0))
             return tuple(float(value) for value in direction[:3])
         if reference_type == "face":
-            rows = self._resolved_shape_reference_equations(descriptor)
+            rows = (
+                self._resolved_shape_reference_equations(descriptor)
+                if resolve_shape_references
+                else None
+            )
             if rows is None:
                 rows = [
                     list(row)
@@ -13277,7 +13297,7 @@ class MainWindow(QMainWindow):
             reference_type == "edge"
             and not allow_frame_fallback
         ):
-            if self.document is not None:
+            if resolve_shape_references and self.document is not None:
                 reference = self.document.find_entity(
                     str(descriptor.get("entity_id", ""))
                 )
@@ -13564,7 +13584,9 @@ class MainWindow(QMainWindow):
             return
         previous_scene = self._native_viewer_scene
         solution, _dof, _status, _constrained = self._solve_point_constraints(
-            references, fallback
+            references,
+            fallback,
+            resolve_shape_references=False,
         )
         if solution is None:
             return
@@ -13622,7 +13644,9 @@ class MainWindow(QMainWindow):
         defer_rebuild: bool = False,
     ) -> None:
         solution, _dof, _status, _constrained = self._solve_point_constraints(
-            references, fallback
+            references,
+            fallback,
+            resolve_shape_references=False,
         )
         if solution is None:
             return
@@ -13662,7 +13686,10 @@ class MainWindow(QMainWindow):
         diameter,
         solution,
     ) -> None:
-        base_rotation = self._plane_reference_rotation(references)
+        base_rotation = self._plane_reference_rotation(
+            references,
+            resolve_shape_references=False,
+        )
         profile_offset = self._container_plane_offset(references)
         obj.name = name
         obj.coordinate_system.origin = solution
@@ -25835,6 +25862,8 @@ class MainWindow(QMainWindow):
     def _resolved_sketch_external_references(
         self,
         sketch: ZimaEntity,
+        *,
+        refresh_geometry: bool = False,
     ) -> list[dict[str, Any]]:
         references = self._stored_sketch_external_references(sketch)
         changed = False
@@ -25862,9 +25891,15 @@ class MainWindow(QMainWindow):
             seen_reference_keys.add(reference_key)
         resolved: list[dict[str, Any]] = []
         for reference in list(references):
-            geometry = self._project_sketch_external_reference(
-                sketch,
-                reference,
+            cached_geometry = (
+                reference.get("cached_geometry")
+                if isinstance(reference.get("cached_geometry"), dict)
+                else None
+            )
+            geometry = (
+                self._project_sketch_external_reference(sketch, reference)
+                if refresh_geometry
+                else cached_geometry
             )
             geometry = self._normalized_sketch_reference_geometry(
                 str(reference.get("source_kind", "")),
@@ -25889,12 +25924,7 @@ class MainWindow(QMainWindow):
             if geometry is None:
                 geometry = self._normalized_sketch_reference_geometry(
                     str(reference.get("source_kind", "")),
-                    reference.get("cached_geometry")
-                    if isinstance(
-                        reference.get("cached_geometry"),
-                        dict,
-                    )
-                    else None
+                    cached_geometry,
                 )
                 geometry = self._deduplicate_external_reference_geometry(
                     geometry
@@ -25904,7 +25934,7 @@ class MainWindow(QMainWindow):
                     and self._external_reference_source(reference) is not None
                 ):
                     broken = False
-            elif geometry != reference.get("cached_geometry"):
+            elif refresh_geometry and geometry != cached_geometry:
                 reference["cached_geometry"] = geometry
                 changed = True
             if not isinstance(geometry, dict):
@@ -38908,6 +38938,8 @@ class MainWindow(QMainWindow):
     def _regenerate_active_sketch_constraints(
         self,
         sketch: ZimaEntity,
+        *,
+        refresh_external_references: bool = False,
     ) -> None:
         # Constraint changes invalidate both geometry and dimension
         # selections. Clear them explicitly; rebuilding the overlay alone
@@ -38924,7 +38956,10 @@ class MainWindow(QMainWindow):
         # the end of this method, and references without point-on-reference
         # constraints were not resolved here at all.
         resolved_references = (
-            self._resolved_sketch_external_references(sketch)
+            self._resolved_sketch_external_references(
+                sketch,
+                refresh_geometry=refresh_external_references,
+            )
             if self._stored_sketch_external_references(sketch)
             else []
         )
@@ -43517,7 +43552,10 @@ class MainWindow(QMainWindow):
                 history_boundary=owner_index,
                 show_sketches=False,
             )
-            self._regenerate_active_sketch_constraints(sketch)
+            self._regenerate_active_sketch_constraints(
+                sketch,
+                refresh_external_references=True,
+            )
             regenerated_entities += 1
 
         self.document.regeneration_required = False

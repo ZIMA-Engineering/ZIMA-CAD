@@ -495,6 +495,59 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(solution, (0.0, 0.0, 0.0))
         self.assertEqual(dof, 0)
 
+    def test_stored_shape_equations_can_be_used_without_live_resolution(self):
+        class ConstraintHarness:
+            document = None
+
+            @staticmethod
+            def _resolved_shape_reference_equations(_descriptor):
+                raise AssertionError("live OCCT reference resolution was used")
+
+        solution, dof, _status, _constrained = (
+            MainWindow._solve_point_constraints(
+                ConstraintHarness(),
+                [{
+                    "type": "face",
+                    "equations": [[0.0, 0.0, 1.0, 12.0]],
+                }],
+                (3.0, 4.0, 5.0),
+                resolve_shape_references=False,
+            )
+        )
+
+        self.assertEqual(solution, (3.0, 4.0, 12.0))
+        self.assertEqual(dof, 2)
+
+    def test_cached_external_sketch_geometry_avoids_live_projection(self):
+        document = create_empty_part()
+        container = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(container.entity_id)
+        cached = {
+            "type": "polyline",
+            "points": [[1.0, 2.0], [3.0, 4.0]],
+        }
+        sketch.parameters["external_references"] = json.dumps([{
+            "id": "edge:cached",
+            "source_kind": "edge",
+            "owner_id": document.root.entity_id,
+            "element_index": 1,
+            "cached_geometry": cached,
+        }])
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._active_component_return_document = None
+        window._sketch_selected_external_reference_id = None
+        window._sync_external_profile_segments = lambda *_args: None
+        window._project_sketch_external_reference = lambda *_args: (
+            (_ for _ in ()).throw(
+                AssertionError("live OCCT projection was used")
+            )
+        )
+
+        resolved = window._resolved_sketch_external_references(sketch)
+
+        self.assertEqual(resolved[0]["geometry"], cached)
+
     def test_plane_offset_is_stored_along_its_local_normal(self):
         self.assertEqual(
             MainWindow._plane_local_offset("xy", 6.0),
