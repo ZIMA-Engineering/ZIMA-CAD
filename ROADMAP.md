@@ -254,9 +254,10 @@ as the document model, geometric kernel integration and user workflows evolve.
   - sections and detail views
   - complete ISO dimensions, tolerances, datums, surface/feature symbols,
     position annotations, leaders, labels and editable annotation placement
-  - implement ISO technical lettering/font support and paper-space text styles
-  - finish sheet frames, zones, configurable title blocks/stamps and drawing
-    format templates, including parameter-driven fields
+  - extend the implemented ISO technical lettering and paper-space title-block
+    text into the remaining drawing annotations
+  - extend the implemented editable sheet-frame/title-block templates and
+    parameter-driven fields with production zones and table workflows
   - assembly drawings and bills of materials
   - sheet-metal flat-pattern drawings
   - PDF and DXF export

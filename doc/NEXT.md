@@ -65,9 +65,10 @@
   dimensions, tolerances, leaders, datums and technical symbols.
 - Add movable/selectable drawing annotations with consistent hover, selection,
   Delete and property editing.
-- Implement ISO technical fonts and 5 mm paper-space text conventions.
-- Finish configurable sheet frames, zones, title blocks/stamps and
-  parameter-driven format fields.
+- Extend the implemented ISO technical font and exact millimetre title-block
+  text sizing to the remaining paper-space annotations.
+- Extend the implemented editable sheet-frame/title-block templates and
+  parameter-driven fields with production zones and table workflows.
 - Add sections and details after selection and annotation ownership are stable.
 - Keep paper-space geometry in millimetres with the bottom-right sheet origin;
   A4 remains portrait and A3 through A0 remain landscape.

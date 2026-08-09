@@ -86,6 +86,16 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 
 ## Výběr referencí ve Vlastnostech
 
+- Výběrová funkce prochází všechny podporované objekty pod kurzorem, včetně
+  objektů uvnitř kontejnerů a zakrytých ploch. Pravým tlačítkem lze mezi
+  kandidáty cyklovat; stavový řádek popisuje právě nabízený prvek a view jej
+  současně zvýrazní oranžově.
+- Filtr **Všechny objekty z kontejnerů** zahrne plochy, hrany, body i základní
+  objekty kontejnerů. Při výběru geometrické reference se celý solid ani celý
+  kontejner oranžově nezvýrazňuje — zvýrazní se pouze nabízená plocha, hrana
+  nebo bod.
+- V běžném režimu lze ve view vybrat kontejner solidu, bodu, osy nebo roviny.
+  Systémový Počátek dokumentu se tímto způsobem nevybírá.
 - Vybrané plochy, hrany, body, osy a roviny zůstávají ve view azurově
   zvýrazněné.
 - Geometrie právě hledaná výběrovou funkcí má oranžový obrys stejně jako při
@@ -238,6 +248,11 @@ nikoliv pořadovými čísly geometrického jádra. Neproveditelný poloměr neb
 nekompatibilní kombinace hran zachová poslední platné těleso a okno zůstane
 otevřené.
 
+Pouhé najetí nad plochu vytvořenou Zaoblením zobrazí oranžově jen její
+persistované hraniční hrany. Drát celého výsledného tělesa ani původní ostrá
+hrana se v tomto režimu nepřekreslují. Přechod na jiný kandidát předchozí
+oranžové zvýraznění vždy odstraní.
+
 ### Sražení hrany
 
 **Sražení** používá stejné uspořádání a ovládání jako Zaoblení, ale jde o
@@ -254,6 +269,9 @@ Kliknutí ve view zvýrazní pouze hraniční hrany sražené plochy. Dvojklik z
 editovatelnou lineární kótu vzdálenosti a pravé tlačítko → **Vlastnosti** otevře
 společné okno. Neproveditelná vzdálenost nebo kombinace hran zachová poslední
 platné těleso.
+
+Stejně jako u Zaoblení zvýrazňuje najetí pouze persistované hraniční hrany
+sražené plochy. Dvojklik zobrazuje hodnotu sražení ve tvaru vzdálenost × úhel.
 
 ## Režim skici
 
@@ -551,6 +569,19 @@ Počátek každého listu leží v pravém dolním rohu. Kladná osa X směřuje
 doleva a kladná osa Y zdola nahoru. Při změně formátu se proto list mění
 směrem doleva a nahoru a budoucí razítko může zůstat na místě.
 
+Razítko se do listu nepřesouvá ani automaticky nenormalizuje. Uložený počátek
+`(0, 0)` Sketcheru se vloží přesně do počátku `(0, 0)` výkresového prostoru a
+každá úsečka, kružnice i textový kotevní bod používá přímo svou uloženou
+souřadnici. Polohu vůči rámečku je proto nutné navrhnout přímo ve Sketchi;
+renderer nepřidává skrytých 10 mm ani jiný korekční posun.
+
+Výkres čte kanonická data `[Sketch]`, nikoliv zjednodušenou kopii geometrie.
+Zachovává tak vodorovné i svislé zarovnání textu, otočení, převrácení, font,
+barvu a výšku. Zadaná výška ISO textu v milimetrech znamená výšku velkého
+písmene. Nezávisí na tom, zda konkrétní nápis obsahuje diakritiku, malá písmena
+nebo spodní dotažnice; stejná hodnota má ve Sketcheru i ve výkresu stejnou
+velikost.
+
 Výkresová plocha má černé pozadí. List nemá barevnou výplň; jeho formát
 znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
 
@@ -592,6 +623,6 @@ a měřítko. Nad obrysem pohledu zobrazí bílý popisek o velikosti 5 mm ve tv
 První lineární výkresová kóta se vytváří výběrem dvou skutečných hran modelu
 a umístěním žluté kóty v listu.
 
-Rámečky a zóny, razítka, ISO font, řezy, detaily, úplná sada ISO kót, tolerance,
-pozice, popisky, technické symboly, kusovníky a export PDF/DXF jsou další etapy
-vývoje a v této verzi zatím nejsou dokončené.
+Rámečky a upravitelná parametrická razítka s ISO fontem jsou funkční. Zbývá
+dokončit řezy, detaily, úplnou sadu ISO kót, tolerance, pozice, popisky,
+technické symboly, kusovníky a export PDF/DXF.

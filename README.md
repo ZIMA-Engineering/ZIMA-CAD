@@ -150,6 +150,15 @@ with the native model renderer. A4 is fixed to portrait orientation; A3 through
 A0 are fixed to landscape. Drawing space uses a bottom-right origin with
 positive X to the left and positive Y upward.
 
+Sheet frames (`.frmz`) and title blocks (`.tblz`) are editable as ordinary
+Sketch documents.  A title block is rendered from its persisted canonical
+`[Sketch]` data: its coordinates, text anchors, alignment, rotation and colors
+are transferred directly to paper space without normalization or an insertion
+offset.  The Sketch origin therefore maps exactly to the drawing origin.
+Parameter and system tokens remain semantic text fields.  ISO text height is
+measured by the font's capital-letter height, so an equal millimetre value has
+an equal size regardless of accents, lowercase letters or descenders.
+
 ## Container Model
 
 Each `Container` owns a mandatory system `Origin` and at most one user entity:

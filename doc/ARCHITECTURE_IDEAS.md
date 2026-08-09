@@ -136,8 +136,16 @@ pojmenováním plochy.
   vyhlazené normály modelu a používají softwarový Z-buffer.
 - Pohled může zobrazit samostatně přesouvatelný popisek s názvem a měřítkem.
 - Je implementovaný první asociativní lineární rozměr ve výkresu. Zbývá
-  dokončit ISO kóty, tolerance, pozice, popisky, technické symboly a ISO font,
-  rámečky a zóny listu, parametrická razítka, řezy, detaily a kusovník.
+  dokončit ISO kóty, tolerance, pozice, popisky a technické symboly.
+- `.frmz` a `.tblz` lze upravovat jako Sketch dokumenty. Renderer razítka
+  `.tblz` čte přímo persistovaný `[Sketch]`; neodvozuje vložení z hranic
+  geometrie a nepoužívá skrytý posun. Sketch `(0, 0)` je výkresové `(0, 0)`.
+- Text razítka zachovává kotevní bod, obě zarovnání, otočení, převrácení,
+  font, barvu a výšku. CAD výška je kapitálková výška fontu, nikoliv výška
+  inkoustové stopy konkrétního řetězce.
+- Parametrická pole jsou sémantické textové entity s tokeny; renderer přes
+  Sketch nedokresluje žádnou pevně naprogramovanou tabulku.
+- Zbývají řezy, detaily, kusovníky a další produkční výkresové funkce.
 
 ## Parametry a relace
 
