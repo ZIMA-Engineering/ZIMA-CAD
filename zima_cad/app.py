@@ -10819,6 +10819,7 @@ class MainWindow(QMainWindow):
             input_shape,
         )
         canonical_references = []
+        runtime_indices: dict[EdgeRef, int] = {}
         for reference in references:
             if reference.role != "body_runtime":
                 canonical_references.append(reference)
@@ -10835,8 +10836,40 @@ class MainWindow(QMainWindow):
             if canonical is None:
                 return False
             canonical_references.append(canonical)
+            runtime_indices[canonical] = runtime_index
         references = tuple(canonical_references)
         self._selection_controller._values[:] = references
+        for reference_index, reference in enumerate(references):
+            if preview_registry.resolve_edge(reference).shape is not None:
+                continue
+            runtime_index = runtime_indices.get(reference)
+            if runtime_index is None and reference.role == "geometric":
+                candidate_index = int(keys[reference_index][2])
+                runtime_index = (
+                    candidate_index
+                    if geometric_edge_reference(
+                        input_shape,
+                        candidate_index,
+                        reference.feature_id,
+                    ) == reference
+                    else None
+                )
+            edge = (
+                self._subshape_from_shape(
+                    input_shape,
+                    TopAbs_EDGE,
+                    runtime_index,
+                )
+                if runtime_index is not None
+                else None
+            )
+            if edge is None:
+                return False
+            preview_registry.register_edge(
+                reference,
+                edge,
+                runtime_index=runtime_index,
+            )
         try:
             dialog = self.edge_treatment_properties_dialog
             if dialog.operation == ContainerType.FILLET:
