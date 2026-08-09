@@ -27671,15 +27671,17 @@ class MainWindow(QMainWindow):
             dx, dy = second_x - first_x, second_y - first_y
             first_group = group(first_id)
             second_group = group(second_id)
+            first_locks = group_locks(first_group)
+            second_locks = group_locks(second_group)
             if dimension_type == "distance_x":
                 sign = -1.0 if dx < 0.0 else 1.0
-                if "x" in group_locks(second_group):
+                if "x" in second_locks and "x" not in first_locks:
                     set_group_position(
                         first_group,
                         second_x - sign * target_length,
                         first_y,
                     )
-                else:
+                elif "x" not in second_locks:
                     set_group_position(
                         second_group,
                         first_x + sign * target_length,
@@ -27688,13 +27690,13 @@ class MainWindow(QMainWindow):
                 continue
             if dimension_type == "distance_y":
                 sign = -1.0 if dy < 0.0 else 1.0
-                if "y" in group_locks(second_group):
+                if "y" in second_locks and "y" not in first_locks:
                     set_group_position(
                         first_group,
                         first_x,
                         second_y - sign * target_length,
                     )
-                else:
+                elif "y" not in second_locks:
                     set_group_position(
                         second_group,
                         second_x,
@@ -27706,15 +27708,15 @@ class MainWindow(QMainWindow):
                 dx, dy, current_length = 1.0, 0.0, 1.0
             ux, uy = dx / current_length, dy / current_length
             if (
-                group_locks(second_group) == {"x", "y"}
-                and group_locks(first_group) != {"x", "y"}
+                len(second_locks) > len(first_locks)
+                and first_locks != {"x", "y"}
             ):
                 set_group_position(
                     first_group,
                     second_x - ux * target_length,
                     second_y - uy * target_length,
                 )
-            else:
+            elif second_locks != {"x", "y"}:
                 set_group_position(
                     second_group,
                     first_x + ux * target_length,
@@ -42159,6 +42161,28 @@ class MainWindow(QMainWindow):
                 dimensions,
             )
             candidate_model.drive_all_dimensions_at_current_values()
+            # Seed the numerical solver with the obvious local move. Do this
+            # only after the other dimensions have captured their original
+            # values, so moving this endpoint cannot silently redefine a
+            # connected dimension before the numerical solve begins.
+            seeded_entities = copy.deepcopy(entities)
+            seeded_dimension = copy.deepcopy(dimension)
+            seeded_dimension["value"] = value
+            self._apply_sketch_distance_dimensions(
+                entity,
+                seeded_entities,
+                [seeded_dimension],
+            )
+            for seeded_point in seeded_entities:
+                if seeded_point.get("type") != "point":
+                    continue
+                candidate_point = candidate_model.points.get(
+                    str(seeded_point.get("id", ""))
+                )
+                if candidate_point is not None:
+                    candidate_point.x, candidate_point.y = (
+                        self._sketch_point_position(seeded_point)
+                    )
             candidate_model.dimensions[dimension_id].value = value
             solved = candidate_model.solve()
             if not solved and dimension.get("type") == "angle":

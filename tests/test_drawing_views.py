@@ -2014,6 +2014,95 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(entities[0]["radius"], 10.0)
         self.assertEqual(entities[1]["radius"], 10.0)
 
+    def test_distance_seed_moves_only_the_freer_endpoint(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        fixed = {
+            "type": "point",
+            "id": "fixed",
+            "x": 0.0,
+            "y": 0.0,
+            "constraints": [{
+                "type": "point_on_reference",
+                "reference_id": "sketch_origin",
+            }],
+        }
+        free = {
+            "type": "point",
+            "id": "free",
+            "x": 3.0,
+            "y": 4.0,
+        }
+        dimension = {
+            "type": "distance",
+            "point_ids": ["fixed", "free"],
+            "value": 10.0,
+            "driving": True,
+        }
+
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [fixed, free],
+            [dimension],
+        )
+
+        self.assertEqual((fixed["x"], fixed["y"]), (0.0, 0.0))
+        self.assertAlmostEqual(free["x"], 6.0)
+        self.assertAlmostEqual(free["y"], 8.0)
+
+        dimension["point_ids"] = ["free", "fixed"]
+        dimension["value"] = 5.0
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [fixed, free],
+            [dimension],
+        )
+
+        self.assertEqual((fixed["x"], fixed["y"]), (0.0, 0.0))
+        self.assertAlmostEqual(free["x"], 3.0)
+        self.assertAlmostEqual(free["y"], 4.0)
+
+        free["dimension_locks"] = ["x", "y"]
+        dimension["value"] = 20.0
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [fixed, free],
+            [dimension],
+        )
+
+        self.assertEqual((fixed["x"], fixed["y"]), (0.0, 0.0))
+        self.assertAlmostEqual(free["x"], 3.0)
+        self.assertAlmostEqual(free["y"], 4.0)
+
+    def test_axis_distance_seed_respects_measured_coordinate_lock(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        first = {
+            "type": "point",
+            "id": "first",
+            "x": 2.0,
+            "y": 3.0,
+        }
+        second = {
+            "type": "point",
+            "id": "second",
+            "x": 7.0,
+            "y": 9.0,
+            "dimension_locks": ["x"],
+        }
+
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [first, second],
+            [{
+                "type": "distance_x",
+                "point_ids": ["first", "second"],
+                "value": 12.0,
+                "driving": True,
+            }],
+        )
+
+        self.assertEqual((second["x"], second["y"]), (7.0, 9.0))
+        self.assertEqual((first["x"], first["y"]), (-5.0, 3.0))
+
     def test_point_line_dimension_placement_slides_along_line(self) -> None:
         first_dimension, second_dimension = (
             MainWindow._point_line_dimension_placement(
