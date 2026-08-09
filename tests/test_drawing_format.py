@@ -159,8 +159,16 @@ Line001 = 0, 0, 1, 1, BLUE
             for entity in definition["geometry"]
             if entity["kind"] == "line" and entity["pen"] == "WHITE"
         }
-        self.assertIn((91.0, 10.0, 91.0, 30.0), white_lines)
-        self.assertIn((10.0, 10.0, 10.0, 30.0), white_lines)
+        self.assertTrue({
+            (91.0, 10.0, 91.0, 15.0),
+            (91.0, 15.0, 91.0, 20.0),
+            (91.0, 20.0, 91.0, 25.0),
+            (91.0, 25.0, 91.0, 30.0),
+        }.issubset(white_lines))
+        self.assertTrue({
+            (10.0, 10.0, 10.0, 20.0),
+            (10.0, 20.0, 10.0, 30.0),
+        }.issubset(white_lines))
         self.assertIn((10.0, 20.0, 91.0, 20.0), white_lines)
         self.assertIn(
             "e-mail: vladimir.zima@zima-engineering.cz", static_texts

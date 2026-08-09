@@ -99,8 +99,13 @@ class DrawingTemplateTests(unittest.TestCase):
             fields["DOCUMENT_NUMBER"].attributes["text_value"],
             "&document.file_stem.&verze",
         )
-        self.assertEqual(model.constraints, {})
-        self.assertEqual(model.dimensions, {})
+        self.assertTrue(model.constraints)
+        self.assertTrue(all(
+            constraint.constraint_type in ("horizontal", "vertical")
+            for constraint in model.constraints.values()
+        ))
+        self.assertIn("coordinate:p92:x", model.dimensions)
+        self.assertIn("coordinate:p92:y", model.dimensions)
 
     def test_title_block_field_with_multiple_tokens_round_trips_as_text(self) -> None:
         document = load_drawing_template(

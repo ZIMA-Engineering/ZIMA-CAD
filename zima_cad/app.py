@@ -19190,6 +19190,12 @@ class MainWindow(QMainWindow):
         )
         if sketch is None:
             return
+        # This presentation is shared by a feature double-click and by its
+        # Properties window.  Tear down an older inspection before installing
+        # the new sketch/result overlays; otherwise _show_all_sketch_dimensions
+        # clears the freshly installed wires when the previous inspection flag
+        # is still active.
+        self._clear_dimension_overlays()
         sketch_shape = make_sketch_shape(
             obj,
             sketch,
@@ -31137,6 +31143,7 @@ class MainWindow(QMainWindow):
                 self._select_sketch_mirror_axis("geometry", entity_id)
             return
         self._sketch_selected_entity_ids.clear()
+        self._sketch_selected_constraint = None
         self._sketch_selected_corner_radius = None
         self._sketch_selected_dimension_id = None
         self.native_viewer.set_selected_dimension(None)
@@ -31299,6 +31306,7 @@ class MainWindow(QMainWindow):
             self._sketch_selected_entity_ids ^= requested_ids
         else:
             self._sketch_selected_entity_ids = requested_ids
+        self._sketch_selected_constraint = None
         self._sketch_selected_corner_radius = None
         self._sketch_selected_entity_id = None
         self._sketch_selected_dimension_id = None
@@ -31342,6 +31350,7 @@ class MainWindow(QMainWindow):
         )
         if entity is None:
             return
+        self._sketch_selected_constraint = None
         if self._sketch_selected_entity_id is not None:
             self._sketch_selected_entity_ids.add(
                 self._sketch_selected_entity_id
@@ -32513,7 +32522,9 @@ class MainWindow(QMainWindow):
             else None
         )
         raw_point = (
-            geometry.get("point")
+            (0.0, 0.0)
+            if reference_id == "sketch_origin"
+            else geometry.get("point")
             if isinstance(geometry, dict)
             and geometry.get("type") in ("point", "axis_point")
             else None
@@ -36797,6 +36808,17 @@ class MainWindow(QMainWindow):
         )
         if point is None:
             return
+        if (
+            constraint_index == -1
+            and isinstance(point.get("curve_attachment"), dict)
+        ):
+            point.pop("curve_attachment", None)
+            self._store_sketch_entities(sketch, entities)
+            self._regenerate_active_sketch_constraints(sketch)
+            self.statusBar().showMessage(
+                tr("sketch.status.constraint_deleted")
+            )
+            return
         constraints = point.get("constraints", ())
         if (
             not isinstance(constraints, list)
@@ -36891,6 +36913,36 @@ class MainWindow(QMainWindow):
         )
 
     def _delete_selected_sketch_entity(self) -> None:
+        if self._sketch_selected_constraint is not None:
+            owner_id, constraint_index = self._sketch_selected_constraint
+            self._sketch_selected_constraint = None
+            self._sketch_selected_entity_ids.clear()
+            if self.document is None or self._sketch_edit_entity_id is None:
+                return
+            sketch = self.document.find_entity(self._sketch_edit_entity_id)
+            if sketch is None:
+                return
+            owner = next(
+                (
+                    entity
+                    for entity in self._stored_sketch_entities(sketch)
+                    if str(entity.get("id", "")) == owner_id
+                ),
+                None,
+            )
+            if owner is None:
+                return
+            if owner.get("type") == "point":
+                self._delete_sketch_point_constraint(
+                    owner_id,
+                    constraint_index,
+                )
+            else:
+                self._delete_sketch_geometry_constraint(
+                    owner_id,
+                    constraint_index,
+                )
+            return
         selected_dimension_key = self.native_viewer._selected_dimension_key
         selected_dimension_binding = (
             self._dimension_bindings.get(selected_dimension_key)
@@ -40826,6 +40878,39 @@ class MainWindow(QMainWindow):
         entity = self._first_editable_dimension_entity(obj)
         if entity is None:
             return False
+        feature_owner = (
+            obj
+            if obj.kind == EntityKind.CONTAINER
+            else (
+                self.document.find_owning_object(entity.entity_id)
+                if self.document is not None
+                else None
+            )
+        )
+        if (
+            feature_owner is not None
+            and feature_owner.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
+            and any(
+                child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+                and str(child.parameters.get("sketch_id", ""))
+                for child in feature_owner.children
+            )
+        ):
+            # A feature is defined by both its 2D profile and its extrusion /
+            # revolution parameters.  Use the same lightweight presentation
+            # as Properties so a double-click exposes both groups of editable
+            # dimensions instead of showing only the final solid parameters.
+            self._dimension_selection_suspended = True
+            self.native_viewer.set_selection_enabled(False)
+            self.selection_filter_combo.setEnabled(False)
+            self.native_viewer._clear_topology_hover()
+            self.native_viewer._clear_topology_selection()
+            self.native_viewer._set_hovered_object(None)
+            self._show_protrusion_profile_overlay(feature_owner)
+            self._dimension_inspection_visuals = True
+            self.native_viewer.set_dimension_inspection_active(True)
+            return bool(self._dimension_overlays)
         dimensions = (
             self._primitive_dimensions(entity)
             if entity.kind in (
@@ -41537,6 +41622,7 @@ class MainWindow(QMainWindow):
     def _select_dimension_overlay(self, key: str) -> None:
         if self._sketch_edit_entity_id is not None:
             self._clear_tree_selection_from_sketch_view()
+            self._sketch_selected_constraint = None
             self._sketch_selected_entity_id = None
             self._sketch_selected_entity_ids.clear()
             self._sketch_selected_corner_radius = None
@@ -42212,6 +42298,20 @@ class MainWindow(QMainWindow):
         else:
             entity.parameters[str(binding[1])] = f"{value:.12g}"
         self._mark_model_for_regeneration()
+        preview_owner = (
+            self.document.find_owning_object(entity.entity_id)
+            if entity.kind == EntityKind.SKETCH
+            and self._sketch_edit_entity_id is None
+            else None
+        )
+        dialog = self.point_constraint_dialog
+        staged_feature_preview = (
+            preview_owner is not None
+            and preview_owner.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
+            and isinstance(dialog, ProtrusionConstraintDialog)
+            and dialog.point_object is preview_owner
+        )
         if entity.kind == EntityKind.SKETCH:
             if self._sketch_edit_entity_id == entity.entity_id:
                 # While Sketcher is active, keep the scene at its history
@@ -42221,6 +42321,13 @@ class MainWindow(QMainWindow):
                 # all later fillets).  Only solve the active 2D sketch here;
                 # descendants are regenerated when Sketcher is finished.
                 self._regenerate_active_sketch_constraints(entity)
+            elif staged_feature_preview:
+                # A profile dimension edited from feature Properties belongs
+                # to the same staged transaction as the feature lengths.  Do
+                # not commit full history before Apply/OK; just rebuild the
+                # standalone preview below and let Cancel restore the dialog
+                # baseline, including its defining sketch.
+                dialog._provisional_apply_pending = True
             else:
                 # A committed parent-sketch dimension outside Sketcher changes
                 # the feature history immediately.
@@ -42232,15 +42339,10 @@ class MainWindow(QMainWindow):
             # can disagree.  Regenerate history first; the overlay is rebuilt
             # below from the newly evaluated entity value.
             self.regenerate_model()
-        preview_owner = (
-            self.document.find_owning_object(entity.entity_id)
-            if entity.kind == EntityKind.SKETCH
-            and self._sketch_edit_entity_id is None
-            else None
-        )
-        protrusion_preview = (
+        feature_preview = (
             preview_owner is not None
-            and preview_owner.container_type == ContainerType.PROTRUSION
+            and preview_owner.container_type
+            in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         )
         if binding[0] == "sketch_point":
             point = next(
@@ -42254,7 +42356,7 @@ class MainWindow(QMainWindow):
             )
             self._refresh_sketch_overlay()
             if point is not None:
-                if protrusion_preview:
+                if feature_preview:
                     self._show_protrusion_profile_overlay(preview_owner)
                 elif self._sketch_show_all_dimensions:
                     self._show_all_sketch_dimensions(entity)
@@ -42266,7 +42368,7 @@ class MainWindow(QMainWindow):
             "sketch_circle_radius",
         ):
             self._refresh_sketch_overlay()
-            if protrusion_preview:
+            if feature_preview:
                 self._show_protrusion_profile_overlay(preview_owner)
             else:
                 self._show_all_sketch_dimensions(entity)

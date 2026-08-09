@@ -2304,26 +2304,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if self._sketch_selection_mode:
                 if self._sketch_tool in ("select", "dimension"):
                     dimension_key = self.dimension_key_at(event.position())
-                    geometry_candidates = self._sketch_selection_candidates(
-                        event.position()
+                    point_is_candidate = bool(
+                        self._direct_sketch_point_ids(event.position())
                     )
-                    point_ids = {
-                        str(entity.get("id", ""))
-                        for entity in self._sketch_entities
-                        if entity.get("type") == "point"
-                    }
-                    point_is_candidate = any(
-                        candidate in point_ids
-                        for candidate in geometry_candidates
+                    constraint_is_candidate = any(
+                        bounds.adjusted(-5.0, -5.0, 5.0, 5.0).contains(
+                            event.position()
+                        )
+                        for bounds, _owner_id, _constraint_index
+                        in self._sketch_constraint_hit_regions
                     )
                     if (
                         dimension_key is not None
                         and dimension_key != "sketch_dimension_preview"
                         and not point_is_candidate
-                        and (
-                            self._sketch_tool == "dimension"
-                            or not geometry_candidates
-                        )
+                        and not constraint_is_candidate
                     ):
                         self.sketchDimensionSelected.emit(dimension_key)
                         self._sketch_dimension_drag_key = dimension_key
@@ -11153,20 +11148,56 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self,
         position: QPointF,
     ) -> tuple[str, ...]:
-        candidates = list(self._sketch_entity_candidates(position))
-        # Entity hit testing is already sorted with points first. Do not
-        # reorder a line ahead of a shared endpoint for individual tools;
-        # the same point-first interaction contract must hold everywhere.
-        candidates.extend(
+        entity_candidates = list(
+            dict.fromkeys(self._sketch_entity_candidates(position))
+        )
+        direct_point_ids = self._direct_sketch_point_ids(position)
+        direct_points = [
+            entity_id
+            for entity_id in entity_candidates
+            if entity_id in direct_point_ids
+        ]
+        remaining_entities = [
+            entity_id
+            for entity_id in entity_candidates
+            if entity_id not in direct_point_ids
+        ]
+        constraint_candidates = [
             f"constraint:{owner_id}:{constraint_index}"
             for bounds, owner_id, constraint_index
             in self._sketch_constraint_hit_regions
             if bounds.adjusted(-5.0, -5.0, 5.0, 5.0).contains(position)
-        )
+        ]
+        candidates = [
+            *direct_points,
+            *constraint_candidates,
+            *remaining_entities,
+        ]
         reference = self._sketch_external_reference_candidate(position)
         if reference is not None:
             candidates.append(f"reference:{reference[0]}")
-        return tuple(candidates)
+        return tuple(dict.fromkeys(candidates))
+
+    def _direct_sketch_point_ids(self, position: QPointF) -> set[str]:
+        direct_point_ids: set[str] = set()
+        for entity in self._sketch_entities:
+            entity_id = str(entity.get("id", ""))
+            if entity.get("type") != "point" or not entity_id:
+                continue
+            screen = self._screen_point(
+                self._camera_point(
+                    self._sketch_world_point((
+                        float(entity.get("x", 0.0)),
+                        float(entity.get("y", 0.0)),
+                    ))
+                )
+            )
+            if hypot(
+                position.x() - screen.x(),
+                position.y() - screen.y(),
+            ) <= 9.0:
+                direct_point_ids.add(entity_id)
+        return direct_point_ids
 
     def _paint_reference_highlights(self) -> None:
         mesh = self._mesh

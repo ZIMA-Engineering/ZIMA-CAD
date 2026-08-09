@@ -5689,11 +5689,13 @@ def make_sketch_shape(
             except (RuntimeError, ValueError, TypeError):
                 curve = None
             if curve is not None:
-                builder.Add(
-                    compound,
-                    BRepBuilderAPI_MakeEdge(curve).Edge(),
-                )
-                edge_count += 1
+                try:
+                    edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+                except RuntimeError:
+                    edge = None
+                if edge is not None:
+                    builder.Add(compound, edge)
+                    edge_count += 1
                 continue
             for first, second in zip(points, points[1:]):
                 if (
@@ -5703,10 +5705,33 @@ def make_sketch_shape(
                     or len(second) < 2
                 ):
                     continue
-                edge = BRepBuilderAPI_MakeEdge(
-                    gp_Pnt(float(first[0]), float(first[1]), 0.0),
-                    gp_Pnt(float(second[0]), float(second[1]), 0.0),
-                ).Edge()
+                try:
+                    first_x, first_y = float(first[0]), float(first[1])
+                    second_x, second_y = float(second[0]), float(second[1])
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    not all(map(math.isfinite, (
+                        first_x, first_y, second_x, second_y,
+                    )))
+                    or math.hypot(
+                        second_x - first_x,
+                        second_y - first_y,
+                    )
+                    <= 1.0e-9
+                ):
+                    # A driven sketch may temporarily collapse an edge to
+                    # zero length. Preserve the editor data so a later
+                    # parameter change can restore it, but do not ask OCC to
+                    # build an invalid topological edge.
+                    continue
+                try:
+                    edge = BRepBuilderAPI_MakeEdge(
+                        gp_Pnt(first_x, first_y, 0.0),
+                        gp_Pnt(second_x, second_y, 0.0),
+                    ).Edge()
+                except RuntimeError:
+                    continue
                 builder.Add(compound, edge)
                 edge_count += 1
         for arc_points in corner_arcs:
