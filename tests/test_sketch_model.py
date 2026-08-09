@@ -76,6 +76,35 @@ class SketchModelTests(unittest.TestCase):
         self.assertEqual(restored_constraint["point_id"], "reference")
         self.assertEqual(restored_constraint["relation_role"], "driven")
 
+    def test_driven_point_vertical_constraint_round_trips(self):
+        entities = [
+            {"id": "reference", "type": "point", "x": 2.0, "y": 3.0},
+            {
+                "id": "driven",
+                "type": "point",
+                "x": 2.0,
+                "y": 9.0,
+                "constraints": [{
+                    "type": "vertical",
+                    "point_id": "reference",
+                    "relation_role": "driven",
+                }],
+            },
+        ]
+
+        model = SketchModel.from_editor_data(entities, [])
+        constraint = next(iter(model.constraints.values()))
+        self.assertEqual(constraint.constraint_type, "vertical")
+        self.assertEqual(constraint.point_ids, ("driven", "reference"))
+        self.assertEqual(constraint.attributes["relation_role"], "driven")
+
+        restored, _dimensions = model.to_editor_data()
+        driven = next(entity for entity in restored if entity["id"] == "driven")
+        restored_constraint = driven["constraints"][0]
+        self.assertEqual(restored_constraint["type"], "vertical")
+        self.assertEqual(restored_constraint["point_id"], "reference")
+        self.assertEqual(restored_constraint["relation_role"], "driven")
+
     def test_sketch_text_anchor_metadata_round_trips(self):
         entities = [{
             "id": "text-anchor",

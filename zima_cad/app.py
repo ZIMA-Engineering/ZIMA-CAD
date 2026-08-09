@@ -34624,7 +34624,8 @@ class MainWindow(QMainWindow):
         first_point_id = self._sketch_direction_first_point_id
         if selected_point is not None:
             if first_point_id is None:
-                # The first point is the reference; the second point moves.
+                # The first point owns the relation and will move.  The
+                # second click selects the stationary reference point.
                 self._sketch_direction_first_point_id = entity_id
                 self._sketch_selected_entity_id = entity_id
                 self._refresh_sketch_overlay()
@@ -34637,20 +34638,20 @@ class MainWindow(QMainWindow):
                     tr(f"sketch.status.{constraint_type}.different_point")
                 )
                 return
-            reference = points.get(first_point_id)
-            if reference is None:
+            driven = points.get(first_point_id)
+            if driven is None:
                 self._sketch_direction_first_point_id = None
                 self.statusBar().showMessage(
                     tr(f"sketch.status.{constraint_type}.point_required")
                 )
                 return
-            constraints = selected_point.get("constraints", [])
+            constraints = driven.get("constraints", [])
             if not isinstance(constraints, list):
                 constraints = []
             if any(
                 isinstance(constraint, dict)
                 and constraint.get("type") == constraint_type
-                and str(constraint.get("point_id", "")) == first_point_id
+                and str(constraint.get("point_id", "")) == entity_id
                 for constraint in constraints
             ):
                 self.statusBar().showMessage(
@@ -34658,15 +34659,15 @@ class MainWindow(QMainWindow):
                 )
                 return
             if constraint_type == "horizontal":
-                selected_point["y"] = float(reference.get("y", 0.0))
+                driven["y"] = float(selected_point.get("y", 0.0))
             else:
-                selected_point["x"] = float(reference.get("x", 0.0))
+                driven["x"] = float(selected_point.get("x", 0.0))
             constraints.append({
                 "type": constraint_type,
-                "point_id": first_point_id,
+                "point_id": entity_id,
                 "relation_role": "driven",
             })
-            selected_point["constraints"] = constraints
+            driven["constraints"] = constraints
             self._store_sketch_entities(sketch, entities)
             self._sketch_direction_first_point_id = None
             self._sketch_selected_entity_id = None
