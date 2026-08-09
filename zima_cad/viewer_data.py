@@ -160,6 +160,133 @@ class ViewerMesh:
             bounds_max=self.bounds_max,
         )
 
+    def face_mesh(self, owner_id: str, face_index: int) -> "ViewerMesh":
+        """Return renderer data for one persisted face, without OCCT."""
+        triangle_indices = tuple(
+            index
+            for index, (candidate_owner, candidate_face) in enumerate(zip(
+                self.triangle_owner_ids,
+                self.triangle_face_indices,
+            ))
+            if candidate_owner == owner_id and candidate_face == face_index
+        )
+        positions = tuple(
+            value
+            for index in triangle_indices
+            for value in self.triangle_positions[index * 9:index * 9 + 9]
+        )
+        normals = tuple(
+            value
+            for index in triangle_indices
+            for value in self.triangle_normals[index * 9:index * 9 + 9]
+        )
+        coordinates = tuple(zip(
+            positions[0::3],
+            positions[1::3],
+            positions[2::3],
+        ))
+        boundary_segments: dict[
+            tuple[Point3, Point3], tuple[Point3, Point3, int]
+        ] = {}
+        for triangle_offset in range(0, len(coordinates), 3):
+            triangle = coordinates[triangle_offset:triangle_offset + 3]
+            if len(triangle) != 3:
+                continue
+            for first_index, second_index in ((0, 1), (1, 2), (2, 0)):
+                first = triangle[first_index]
+                second = triangle[second_index]
+                first_key = tuple(round(value, 9) for value in first)
+                second_key = tuple(round(value, 9) for value in second)
+                key = tuple(sorted((first_key, second_key)))
+                previous = boundary_segments.get(key)
+                boundary_segments[key] = (
+                    first,
+                    second,
+                    1 if previous is None else previous[2] + 1,
+                )
+        boundary_edges = tuple(
+            EdgePolyline(
+                edge_index=edge_index,
+                points=(first, second),
+                owner_id=owner_id,
+                element_kind="face_boundary",
+            )
+            for edge_index, (first, second, count) in enumerate(
+                boundary_segments.values(),
+                start=1,
+            )
+            if count == 1
+        )
+        bounds_min = tuple(
+            min((point[axis] for point in coordinates), default=0.0)
+            for axis in range(3)
+        )
+        bounds_max = tuple(
+            max((point[axis] for point in coordinates), default=0.0)
+            for axis in range(3)
+        )
+        return ViewerMesh(
+            triangle_positions=positions,
+            triangle_normals=normals,
+            triangle_face_indices=tuple(face_index for _ in triangle_indices),
+            triangle_owner_ids=tuple(owner_id for _ in triangle_indices),
+            edges=boundary_edges,
+            points=(),
+            planes=(),
+            bounds_min=bounds_min,
+            bounds_max=bounds_max,
+        )
+
+    def edge_mesh(self, owner_id: str, edge_index: int) -> "ViewerMesh":
+        """Return renderer data for one persisted edge, without OCCT."""
+        edges = tuple(
+            edge for edge in self.edges
+            if edge.owner_id == owner_id and edge.edge_index == edge_index
+        )
+        coordinates = tuple(point for edge in edges for point in edge.points)
+        return ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=edges,
+            points=(),
+            planes=(),
+            bounds_min=tuple(
+                min((point[axis] for point in coordinates), default=0.0)
+                for axis in range(3)
+            ),
+            bounds_max=tuple(
+                max((point[axis] for point in coordinates), default=0.0)
+                for axis in range(3)
+            ),
+        )
+
+    def point_mesh(self, owner_id: str, point_index: int) -> "ViewerMesh":
+        """Return renderer data for one persisted vertex, without OCCT."""
+        points = tuple(
+            point for point in self.points
+            if point.owner_id == owner_id and point.point_index == point_index
+        )
+        coordinates = tuple(point.position for point in points)
+        return ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(),
+            points=points,
+            planes=(),
+            bounds_min=tuple(
+                min((point[axis] for point in coordinates), default=0.0)
+                for axis in range(3)
+            ),
+            bounds_max=tuple(
+                max((point[axis] for point in coordinates), default=0.0)
+                for axis in range(3)
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class SilhouetteEdge:

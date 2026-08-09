@@ -615,11 +615,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._display_mode = "shaded_with_edges"
         self._selection_enabled = True
         self._large_mesh_topology_enabled = False
+        self._reference_picking_active = False
         self._outline_face_highlights = False
         self._face_outline_cache: dict[
             TopologyKey, tuple[tuple[Point3, Point3], ...]
         ] = {}
         self._object_overlay_mesh: ViewerMesh | None = None
+        self._object_overlay_main_edge_keys: frozenset[TopologyKey] = frozenset()
+        self._object_overlay_matched_edge_keys: frozenset[TopologyKey] = frozenset()
         self._passive_sketch_overlay_mesh: ViewerMesh | None = None
         self._source_topology_hover_mesh: ViewerMesh | None = None
         self._source_topology_hover_kind: str | None = None
@@ -1230,8 +1233,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         not become selectable result-body owners.  Reference picking still
         needs to resolve the face the user pointed at on one of those meshes.
         """
+        hits = self.faces_at_mesh(mesh, position)
+        return (hits[0][1], hits[0][2]) if hits else None
+
+    def faces_at_mesh(
+        self,
+        mesh: ViewerMesh,
+        position: QPointF,
+    ) -> tuple[tuple[float, str, int], ...]:
+        """Return every distinct source-mesh face below one screen point."""
         if mesh is None or not mesh.triangle_face_indices:
-            return None
+            return ()
         positions = mesh.triangle_positions
         hits: list[tuple[float, str, int]] = []
         for triangle_index, face_index in enumerate(mesh.triangle_face_indices):
@@ -1269,10 +1281,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 else ""
             )
             hits.append((depth, owner_id, face_index))
-        if not hits:
-            return None
-        selected = max(hits)
-        return selected[1], selected[2]
+        nearest_by_face: dict[tuple[str, int], float] = {}
+        for depth, owner_id, face_index in hits:
+            key = owner_id, face_index
+            nearest_by_face[key] = max(
+                depth,
+                nearest_by_face.get(key, float("-inf")),
+            )
+        return tuple(sorted(
+            (
+                (depth, owner_id, face_index)
+                for (owner_id, face_index), depth
+                in nearest_by_face.items()
+            ),
+            reverse=True,
+        ))
 
     def edge_at_mesh(
         self,
@@ -1369,6 +1392,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         previous_zoom = self.camera.zoom
         self._mesh = mesh
         self._base_edge_mesh = base_edge_mesh
+        self._refresh_object_overlay_edge_matches()
         same_surface_buffers = (
             previous_mesh is not None
             and mesh is not None
@@ -1530,7 +1554,53 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._object_overlay_color = QColor.fromRgbF(
             0.0, 0.82, 1.0
         ) if selected else QColor.fromRgbF(1.0, 0.48, 0.0)
+        self._refresh_object_overlay_edge_matches()
         self.update()
+
+    @staticmethod
+    def _edge_geometry_signature(edge) -> tuple:
+        def rounded(point):
+            return tuple(round(float(value), 7) for value in point)
+
+        endpoints = (
+            tuple(sorted((rounded(edge.points[0]), rounded(edge.points[-1]))))
+            if edge.points else ()
+        )
+        return (
+            str(getattr(edge, "curve_kind", "other")),
+            endpoints,
+            rounded(edge.curve_origin)
+            if getattr(edge, "curve_origin", None) is not None else None,
+            round(float(edge.curve_radius), 7)
+            if getattr(edge, "curve_radius", None) is not None else None,
+        )
+
+    def _refresh_object_overlay_edge_matches(self) -> None:
+        main = self._mesh
+        overlay = self._object_overlay_mesh
+        if main is None or overlay is None:
+            self._object_overlay_main_edge_keys = frozenset()
+            self._object_overlay_matched_edge_keys = frozenset()
+            return
+        main_by_signature: dict[tuple, list[TopologyKey]] = {}
+        for edge in main.edges:
+            if edge.screen_constant or edge.element_kind != "edge":
+                continue
+            main_by_signature.setdefault(
+                self._edge_geometry_signature(edge), []
+            ).append((edge.owner_id, edge.edge_index))
+        main_keys: set[TopologyKey] = set()
+        overlay_keys: set[TopologyKey] = set()
+        for edge in overlay.edges:
+            matches = main_by_signature.get(
+                self._edge_geometry_signature(edge), ()
+            )
+            if not matches:
+                continue
+            main_keys.update(matches)
+            overlay_keys.add((edge.owner_id, edge.edge_index))
+        self._object_overlay_main_edge_keys = frozenset(main_keys)
+        self._object_overlay_matched_edge_keys = frozenset(overlay_keys)
 
     def set_selected_reference_owner(self, owner_id: str | None) -> None:
         self._selected_reference_owner_id = owner_id
@@ -1788,6 +1858,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         """Allow real face picking when a large-scene reference tool needs it."""
         self._large_mesh_topology_enabled = bool(enabled)
 
+    def set_reference_picking_active(self, enabled: bool) -> None:
+        """Keep object hover while giving topology priority on click."""
+        self._reference_picking_active = bool(enabled)
+
     def set_topology_owner_filter(self, owner_ids: set[str] | None) -> None:
         self._topology_owner_filter = (
             None if owner_ids is None else frozenset(owner_ids)
@@ -1979,33 +2053,36 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 draw_base_edges=self._display_mode != "shaded",
             )
 
+    def _paint_navigation_overlays(self) -> None:
+        self._paint_screen_constant_edges()
+        # Datum planes are world-space editing context.  Their projected
+        # corners change on every orbit frame, so omitting them from the
+        # navigation fast path made them disappear until the mouse button
+        # was released.
+        self._paint_planes()
+        # Feature-boundary selection is persistent model state, not a
+        # disposable hover decoration. Reproject it for every navigation
+        # frame so a selected fillet stays blue while the camera rotates.
+        self._paint_reference_highlights()
+        # Dimension geometry is spatial context and must follow the camera
+        # continuously in Part, Assembly and Sketch alike.
+        self._paint_dimensions()
+        if self._sketch_frame is not None:
+            self._paint_sketch_overlay()
+            self._paint_sketch_trim_overlay()
+        if self._object_overlay_persistent:
+            self._paint_object_overlay()
+        self._paint_passive_sketch_overlay()
+        self._paint_source_topology_hover()
+        self._paint_edge_labels(screen_constant_only=True)
+
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        # Repeating QPainter overlays for every mouse-move frame forces a GPU
-        # synchronization. They are static during navigation and are painted
-        # again immediately after it ends.
+        # Repeating every QPainter overlay for every mouse-move frame forces
+        # a GPU synchronization. Paint the spatial overlays that must track
+        # the camera, then restore the full overlay set when navigation ends.
         if self._navigation_active:
-            self._paint_screen_constant_edges()
-            # Feature-boundary selection is persistent model state, not a
-            # disposable hover decoration. Reproject it for every navigation
-            # frame so a selected fillet stays blue while the camera rotates.
-            self._paint_reference_highlights()
-            # Dimension geometry is spatial context and must follow the
-            # camera continuously in Part, Assembly and Sketch alike.  The
-            # editable text widgets are positioned separately; omitting the
-            # lines here left only a detached value visible while rotating.
-            self._paint_dimensions()
-            if self._sketch_frame is not None:
-                # Sketch geometry is spatial editing context, not a static
-                # decoration. Keep its entities, text, constraints and
-                # dimensions projected continuously while the camera moves.
-                self._paint_sketch_overlay()
-                self._paint_sketch_trim_overlay()
-            if self._object_overlay_persistent:
-                self._paint_object_overlay()
-            self._paint_passive_sketch_overlay()
-            self._paint_source_topology_hover()
-            self._paint_edge_labels(screen_constant_only=True)
+            self._paint_navigation_overlays()
             return
         self._paint_screen_constant_edges()
         self._paint_centerlines()
@@ -2067,30 +2144,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     tuple[Point3, Point3],
                     tuple[int, Point3, Point3],
                 ] = {}
-                for triangle_index, face_index in enumerate(
-                    mesh.triangle_face_indices
-                ):
-                    owner_id = mesh.triangle_owner_ids[triangle_index]
-                    if (owner_id, face_index) != highlighted_face:
-                        continue
-                    offset = triangle_index * 9
-                    points = tuple(
-                        tuple(
-                            float(positions[offset + vertex * 3 + axis])
-                            for axis in range(3)
-                        )
-                        for vertex in range(3)
+                triangle_ranges = (
+                    (
+                        first_vertex // 3,
+                        vertex_count // 3,
                     )
-                    for first, second in (
-                        (points[0], points[1]),
-                        (points[1], points[2]),
-                        (points[2], points[0]),
+                    for owner_id, face_index, first_vertex, vertex_count
+                    in self._face_ranges
+                    if (owner_id, face_index) == highlighted_face
+                )
+                for first_triangle, triangle_count in triangle_ranges:
+                    for triangle_index in range(
+                        first_triangle,
+                        first_triangle + triangle_count,
                     ):
-                        key = tuple(sorted((first, second)))
-                        count, _, _ = boundary_counts.get(
-                            key, (0, first, second)
+                        offset = triangle_index * 9
+                        points = tuple(
+                            tuple(
+                                float(
+                                    positions[
+                                        offset + vertex * 3 + axis
+                                    ]
+                                )
+                                for axis in range(3)
+                            )
+                            for vertex in range(3)
                         )
-                        boundary_counts[key] = (count + 1, first, second)
+                        for first, second in (
+                            (points[0], points[1]),
+                            (points[1], points[2]),
+                            (points[2], points[0]),
+                        ):
+                            key = tuple(sorted((first, second)))
+                            count, _, _ = boundary_counts.get(
+                                key, (0, first, second)
+                            )
+                            boundary_counts[key] = (
+                                count + 1,
+                                first,
+                                second,
+                            )
                 boundary = tuple(
                     (first, second)
                     for count, first, second in boundary_counts.values()
@@ -2466,6 +2559,22 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self._set_selected_object(owner_id or None)
                 event.accept()
                 return
+            if self._cycled_topology_candidate is not None:
+                kind, owner_id, element_index = (
+                    self._cycled_topology_candidate
+                )
+                self._clear_topology_selection()
+                {
+                    "point": self._set_selected_point,
+                    "edge": self._set_selected_edge,
+                    "plane": self._set_selected_plane,
+                    "face": self._set_selected_face,
+                }[kind]((owner_id, element_index))
+                # Keep the cycled identity available while the selected
+                # signal is delivered synchronously.
+                self._cycled_topology_candidate = None
+                event.accept()
+                return
             if self._interaction_mode == "object":
                 if self._selection_preview_pending:
                     self._selection_preview_pending = False
@@ -2487,6 +2596,32 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self.update()
                     event.accept()
                     return
+                if self._reference_picking_active:
+                    point = self._pick_point(event.position())
+                    edge = (
+                        None if point is not None
+                        else self._pick_edge(event.position())
+                    )
+                    plane = (
+                        None if point is not None or edge is not None
+                        else self._pick_plane(event.position())
+                    )
+                    face = (
+                        None
+                        if point is not None
+                        or edge is not None
+                        or plane is not None
+                        else self._pick_face(event.position())
+                    )
+                    if any((point, edge, plane, face)):
+                        self._clear_topology_selection()
+                        self._set_selected_object(None)
+                        self._set_selected_point(point)
+                        self._set_selected_edge(edge)
+                        self._set_selected_plane(plane)
+                        self._set_selected_face(face)
+                        event.accept()
+                        return
                 point = self._pick_point(event.position())
                 plane = (
                     None
@@ -2515,20 +2650,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         self.selectedObjectChanged.emit("")
                     else:
                         self._set_selected_object(owner_id)
-                event.accept()
-                return
-            if self._cycled_topology_candidate is not None:
-                kind, owner_id, element_index = (
-                    self._cycled_topology_candidate
-                )
-                self._cycled_topology_candidate = None
-                self._clear_topology_selection()
-                {
-                    "point": self._set_selected_point,
-                    "edge": self._set_selected_edge,
-                    "plane": self._set_selected_plane,
-                    "face": self._set_selected_face,
-                }[kind]((owner_id, element_index))
                 event.accept()
                 return
             point = self._pick_point(event.position())
@@ -2577,6 +2698,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._object_overlay_persistent
         ):
             self._object_overlay_mesh = None
+            self._object_overlay_main_edge_keys = frozenset()
+            self._object_overlay_matched_edge_keys = frozenset()
             self.update()
         if (
             self._last_mouse_position is not None
@@ -3108,9 +3231,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return
         self._pending_model_hover_position = QPointF(event.position())
         self._model_hover_clear_timer.stop()
-        # Debounce a new candidate. Merely crossing a triangle boundary or
-        # a narrow screen-space gap must not replace a stable solid hover.
-        self._model_hover_timer.start()
+        if self._interaction_mode == "topology":
+            # Reference picking must follow the pointer instead of requiring
+            # it to remain completely still.  Re-starting the ordinary 60 ms
+            # debounce on every mouse event made an orange face appear only
+            # after the user stopped moving.  Keep at most one short timer
+            # active and let it consume the latest pending position.
+            if not self._model_hover_timer.isActive():
+                self._model_hover_timer.start(16)
+        else:
+            # Debounce a new object candidate. Merely crossing a triangle
+            # boundary or a narrow screen-space gap must not replace a stable
+            # solid hover in the ordinary selection mode.
+            self._model_hover_timer.start()
         super().mouseMoveEvent(event)
 
     def _clear_delayed_model_hover(self) -> None:
@@ -4062,6 +4195,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 if (
                     edge.element_kind == "edge"
                     and edge_visible_in_display(edge, self._display_mode)
+                    and not self._edge_is_highlighted(edge)
                 ):
                     gl.glDrawArrays(
                         GL_LINE_STRIP,
@@ -4082,92 +4216,102 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 # Keeping its cached 3D scene edges visible duplicates every
                 # entity and exposes hidden generated text contours.
                 continue
-            if not draw_base_edges and edge.element_kind == "edge":
+            highlighted = self._edge_is_highlighted(edge)
+            if (
+                not draw_base_edges
+                and edge.element_kind == "edge"
+                and not highlighted
+            ):
                 continue
-            if not edge_visible_in_display(edge, self._display_mode):
+            if (
+                not edge_visible_in_display(edge, self._display_mode)
+                and not highlighted
+            ):
                 continue
             if edge.element_kind in {"axis", "sketch", "dimension"}:
                 gl.glDisable(GL_DEPTH_TEST)
-            preview_wire_color = (
-                (0.0, 0.82, 1.0)
-                if edge.owner_id in self._feature_preview_owner_ids
-                and self._display_mode in {
-                    "wire", "hidden_edges", "no_hidden",
-                }
-                else None
-            )
             program.setUniformValue(
                 "edgeColor",
-                QVector3D(*(
-                    preview_wire_color
-                    if preview_wire_color is not None
-                    else (
-                        self._edge_color_override.redF(),
-                        self._edge_color_override.greenF(),
-                        self._edge_color_override.blueF(),
-                    )
-                    if self._edge_color_override is not None
-                    and edge.element_kind == "edge"
-                    else edge.base_color
-                )),
+                QVector3D(*self._edge_display_color(edge)),
             )
             gl.glDrawArrays(GL_LINE_STRIP, first_vertex, vertex_count)
             if edge.element_kind in {"axis", "sketch", "dimension"}:
                 gl.glEnable(GL_DEPTH_TEST)
-        self._draw_highlighted_edge(
-            gl,
-            program,
-            self._hovered_edge,
-            QVector3D(1.0, 0.48, 0.0),
-            1.0,
-        )
-        self._draw_highlighted_object(
-            gl,
-            program,
-            self._hovered_object_id,
-            QVector3D(1.0, 0.48, 0.0),
-            1.0,
-        )
-        self._draw_highlighted_reference(
-            gl,
-            program,
-            self._selected_reference_owner_id,
-        )
-        self._draw_highlighted_object(
-            gl,
-            program,
-            self._selected_object_id,
-            QVector3D(0.0, 0.82, 1.0),
-            1.0,
-        )
-        self._draw_highlighted_edge(
-            gl,
-            program,
-            self._selected_edge,
-            QVector3D(0.0, 0.82, 1.0),
-            1.0,
-        )
-        for edge in self._constraint_reference_edges:
-            self._draw_highlighted_edge(
-                gl,
-                program,
-                edge,
-                QVector3D(0.0, 0.82, 1.0),
-                1.0,
-            )
-        for edge in self._assembly_reference_edges:
-            self._draw_highlighted_edge(
-                gl,
-                program,
-                edge,
-                QVector3D(0.0, 0.82, 1.0),
-                1.0,
-            )
         self._draw_gpu_silhouette_edges(gl, program)
         program.disableAttributeArray(0)
         buffer.release()
         program.release()
         vao.release()
+
+    def _edge_display_color(self, edge) -> tuple[float, float, float]:
+        """Resolve one final GPU colour; an existing edge is drawn once."""
+        key = (edge.owner_id, edge.edge_index)
+        selected = (
+            key == self._selected_edge
+            or key in self._edge_treatment_selection_edges
+            or key in self._feature_selected_edges
+            or key in self._constraint_reference_edges
+            or key in self._assembly_reference_edges
+            or edge.owner_id == self._selected_object_id
+            or edge.owner_id == self._selected_reference_owner_id
+            or edge.owner_id in self._constraint_reference_owner_ids
+            or edge.owner_id in self._selected_container_content_ids
+        )
+        if selected:
+            return (0.0, 0.82, 1.0)
+        if key in self._object_overlay_main_edge_keys:
+            return (
+                self._object_overlay_color.redF(),
+                self._object_overlay_color.greenF(),
+                self._object_overlay_color.blueF(),
+            )
+        hovered = (
+            key == self._hovered_edge
+            or key in self._feature_hover_edges
+            or edge.owner_id == self._hovered_object_id
+        )
+        if hovered:
+            return (1.0, 0.48, 0.0)
+        if (
+            edge.owner_id in self._feature_preview_owner_ids
+            and self._display_mode in {
+                "wire", "hidden_edges", "no_hidden",
+            }
+        ):
+            return (0.0, 0.82, 1.0)
+        if self._edge_color_override is not None and edge.element_kind == "edge":
+            return (
+                self._edge_color_override.redF(),
+                self._edge_color_override.greenF(),
+                self._edge_color_override.blueF(),
+            )
+        return edge.base_color
+
+    def _edge_is_highlighted(self, edge) -> bool:
+        key = (edge.owner_id, edge.edge_index)
+        return bool(
+            key == self._selected_edge
+            or key == self._hovered_edge
+            or key in self._edge_treatment_selection_edges
+            or key in self._feature_selected_edges
+            or key in self._feature_hover_edges
+            or key in self._constraint_reference_edges
+            or key in self._assembly_reference_edges
+            or key in self._object_overlay_main_edge_keys
+            or edge.owner_id in {
+                self._selected_object_id,
+                self._hovered_object_id,
+                self._selected_reference_owner_id,
+            }
+            or edge.owner_id in self._constraint_reference_owner_ids
+            or edge.owner_id in self._selected_container_content_ids
+            or (
+                edge.owner_id in self._feature_preview_owner_ids
+                and self._display_mode in {
+                    "wire", "hidden_edges", "no_hidden",
+                }
+            )
+        )
 
     def _draw_gpu_silhouette_edges(
         self,
@@ -4181,6 +4325,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 "wire", "hidden_edges", "no_hidden", "shaded_with_edges",
             }
             or not self._silhouette_edges
+            or self._object_overlay_mesh is not None
         ):
             return
         view_direction = self._inverse_rotate((0.0, 0.0, 1.0))
@@ -4460,6 +4605,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(self._object_overlay_color, 1.0))
         for edge in mesh.edges:
+            if (
+                edge.owner_id,
+                edge.edge_index,
+            ) in self._object_overlay_matched_edge_keys:
+                continue
             projected = [
                 self._screen_point(self._camera_point(point))
                 for point in edge.points
@@ -4501,7 +4651,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(QPen(color, 2.0))
         painter.setBrush(QBrush(color))
-        if self._source_topology_hover_kind in ("face", "edge"):
+        if self._source_topology_hover_kind == "face":
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for edge in mesh.edges:
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in edge.points
+                ]
+                for index in range(1, len(projected)):
+                    painter.drawLine(projected[index - 1], projected[index])
+        elif self._source_topology_hover_kind == "edge":
             for edge in mesh.edges:
                 projected = [
                     self._screen_point(self._camera_point(point))
@@ -6707,6 +6866,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             not self._sketch_pending_points
             and self._sketch_preview_position is not None
+            # Constraint tools reuse the placement hit-test only to discover
+            # and highlight entities/points under the cursor.  They do not
+            # place geometry, so painting the generic orange placement dot
+            # here falsely looked like a Coincident constraint in empty
+            # space and duplicated the real point highlight over geometry.
+            and not self._sketch_constraint_selection_mode
             and self._sketch_tool not in ("select", "dimension")
         ):
             point_ids = {
@@ -11363,64 +11528,73 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             return ()
         threshold = 9.0 * float(self.devicePixelRatioF())
         candidates: list[tuple[str, str, int]] = []
-        for marker in mesh.points:
-            if not self._point_marker_is_selectable(marker.element_kind):
-                continue
-            screen = self._screen_point(self._camera_point(marker.position))
-            if hypot(position.x() - screen.x(), position.y() - screen.y()) <= threshold:
-                candidates.append(("point", marker.owner_id, marker.point_index))
-        for edge in mesh.edges:
-            if (
-                not edge_visible_in_display(edge, self._display_mode)
-                and not (
-                    self._selection_filter == "edge"
-                    and edge.element_kind == "edge"
-                    and edge.topology_role not in {"seam", "periodic_tangent"}
-                )
-            ):
-                continue
-            projected = [
-                self._screen_point(self._camera_point(point))
-                for point in self._display_edge_points(edge)
-            ]
-            if any(
-                self._point_segment_distance(
-                    position,
-                    projected[index - 1],
-                    projected[index],
-                )[0] <= threshold
-                for index in range(1, len(projected))
-            ):
-                candidates.append(("edge", edge.owner_id, edge.edge_index))
-        for plane in mesh.planes:
-            projected = [
-                self._screen_point(self._camera_point(point))
-                for point in self._display_plane_corners(plane)
-            ]
-            if any(
-                self._point_segment_distance(
-                    position,
-                    projected[index],
-                    projected[(index + 1) % len(projected)],
-                )[0] <= threshold
-                for index in range(len(projected))
-            ):
-                candidates.append(("plane", plane.owner_id, plane.plane_index))
-        sample_offsets = (
-            (0.0, 0.0),
-            (-4.0, 0.0),
-            (4.0, 0.0),
-            (0.0, -4.0),
-            (0.0, 4.0),
-        )
-        for offset_x, offset_y in sample_offsets:
+        if self._selection_filter in {"all", "point"}:
+            for marker in mesh.points:
+                if not self._point_marker_is_selectable(marker.element_kind):
+                    continue
+                screen = self._screen_point(self._camera_point(marker.position))
+                if (
+                    hypot(
+                        position.x() - screen.x(),
+                        position.y() - screen.y(),
+                    )
+                    <= threshold
+                ):
+                    candidates.append(
+                        ("point", marker.owner_id, marker.point_index)
+                    )
+        if self._selection_filter in {"all", "edge", "axis"}:
+            for edge in mesh.edges:
+                if (
+                    not edge_visible_in_display(edge, self._display_mode)
+                    and not (
+                        self._selection_filter == "edge"
+                        and edge.element_kind == "edge"
+                        and edge.topology_role not in {"seam", "periodic_tangent"}
+                    )
+                ):
+                    continue
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in self._display_edge_points(edge)
+                ]
+                if any(
+                    self._point_segment_distance(
+                        position,
+                        projected[index - 1],
+                        projected[index],
+                    )[0] <= threshold
+                    for index in range(1, len(projected))
+                ):
+                    candidates.append(
+                        ("edge", edge.owner_id, edge.edge_index)
+                    )
+        if self._selection_filter in {"all", "plane", "normal", "surface"}:
+            for plane in mesh.planes:
+                projected = [
+                    self._screen_point(self._camera_point(point))
+                    for point in self._display_plane_corners(plane)
+                ]
+                if any(
+                    self._point_segment_distance(
+                        position,
+                        projected[index],
+                        projected[(index + 1) % len(projected)],
+                    )[0] <= threshold
+                    for index in range(len(projected))
+                ):
+                    candidates.append(
+                        ("plane", plane.owner_id, plane.plane_index)
+                    )
+        if self._selection_filter in {"all", "face", "normal", "surface"}:
+            # A tolerant bounding-box query already covers the neighbouring
+            # pixels used by topology cycling.  Running five complete face
+            # queries here multiplied the cost on large imported meshes while
+            # returning the same occluded faces after de-duplication.
             candidates.extend(
                 ("face", owner_id, face_index)
                 for _depth, owner_id, face_index in self._face_hits(
-                    QPointF(
-                        position.x() + offset_x,
-                        position.y() + offset_y,
-                    ),
+                    position,
                     bounds_tolerance=4.0,
                 )
             )
@@ -11435,6 +11609,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         candidate: tuple[str, str, int],
     ) -> None:
         self._cycled_topology_candidate = candidate
+        self.set_source_topology_hover(None)
+        self.set_feature_hover_edges(set())
         self._clear_topology_hover()
         kind, owner_id, element_index = candidate
         {

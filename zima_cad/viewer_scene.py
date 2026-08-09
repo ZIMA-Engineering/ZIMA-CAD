@@ -18,7 +18,7 @@ from zima_cad.model import (
     make_datum_axis_shape,
     multiply_transforms,
     transform_shape,
-    active_face_registry,
+    face_registry_at,
 )
 from zima_cad.topology import (
     AssemblyEdgeRef,
@@ -552,7 +552,12 @@ def build_document_viewer_scene_data(
                         str(face_index),
                     ).serialize()
         else:
-            registry = active_face_registry(document)
+            # A rollback/intermediate body needs the semantic topology of
+            # that exact history boundary.  Using the active final registry
+            # assigned unrelated final-face identities to the intermediate
+            # mesh, so downstream containers could not follow their stored
+            # surface_reference_id after an upstream edit.
+            registry = face_registry_at(document, boundary)
             for face_index in set(body_mesh.triangle_face_indices):
                 reference = registry.reference_for_runtime_index(face_index)
                 if reference is not None:

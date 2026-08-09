@@ -19,8 +19,11 @@ from zima_cad.app import (
     AxisConstraintDialog,
     FamilyTableDialog,
     MainWindow,
+    SKETCH_CONSTRAINT_SELECTION_TOOLS,
+    SKETCH_ENTITY_SELECTION_TOOLS,
     ViewSelectionMode,
 )
+from zima_cad.body_result import BodyResult, SurfaceDescriptor
 from zima_cad.topology import FaceRef
 from zima_cad.drawing import (
     DrawingCanvas,
@@ -76,6 +79,163 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_coincident_is_classified_as_selection_not_placement(self):
+        self.assertIn("coincident", SKETCH_ENTITY_SELECTION_TOOLS)
+        self.assertIn("coincident", SKETCH_CONSTRAINT_SELECTION_TOOLS)
+
+    def test_history_surface_refresh_updates_nested_orientation_reference(self):
+        document = create_empty_part()
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        stable_id = "stable-face"
+        nested = {
+            "type": "face",
+            "reference_scope": "history_result",
+            "surface_reference_id": stable_id,
+            "entity_id": "stale-body",
+            "topology_key": "99",
+            "key": "face:stale-body:99",
+            "equations": [[1.0, 0.0, 0.0, 1.0]],
+        }
+        references = [{
+            "type": "container_orientation",
+            "mappings": [{"slot": "primary", "reference": nested}],
+        }]
+        empty_mesh = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+        body = BodyResult(
+            mesh=empty_mesh,
+            faces={
+                f"{document.root.entity_id}:face:4": SurfaceDescriptor(
+                    reference_id=stable_id,
+                    kind="plane",
+                    origin=(0.0, 0.0, 7.0),
+                    normal=(0.0, 0.0, 1.0),
+                )
+            },
+        )
+
+        changed = window._refresh_history_result_surface_references(
+            references,
+            body,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(nested["entity_id"], document.root.entity_id)
+        self.assertEqual(nested["topology_key"], "4")
+        self.assertEqual(nested["equations"], [[0.0, 0.0, 1.0, 7.0]])
+
+    def test_rebinding_saved_body_preserves_historical_source_bodies(self):
+        empty_mesh = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+        source = BodyResult.from_mesh(empty_mesh)
+        saved = BodyResult.from_mesh(empty_mesh)
+        saved = BodyResult(
+            mesh=saved.mesh,
+            faces=saved.faces,
+            edges=saved.edges,
+            vertices=saved.vertices,
+            physical=saved.physical,
+            source_bodies={"container-1": source},
+        )
+
+        rebound = saved.with_owner("runtime-part")
+
+        self.assertIs(
+            rebound.source_bodies["container-1"],
+            source,
+        )
+
+    def test_navigation_paints_datum_planes_continuously(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._navigation_active = True
+        viewer._sketch_frame = None
+        viewer._object_overlay_persistent = False
+        painted = []
+        viewer._paint_screen_constant_edges = lambda: painted.append("edges")
+        viewer._paint_planes = lambda: painted.append("planes")
+        viewer._paint_reference_highlights = lambda: None
+        viewer._paint_dimensions = lambda: None
+        viewer._paint_passive_sketch_overlay = lambda: None
+        viewer._paint_source_topology_hover = lambda: None
+        viewer._paint_edge_labels = lambda **_kwargs: None
+
+        viewer._paint_navigation_overlays()
+
+        self.assertEqual(painted, ["edges", "planes"])
+
+    def test_source_topology_pick_uses_persisted_viewer_mesh_only(self):
+        window = MainWindow.__new__(MainWindow)
+        source = SimpleNamespace(entity_id="source-1")
+        mesh = SimpleNamespace(marker="persisted")
+        window.document = SimpleNamespace(
+            history_objects_at=lambda _boundary: [source],
+        )
+        window._definition_history_boundary = lambda: 1
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(
+                source_bodies={
+                    source.entity_id: SimpleNamespace(mesh=mesh),
+                }
+            )
+        )
+        window.native_viewer = SimpleNamespace(
+            face_at_mesh=lambda candidate, _position:
+                (source.entity_id, 7) if candidate is mesh else None,
+            edge_at_mesh=lambda _candidate, _position: None,
+            point_at_mesh=lambda _candidate, _position: None,
+        )
+
+        self.assertEqual(
+            window._source_topology_reference_at_position(
+                "face", QPointF(10.0, 20.0)
+            ),
+            (source.entity_id, 7, mesh),
+        )
+
+    def test_viewer_mesh_extracts_persisted_edge_and_point(self):
+        mesh = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                edge_index=3,
+                points=((1.0, 2.0, 3.0), (4.0, 5.0, 6.0)),
+                owner_id="source-1",
+            ),),
+            points=(PointMarker(
+                point_index=4,
+                position=(7.0, 8.0, 9.0),
+                owner_id="source-1",
+                element_kind="vertex",
+            ),),
+            planes=(),
+            bounds_min=(1.0, 2.0, 3.0),
+            bounds_max=(7.0, 8.0, 9.0),
+        )
+
+        self.assertEqual(len(mesh.edge_mesh("source-1", 3).edges), 1)
+        self.assertEqual(len(mesh.point_mesh("source-1", 4).points), 1)
+
     def test_external_segment_uses_original_topology_reference_picking(self):
         window = MainWindow.__new__(MainWindow)
         window._sketch_reference_mode = False
@@ -322,6 +482,7 @@ class DrawingViewConventionTests(unittest.TestCase):
                 descriptor,
                 *,
                 allow_frame_fallback,
+                resolve_shape_references=False,
             ):
                 return tuple(descriptor["direction"])
 
@@ -727,6 +888,66 @@ class DrawingViewConventionTests(unittest.TestCase):
         viewer.set_large_mesh_topology_enabled(True)
 
         self.assertTrue(viewer._large_mesh_topology_enabled)
+
+    def test_surface_candidate_cycle_ignores_points_and_edges(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = SimpleNamespace(
+            points=(SimpleNamespace(
+                element_kind="point",
+                position=(0.0, 0.0, 0.0),
+                owner_id="point-owner",
+                point_index=1,
+            ),),
+            edges=(SimpleNamespace(
+                element_kind="edge",
+                topology_role="sharp",
+                owner_id="edge-owner",
+                edge_index=1,
+            ),),
+            planes=(),
+        )
+        viewer._selection_filter = "surface"
+        face_queries = []
+
+        def face_hits(*args, **kwargs):
+            face_queries.append((args, kwargs))
+            return [
+                (2.0, "body", 1),
+                (1.0, "body", 2),
+            ]
+
+        viewer._face_hits = face_hits
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        candidates = viewer.topology_candidates_at(QPointF())
+
+        self.assertEqual(
+            candidates,
+            (("face", "body", 1), ("face", "body", 2)),
+        )
+        self.assertEqual(len(face_queries), 1)
+        self.assertEqual(face_queries[0][1]["bounds_tolerance"], 4.0)
+
+    def test_cycled_hidden_face_preview_is_not_replaced_by_cursor_hit(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._dimension_inspection_visuals = ()
+        cleared = []
+        hovered = []
+        window.native_viewer = SimpleNamespace(
+            _cycled_topology_candidate=("face", "body", 6),
+            set_source_topology_hover=lambda mesh: cleared.append(mesh),
+            set_feature_hover_edges=lambda edges: cleared.append(edges),
+        )
+        window._set_view_hover = lambda *value: hovered.append(value)
+        window._on_native_source_topology_hovered = lambda *_args: self.fail(
+            "cycled preview must not be replaced by a cursor ray hit"
+        )
+
+        window._on_native_face_hovered("body", 6)
+
+        self.assertEqual(cleared, [None, set()])
+        self.assertEqual(hovered, [("face", "body", 6)])
 
     def test_result_body_can_be_excluded_from_object_picking(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
@@ -1246,6 +1467,7 @@ class DrawingViewConventionTests(unittest.TestCase):
                 descriptor,
                 *,
                 allow_frame_fallback,
+                resolve_shape_references=False,
             ):
                 return tuple(descriptor["direction"])
 

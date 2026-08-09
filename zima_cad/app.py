@@ -9,7 +9,7 @@ import json
 import math
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
@@ -221,6 +221,7 @@ from zima_cad.settings import (
     resolve_startup_context,
 )
 from zima_cad.localization import configure_localization, tr
+from zima_cad.body_result import BodyResult
 from zima_cad.viewer import (
     AngularDimension,
     CameraState,
@@ -239,6 +240,7 @@ from zima_cad.viewer_mesh import (
     edge_visible_in_display,
     point_marker_mesh,
     triangulate_shape,
+    transform_viewer_mesh,
 )
 from zima_cad.drawing import (
     DrawingWorkspace,
@@ -275,6 +277,32 @@ from zima_cad.step_export import export_step_shape
 _RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
 FEATURE_PREVIEW_COLOR = "#00D1FF"
 FEATURE_PREVIEW_RGB = (0.0, 0.82, 1.0)
+
+# These tools consume existing sketch entities/references; none of them
+# places a free cursor point.  Keep this classification in one place so a
+# tool cannot use selection hit-testing in one code path and geometry-preview
+# painting in another (the former Coincident orange cursor-dot regression).
+SKETCH_CONSTRAINT_SELECTION_TOOLS = frozenset({
+    "horizontal",
+    "vertical",
+    "perpendicular",
+    "parallel",
+    "equal",
+    "coincident",
+    "midpoint",
+    "symmetric",
+    "tangent",
+    "concentric",
+    "dimension_x",
+    "dimension_y",
+    "dimension_distance",
+    "dimension",
+})
+SKETCH_ENTITY_SELECTION_TOOLS = frozenset({
+    "select",
+    "mirror",
+    *SKETCH_CONSTRAINT_SELECTION_TOOLS,
+})
 
 
 def _load_document_for_interactive_open(file_path: Path) -> PartDocument:
@@ -11546,10 +11574,15 @@ class MainWindow(QMainWindow):
             # creates a frame that is immediately discarded again.
             self.native_viewer.update()
             return
-        # Closing Properties is the single commit boundary. Shape/topology
-        # history caches are signature-keyed, so unchanged prefixes remain
-        # valid and changed/downstream entries are naturally recomputed.
-        self.rebuild_view(fit=False, rebuild_geometry=True)
+        # OK is the authoritative calculation/commit boundary.  A plain view
+        # rebuild creates the displayed final Body but does not calculate the
+        # persisted per-container source packets required by later viewport
+        # object/reference picking.  Regeneration creates both atomically.
+        # Cancel only restores the normal cached full-history presentation.
+        if int(_result) == int(QDialog.DialogCode.Accepted):
+            self.regenerate_model()
+        else:
+            self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _create_constrained_point(
         self,
@@ -11834,6 +11867,7 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._point_constraint_preview = None
         reference_type = descriptor.get("type")
+        topology_index = 0
         active_reference_label = str(
             descriptor.get("label", reference.name)
         )
@@ -11849,34 +11883,42 @@ class MainWindow(QMainWindow):
                 )
             except (TypeError, ValueError):
                 topology_index = 0
-            shape_type = {
-                "face": TopAbs_FACE,
-                "edge": TopAbs_EDGE,
-                "vertex": TopAbs_VERTEX,
-            }[reference_type]
             active_reference_label = self._topology_reference_label(
                 reference,
                 str(reference_type),
                 topology_index,
             )
-            model_shape = self._shape_for_reference_descriptor(
-                descriptor,
-                reference,
-            )
-            selected_shape = self._subshape_from_shape(
-                model_shape,
-                shape_type,
-                topology_index,
-            ) if model_shape is not None else None
             if reference_type == "face":
-                self.selected_face = selected_shape
-            elif selected_shape is not None:
-                self._point_constraint_preview = (
-                    reference.entity_id,
-                    selected_shape,
+                scene = self._native_viewer_scene
+                source_result = (
+                    scene.calculated_body_result.source_bodies.get(
+                        reference.entity_id
+                    )
+                    if scene is not None
+                    and scene.calculated_body_result is not None
+                    else None
                 )
-            if reference_type == "face" and self.selected_face is not None:
                 self.selected_face_object_id = reference.entity_id
+                if source_result is not None:
+                    self.native_viewer.set_source_topology_hover(
+                        source_result.mesh.face_mesh(
+                            reference.entity_id,
+                            topology_index,
+                        ),
+                        "face",
+                    )
+                else:
+                    self.native_viewer._set_selected_face(
+                        (reference.entity_id, topology_index)
+                    )
+            elif reference_type == "edge":
+                self.native_viewer._set_selected_edge(
+                    (reference.entity_id, topology_index)
+                )
+            else:
+                self.native_viewer._set_selected_point(
+                    (reference.entity_id, topology_index)
+                )
 
         root = self.tree.invisibleRootItem()
         tree_item = self._find_tree_item(root, tree_object_id)
@@ -11887,7 +11929,34 @@ class MainWindow(QMainWindow):
             self.tree.clearSelection()
         self.tree.blockSignals(False)
         self._view_selection_confirmed = True
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        # Activating a stored reference is a viewer-only operation.  Rebuilding
+        # the scene here used to re-enter tree synchronization and accumulate
+        # container origins/content highlights after every row click.
+        if reference_type in ("face", "edge", "vertex"):
+            self.native_viewer.set_object_overlay(None)
+            scene = self._native_viewer_scene
+            source_result = (
+                scene.calculated_body_result.source_bodies.get(
+                    reference.entity_id
+                )
+                if scene is not None
+                and scene.calculated_body_result is not None
+                else None
+            )
+            if source_result is not None:
+                topology_kind = (
+                    "point" if reference_type == "vertex" else reference_type
+                )
+                element_mesh = {
+                    "face": source_result.mesh.face_mesh,
+                    "edge": source_result.mesh.edge_mesh,
+                    "point": source_result.mesh.point_mesh,
+                }[topology_kind](reference.entity_id, topology_index)
+                self.native_viewer.set_source_topology_hover(
+                    element_mesh,
+                    topology_kind,
+                )
+        self.native_viewer.update()
         self.statusBar().showMessage(
             tr(
                 "selection.status.reference",
@@ -11991,7 +12060,7 @@ class MainWindow(QMainWindow):
         references: list[dict[str, Any]],
         fallback: tuple[float, float, float] = (0.0, 0.0, 0.0),
         *,
-        resolve_shape_references: bool = True,
+        resolve_shape_references: bool = False,
     ) -> tuple[
         tuple[float, float, float] | None,
         int,
@@ -12203,349 +12272,90 @@ class MainWindow(QMainWindow):
         self,
         descriptor: dict[str, Any],
     ) -> list[list[float]] | None:
+        """Return persisted constraint equations without touching OCCT.
+
+        Shape references are resolved completely when an explicit body
+        calculation accepts the pick.  Properties, regeneration dependency
+        solving and orientation checks consume that immutable ZIMA data.
+        """
         shape_reference_type = descriptor.get("type")
         if (
             shape_reference_type not in ("vertex", "face", "edge")
-            or self.document is None
         ):
             return None
-        # An imported STEP body is immutable inside its history container.
-        # Face-picking already stores the exact oriented plane equation, so
-        # rebuilding the complete history shape merely to initialize the
-        # container-placement controls adds no information.  On a detailed
-        # STEP this used to make the Protrusion Properties window appear to
-        # hang after an otherwise fast pick.  Keep semantic/parametric faces
-        # on the resolving path below because their upstream geometry can
-        # legitimately change.
-        if (
-            shape_reference_type == "face"
-            and descriptor.get("reference_scope") == "history_result"
-        ):
-            stable_reference = parse_face_reference(
-                descriptor.get("face_ref")
-            )
-            equations = descriptor.get("equations", ())
-            if (
-                stable_reference is not None
-                and stable_reference.role == "imported"
-                and isinstance(equations, (list, tuple))
-                and equations
-                and isinstance(equations[0], (list, tuple))
-                and len(equations[0]) >= 4
-            ):
-                try:
-                    stored = [float(value) for value in equations[0][:4]]
-                except (TypeError, ValueError):
-                    stored = []
-                if (
-                    len(stored) == 4
-                    and all(math.isfinite(value) for value in stored)
-                    and sum(value * value for value in stored[:3]) > 1.0e-24
-                ):
-                    return [stored]
-        reference = self.document.find_entity(
-            str(descriptor.get("entity_id", ""))
-        )
-        if reference is None:
+        equations = descriptor.get("equations", ())
+        expected_rows = {"face": 1, "edge": 2, "vertex": 3}[
+            shape_reference_type
+        ]
+        rows: list[list[float]] = []
+        if not isinstance(equations, (list, tuple)):
             return None
-        stable_subshape = None
-        if (
-            shape_reference_type == "face"
-            and descriptor.get("reference_scope") == "history_result"
-        ):
+        for raw_row in equations:
+            if not isinstance(raw_row, (list, tuple)) or len(raw_row) < 4:
+                return None
             try:
-                boundary = int(descriptor.get("history_cursor", 0))
+                row = [float(value) for value in raw_row[:4]]
             except (TypeError, ValueError):
-                boundary = 0
-            stable_reference = parse_face_reference(
-                descriptor.get("face_ref")
-            )
-            if (
-                stable_reference is not None
-                and stable_reference.role == "imported"
-                and stable_reference.source_id is not None
-            ):
-                try:
-                    imported_face_index = int(stable_reference.source_id)
-                except (TypeError, ValueError):
-                    imported_face_index = 0
-                history_objects = self.document.history_objects_at(boundary)
-                stable_subshape = (
-                    self._indexed_face_from_shape(
-                        self.document.build_shape_at(boundary),
-                        imported_face_index,
+                return None
+            if not all(math.isfinite(value) for value in row):
+                return None
+            rows.append(row)
+        return rows if len(rows) >= expected_rows else None
+
+    def _refresh_history_result_surface_references(
+        self,
+        references: list[dict[str, Any]],
+        body_result: BodyResult | None,
+    ) -> bool:
+        """Refresh persisted planes from one explicitly calculated prefix."""
+        if self.document is None or body_result is None:
+            return False
+        surfaces_by_reference_id = {
+            surface.reference_id: (lookup_key, surface)
+            for lookup_key, surface in body_result.faces.items()
+        }
+        changed = False
+
+        def visit(value) -> None:
+            nonlocal changed
+            if isinstance(value, dict):
+                if (
+                    value.get("reference_scope") == "history_result"
+                    and value.get("type") == "face"
+                ):
+                    stable_id = str(
+                        value.get("surface_reference_id", "")
                     )
-                    if len(history_objects) == 1
-                    and history_objects[0].container_type
-                    == ContainerType.IMPORTED_STEP
-                    else None
-                )
-                if stable_subshape is None:
-                    registry = self._reference_topology_registry(boundary)
-                    stable_subshape = registry.resolve(
-                        stable_reference
-                    ).shape
-            else:
-                registry = self._reference_topology_registry(boundary)
-                if stable_reference is not None:
-                    stable_subshape = registry.resolve(
-                        stable_reference
-                    ).shape
-            if stable_reference is None and registry.references:
-                # Upgrade a current development file only when its stored
-                # plane equation identifies exactly one semantic face.  Never
-                # migrate from the volatile numerical topology index alone.
-                equations = descriptor.get("equations", ())
-                stored = (
-                    tuple(float(value) for value in equations[0][:4])
-                    if isinstance(equations, list)
-                    and equations
-                    and isinstance(equations[0], (list, tuple))
-                    and len(equations[0]) >= 4
-                    else None
-                )
-                matches = []
-                if stored is not None:
-                    stored_length = math.sqrt(sum(
-                        stored[index] ** 2 for index in range(3)
-                    ))
-                    if stored_length > 1.0e-12:
-                        stored_normal = tuple(
-                            stored[index] / stored_length
-                            for index in range(3)
-                        )
-                        stored_distance = stored[3] / stored_length
-                        for candidate in registry.references:
-                            face = registry.resolve(candidate).shape
-                            if face is None:
-                                continue
-                            adaptor = BRepAdaptor_Surface(face)
-                            if adaptor.GetType() != GeomAbs_Plane:
-                                continue
-                            plane = adaptor.Plane()
-                            normal = plane.Axis().Direction()
-                            sign = (
-                                -1.0
-                                if face.Orientation() == TopAbs_REVERSED
-                                else 1.0
-                            )
-                            candidate_normal = (
-                                sign * normal.X(),
-                                sign * normal.Y(),
-                                sign * normal.Z(),
-                            )
-                            location = plane.Location()
-                            candidate_distance = sum((
-                                candidate_normal[0] * location.X(),
-                                candidate_normal[1] * location.Y(),
-                                candidate_normal[2] * location.Z(),
-                            ))
-                            agreement = sum(
-                                stored_normal[index]
-                                * candidate_normal[index]
+                    resolved = surfaces_by_reference_id.get(stable_id)
+                    if resolved is not None:
+                        lookup_key, surface = resolved
+                        if (
+                            surface.kind == "plane"
+                            and surface.origin is not None
+                            and surface.normal is not None
+                        ):
+                            normal = tuple(float(item) for item in surface.normal)
+                            distance = sum(
+                                normal[index] * float(surface.origin[index])
                                 for index in range(3)
                             )
-                            if (
-                                agreement > 1.0 - 1.0e-7
-                                and abs(
-                                    stored_distance - candidate_distance
-                                ) <= 1.0e-6
-                            ):
-                                matches.append((candidate, face))
-                if len(matches) == 1:
-                    stable_reference, stable_subshape = matches[0]
-                    descriptor["face_ref"] = stable_reference.to_dict()
-        elif (
-            shape_reference_type == "vertex"
-            and descriptor.get("reference_scope") == "history_result"
-        ):
-            try:
-                boundary = int(descriptor.get("history_cursor", 0))
-            except (TypeError, ValueError):
-                boundary = 0
-            stable_reference = parse_vertex_reference(
-                descriptor.get("point_ref")
-            )
-            if stable_reference is not None:
-                resolution = face_registry_at(
-                    self.document, boundary
-                ).resolve_vertex(stable_reference)
-                descriptor["resolution_state"] = resolution.state.value
-                if resolution.state != TopologyResolutionState.RESOLVED:
-                    return []
-                stable_subshape = resolution.shape
-        model_shape = self._shape_for_reference_descriptor(
-            descriptor,
-            reference,
-        )
-        if model_shape is None:
-            return None
+                            topology_key = lookup_key.rsplit(":", 1)[-1]
+                            value["entity_id"] = self.document.root.entity_id
+                            value["topology_key"] = topology_key
+                            value["key"] = (
+                                f"face:{self.document.root.entity_id}:"
+                                f"{topology_key}"
+                            )
+                            value["equations"] = [[*normal, distance]]
+                            changed = True
+                for nested in value.values():
+                    visit(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    visit(nested)
 
-        if shape_reference_type in ("face", "edge"):
-            try:
-                topology_index = int(descriptor.get("topology_key", "0"))
-            except (TypeError, ValueError):
-                return None
-            shape_type = (
-                TopAbs_FACE
-                if shape_reference_type == "face"
-                else TopAbs_EDGE
-            )
-            subshape = stable_subshape or self._subshape_from_shape(
-                model_shape, shape_type, topology_index
-            )
-            if subshape is None:
-                return None
-            if shape_reference_type == "face":
-                adaptor = BRepAdaptor_Surface(subshape)
-                if adaptor.GetType() != GeomAbs_Plane:
-                    return None
-                plane = adaptor.Plane()
-                location = plane.Location()
-                normal = plane.Axis().Direction()
-                sign = -1.0 if subshape.Orientation() == TopAbs_REVERSED else 1.0
-                return [
-                    [
-                        sign * normal.X(),
-                        sign * normal.Y(),
-                        sign * normal.Z(),
-                        sign
-                        * (
-                            normal.X() * location.X()
-                            + normal.Y() * location.Y()
-                            + normal.Z() * location.Z()
-                        ),
-                    ]
-                ]
-
-            adaptor = BRepAdaptor_Curve(subshape)
-            if adaptor.GetType() != GeomAbs_Line:
-                return None
-            line = adaptor.Line()
-            location = line.Location()
-            direction = (
-                line.Direction().X(),
-                line.Direction().Y(),
-                line.Direction().Z(),
-            )
-            helper = (
-                (1.0, 0.0, 0.0)
-                if abs(direction[0]) < 0.9
-                else (0.0, 1.0, 0.0)
-            )
-            first = self._normalized_vector(
-                self._cross_product(direction, helper)
-            )
-            second = self._normalized_vector(
-                self._cross_product(direction, first)
-            )
-            point = (location.X(), location.Y(), location.Z())
-            return [
-                [
-                    normal[0],
-                    normal[1],
-                    normal[2],
-                    sum(
-                        normal[index] * point[index]
-                        for index in range(3)
-                    ),
-                ]
-                for normal in (first, second)
-            ]
-
-        point = None
-        if stable_subshape is not None:
-            try:
-                point = BRep_Tool.Pnt(stable_subshape)
-            except (TypeError, RuntimeError):
-                point = None
-        try:
-            edge_index = int(descriptor.get("edge_index", "0"))
-        except (TypeError, ValueError):
-            edge_index = 0
-        endpoint = str(descriptor.get("endpoint", ""))
-        if edge_index > 0 and endpoint in ("start", "end"):
-            edge = self._subshape_from_shape(
-                model_shape,
-                TopAbs_EDGE,
-                edge_index,
-            )
-            if edge is not None:
-                try:
-                    adaptor = BRepAdaptor_Curve(edge)
-                    parameter = (
-                        adaptor.FirstParameter()
-                        if endpoint == "start"
-                        else adaptor.LastParameter()
-                    )
-                    point = adaptor.Value(parameter)
-                except (AttributeError, RuntimeError):
-                    point = None
-
-        if point is None:
-            try:
-                vertex_index = int(
-                    descriptor.get(
-                        "vertex_index",
-                        descriptor.get("topology_key", "0"),
-                    )
-                )
-            except (TypeError, ValueError):
-                vertex_index = 0
-            vertex = self._subshape_from_shape(
-                model_shape,
-                TopAbs_VERTEX,
-                vertex_index,
-            )
-            if vertex is not None:
-                try:
-                    point = BRep_Tool.Pnt(vertex)
-                except (TypeError, RuntimeError):
-                    point = None
-        if point is None:
-            return None
-        return [
-            [1.0, 0.0, 0.0, point.X()],
-            [0.0, 1.0, 0.0, point.Y()],
-            [0.0, 0.0, 1.0, point.Z()],
-        ]
-
-    def _shape_for_reference_descriptor(
-        self,
-        descriptor: dict[str, Any],
-        reference: ZimaEntity,
-    ):
-        if (
-            descriptor.get("reference_scope") == "history_result"
-            or reference.kind == EntityKind.PART
-        ):
-            raw_source_ids = descriptor.get("history_object_ids", [])
-            source_ids = (
-                [
-                    str(entity_id)
-                    for entity_id in raw_source_ids
-                    if str(entity_id)
-                ]
-                if isinstance(raw_source_ids, list)
-                else []
-            )
-            if source_ids:
-                model_shape = self.document.build_shape_for_object_ids(
-                    source_ids
-                )
-            else:
-                try:
-                    boundary = int(
-                        descriptor.get(
-                            "history_cursor",
-                            self._definition_history_boundary(),
-                        )
-                    )
-                except (TypeError, ValueError):
-                    boundary = self._definition_history_boundary()
-                return self.document.build_shape_at(boundary)
-            return model_shape
-        return self.document.build_standalone_shape(reference)
+        visit(references)
+        return changed
 
     def _reference_origin(
         self,
@@ -13260,6 +13070,7 @@ class MainWindow(QMainWindow):
             self._orientation_reference_vector(
                 candidate,
                 allow_frame_fallback=False,
+                resolve_shape_references=False,
             )
         )
         if candidate_vector == (0.0, 0.0, 0.0):
@@ -13269,6 +13080,7 @@ class MainWindow(QMainWindow):
                 self._orientation_reference_vector(
                     reference,
                     allow_frame_fallback=False,
+                    resolve_shape_references=False,
                 )
             )
             if existing_vector == (0.0, 0.0, 0.0):
@@ -13331,43 +13143,6 @@ class MainWindow(QMainWindow):
             reference_type == "edge"
             and not allow_frame_fallback
         ):
-            if resolve_shape_references and self.document is not None:
-                reference = self.document.find_entity(
-                    str(descriptor.get("entity_id", ""))
-                )
-                shape = (
-                    self._shape_for_reference_descriptor(
-                        descriptor,
-                        reference,
-                    )
-                    if reference is not None
-                    else None
-                )
-                try:
-                    topology_index = int(
-                        descriptor.get("topology_key", "0")
-                    )
-                except (TypeError, ValueError):
-                    topology_index = 0
-                edge = (
-                    self._subshape_from_shape(
-                        shape,
-                        TopAbs_EDGE,
-                        topology_index,
-                    )
-                    if shape is not None and topology_index > 0
-                    else None
-                )
-                if edge is not None:
-                    try:
-                        adaptor = BRepAdaptor_Curve(edge)
-                        if adaptor.GetType() == GeomAbs_Line:
-                            direction = adaptor.Line().Direction()
-                            return self._normalized_vector(
-                                (direction.X(), direction.Y(), direction.Z())
-                            )
-                    except (AttributeError, RuntimeError):
-                        pass
             rows = [
                 row for row in descriptor.get("equations", ())
                 if isinstance(row, (list, tuple)) and len(row) >= 3
@@ -16230,8 +16005,24 @@ class MainWindow(QMainWindow):
         # A validated CachedBody already contains the last OCCT result. Keep
         # it for the initial view; replaying a long fillet history here would
         # make opening a small .prtz file needlessly expensive.
+        history_objects = document.history_objects_at(
+            document.history_cursor()
+        )
+        body_cache_keys = document._shape_history_cache_keys(history_objects)
+        cached_result = (
+            document._body_result_cache.get(body_cache_keys[-1])
+            if body_cache_keys else None
+        )
+        source_selection_available = bool(
+            cached_result is not None
+            and (
+                len(history_objects) <= 1
+                or cached_result.source_bodies
+            )
+        )
         cached_body_available = bool(
-            document._body_result_cache or document._shape_history_cache
+            (document._body_result_cache or document._shape_history_cache)
+            and source_selection_available
         )
         document_type = self._document_type(document)
         if document_type not in ("drawing", "drawing_format", "title_block"):
@@ -18495,14 +18286,22 @@ class MainWindow(QMainWindow):
             return
         if source_edge is not None:
             self.native_viewer._set_selected_edge(None)
-            owner_id, edge_index, source_shape = source_edge
-            shape = self._subshape_from_shape(
-                source_shape,
-                TopAbs_EDGE,
-                edge_index,
-            )
-            if shape is None:
+            owner_id, edge_index, source_mesh = source_edge
+            owner = self.document.find_entity(owner_id)
+            edge = next((
+                item for item in source_mesh.edges
+                if item.owner_id == owner_id
+                and item.edge_index == edge_index
+            ), None)
+            if owner is None or edge is None:
                 return
+            if (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            ):
+                self._add_mesh_edge_placement_reference(owner, edge)
+                return
+            shape = None
         else:
             scene = self._native_viewer_scene
             shape = (
@@ -18787,22 +18586,19 @@ class MainWindow(QMainWindow):
             self._view_hover_parts.clear()
             self._view_hover_label.clear()
             return
-        properties_active = (
-            getattr(self, "point_constraint_dialog", None) is not None
-            and self.point_constraint_dialog.isVisible()
-        )
         if (
-            properties_active
-            and self.document.document_settings.get("type") != "assembly"
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
         ):
-            # Properties own the persistent cyan standalone preview. Normal
-            # Part hover must not replace it with a disposable orange mesh,
-            # which mouse navigation intentionally drops on its first move.
+            # Container Properties accept topology references only.  Never
+            # offer or colour the complete historical container here.
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
                 self.native_viewer._set_hovered_object(None)
             finally:
                 self.native_viewer.blockSignals(signals_were_blocked)
+            if not self.native_viewer._object_overlay_persistent:
+                self.native_viewer.set_object_overlay(None)
             self._set_view_hover("object", "", 0)
             return
         is_part_object_mode = (
@@ -18981,21 +18777,20 @@ class MainWindow(QMainWindow):
                 self.document.root.entity_id,
             }:
                 source = self.document.find_entity(cycled_owner_id)
-                source_shape = (
-                    self.document.build_standalone_shape(source)
-                    if source is not None
+                scene = self._native_viewer_scene
+                source_result = (
+                    scene.calculated_body_result.source_bodies.get(
+                        cycled_owner_id
+                    )
+                    if scene is not None
+                    and scene.calculated_body_result is not None
                     else None
                 )
                 self._select_native_tree_object(cycled_owner_id)
                 self.native_viewer._selected_object_id = None
                 self.native_viewer._hovered_object_id = None
                 self.native_viewer.set_object_overlay(
-                    triangulate_shape(
-                        source_shape,
-                        owner_id=cycled_owner_id,
-                    )
-                    if source_shape is not None
-                    else None,
+                    source_result.mesh if source_result is not None else None,
                     selected=True,
                     anchor=self._native_object_origin(source),
                 )
@@ -19006,20 +18801,18 @@ class MainWindow(QMainWindow):
         if owner_id == self.document.root.entity_id:
             imported_source = self._imported_source_container_at_cursor()
             if imported_source is not None:
-                source_shape = self.document.build_standalone_shape(
-                    imported_source
+                scene = self._native_viewer_scene
+                source_result = (
+                    scene.calculated_body_result.source_bodies.get(
+                        imported_source.entity_id
+                    )
+                    if scene is not None
+                    and scene.calculated_body_result is not None
+                    else None
                 )
                 self._select_native_tree_object(imported_source.entity_id)
                 self.native_viewer.set_object_overlay(
-                    triangulate_shape(
-                        source_shape,
-                        owner_id=imported_source.entity_id,
-                        linear_deflection=5.0,
-                        angular_deflection=1.2,
-                        include_topology=False,
-                    )
-                    if source_shape is not None
-                    else None,
+                    source_result.mesh if source_result is not None else None,
                     selected=True,
                     anchor=self._native_object_origin(imported_source),
                 )
@@ -19618,14 +19411,35 @@ class MainWindow(QMainWindow):
         # are not part of the viewer scene, so this is deliberately done only
         # while a reference dialog/Sketcher is consuming the click.
         result_face_index = face_index
-        if (
+        dialog = self.point_constraint_dialog
+        persisted_source_face = (
+            self.native_viewer._cycled_topology_candidate
+            == ("face", owner_id, face_index)
+            and self._native_viewer_scene is not None
+            and self._native_viewer_scene.calculated_body_result is not None
+            and owner_id
+            in self._native_viewer_scene.calculated_body_result.source_bodies
+        )
+        direct_placement_face = (
             self._container_orientation_selection_is_active()
-            and self._add_mesh_face_placement_reference(owner_id, face_index)
-        ):
-            # Placement references consume the already calculated ZIMA mesh.
-            # Do this before any historical source lookup, which otherwise
-            # rebuilds and traverses OCCT shapes merely to reopen Properties.
-            return
+            or (
+                persisted_source_face
+                and isinstance(dialog, PlaneConstraintDialog)
+                and dialog.isVisible()
+                and not getattr(dialog, "selection_paused", False)
+            )
+        )
+        if direct_placement_face:
+            accepted = self._add_mesh_face_placement_reference(
+                owner_id,
+                face_index,
+            )
+            if accepted or persisted_source_face:
+                # Never replace an explicitly cycled source face with a
+                # second ordinary ray hit when admission rejects it.  Besides
+                # selecting a different side, that fallback produced a
+                # misleading conflict message.
+                return
         if self._normal_view_selection_active:
             scene = self._native_viewer_scene
             surface = (
@@ -19672,6 +19486,33 @@ class MainWindow(QMainWindow):
                 "face", owner_id, face_index
             )
             return
+        if (
+            owner_id == self.document.root.entity_id
+            and self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+        ):
+            # A face visible on the rollback/result body can be created by a
+            # Boolean cut and therefore need not exist as the same bounded
+            # face on any standalone source body.  Its persisted result
+            # SurfaceDescriptor is the authoritative reference.  Source-body
+            # resolution is reserved for an explicitly cycled hidden/original
+            # face whose owner ID is already the source container.
+            scene = self._native_viewer_scene
+            result_surface = (
+                scene.surface_reference(owner_id, face_index)
+                if scene is not None else None
+            )
+            if (
+                result_surface is not None
+                and result_surface.kind == "plane"
+                and result_surface.origin is not None
+                and result_surface.normal is not None
+            ):
+                self._add_mesh_face_placement_reference(
+                    owner_id,
+                    face_index,
+                )
+                return
         source_reference_required = (
             owner_id == self.document.root.entity_id
             and (
@@ -19694,14 +19535,10 @@ class MainWindow(QMainWindow):
             # The result face was only the ray hit used to resolve the real
             # historical source. Do not present it as the accepted reference.
             self.native_viewer._set_selected_face(None)
-            owner_id, face_index, source_shape = source_face
-            shape = self._subshape_from_shape(
-                source_shape,
-                TopAbs_FACE,
-                face_index,
-            )
-            if shape is None:
+            owner_id, face_index, _source_mesh = source_face
+            if self._add_mesh_face_placement_reference(owner_id, face_index):
                 return
+            shape = None
         else:
             scene = self._native_viewer_scene
             shape = (
@@ -19756,6 +19593,27 @@ class MainWindow(QMainWindow):
         ):
             return False
         surface = scene.surface_reference(owner_id, face_index)
+        if surface is None and scene.calculated_body_result is not None:
+            source_result = scene.calculated_body_result.source_bodies.get(
+                owner_id
+            )
+            surface = (
+                source_result.surface(owner_id, face_index)
+                if source_result is not None
+                else None
+            )
+        if surface is None and scene.calculated_body_result is not None:
+            history_objects = self.document.history_objects_at(
+                self._definition_history_boundary()
+            )
+            if (
+                len(history_objects) == 1
+                and history_objects[0].entity_id == owner_id
+            ):
+                surface = scene.calculated_body_result.surface(
+                    self.document.root.entity_id,
+                    face_index,
+                )
         if (
             surface is None
             or surface.kind != "plane"
@@ -19772,6 +19630,7 @@ class MainWindow(QMainWindow):
         if obj is None:
             return False
         metadata = self._shape_reference_metadata(obj)
+        metadata["surface_reference_id"] = surface.reference_id
         if metadata.get("reference_scope") == "history_result":
             boundary = int(metadata.get("history_cursor", 0))
             source = obj
@@ -19780,6 +19639,15 @@ class MainWindow(QMainWindow):
             reference = self._lazy_imported_face_reference(source, face_index)
             if reference is not None:
                 metadata["face_ref"] = reference.to_dict()
+        reference_count = len(dialog.references)
+        orientation_before = tuple(
+            str(reference.get("key", "")) if reference is not None else ""
+            for reference in getattr(
+                dialog,
+                "_container_orientation_references",
+                (),
+            )
+        )
         dialog.add_shape_reference(
             owner_id,
             self._topology_reference_label(obj, "face", face_index),
@@ -19793,7 +19661,26 @@ class MainWindow(QMainWindow):
             str(face_index),
             metadata,
         )
-        return True
+        orientation_after = tuple(
+            str(reference.get("key", "")) if reference is not None else ""
+            for reference in getattr(
+                dialog,
+                "_container_orientation_references",
+                (),
+            )
+        )
+        accepted = (
+            len(dialog.references) > reference_count
+            or orientation_after != orientation_before
+        )
+        if accepted:
+            # The source-body face mesh is only a transient orange offer.
+            # Once its descriptor is stored, use the common confirmation
+            # cleanup so container contents, Origin/axes and delayed feature
+            # overlays cannot survive as a pile of orange helper geometry.
+            self.native_viewer._cycled_topology_candidate = None
+            self._reference_selection_confirmed()
+        return accepted
 
     def _accept_assembly_face_reference(
         self,
@@ -19886,40 +19773,26 @@ class MainWindow(QMainWindow):
         self,
         topology_kind: str,
         position: QPointF,
-    ) -> tuple[str, int, Any] | None:
-        """Ray-pick one original standalone history object directly."""
+    ) -> tuple[str, int, ViewerMesh] | None:
+        """Ray-pick persisted historical viewer data without OCCT."""
         if topology_kind not in {"face", "edge", "point"}:
             raise ValueError(f"Unsupported topology kind: {topology_kind}")
         if self.document is None:
             return None
-        boundary = self._definition_history_boundary()
-        shapes = {
-            owner_id: shape
-            for shape, owner_id in self._cached_source_model_shapes
-        }
-        for source in reversed(self.document.history_objects_at(boundary)):
-            shape = shapes.get(source.entity_id)
-            if shape is None:
-                shape = self.document.build_standalone_shape(source)
-                if shape is not None:
-                    self._cached_source_model_shapes.append(
-                        (shape, source.entity_id)
-                    )
-            if shape is None:
+        scene = self._native_viewer_scene
+        source_bodies = (
+            scene.calculated_body_result.source_bodies
+            if scene is not None and scene.calculated_body_result is not None
+            else {}
+        )
+        history_objects = self.document.history_objects_at(
+            self._definition_history_boundary()
+        )
+        for source in reversed(history_objects):
+            result = source_bodies.get(source.entity_id)
+            if result is None:
                 continue
-            cache_key = (
-                f"face:{source.entity_id}"
-                if topology_kind == "face"
-                else source.entity_id
-            )
-            mesh = self._cached_source_model_meshes.get(cache_key)
-            if mesh is None:
-                mesh = triangulate_shape(
-                    shape,
-                    owner_id=source.entity_id,
-                    include_topology=topology_kind != "face",
-                )
-                self._cached_source_model_meshes[cache_key] = mesh
+            mesh = result.mesh
             picker = {
                 "face": self.native_viewer.face_at_mesh,
                 "edge": self.native_viewer.edge_at_mesh,
@@ -19928,7 +19801,24 @@ class MainWindow(QMainWindow):
             picked = picker(mesh, position)
             if picked is not None:
                 _picked_owner, picked_index = picked
-                return source.entity_id, picked_index, shape
+                return source.entity_id, picked_index, mesh
+        if (
+            len(history_objects) == 1
+            and scene is not None
+            and scene.calculated_body_result is not None
+        ):
+            source = history_objects[0]
+            mesh = scene.calculated_body_result.mesh.with_owner(
+                source.entity_id
+            )
+            picker = {
+                "face": self.native_viewer.face_at_mesh,
+                "edge": self.native_viewer.edge_at_mesh,
+                "point": self.native_viewer.point_at_mesh,
+            }[topology_kind]
+            picked = picker(mesh, position)
+            if picked is not None:
+                return source.entity_id, picked[1], mesh
         return None
 
     def _original_topology_reference_pick_active(self) -> bool:
@@ -19953,31 +19843,20 @@ class MainWindow(QMainWindow):
         position = getattr(self.native_viewer, "_last_click_position", None)
         if position is None:
             return None
-        cached_shapes = {
-            owner_id: shape
-            for shape, owner_id in self._cached_source_model_shapes
-        }
+        scene = self._native_viewer_scene
+        source_bodies = (
+            scene.calculated_body_result.source_bodies
+            if scene is not None and scene.calculated_body_result is not None
+            else {}
+        )
         for source in reversed(self.document.active_history_objects()):
             if source.container_type != ContainerType.IMPORTED_STEP:
                 continue
-            source_shape = cached_shapes.get(source.entity_id)
-            if source_shape is None:
-                source_shape = self.document.build_standalone_shape(source)
-            if source_shape is None:
+            result = source_bodies.get(source.entity_id)
+            if result is None:
                 continue
-            cache_key = f"object:{source.entity_id}"
-            mesh = self._cached_source_model_meshes.get(cache_key)
-            if mesh is None:
-                mesh = triangulate_shape(
-                    source_shape,
-                    owner_id=source.entity_id,
-                    linear_deflection=5.0,
-                    angular_deflection=1.2,
-                    include_topology=False,
-                )
-                self._cached_source_model_meshes[cache_key] = mesh
             if self.native_viewer.mesh_is_under_cursor(
-                mesh,
+                result.mesh,
                 QPointF(position),
             ):
                 return source
@@ -19994,43 +19873,37 @@ class MainWindow(QMainWindow):
             or self.document.document_settings.get("type") == "assembly"
         ):
             return None
-        cached_shapes = {
-            owner_id: shape
-            for shape, owner_id in self._cached_source_model_shapes
-        }
+        scene = self._native_viewer_scene
+        source_bodies = (
+            scene.calculated_body_result.source_bodies
+            if scene is not None and scene.calculated_body_result is not None
+            else {}
+        )
         boundary = self._definition_history_boundary()
-        for source in reversed(self.document.history_objects_at(boundary)):
-            source_shape = cached_shapes.get(source.entity_id)
-            if source_shape is None:
-                source_shape = self.document.build_standalone_shape(source)
-            if source_shape is None:
+        history_objects = self.document.history_objects_at(boundary)
+        for source in reversed(history_objects):
+            result = source_bodies.get(source.entity_id)
+            if result is None:
                 continue
-            cache_key = f"object:{source.entity_id}"
-            source_mesh = self._cached_source_model_meshes.get(cache_key)
-            if source_mesh is None:
-                source_mesh = triangulate_shape(
-                    source_shape,
-                    owner_id=source.entity_id,
-                    linear_deflection=(
-                        5.0
-                        if source.container_type == ContainerType.IMPORTED_STEP
-                        else 0.2
-                    ),
-                    angular_deflection=(
-                        1.2
-                        if source.container_type == ContainerType.IMPORTED_STEP
-                        else 0.35
-                    ),
-                    include_topology=(
-                        source.container_type != ContainerType.IMPORTED_STEP
-                    ),
-                )
-                self._cached_source_model_meshes[cache_key] = source_mesh
             if self.native_viewer.mesh_is_under_cursor(
-                source_mesh,
+                result.mesh,
                 QPointF(position),
             ):
-                return source, source_mesh
+                return source, result.mesh
+        if (
+            len(history_objects) == 1
+            and scene is not None
+            and scene.calculated_body_result is not None
+            and self.native_viewer.mesh_is_under_cursor(
+                scene.calculated_body_result.mesh,
+                QPointF(position),
+            )
+        ):
+            source = history_objects[0]
+            return (
+                source,
+                scene.calculated_body_result.mesh.with_owner(source.entity_id),
+            )
         return None
 
     def _source_face_reference_for_pick(
@@ -20187,19 +20060,19 @@ class MainWindow(QMainWindow):
             if source_point is None:
                 return
             self.native_viewer._set_selected_point(None)
-            owner_id, element_index, source_shape = source_point
+            owner_id, element_index, source_mesh = source_point
             if not self._sketch_reference_mode:
-                vertex = self._subshape_from_shape(
-                    source_shape,
-                    TopAbs_VERTEX,
-                    element_index,
-                )
                 owner = self.document.find_entity(owner_id)
-                if vertex is not None and owner is not None:
-                    self._add_point_shape_constraint(
+                marker = next((
+                    item for item in source_mesh.points
+                    if item.owner_id == owner_id
+                    and item.point_index == element_index
+                ), None)
+                if marker is not None and owner is not None:
+                    self._add_mesh_point_placement_reference(
                         owner,
-                        vertex,
-                        topology_index=element_index,
+                        marker.position,
+                        element_index,
                     )
                 return
         selection_kind = {
@@ -20726,10 +20599,18 @@ class MainWindow(QMainWindow):
             ):
                 reference = self.document.find_entity(self.selected_object_id)
                 if reference is not None:
-                    if not self._try_pick_protrusion_profile(reference):
-                        self.point_constraint_dialog.add_reference(
-                            self._user_axis_entity(reference) or reference
-                        )
+                    if self._try_pick_protrusion_profile(reference):
+                        return
+                    self.point_constraint_dialog.add_reference(
+                        self._user_axis_entity(reference) or reference
+                    )
+                    # Adding a reference changes dialog data only.  The
+                    # unconditional tree-selection rebuild below used to
+                    # recreate the complete scene and leave its selection
+                    # overlays layered over the properties preview.
+                    self._reference_selection_confirmed()
+                    self.native_viewer.update()
+                    return
         if hasattr(self, "_viewer_initialized"):
             self.rebuild_view(fit=False, rebuild_geometry=False)
             selected_object = (
@@ -20936,6 +20817,33 @@ class MainWindow(QMainWindow):
         if self._dimension_inspection_visuals:
             self.native_viewer._set_hovered_face(None)
             return
+        if self.native_viewer._cycled_topology_candidate == (
+            "face",
+            owner_id,
+            face_index,
+        ):
+            # A context-click cycle has already resolved the exact visible or
+            # occluded face.  Do not replace it with the ordinary cursor ray's
+            # first historical-source hit; that made the status text advance
+            # while the viewport kept drawing the original front face.
+            self.native_viewer.set_source_topology_hover(None)
+            self.native_viewer.set_feature_hover_edges(set())
+            self._set_view_hover("face", owner_id, face_index)
+            return
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self.native_viewer._interaction_mode == "topology"
+        ):
+            # The displayed BodyResult already owns the persisted face mesh
+            # needed for a fast orange offer.  Resolving a historical OCCT
+            # source on every mouse move made even front faces lag and
+            # violated the calculation boundary; stable source resolution is
+            # deferred to the explicit confirmation path.
+            self.native_viewer.set_source_topology_hover(None)
+            self.native_viewer.set_feature_hover_edges(set())
+            self._set_view_hover("face", owner_id, face_index)
+            return
         if self._on_native_source_topology_hovered(
             "face",
             owner_id,
@@ -21004,33 +20912,12 @@ class MainWindow(QMainWindow):
             self._view_hover_parts.pop(topology_kind, None)
             self._view_hover_label.clear()
             return True
-        source_id, source_index, source_shape = source
-        shape_type = {
-            "face": TopAbs_FACE,
-            "edge": TopAbs_EDGE,
-            "point": TopAbs_VERTEX,
-        }[topology_kind]
-        subshape = self._subshape_from_shape(
-            source_shape,
-            shape_type,
-            source_index,
-        )
-        hover_mesh = None
-        if subshape is not None and topology_kind == "point":
-            try:
-                point = BRep_Tool.Pnt(subshape)
-                hover_mesh = point_marker_mesh(
-                    owner_id=source_id,
-                    position=(point.X(), point.Y(), point.Z()),
-                )
-            except (TypeError, RuntimeError):
-                hover_mesh = None
-        elif subshape is not None:
-            hover_mesh = triangulate_shape(
-                subshape,
-                owner_id=source_id,
-                include_topology=True,
-            )
+        source_id, source_index, source_mesh = source
+        hover_mesh = {
+            "face": source_mesh.face_mesh,
+            "edge": source_mesh.edge_mesh,
+            "point": source_mesh.point_mesh,
+        }[topology_kind](source_id, source_index)
         self.native_viewer.set_source_topology_hover(
             hover_mesh,
             topology_kind,
@@ -21587,6 +21474,55 @@ class MainWindow(QMainWindow):
                 **self._shape_reference_metadata(obj),
                 "vertex_index": topology_index,
             },
+        )
+
+    def _add_mesh_edge_placement_reference(
+        self,
+        obj: ZimaEntity,
+        edge,
+    ) -> None:
+        """Add a persisted straight edge without reconstructing OCCT."""
+        dialog = self.point_constraint_dialog
+        if dialog is None or len(edge.points) < 2:
+            return
+        point = edge.curve_origin or edge.points[0]
+        direction = edge.curve_direction
+        if direction is None:
+            direction = tuple(
+                edge.points[-1][axis] - edge.points[0][axis]
+                for axis in range(3)
+            )
+        direction = self._normalized_vector(direction)
+        if direction is None:
+            return
+        helper = (
+            (1.0, 0.0, 0.0)
+            if abs(direction[0]) < 0.9
+            else (0.0, 1.0, 0.0)
+        )
+        first = self._normalized_vector(
+            self._cross_product(direction, helper)
+        )
+        second = (
+            self._normalized_vector(self._cross_product(direction, first))
+            if first is not None else None
+        )
+        if first is None or second is None:
+            return
+        equations = [
+            [
+                normal[0], normal[1], normal[2],
+                sum(normal[axis] * point[axis] for axis in range(3)),
+            ]
+            for normal in (first, second)
+        ]
+        dialog.add_shape_reference(
+            obj.entity_id,
+            self._topology_reference_label(obj, "edge", edge.edge_index),
+            "edge",
+            equations,
+            str(edge.edge_index),
+            self._shape_reference_metadata(obj),
         )
 
     def _reference_topology_registry(self, boundary: int):
@@ -22704,6 +22640,15 @@ class MainWindow(QMainWindow):
         if self.document is None or (
             not self.view_selection_enabled
             and not self._sketch_reference_mode
+            and not (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+                and not getattr(
+                    self.point_constraint_dialog,
+                    "selection_paused",
+                    False,
+                )
+            )
         ):
             return
         if self._sketch_reference_mode:
@@ -22843,6 +22788,30 @@ class MainWindow(QMainWindow):
             candidates = self.native_viewer.topology_candidates_at(
                 QPointF(position)
             )
+            scene = self._native_viewer_scene
+            source_bodies = (
+                scene.calculated_body_result.source_bodies
+                if scene is not None
+                and scene.calculated_body_result is not None
+                else {}
+            )
+            source_face_hits = [
+                hit
+                for source_result in source_bodies.values()
+                for hit in self.native_viewer.faces_at_mesh(
+                    source_result.mesh,
+                    QPointF(position),
+                )
+                if not self._current_definition_owns_reference(hit[1])
+            ]
+            source_face_hits.sort(reverse=True)
+            candidates = tuple(dict.fromkeys((
+                *candidates,
+                *(
+                    ("face", owner_id, face_index)
+                    for _depth, owner_id, face_index in source_face_hits
+                ),
+            )))
             if not candidates:
                 return
             cycle_ids = tuple(
@@ -22860,6 +22829,18 @@ class MainWindow(QMainWindow):
             self.native_viewer.preview_topology_candidate(
                 candidates[self._history_source_cycle_index]
             )
+            selected_kind, selected_owner, selected_index = candidates[
+                self._history_source_cycle_index
+            ]
+            source_result = source_bodies.get(selected_owner)
+            if selected_kind == "face" and source_result is not None:
+                self.native_viewer.set_source_topology_hover(
+                    source_result.mesh.face_mesh(
+                        selected_owner,
+                        selected_index,
+                    ),
+                    "face",
+                )
             self.statusBar().showMessage(
                 tr(
                     "selection.status.cycled_container",
@@ -22999,37 +22980,24 @@ class MainWindow(QMainWindow):
                         0,
                     ))
                 candidates = paired_candidates or candidates
-            cached_source_shapes = {
-                owner_id: shape
-                for shape, owner_id in self._cached_source_model_shapes
-            }
+            scene = self._native_viewer_scene
+            calculated_result = (
+                scene.calculated_body_result if scene is not None else None
+            )
+            persisted_sources = (
+                calculated_result.source_bodies
+                if calculated_result is not None else {}
+            )
             for source in ([] if is_assembly else history_objects):
-                source_shape = cached_source_shapes.get(source.entity_id)
-                if source_shape is None:
-                    source_shape = self.document.build_standalone_shape(source)
-                if source_shape is None:
+                source_result = persisted_sources.get(source.entity_id)
+                if source_result is None:
                     continue
+                source_mesh = source_result.mesh
                 if active_component_transform is not None:
-                    source_shape = transform_shape(
-                        source_shape,
+                    source_mesh = transform_viewer_mesh(
+                        source_mesh,
                         active_component_transform,
                     )
-                    source_mesh = triangulate_shape(
-                        source_shape,
-                        owner_id=source.entity_id,
-                    )
-                else:
-                    source_mesh = self._cached_source_model_meshes.get(
-                        source.entity_id
-                    )
-                    if source_mesh is None:
-                        source_mesh = triangulate_shape(
-                            source_shape,
-                            owner_id=source.entity_id,
-                        )
-                        self._cached_source_model_meshes[
-                            source.entity_id
-                        ] = source_mesh
                 source_candidate = ("object", source.entity_id, 0)
                 if (
                     source_candidate not in candidates
@@ -23042,17 +23010,10 @@ class MainWindow(QMainWindow):
                     insert_at += 1
                 source_meshes[source.entity_id] = source_mesh
             if active_component_transform is not None:
-                active_result_shape = self.document.build_shape_at(
-                    self._definition_history_boundary()
-                )
-                if active_result_shape is not None:
-                    active_result_shape = transform_shape(
-                        active_result_shape,
+                if calculated_result is not None:
+                    active_result_mesh = transform_viewer_mesh(
+                        calculated_result.mesh,
                         active_component_transform,
-                    )
-                    active_result_mesh = triangulate_shape(
-                        active_result_shape,
-                        owner_id=self.document.root.entity_id,
                     )
                     if self.native_viewer.mesh_is_under_cursor(
                         active_result_mesh,
@@ -23108,25 +23069,18 @@ class MainWindow(QMainWindow):
                         if bodies
                         else self.document.root.entity_id
                     )
-                    selected_shape = self.document.build_shape_at(
-                        self._definition_history_boundary()
+                    selected_mesh = (
+                        calculated_result.mesh
+                        if calculated_result is not None else None
                     )
                     if (
-                        selected_shape is not None
+                        selected_mesh is not None
                         and active_component_transform is not None
                     ):
-                        selected_shape = transform_shape(
-                            selected_shape,
+                        selected_mesh = transform_viewer_mesh(
+                            selected_mesh,
                             active_component_transform,
                         )
-                    selected_mesh = (
-                        triangulate_shape(
-                            selected_shape,
-                            owner_id=selected_owner_id,
-                        )
-                        if selected_shape is not None
-                        else None
-                    )
                 else:
                     tree_object_id = selected_owner_id
                     selected_mesh = source_meshes.get(selected_owner_id)
@@ -23214,18 +23168,18 @@ class MainWindow(QMainWindow):
             source = self.document.find_entity(
                 source_ids[self._history_source_cycle_index]
             )
-            source_shape = (
-                self.document.build_standalone_shape(source)
+            scene = self._native_viewer_scene
+            source_result = (
+                scene.calculated_body_result.source_bodies.get(
+                    source.entity_id
+                )
                 if source is not None
+                and scene is not None
+                and scene.calculated_body_result is not None
                 else None
             )
             self.native_viewer.set_object_overlay(
-                triangulate_shape(
-                    source_shape,
-                    owner_id=source.entity_id,
-                )
-                if source_shape is not None
-                else None
+                source_result.mesh if source_result is not None else None
             )
             self.statusBar().showMessage(
                 tr(
@@ -28494,6 +28448,17 @@ class MainWindow(QMainWindow):
         # earlier sketch; the editor is precisely where such geometry needs
         # to remain repairable.
         self._sketch_edit_entity_id = sketch.entity_id
+        # The boundary above is only state until the viewer scene is rebuilt.
+        # Keeping the previous final-body scene made the old feature edges
+        # coincide with the sketch initially, then appear as white "ghost"
+        # segments as soon as Coincident or another constraint moved a point.
+        # Sketch editing must show the persisted input immediately before its
+        # owning history container.  Also remove property/profile overlays;
+        # they describe the pre-edit sketch and must not coexist with the
+        # editable overlay.
+        self.native_viewer.set_passive_sketch_overlay(None)
+        self.native_viewer.set_object_overlay(None)
+        self.rebuild_view(fit=False, rebuild_geometry=True)
         # Reconnect and enforce external references before taking the edit
         # baseline. A loaded history-result reference receives a fresh
         # runtime owner ID, and its attached points must be projected before
@@ -28784,22 +28749,7 @@ class MainWindow(QMainWindow):
         self._sketch_circle_dimension_mode = "diameter"
         if (
             tool != "select"
-            or previous_tool in (
-                "horizontal",
-                "vertical",
-                "parallel",
-                "equal",
-                "perpendicular",
-                "coincident",
-                "midpoint",
-                "symmetric",
-                "tangent",
-                "concentric",
-                "dimension_x",
-                "dimension_y",
-                "dimension_distance",
-                "dimension",
-            )
+            or previous_tool in SKETCH_CONSTRAINT_SELECTION_TOOLS
         ):
             self._sketch_selected_entity_id = None
         self._refresh_sketch_overlay()
@@ -38936,37 +38886,11 @@ class MainWindow(QMainWindow):
             frame,
             overlay_entities,
             self._sketch_pending_points,
-            selection_mode=self._sketch_tool in (
-                "select",
-                "mirror",
-                "horizontal",
-                "vertical",
-                "perpendicular",
-                "parallel",
-                "equal",
-                "midpoint",
-                "symmetric",
-                "tangent",
-                "concentric",
-                "dimension_x",
-                "dimension_y",
-                "dimension_distance",
-                "dimension",
+            selection_mode=(
+                self._sketch_tool in SKETCH_ENTITY_SELECTION_TOOLS
             ),
-            constraint_selection_mode=self._sketch_tool in (
-                "horizontal",
-                "vertical",
-                "perpendicular",
-                "parallel",
-                "equal",
-                "midpoint",
-                "symmetric",
-                "tangent",
-                "concentric",
-                "dimension_x",
-                "dimension_y",
-                "dimension_distance",
-                "dimension",
+            constraint_selection_mode=(
+                self._sketch_tool in SKETCH_CONSTRAINT_SELECTION_TOOLS
             ),
             selected_entity_id=self._sketch_selected_entity_id,
             selected_entity_ids=self._sketch_selected_entity_ids,
@@ -40268,7 +40192,15 @@ class MainWindow(QMainWindow):
             self._commit_pending_sketch_entity()
         if self._sketch_tool == "text" and self._sketch_text_edit_group is None:
             self._commit_pending_sketch_text()
-        self._regenerate_active_sketch_texts()
+        # Template text outlines are updated when their anchor is edited.
+        # Rebuilding every label here made Save and close regenerate hundreds
+        # of outline segments for an unchanged frame/title block before the
+        # lightweight template serializer immediately ignored those outlines.
+        if self._document_type(self.document) not in (
+            "drawing_format",
+            "title_block",
+        ):
+            self._regenerate_active_sketch_texts()
         sketch_id = self._sketch_edit_entity_id
         self._leave_sketch_edit(restore=False)
         if self._sketch_return_properties_id is not None:
@@ -40287,7 +40219,11 @@ class MainWindow(QMainWindow):
             self._finish_sketch_edit()
             return
         tab_index = self.active_document_index
-        self._finish_sketch_edit()
+        self._template_save_close_pending = True
+        try:
+            self._finish_sketch_edit()
+        finally:
+            self._template_save_close_pending = False
         if self.save_document():
             self.close_document_tab(tab_index)
 
@@ -40416,7 +40352,12 @@ class MainWindow(QMainWindow):
                 self.native_viewer.update()
             else:
                 self.regenerate_model()
-        elif self.document is not None and sketch_changed and not restore:
+        elif (
+            self.document is not None
+            and sketch_changed
+            and not restore
+            and not getattr(self, "_template_save_close_pending", False)
+        ):
             # A standalone Sketch contributes only display edges. Rebuild
             # that tiny scene layer while explicitly retaining the existing
             # body shape and GPU mesh; no solid feature depends on it.
@@ -40434,12 +40375,20 @@ class MainWindow(QMainWindow):
                 ),
             )
         elif self.document is not None:
-            # Opening, cancelling or finishing an unchanged sketch only
-            # removes a 2D overlay and restores the camera. The 3D scene was
-            # never modified, so rebuilding it here is both redundant and
-            # disastrous for large imported STEP bodies.
+            # Sketcher displays the persisted body at the boundary before
+            # the sketch owner.  A direct exit must therefore restore the
+            # normal final-history scene even when the sketch was unchanged
+            # or Cancel restored its baseline.  When returning to feature
+            # Properties, keep that rollback input instead; the Properties
+            # callback reinstalls only its lightweight feature preview.
             self.document.regeneration_required = False
-            self.native_viewer.update()
+            if self._sketch_return_properties_id is None:
+                self.rebuild_view(
+                    fit=False,
+                    rebuild_geometry=True,
+                )
+            else:
+                self.native_viewer.update()
         if return_camera is not None:
             self.native_viewer.animate_camera_state(return_camera)
         self.statusBar().showMessage(
@@ -40586,18 +40535,13 @@ class MainWindow(QMainWindow):
             self.tree.blockSignals(False)
             self.selected_object_id = None
         dialog = self.point_constraint_dialog
-        active_row = (
-            getattr(dialog, "_active_container_orientation_row", None)
-            if active
-            else None
-        )
         self.native_viewer.set_selection_filter(
-            # FRONT/BACK accepts only a planar face or datum plane.  Using
-            # `all` here made the first reference scan every STEP vertex and
-            # edge before it even attempted the already-fast face picker.
+            # Both frame rows are plane references.  In particular, TOP must
+            # not let an edge under the cursor win before the visible face:
+            # that made a click on a clipped face submit the boundary edge
+            # and report a false orientation conflict.  Generic placement
+            # picking still uses the user's normal all/point/edge filter.
             "surface"
-            if active and active_row == 0
-            else "all"
             if active
             else self.view_selection_filter.value
         )
@@ -43485,6 +43429,33 @@ class MainWindow(QMainWindow):
                 references = []
             if not isinstance(references, list):
                 references = []
+            if (
+                references
+                and "surface_reference_id" in str(
+                    entity.parameters.get("constraint_refs", "")
+                )
+            ):
+                owner_index = self.document.history_index(obj.entity_id)
+                if owner_index is not None:
+                    # Regeneration is the explicit body-calculation boundary.
+                    # Recalculate the input immediately before this object,
+                    # resolve every nested FRONT/TOP/position face by its
+                    # stable semantic ID, then solve placement from the fresh
+                    # plane equations.  Viewer hover and Properties never do
+                    # this work.
+                    prefix_scene = build_document_viewer_scene_data(
+                        self.document,
+                        history_boundary=owner_index,
+                        show_sketches=False,
+                    )
+                    if self._refresh_history_result_surface_references(
+                        references,
+                        prefix_scene.calculated_body_result,
+                    ):
+                        entity.parameters["constraint_refs"] = json.dumps(
+                            references,
+                            ensure_ascii=False,
+                        )
             fallback_values = obj.coordinate_system.origin
             try:
                 fallback = tuple(
@@ -43628,6 +43599,16 @@ class MainWindow(QMainWindow):
         # Evaluate once before reporting/tree refresh so feature build errors
         # produced by the model kernel are visible immediately.
         built_shape = self.document.build_active_shape()
+        source_bodies: dict[str, BodyResult] = {}
+        for obj in self.document.active_history_objects():
+            source_shape = self.document.build_standalone_shape(obj)
+            if source_shape is None:
+                continue
+            source_mesh = triangulate_shape(
+                source_shape,
+                owner_id=obj.entity_id,
+            )
+            source_bodies[obj.entity_id] = BodyResult.from_mesh(source_mesh)
         QApplication.processEvents()
         invalid_features = [
             child
@@ -43646,6 +43627,26 @@ class MainWindow(QMainWindow):
             rebuild_geometry=True,
             cached_body_shape=built_shape,
         )
+        scene = self._native_viewer_scene
+        if scene is not None and scene.calculated_body_result is not None:
+            calculated = replace(
+                scene.calculated_body_result,
+                source_bodies=source_bodies,
+            )
+            self._native_viewer_scene = replace(
+                scene,
+                body_result=(
+                    replace(scene.body_result, source_bodies=source_bodies)
+                    if scene.body_result is not None
+                    else calculated
+                ),
+                calculated_body_result=calculated,
+            )
+            keys = self.document._shape_history_cache_keys(
+                self.document.active_history_objects()
+            )
+            if keys:
+                self.document._body_result_cache[keys[-1]] = calculated
         self.statusBar().showMessage(
             tr(
                 "status.regeneration.complete"
@@ -43924,7 +43925,16 @@ class MainWindow(QMainWindow):
             }[self.view_display_mode]
         )
         self.native_viewer.set_selection_filter(
-            "all"
+            "surface"
+            if (
+                self._container_orientation_selection_is_active()
+                and getattr(
+                    self.point_constraint_dialog,
+                    "_active_container_orientation_row",
+                    None,
+                ) == 0
+            )
+            else "all"
             if (
                 self._container_orientation_selection_is_active()
                 or (
@@ -43965,6 +43975,9 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_large_mesh_topology_enabled(
             point_constraints_active or assembly_references_active
         )
+        self.native_viewer.set_reference_picking_active(
+            point_constraints_active
+        )
         orientation_references_visible = (
             self.orientation_dialog is not None
             and self.orientation_dialog.isVisible()
@@ -43982,11 +43995,29 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_outline_face_highlights(
             topology_selection_active or orientation_references_visible
         )
+        self.native_viewer.set_selection_enabled(
+            True
+            if (
+                point_constraints_active
+                or assembly_references_active
+                or orientation_references_active
+                or self._selection_controller.active
+            )
+            else self.view_selection_enabled
+        )
+        if point_constraints_active:
+            # A properties preview may remain visible, but it must never be
+            # an exclusive object selection that blocks hover/picking of the
+            # model used as the next reference.
+            self.native_viewer._object_overlay_locks_interaction = False
         self.native_viewer.set_interaction_mode(
             "object"
             if (
                 self.view_selection_filter == ViewSelectionFilter.ALL
-                and not topology_selection_active
+                and not point_constraints_active
+                and not assembly_references_active
+                and not orientation_references_active
+                and not self._selection_controller.active
             )
             else "topology"
         )
@@ -43998,6 +44029,27 @@ class MainWindow(QMainWindow):
         if self._dimension_inspection_visuals:
             return
         dialog = self.point_constraint_dialog
+        if (
+            dialog is not None
+            and dialog.isVisible()
+        ):
+            # Clicking an existing constraint row selects its reference in
+            # the tree.  During that inspection the viewport belongs to the
+            # reference dialog, not to ordinary container selection.
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_selected_object(None)
+                self.native_viewer._clear_topology_hover()
+                self.native_viewer._clear_topology_selection()
+                self.native_viewer.set_selected_reference_owner(None)
+                self.native_viewer.set_selected_container_origin(None)
+                self.native_viewer.set_selected_container_contents(set())
+                self.native_viewer.set_object_overlay(None)
+                self.native_viewer.set_source_topology_hover(None)
+                self._sync_constraint_reference_highlights()
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            return
         if (
             isinstance(dialog, ProtrusionConstraintDialog)
             and dialog.isVisible()

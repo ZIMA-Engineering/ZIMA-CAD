@@ -61,6 +61,7 @@ class BodyResult:
     edges: dict[str, CurveDescriptor] = field(default_factory=dict)
     vertices: dict[str, VertexDescriptor] = field(default_factory=dict)
     physical: PhysicalProperties = field(default_factory=PhysicalProperties)
+    source_bodies: dict[str, "BodyResult"] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -78,6 +79,10 @@ class BodyResult:
                 for key, descriptor in self.vertices.items()
             },
             "physical": self.physical.__dict__,
+            "source_bodies": {
+                key: result.to_dict()
+                for key, result in self.source_bodies.items()
+            },
         }
 
     @classmethod
@@ -133,6 +138,10 @@ class BodyResult:
                     physical.get("center_of_mass", (0.0, 0.0, 0.0))
                 ),
             ),
+            source_bodies={
+                str(key): cls.from_dict(item)
+                for key, item in value.get("source_bodies", {}).items()
+            },
         )
 
     @classmethod
@@ -262,6 +271,11 @@ class BodyResult:
             edges=rekey(self.edges, "edge"),
             vertices=rekey(self.vertices, "point"),
             physical=self.physical,
+            # Historical source bodies keep their persisted container IDs.
+            # Rebinding the calculated Part root must not discard or rename
+            # them: viewport container/reference picking resolves directly
+            # against those IDs after a saved document is reopened.
+            source_bodies=self.source_bodies,
         )
 
 

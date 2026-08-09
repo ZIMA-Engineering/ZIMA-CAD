@@ -285,6 +285,29 @@ def _config_model_signature(
 
 def reconnect_history_result_references(document: PartDocument) -> None:
     """Bind persisted automatic-Body references to the new runtime Part ID."""
+    def reconnect_descriptor(value) -> bool:
+        changed = False
+        if isinstance(value, dict):
+            if value.get("reference_scope") == "history_result":
+                reference_type = str(value.get("type", ""))
+                topology_key = str(value.get("topology_key", "0"))
+                value["entity_id"] = document.root.entity_id
+                value["key"] = (
+                    f"{reference_type}:{document.root.entity_id}:"
+                    f"{topology_key}"
+                )
+                changed = True
+            # Container orientation stores complete reference descriptors
+            # below mappings[].reference.  Walk the current data model
+            # recursively so top-level placement and FRONT/TOP always bind
+            # to the same runtime Body owner.
+            for nested in value.values():
+                changed = reconnect_descriptor(nested) or changed
+        elif isinstance(value, list):
+            for nested in value:
+                changed = reconnect_descriptor(nested) or changed
+        return changed
+
     for obj in walk_entities(document.root):
         raw_references = obj.parameters.get("constraint_refs")
         if raw_references is None:
@@ -295,37 +318,7 @@ def reconnect_history_result_references(document: PartDocument) -> None:
             continue
         if not isinstance(references, list):
             continue
-        changed = False
-        key_remap: dict[str, str] = {}
-        for reference in references:
-            if (
-                not isinstance(reference, dict)
-                or reference.get("reference_scope") != "history_result"
-            ):
-                continue
-            reference_type = str(reference.get("type", ""))
-            topology_key = str(reference.get("topology_key", "0"))
-            old_key = str(reference.get("key", ""))
-            reference["entity_id"] = document.root.entity_id
-            reference["key"] = (
-                f"{reference_type}:{document.root.entity_id}:{topology_key}"
-            )
-            if old_key:
-                key_remap[old_key] = str(reference["key"])
-            changed = True
-        for reference in references:
-            if not isinstance(reference, dict):
-                continue
-            mappings = reference.get("mappings")
-            if not isinstance(mappings, list):
-                continue
-            for mapping in mappings:
-                if not isinstance(mapping, dict):
-                    continue
-                old_key = str(mapping.get("reference_key", ""))
-                if old_key in key_remap:
-                    mapping["reference_key"] = key_remap[old_key]
-                    changed = True
+        changed = reconnect_descriptor(references)
         if changed:
             obj.parameters["constraint_refs"] = json.dumps(
                 references,
