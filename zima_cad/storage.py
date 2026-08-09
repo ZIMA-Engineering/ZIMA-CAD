@@ -9,8 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from OCC.Core.BRepTools import breptools
-
+from zima_cad.body_result import BodyResult
 from zima_cad.model import (
     CombineMode,
     ContainerType,
@@ -86,28 +85,27 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     for container in containers:
         write_entity(config, container)
 
-    # Persist the last validated OCCT result alongside the parametric model.
-    # The cumulative signature prevents stale BREP data from surviving any
-    # parameter/history edit, while gzip keeps the text-based .prtz compact.
+    # Persist the OCCT-independent calculated result alongside the parametric
+    # model. Opening a document can then display and reference the body without
+    # loading OCCT; the parametric history remains authoritative for edits.
     history = document.history_objects()
     cache_keys = document._shape_history_cache_keys(history)
-    cached_shape = (
-        document._shape_history_cache.get(cache_keys[-1])
+    cached_result = (
+        document._body_result_cache.get(cache_keys[-1])
         if cache_keys
         else None
     )
-    # Imported STEP payloads are intentionally kept as editable source data,
-    # but parsing and transferring a large STEP on every open is far slower
-    # than restoring the already validated OCCT result.  Persist the BREP
-    # cache for imported models too; its document signature prevents stale
-    # geometry after any history or parameter change.
-    if cached_shape is not None:
-        brep_text = breptools.WriteToString(cached_shape)
+    if cached_result is not None:
+        result_text = json.dumps(
+            cached_result.to_dict(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
         config["CachedBody"] = {
             "document_signature": _config_model_signature(config),
-            "encoding": "brep-gzip-base64",
+            "encoding": "zima-body-json-gzip-base64",
             "data": base64.b64encode(
-                gzip.compress(brep_text.encode("utf-8"), compresslevel=6)
+                gzip.compress(result_text.encode("utf-8"), compresslevel=6)
             ).decode("ascii"),
         }
 
@@ -251,7 +249,7 @@ def _load_cached_body(
     ) != _config_model_signature(config):
         return
     if config.get("CachedBody", "encoding", fallback="") != (
-        "brep-gzip-base64"
+        "zima-body-json-gzip-base64"
     ):
         return
     try:
@@ -259,13 +257,13 @@ def _load_cached_body(
             config.get("CachedBody", "data", fallback=""),
             validate=True,
         )
-        brep_text = gzip.decompress(payload).decode("utf-8")
-        shape = breptools.ReadFromString(brep_text)
-    except (OSError, UnicodeError, ValueError, RuntimeError):
+        result_data = json.loads(gzip.decompress(payload).decode("utf-8"))
+        result = BodyResult.from_dict(result_data)
+        if document.document_settings.get("type", "part") == "part":
+            result = result.with_owner(document.root.entity_id)
+    except (KeyError, OSError, TypeError, UnicodeError, ValueError, RuntimeError, json.JSONDecodeError):
         return
-    if shape is None or shape.IsNull():
-        return
-    document._shape_history_cache[cache_keys[-1]] = shape
+    document._body_result_cache[cache_keys[-1]] = result
 
 
 def _config_model_signature(

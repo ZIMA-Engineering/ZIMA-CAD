@@ -26,6 +26,8 @@ from zima_cad.topology import (
     FaceRef,
     assembly_edge_descriptor,
     assembly_face_descriptor,
+    parse_edge_reference,
+    parse_face_reference,
 )
 from zima_cad.viewer_mesh import (
     BROWN,
@@ -51,6 +53,7 @@ class DocumentViewerScene:
     shapes_by_owner_id: dict[str, Any]
     surface_colors_by_owner_id: dict[str, str]
     body_result: BodyResult | None = None
+    calculated_body_result: BodyResult | None = None
     calculated_body_mesh: ViewerMesh | None = field(
         default=None,
         compare=False,
@@ -176,11 +179,41 @@ def build_document_viewer_scene_data(
     is_assembly = document.document_settings.get("type") == "assembly"
     if is_assembly:
         assembly_objects = document.history_objects_at(boundary)
-        for obj in assembly_objects:
+        assembly_keys = document._shape_history_cache_keys(assembly_objects)
+        assembly_cached_result = (
+            document._body_result_cache.get(assembly_keys[-1])
+            if assembly_keys and uncut_component_shape is None
+            else None
+        )
+        component_body_layers: list[ViewerMesh] = []
+        if assembly_cached_result is not None:
+            cached_body_result = assembly_cached_result
+            cached_body_mesh = assembly_cached_result.mesh
+            body_mesh = assembly_cached_result.mesh
+            layers.append(body_mesh)
+            for obj in assembly_objects:
+                if obj.container_type == ContainerType.COMPONENT:
+                    surface_colors_by_owner_id[obj.entity_id] = str(
+                        obj.parameters.get("body_color", "#B9C2CC")
+                    )
+        for obj in (
+            () if assembly_cached_result is not None else assembly_objects
+        ):
             if not document.is_effectively_visible(obj.entity_id):
                 continue
             if obj.container_type != ContainerType.COMPONENT:
                 continue
+            source_document = (component_documents or {}).get(obj.entity_id)
+            source_result = None
+            if source_document is not None:
+                source_keys = source_document._shape_history_cache_keys(
+                    source_document.history_objects()
+                )
+                if source_keys:
+                    source_result = source_document._body_result_cache.get(
+                        source_keys[-1]
+                    )
+            component_mesh = None
             if (
                 obj.entity_id == uncut_component_id
                 and uncut_component_shape is not None
@@ -189,20 +222,21 @@ def build_document_viewer_scene_data(
                     uncut_component_shape,
                     coordinate_system_transform(obj.coordinate_system),
                 )
-            else:
-                source_document = (component_documents or {}).get(
-                    obj.entity_id
+            elif source_result is not None:
+                shape = None
+                component_mesh = transform_viewer_mesh(
+                    source_result.mesh.with_owner(obj.entity_id),
+                    coordinate_system_transform(obj.coordinate_system),
                 )
+            else:
                 shape = document.build_assembly_component_shape(
                     obj,
                     assembly_objects,
                     source_document=source_document,
                 )
-            if shape is not None:
-                shapes_by_owner_id[obj.entity_id] = shape
-                source_document = (component_documents or {}).get(
-                    obj.entity_id
-                )
+            if shape is not None or component_mesh is not None:
+                if shape is not None:
+                    shapes_by_owner_id[obj.entity_id] = shape
                 inherited_color = (
                     source_document.document_settings.get(
                         "body_color", "#B9C2CC"
@@ -219,10 +253,19 @@ def build_document_viewer_scene_data(
                     ).lower() == "true"
                     else inherited_color
                 )
-                layers.append(triangulate_shape(shape, owner_id=obj.entity_id))
+                layers.append(
+                    component_mesh
+                    if component_mesh is not None
+                    else triangulate_shape(shape, owner_id=obj.entity_id)
+                )
                 component_mesh = layers[-1]
+                component_body_layers.append(component_mesh)
                 if source_document is not None:
-                    registry = active_face_registry(source_document)
+                    registry = (
+                        None
+                        if source_result is not None
+                        else active_face_registry(source_document)
+                    )
                     imported = next((
                         child
                         for source in source_document.history_objects()
@@ -233,8 +276,20 @@ def build_document_viewer_scene_data(
                     for face_index in set(
                         component_mesh.triangle_face_indices
                     ):
-                        reference = registry.reference_for_runtime_index(
-                            face_index
+                        source_surface = (
+                            source_result.surface(
+                                source_document.root.entity_id,
+                                face_index,
+                            )
+                            if source_result is not None
+                            else None
+                        )
+                        reference = (
+                            parse_face_reference(source_surface.reference_id)
+                            if source_surface is not None
+                            else registry.reference_for_runtime_index(face_index)
+                            if registry is not None
+                            else None
                         )
                         if reference is None and imported is not None:
                             reference = FaceRef(
@@ -252,8 +307,22 @@ def build_document_viewer_scene_data(
                     for edge in component_mesh.edges:
                         if edge.element_kind != "edge":
                             continue
-                        reference = registry.edge_reference_for_runtime_index(
-                            edge.edge_index
+                        source_curve = (
+                            source_result.curve(
+                                source_document.root.entity_id,
+                                edge.edge_index,
+                            )
+                            if source_result is not None
+                            else None
+                        )
+                        reference = (
+                            parse_edge_reference(source_curve.reference_id)
+                            if source_curve is not None
+                            else registry.edge_reference_for_runtime_index(
+                                edge.edge_index
+                            )
+                            if registry is not None
+                            else None
                         )
                         if reference is None and imported is not None:
                             reference = EdgeRef(
@@ -283,6 +352,8 @@ def build_document_viewer_scene_data(
                         layers,
                         shapes_by_owner_id,
                     )
+        if component_body_layers:
+            body_mesh = combine_viewer_meshes(tuple(component_body_layers))
     elif document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
             if not document.is_effectively_visible(obj.entity_id):
@@ -300,13 +371,26 @@ def build_document_viewer_scene_data(
                 )
     else:
         history_objects = document.history_objects_at(boundary)
+        cache_keys = document._shape_history_cache_keys(history_objects)
+        if cached_body_result is None and cache_keys:
+            cached_body_result = document._body_result_cache.get(
+                cache_keys[-1]
+            )
+        if cached_body_mesh is None and cached_body_result is not None:
+            cached_body_mesh = cached_body_result.mesh
         shape = (
             cached_body_shape
             if cached_body_shape is not None
+            else None
+            if cached_body_result is not None
             else document.build_shape_at(boundary)
         )
-        if shape is not None and document.body_is_visible():
-            shapes_by_owner_id[document.root.entity_id] = shape
+        if (
+            (shape is not None or cached_body_mesh is not None)
+            and document.body_is_visible()
+        ):
+            if shape is not None:
+                shapes_by_owner_id[document.root.entity_id] = shape
             surface_colors_by_owner_id[document.root.entity_id] = str(
                 document.document_settings.get("body_color", "#B9C2CC")
             )
@@ -629,6 +713,26 @@ def build_document_viewer_scene_data(
                     screen_constant=True,
                 )
             )
+    calculated_body_result = (
+        cached_body_result
+        if cached_body_mesh is not None and cached_body_result is not None
+        else BodyResult.from_mesh(
+            body_mesh,
+            face_reference_ids=face_reference_ids,
+            edge_reference_ids=edge_reference_ids,
+            vertex_reference_ids=vertex_reference_ids,
+        )
+        if body_mesh is not None
+        else None
+    )
+    if calculated_body_result is not None:
+        cache_keys = document._shape_history_cache_keys(
+            document.history_objects_at(boundary)
+        )
+        if cache_keys:
+            document._body_result_cache[cache_keys[-1]] = (
+                calculated_body_result
+            )
     scene_mesh = combine_viewer_meshes(tuple(layers))
     return DocumentViewerScene(
         mesh=scene_mesh,
@@ -639,18 +743,15 @@ def build_document_viewer_scene_data(
             face_reference_ids=face_reference_ids,
             edge_reference_ids=edge_reference_ids,
             vertex_reference_ids=vertex_reference_ids,
-            inherited=(
-                cached_body_result
-                if cached_body_mesh is not None
-                else None
-            ),
+            inherited=calculated_body_result,
             skip_triangle_count=(
-                cached_body_mesh.triangle_count
-                if cached_body_mesh is not None
-                and cached_body_result is not None
+                body_mesh.triangle_count
+                if body_mesh is not None
+                and calculated_body_result is not None
                 else 0
             ),
         ),
+        calculated_body_result=calculated_body_result,
         calculated_body_mesh=body_mesh,
     )
 

@@ -62,6 +62,79 @@ class BodyResult:
     vertices: dict[str, VertexDescriptor] = field(default_factory=dict)
     physical: PhysicalProperties = field(default_factory=PhysicalProperties)
 
+    def to_dict(self) -> dict:
+        return {
+            "mesh": self.mesh.to_dict(),
+            "faces": {
+                key: descriptor.__dict__
+                for key, descriptor in self.faces.items()
+            },
+            "edges": {
+                key: descriptor.__dict__
+                for key, descriptor in self.edges.items()
+            },
+            "vertices": {
+                key: descriptor.__dict__
+                for key, descriptor in self.vertices.items()
+            },
+            "physical": self.physical.__dict__,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "BodyResult":
+        def point3(point):
+            return (
+                tuple(float(item) for item in point)
+                if point is not None
+                else None
+            )
+
+        faces = {
+            str(key): SurfaceDescriptor(
+                reference_id=str(item["reference_id"]),
+                kind=str(item.get("kind", "other")),
+                origin=point3(item.get("origin")),
+                normal=point3(item.get("normal")),
+                axis=point3(item.get("axis")),
+                radius=(float(item["radius"]) if item.get("radius") is not None else None),
+                boundary_edge_ids=tuple(str(edge) for edge in item.get("boundary_edge_ids", ())),
+            )
+            for key, item in value.get("faces", {}).items()
+        }
+        edges = {
+            str(key): CurveDescriptor(
+                reference_id=str(item["reference_id"]),
+                kind=str(item.get("kind", "other")),
+                points=tuple(point3(point) for point in item.get("points", ())),
+                origin=point3(item.get("origin")),
+                direction=point3(item.get("direction")),
+                radius=(float(item["radius"]) if item.get("radius") is not None else None),
+                bounded=bool(item.get("bounded", True)),
+            )
+            for key, item in value.get("edges", {}).items()
+        }
+        vertices = {
+            str(key): VertexDescriptor(
+                reference_id=str(item["reference_id"]),
+                position=point3(item["position"]),
+            )
+            for key, item in value.get("vertices", {}).items()
+        }
+        physical = value.get("physical", {})
+        return cls(
+            mesh=ViewerMesh.from_dict(value["mesh"]),
+            faces=faces,
+            edges=edges,
+            vertices=vertices,
+            physical=PhysicalProperties(
+                volume=float(physical.get("volume", 0.0)),
+                surface_area=float(physical.get("surface_area", 0.0)),
+                center_of_mass=point3(
+                    physical.get("center_of_mass", (0.0, 0.0, 0.0))
+                ),
+            ),
+        )
+
     @classmethod
     def from_mesh(
         cls,
@@ -170,6 +243,26 @@ class BodyResult:
         self, owner_id: str, point_index: int
     ) -> VertexDescriptor | None:
         return self.vertices.get(_reference_id(owner_id, "point", point_index))
+
+    def with_owner(self, owner_id: str) -> "BodyResult":
+        """Bind a persisted Part result to its newly created runtime root."""
+        def rekey(values: dict[str, object], kind: str) -> dict[str, object]:
+            result = {}
+            marker = f":{kind}:"
+            for key, descriptor in values.items():
+                _prefix, separator, index = key.rpartition(marker)
+                result[
+                    f"{owner_id}{marker}{index}" if separator else key
+                ] = descriptor
+            return result
+
+        return BodyResult(
+            mesh=self.mesh.with_owner(owner_id),
+            faces=rekey(self.faces, "face"),
+            edges=rekey(self.edges, "edge"),
+            vertices=rekey(self.vertices, "point"),
+            physical=self.physical,
+        )
 
 
 def _reference_id(owner_id: str, kind: str, index: int) -> str:

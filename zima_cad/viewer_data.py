@@ -75,6 +75,91 @@ class ViewerMesh:
             and not self.planes
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "triangle_positions": self.triangle_positions,
+            "triangle_normals": self.triangle_normals,
+            "triangle_face_indices": self.triangle_face_indices,
+            "triangle_owner_ids": self.triangle_owner_ids,
+            "edges": tuple(edge.__dict__ for edge in self.edges),
+            "points": tuple(point.__dict__ for point in self.points),
+            "planes": tuple(plane.__dict__ for plane in self.planes),
+            "bounds_min": self.bounds_min,
+            "bounds_max": self.bounds_max,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "ViewerMesh":
+        def point3(point) -> Point3:
+            return tuple(float(item) for item in point)
+
+        return cls(
+            triangle_positions=tuple(
+                float(item) for item in value.get("triangle_positions", ())
+            ),
+            triangle_normals=tuple(
+                float(item) for item in value.get("triangle_normals", ())
+            ),
+            triangle_face_indices=tuple(
+                int(item) for item in value.get("triangle_face_indices", ())
+            ),
+            triangle_owner_ids=tuple(
+                str(item) for item in value.get("triangle_owner_ids", ())
+            ),
+            edges=tuple(EdgePolyline(
+                edge_index=int(item["edge_index"]),
+                points=tuple(point3(point) for point in item.get("points", ())),
+                owner_id=str(item.get("owner_id", "")),
+                element_kind=str(item.get("element_kind", "edge")),
+                base_color=point3(item.get("base_color", (0.086, 0.098, 0.118))),
+                label=str(item.get("label", "")),
+                screen_constant=bool(item.get("screen_constant", False)),
+                topology_role=str(item.get("topology_role", "sharp")),
+                curve_kind=str(item.get("curve_kind", "other")),
+                curve_origin=(point3(item["curve_origin"]) if item.get("curve_origin") is not None else None),
+                curve_direction=(point3(item["curve_direction"]) if item.get("curve_direction") is not None else None),
+                curve_radius=(float(item["curve_radius"]) if item.get("curve_radius") is not None else None),
+            ) for item in value.get("edges", ())),
+            points=tuple(PointMarker(
+                point_index=int(item["point_index"]),
+                position=point3(item["position"]),
+                owner_id=str(item.get("owner_id", "")),
+                element_kind=str(item.get("element_kind", "point")),
+                base_color=point3(item.get("base_color", BLACK)),
+                label=str(item.get("label", "")),
+            ) for item in value.get("points", ())),
+            planes=tuple(PlanePatch(
+                plane_index=int(item["plane_index"]),
+                corners=tuple(point3(point) for point in item.get("corners", ())),
+                owner_id=str(item.get("owner_id", "")),
+                base_color=point3(item.get("base_color", BROWN)),
+                label=str(item.get("label", "")),
+                screen_constant=bool(item.get("screen_constant", False)),
+            ) for item in value.get("planes", ())),
+            bounds_min=point3(value.get("bounds_min", (0.0, 0.0, 0.0))),
+            bounds_max=point3(value.get("bounds_max", (0.0, 0.0, 0.0))),
+        )
+
+    def with_owner(self, owner_id: str) -> "ViewerMesh":
+        """Rebind one calculated Part mesh to an Assembly component."""
+        return ViewerMesh(
+            triangle_positions=self.triangle_positions,
+            triangle_normals=self.triangle_normals,
+            triangle_face_indices=self.triangle_face_indices,
+            triangle_owner_ids=tuple(owner_id for _ in self.triangle_owner_ids),
+            edges=tuple(EdgePolyline(
+                **{**edge.__dict__, "owner_id": owner_id}
+            ) for edge in self.edges),
+            points=tuple(PointMarker(
+                **{**point.__dict__, "owner_id": owner_id}
+            ) for point in self.points),
+            planes=tuple(PlanePatch(
+                **{**plane.__dict__, "owner_id": owner_id}
+            ) for plane in self.planes),
+            bounds_min=self.bounds_min,
+            bounds_max=self.bounds_max,
+        )
+
 
 @dataclass(frozen=True)
 class SilhouetteEdge:

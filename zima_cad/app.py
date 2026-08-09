@@ -14402,6 +14402,7 @@ class MainWindow(QMainWindow):
                 "_assembly_component_document_cache", {}
             )[canonical_path] = source_document
             assembly._shape_history_cache.clear()
+            assembly._body_result_cache.clear()
             session.viewer_scene = None
             session.history_boundary = None
             if session.document is self.document:
@@ -16195,7 +16196,9 @@ class MainWindow(QMainWindow):
         # A validated CachedBody already contains the last OCCT result. Keep
         # it for the initial view; replaying a long fillet history here would
         # make opening a small .prtz file needlessly expensive.
-        cached_body_available = bool(document._shape_history_cache)
+        cached_body_available = bool(
+            document._body_result_cache or document._shape_history_cache
+        )
         document_type = self._document_type(document)
         if document_type not in ("drawing", "drawing_format", "title_block"):
             document.regeneration_required = not cached_body_available
@@ -43726,6 +43729,14 @@ class MainWindow(QMainWindow):
                     active_sketch.entity_id
                 )
         previous_scene = self._native_viewer_scene
+        current_body_cache_keys = self.document._shape_history_cache_keys(
+            self.document.history_objects_at(history_boundary)
+        )
+        current_body_result_cached = bool(
+            current_body_cache_keys
+            and current_body_cache_keys[-1]
+            in self.document._body_result_cache
+        )
         if (
             cached_body_shape is None
             and reuse_body_geometry
@@ -43809,6 +43820,7 @@ class MainWindow(QMainWindow):
                 )) is not None
             }
             if self.document.document_settings.get("type") == "assembly"
+            and not current_body_result_cached
             else None,
             cached_body_shape=cached_body_shape,
             cached_body_mesh=(
@@ -43821,7 +43833,7 @@ class MainWindow(QMainWindow):
                 else None
             ),
             cached_body_result=(
-                previous_scene.body_result
+                previous_scene.calculated_body_result
                 if previous_scene is not None
                 and (
                     cached_body_mesh is previous_scene.body_mesh

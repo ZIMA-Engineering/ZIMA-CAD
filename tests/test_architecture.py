@@ -1,4 +1,5 @@
 import ast
+import json
 import unittest
 from pathlib import Path
 
@@ -47,6 +48,19 @@ class OcctBoundaryTests(unittest.TestCase):
             if isinstance(node, ast.ImportFrom)
         }
         self.assertFalse(any(name.startswith("OCC") for name in imports))
+
+    def test_document_storage_does_not_import_occt(self) -> None:
+        source_path = PROJECT_ROOT / "zima_cad" / "storage.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        imports = {
+            node.module or ""
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        }
+        self.assertFalse(
+            any(name == "OCC" or name.startswith("OCC.") for name in imports),
+            "Opening and saving current documents must use ZIMA data only.",
+        )
 
     def test_body_result_builds_zima_topology_from_viewer_data(self) -> None:
         mesh = ViewerMesh(
@@ -109,6 +123,20 @@ class OcctBoundaryTests(unittest.TestCase):
             skip_triangle_count=mesh.triangle_count,
         )
         self.assertIs(reused.surface("body", 4), inherited.surface("body", 4))
+
+        restored = BodyResult.from_dict(json.loads(json.dumps(result.to_dict())))
+        self.assertEqual(restored.mesh, result.mesh)
+        self.assertEqual(restored.faces, result.faces)
+        self.assertEqual(restored.edges, result.edges)
+        self.assertEqual(restored.vertices, result.vertices)
+
+        rebound = restored.with_owner("loaded-body")
+        self.assertEqual(
+            rebound.surface("loaded-body", 4).reference_id,
+            "stable-face-id",
+        )
+        self.assertIsNotNone(rebound.curve("loaded-body", 7))
+        self.assertIsNotNone(rebound.vertex("loaded-body", 3))
 
 
 if __name__ == "__main__":

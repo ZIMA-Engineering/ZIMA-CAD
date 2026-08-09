@@ -93,7 +93,7 @@ from zima_cad.topology import (
 
 
 ORIGIN_WIDGET_SIZE = 320.0
-DOCUMENT_FORMAT_VERSION = "10"
+DOCUMENT_FORMAT_VERSION = "11"
 
 
 def default_document_settings() -> dict[str, str]:
@@ -612,6 +612,12 @@ class PartDocument:
         compare=False,
     )
     _topology_history_cache: dict[str, TopologyRegistry] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _body_result_cache: dict[str, Any] = field(
         default_factory=dict,
         init=False,
         repr=False,
