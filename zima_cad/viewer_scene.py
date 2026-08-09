@@ -12,6 +12,7 @@ from zima_cad.model import (
     PartDocument,
     ZimaEntity,
     coordinate_system_transform,
+    geometric_edge_reference,
     identity_transform,
     make_sketch_shape,
     make_datum_axis_shape,
@@ -562,6 +563,16 @@ def build_document_viewer_scene_data(
                 reference = registry.edge_reference_for_runtime_index(
                     edge.edge_index
                 )
+                if (
+                    reference is None
+                    and shape is not None
+                    and history_objects
+                ):
+                    reference = geometric_edge_reference(
+                        shape,
+                        edge.edge_index,
+                        history_objects[-1].entity_id,
+                    )
                 if reference is not None:
                     edge_reference_ids[(root_id, edge.edge_index)] = (
                         reference.serialize()

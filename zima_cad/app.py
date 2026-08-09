@@ -10818,6 +10818,25 @@ class MainWindow(QMainWindow):
             self._definition_history_boundary(),
             input_shape,
         )
+        canonical_references = []
+        for reference in references:
+            if reference.role != "body_runtime":
+                canonical_references.append(reference)
+                continue
+            try:
+                runtime_index = int(reference.source_id or "0")
+            except (TypeError, ValueError):
+                return False
+            canonical = geometric_edge_reference(
+                input_shape,
+                runtime_index,
+                reference.feature_id,
+            )
+            if canonical is None:
+                return False
+            canonical_references.append(canonical)
+        references = tuple(canonical_references)
+        self._selection_controller._values[:] = references
         try:
             dialog = self.edge_treatment_properties_dialog
             if dialog.operation == ContainerType.FILLET:
@@ -11069,8 +11088,18 @@ class MainWindow(QMainWindow):
             else None
         )
         history = document.history_objects_at(document.history_cursor())
-        if displayed_shape is None or not history:
+        if not history:
             return None
+        if displayed_shape is None:
+            # A format-11 document may have been saved before every visible
+            # mesh edge carried a semantic/geometric EdgeRef. Keep selection
+            # OCCT-free and canonicalize this body-local index only when the
+            # Fillet/Chamfer calculation materializes its input body.
+            return EdgeRef(
+                history[-1].entity_id,
+                "body_runtime",
+                str(edge_index),
+            )
         registry = self._reference_topology_registry(
             document.history_cursor()
         )
