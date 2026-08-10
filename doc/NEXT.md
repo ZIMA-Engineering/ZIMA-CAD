@@ -75,6 +75,36 @@
 - Keep runtime drawing geometry derived from renderer-owned model topology;
   persisted legacy 2D projection caches are intentionally unsupported.
 
+## DXF Interchange
+
+- Add DXF import directly into the active Sketch. Preserve real dimensions,
+  provide an explicit unit choice when the file is ambiguous and map supported
+  layers and entities without creating hidden placement corrections.
+- Add DXF import commands to the Part and Assembly applications. These commands
+  must create or populate an explicitly placed Sketch; DXF is two-dimensional
+  reference/profile geometry, not an imported solid body.
+- Add DXF export from Sketcher for supported profile and construction geometry,
+  with real model-space dimensions and documented handling of layers, text,
+  splines and unsupported constraints.
+- Keep DXF file parsing separate from Sketch interaction. Import must produce
+  normal persisted ZIMA Sketch entities with stable IDs so they can be edited,
+  constrained, regenerated and saved like manually created geometry.
+
+## Surface Modeling
+
+- Add a solid-cut operation driven by a selected surface or surface body. The
+  operation must define the retained side explicitly and store stable
+  references to the cutting surface.
+- Design the first surface-modeling application and history entities: surface
+  creation, trim, extend, join/sew and surface-body inspection.
+- Keep surface bodies distinct from solids in the document model, tree,
+  selection filters and operation validation.
+- Add a deliberate conversion from a valid closed set of surfaces to a solid;
+  do not silently interpret an open surface as a solid body.
+- Persist all selection and topology data required for later editing during
+  explicit Apply/OK/regeneration. Surface hover, tree display and Properties
+  opening must not trigger hidden OCCT reconstruction.
+
 ## Container Orientation and Reference Geometry
 
 - Exercise the shared six-DOF properties workflow for Point, Axis, Plane,
@@ -184,6 +214,8 @@
   may consume only its bounded independent position/orientation references.
   Migrate remaining dialog-specific checks to this policy.
 - Add polygon input and ellipse geometry.
+- Add the DXF import/export workflows specified in **DXF Interchange** and test
+  round trips on profiles containing segments, arcs, circles and splines.
 - Continue stabilization of centre arcs and spline editing.
 - Improve the solver's numerical stability, branch preservation, diagnostics
   and recovery for redundant, conflicting and under-constrained systems.

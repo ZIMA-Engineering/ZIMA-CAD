@@ -465,6 +465,24 @@ def transform_viewer_mesh(mesh: ViewerMesh, transform) -> ViewerMesh:
             for row in range(3)
         )
 
+    triangle_points = tuple(
+        transformed(tuple(mesh.triangle_positions[offset:offset + 3]))
+        for offset in range(0, len(mesh.triangle_positions), 3)
+    )
+    triangle_positions = tuple(
+        coordinate
+        for point in triangle_points
+        for coordinate in point
+    )
+    triangle_normals = tuple(
+        coordinate
+        for offset in range(0, len(mesh.triangle_normals), 3)
+        for coordinate in _transformed_direction(
+            transform,
+            tuple(mesh.triangle_normals[offset:offset + 3]),
+        )
+    )
+
     edges = tuple(
         EdgePolyline(
             edge_index=edge.edge_index,
@@ -512,24 +530,26 @@ def transform_viewer_mesh(mesh: ViewerMesh, transform) -> ViewerMesh:
         )
         for plane in mesh.planes
     )
-    all_points = [
+    all_points = list(triangle_points) + [
         point for edge in edges for point in edge.points
     ] + [point.position for point in points] + [
         point for plane in planes for point in plane.corners
     ]
     return ViewerMesh(
-        triangle_positions=mesh.triangle_positions,
-        triangle_normals=mesh.triangle_normals,
+        triangle_positions=triangle_positions,
+        triangle_normals=triangle_normals,
         triangle_face_indices=mesh.triangle_face_indices,
         triangle_owner_ids=mesh.triangle_owner_ids,
         edges=edges,
         points=points,
         planes=planes,
         bounds_min=tuple(
-            min(point[axis] for point in all_points) for axis in range(3)
+            min((point[axis] for point in all_points), default=0.0)
+            for axis in range(3)
         ),
         bounds_max=tuple(
-            max(point[axis] for point in all_points) for axis in range(3)
+            max((point[axis] for point in all_points), default=0.0)
+            for axis in range(3)
         ),
     )
 

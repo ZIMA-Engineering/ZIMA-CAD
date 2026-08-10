@@ -29,8 +29,18 @@ subshape directly from the original imported solid. A confirmed Assembly face
 keeps a transient `(component_id, displayed_face_index)` solely for cyan
 viewport highlighting; this runtime pair is never serialized.
 
-Format 10 is the clean boundary for this model. Earlier experimental document
+Format 11 is the clean boundary for the current model. Earlier experimental document
 versions and their result-body references are deliberately unsupported.
+
+Assembly mate picking is restricted by history direction. The source field
+resolves against persisted original bodies of the component being edited; the
+target field resolves only against original bodies of components earlier in
+the Assembly tree. Assembly-cut result faces and whole-component containers
+are rejected. Newly regenerated Parts persist the semantic face, edge and
+vertex maps required by this picker in `BodyResult.source_bodies`; an old cache
+without those maps must be explicitly regenerated and saved, never repaired
+from a live OCCT traversal during hover or dialog opening. See
+[Assembly references and mates](ASSEMBLY_REFERENCES.md).
 
 `PartDocument` caches a requested topology registry by the cumulative geometry
 signature. Repeated consumers therefore share one result, while editing a

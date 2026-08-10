@@ -45,6 +45,7 @@ from PySide6.QtGui import (
     QPixmap,
     QFont,
     QFontDatabase,
+    QFontMetricsF,
     QTransform,
 )
 from PySide6.QtCore import (
@@ -81,6 +82,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -265,6 +267,7 @@ from zima_cad.drawing_template import (
 from zima_cad.title_block import (
     resolve_title_block_text,
     title_block_field_text,
+    title_block_parameter_key,
     title_block_token_scope,
     title_block_tokens,
 )
@@ -8237,9 +8240,14 @@ class SketchTextPropertiesDialog(QDialog):
         layout.addWidget(self._internal_title_bar)
         form = QFormLayout()
         self._properties_form = form
-        self.text_edit = QLineEdit()
-        self.text_edit.setText("TEXT")
-        form.addRow(tr("sketch.text.dialog.value"), self.text_edit)
+        self.text_edit = QPlainTextEdit()
+        self.text_edit.setPlainText("TEXT")
+        self.text_edit.setFixedHeight(
+            self.text_edit.fontMetrics().lineSpacing() * 5 + 16
+        )
+        self.text_label = QLabel(tr("sketch.text.dialog.value"))
+        form.addRow(self.text_label)
+        form.addRow(self.text_edit)
         self.height_spin = QDoubleSpinBox()
         self.height_spin.setRange(0.01, 1_000_000.0)
         self.height_spin.setDecimals(3)
@@ -8286,11 +8294,15 @@ class SketchTextPropertiesDialog(QDialog):
         layout.addLayout(tools)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        if apply_button is not None:
+            apply_button.clicked.connect(self.applyRequested.emit)
         layout.addWidget(buttons)
         for signal in (
             self.text_edit.textChanged,
@@ -8305,7 +8317,7 @@ class SketchTextPropertiesDialog(QDialog):
 
     def values(self) -> tuple[str, float, str, str, float, bool, str, str]:
         return (
-            self.text_edit.text(),
+            self.text_edit.toPlainText(),
             self.height_spin.value(),
             str(self.horizontal_combo.currentData()),
             str(self.vertical_combo.currentData()),
@@ -8318,7 +8330,7 @@ class SketchTextPropertiesDialog(QDialog):
     def set_values(self, data: dict[str, Any]) -> None:
         blocked = self.blockSignals(True)
         try:
-            self.text_edit.setText(str(data.get("text_value", "TEXT")))
+            self.text_edit.setPlainText(str(data.get("text_value", "TEXT")))
             self.height_spin.setValue(float(data.get("text_height", 10.0)))
             for combo, key, fallback in (
                 (self.horizontal_combo, "text_horizontal", "left"),
@@ -8372,6 +8384,46 @@ class SketchTextPropertiesDialog(QDialog):
         return super().eventFilter(watched, event)
 
 
+class RepeatRegionPropertiesDialog(SketchTextPropertiesDialog):
+    """Shared in-application properties window for a BOM repeat region."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("BOM Repeat Region")
+        self._properties_title_label.setText("BOM Repeat Region")
+        for widget in (
+            self.text_edit, self.height_spin, self.horizontal_combo,
+            self.vertical_combo, self.font_combo, self.color_combo,
+            self.angle_spin, self.flip_button,
+        ):
+            label = self._properties_form.labelForField(widget)
+            if label is not None:
+                label.hide()
+            widget.hide()
+        self.text_label.hide()
+        self.direction_combo = QComboBox()
+        for label, value in (
+            ("Nahoru", "up"), ("Dolů", "down"),
+            ("Doleva", "left"), ("Doprava", "right"),
+        ):
+            self.direction_combo.addItem(label, value)
+        self._properties_form.addRow("Směr opakování", self.direction_combo)
+        self.step_spin = QDoubleSpinBox()
+        self.step_spin.setRange(0.001, 1_000_000.0)
+        self.step_spin.setDecimals(3)
+        self.step_spin.setSuffix(" mm")
+        self._properties_form.addRow("Rozteč řádku", self.step_spin)
+
+    def repeat_values(self) -> tuple[str, float]:
+        return str(self.direction_combo.currentData()), self.step_spin.value()
+
+    def set_repeat_values(self, direction: str, step: float) -> None:
+        self.direction_combo.setCurrentIndex(
+            max(0, self.direction_combo.findData(direction))
+        )
+        self.step_spin.setValue(step)
+
+
 class TitleBlockFieldPropertiesDialog(SketchTextPropertiesDialog):
     """Edit values referenced by one placed title-block text field."""
 
@@ -8385,7 +8437,7 @@ class TitleBlockFieldPropertiesDialog(SketchTextPropertiesDialog):
         title = tr("dialog.title_block_field.title")
         self.setWindowTitle(title)
         self._properties_title_label.setText(title)
-        self.text_edit.setText(title_block_field_text(field))
+        self.text_edit.setPlainText(title_block_field_text(field))
         self.text_edit.setReadOnly(True)
         for widget in (
             self.height_spin,
@@ -8624,6 +8676,7 @@ class MainWindow(QMainWindow):
         self._sketch_text_edit_group: str | None = None
         self._sketch_text_edit_baseline: dict[str, Any] | None = None
         self._sketch_text_dialog: SketchTextPropertiesDialog | None = None
+        self._sketch_text_waiting_confirmation = False
         self._title_block_field_dialog: (
             TitleBlockFieldPropertiesDialog | None
         ) = None
@@ -8666,6 +8719,12 @@ class MainWindow(QMainWindow):
         self._dimension_context_menu: QMenu | None = None
         self._sketch_reference_mode = False
         self._sketch_selected_external_reference_id: str | None = None
+        self._creating_repeat_region = False
+        self._repeat_region_dialog: RepeatRegionPropertiesDialog | None = None
+        self._repeat_region_edit_id: str | None = None
+        self._repeat_region_baseline: dict[str, dict[str, Any]] = {}
+        self._repeat_region_is_new = False
+        self._repeat_region_new_point_ids: set[str] = set()
         self._sketch_delete_action = QAction(
             tr("sketch.command.delete"),
             self,
@@ -8699,6 +8758,9 @@ class MainWindow(QMainWindow):
         )
         self.drawing_workspace.canvas.dimensionToolCancelled.connect(
             self._drawing_dimension_tool_cancelled
+        )
+        self.drawing_workspace.canvas.dimensionStatusChanged.connect(
+            self.statusBar().showMessage
         )
         stored_body_color = self._window_settings().value(
             "view/body_color",
@@ -8816,6 +8878,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchTextEditRequested.connect(
             self._edit_sketch_text
+        )
+        self.native_viewer.sketchEntityEditRequested.connect(
+            self._edit_repeat_region_for_entity
         )
         self.native_viewer.sketchConstraintSelected.connect(
             self._select_sketch_constraint_relation
@@ -9453,6 +9518,17 @@ class MainWindow(QMainWindow):
                     self._set_sketch_tool(selected_tool)
                 )
                 self._mark_application_command(action)
+            if self._document_type(self.document) == "title_block":
+                repeat_region_action = self.tools_toolbar.addAction(
+                    "BOM Repeat Region"
+                )
+                repeat_region_action.setIcon(resource_icon("sketch-rectangle"))
+                repeat_region_action.setCheckable(True)
+                repeat_region_action.setChecked(self._creating_repeat_region)
+                repeat_region_action.triggered.connect(
+                    self._start_bom_repeat_region
+                )
+                self._mark_application_command(repeat_region_action)
             self.tools_toolbar.addSeparator()
             template_editor = self._document_type(self.document) in (
                 "drawing_format", "title_block"
@@ -15512,6 +15588,11 @@ class MainWindow(QMainWindow):
             return
 
         self._reject_document_scoped_dialogs()
+        if self._sketch_edit_entity_id is not None:
+            # Sketch overlay and interaction state belong to the document
+            # being left. Keeping them alive lets the next template tab show
+            # the previous title block even though its tree/name are current.
+            self._leave_sketch_edit(restore=False, restore_view=False)
 
         if self._active_component_return_document is not None:
             self._leave_active_component_context(refresh=False)
@@ -15573,7 +15654,19 @@ class MainWindow(QMainWindow):
         # then again during regeneration (fillet histories make that pause
         # particularly noticeable).  Leave the previous scene cleared and
         # let regeneration perform the single authoritative rebuild.
-        if not is_drawing and self.document.regeneration_required:
+        if is_template:
+            # A drawing template is edited exclusively as a 2D sketch.  Do
+            # not briefly (or, on an existing tab, permanently) rebuild its
+            # profile as ordinary 3D model geometry between tab switches.
+            self._native_viewer_scene = None
+            self.native_viewer.clear_scene()
+            sketch = template_sketch(self.document)
+            QTimer.singleShot(
+                0,
+                lambda expected=self.document, sketch_id=sketch.entity_id:
+                self._enter_template_sketch_if_active(expected, sketch_id),
+            )
+        elif not is_drawing and self.document.regeneration_required:
             self._native_viewer_scene = None
             self.native_viewer.clear_scene()
             # A dirty document can be revisited through a tab switch without
@@ -15635,6 +15728,8 @@ class MainWindow(QMainWindow):
 
         if index == self.active_document_index:
             self._reject_document_scoped_dialogs()
+            if self._sketch_edit_entity_id is not None:
+                self._leave_sketch_edit(restore=False, restore_view=False)
             self._store_active_session()
 
         self.document_tabs.blockSignals(True)
@@ -15742,13 +15837,6 @@ class MainWindow(QMainWindow):
             if unit_name in self.settings.units:
                 document.document_units[unit_name] = self.settings.units[unit_name]
         self._add_document_session(document, file_path)
-        if document_type in ("drawing_format", "title_block"):
-            sketch = template_sketch(document)
-            QTimer.singleShot(
-                0,
-                lambda sketch_id=sketch.entity_id:
-                self._enter_sketch_edit(sketch_id),
-            )
 
     def _document_file_name_exists(self, file_path: Path) -> bool:
         target_name = file_path.name.casefold()
@@ -15772,6 +15860,21 @@ class MainWindow(QMainWindow):
 
     def close_document(self) -> None:
         self.close_document_tab(self.active_document_index)
+
+    def _enter_template_sketch_if_active(
+        self,
+        expected_document: PartDocument,
+        sketch_id: str,
+    ) -> None:
+        """Ignore delayed template-open callbacks after a tab was replaced."""
+        if self.document is not expected_document:
+            return
+        if self._document_type(self.document) not in (
+            "drawing_format",
+            "title_block",
+        ):
+            return
+        self._enter_sketch_edit(sketch_id)
 
     def open_document(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(
@@ -16100,10 +16203,6 @@ class MainWindow(QMainWindow):
             document.regeneration_required = not cached_body_available
         self._add_document_session(document, canonical_path)
         if document_type in ("drawing_format", "title_block"):
-            sketch = template_sketch(document)
-            QTimer.singleShot(
-                0, lambda sketch_id=sketch.entity_id: self._enter_sketch_edit(sketch_id)
-            )
             return
         # If no validated cache was persisted, perform the authoritative
         # regeneration now. Cached documents are rebuilt lazily only when a
@@ -17310,11 +17409,12 @@ class MainWindow(QMainWindow):
         item: str,
         quantity: str,
         part_head: bool = False,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         parameters = source_document.user_parameters
         norma = str(parameters.get("norma", "")).strip()
         return {
             "item": item,
+            "file_stem": source_path.stem,
             "name": "-" if part_head else (
                 str(parameters.get("nazev", "")).strip() or source_path.stem
             ),
@@ -17325,6 +17425,16 @@ class MainWindow(QMainWindow):
             "material": str(parameters.get("material", "")).strip(),
             "weight": str(parameters.get("hmotnost", "")).strip() or "-",
             "quantity": quantity,
+            "parameters": dict(parameters),
+            "parameter_values": copy.deepcopy(
+                source_document.user_parameter_values
+            ),
+            "parameter_aliases": {
+                str(label).strip(): str(key)
+                for key, labels in source_document.user_parameter_labels.items()
+                for label in labels.values()
+                if str(label).strip()
+            },
         }
 
     def _refresh_drawing_title_block_context(self) -> None:
@@ -17348,7 +17458,7 @@ class MainWindow(QMainWindow):
         document_type = str(
             source_document.document_settings.get("type", "part")
         )
-        rows: list[dict[str, str]] = []
+        rows: list[dict[str, Any]] = []
         if document_type == "assembly":
             grouped: dict[Path, tuple[PartDocument, int]] = {}
             assembly_path = source_document.source_file_path or source_path
@@ -17388,7 +17498,7 @@ class MainWindow(QMainWindow):
             ]
         else:
             rows = [self._title_block_row(
-                source_document, source_path, item="-",
+                source_document, source_path, item="1",
                 quantity=str(source_document.user_parameters.get("mnozstvi", "1")),
                 part_head=True,
             )]
@@ -17396,6 +17506,15 @@ class MainWindow(QMainWindow):
             "document_type": document_type,
             "file_stem": source_path.stem,
             "parameters": dict(source_document.user_parameters),
+            "parameter_values": copy.deepcopy(
+                source_document.user_parameter_values
+            ),
+            "parameter_aliases": {
+                str(label).strip(): str(key)
+                for key, labels in source_document.user_parameter_labels.items()
+                for label in labels.values()
+                if str(label).strip()
+            },
             "head_rows": rows,
         })
 
@@ -17444,14 +17563,20 @@ class MainWindow(QMainWindow):
                 key = token.removeprefix("user_parameter.")
             label = token
             if scope == "model":
-                key = token.removeprefix("model.")
+                key = title_block_parameter_key(token, context)
                 localized = source_document.user_parameter_labels.get(key, {})
                 label = str(
                     localized.get(self.settings.language)
                     or localized.get("cs")
                     or key
                 )
-                value = str(source_document.user_parameters.get(key, ""))
+                value_map = source_document.user_parameter_values.get(key, {})
+                field_locale = str(field.get("locale", "cs")) or "cs"
+                value = str(
+                    value_map.get("")
+                    if "" in value_map
+                    else value_map.get(field_locale, "")
+                )
             elif scope == "drawing":
                 label = f"{tr('dialog.title_block_field.local')} – {key}"
                 value = str(context["local_parameters"].get(key, ""))
@@ -17460,7 +17585,11 @@ class MainWindow(QMainWindow):
                     f"dialog.title_block_field.token.{token.replace('.', '_')}"
                 )
                 value = resolve_title_block_text(
-                    {"text": f"&{token}", "format": field.get("format", "")},
+                    {
+                        "text": f"&{token}",
+                        "format": field.get("format", ""),
+                        "locale": field.get("locale", "cs"),
+                    },
                     context=context,
                     sheet=sheet,
                 )
@@ -17468,7 +17597,9 @@ class MainWindow(QMainWindow):
                 "token": token,
                 "label": f"{label}  (&{token})",
                 "value": value,
-                "editable": editable and write_back and scope != "system",
+                "editable": editable
+                and scope != "system"
+                and (scope == "drawing" or write_back),
             })
         dialog = TitleBlockFieldPropertiesDialog(field, token_rows, self)
 
@@ -17483,11 +17614,16 @@ class MainWindow(QMainWindow):
                     continue
                 if scope != "model":
                     continue
-                key = token.removeprefix("model.").removeprefix(
-                    "user_parameter."
+                key = title_block_parameter_key(token, context)
+                value_map = source_document.user_parameter_values.setdefault(
+                    key, {"": ""}
                 )
-                source_document.user_parameters[key] = value
-                source_document.user_parameter_values.setdefault(key, {})[""] = value
+                field_locale = str(field.get("locale", "cs")) or "cs"
+                if "" in value_map:
+                    value_map[""] = value
+                    source_document.user_parameters[key] = value
+                else:
+                    value_map[field_locale] = value
                 if key not in source_document.user_parameter_order:
                     source_document.user_parameter_order.append(key)
                 model_changed = True
@@ -17523,6 +17659,7 @@ class MainWindow(QMainWindow):
             self._refresh_drawing_title_block_context()
             self._store_active_session()
 
+        dialog.applyRequested.connect(apply_values)
         dialog.accepted.connect(apply_values)
         dialog.finished.connect(
             lambda _result: setattr(self, "_title_block_field_dialog", None)
@@ -17541,7 +17678,10 @@ class MainWindow(QMainWindow):
             return
         sheets = drawing_sheets(drawing)
         source_cache: dict[Path, PartDocument] = {}
-        render_cache: dict[Path, tuple[ViewerMesh, dict[str, str]]] = {}
+        render_cache: dict[
+            Path,
+            tuple[ViewerMesh, dict[str, str], dict[tuple[str, int], str]],
+        ] = {}
         changed = False
         for sheet in sheets:
             for view in sheet.get("views", []):
@@ -17588,15 +17728,18 @@ class MainWindow(QMainWindow):
                     )
                     render_data = render_cache.get(source_path)
                     if render_data is None:
-                        mesh, colors, _shaded = self._drawing_renderer_data(
+                        mesh, colors, _shaded, edge_references = (
+                            self._drawing_renderer_data(
                             source_document
+                            )
                         )
-                        render_data = (mesh, colors)
+                        render_data = (mesh, colors, edge_references)
                         render_cache[source_path] = render_data
                     self.drawing_workspace.set_view_render_data(
                         str(view.get("id", "")),
                         render_data[0],
                         render_data[1],
+                        render_data[2],
                     )
                 except Exception:
                     continue
@@ -17624,8 +17767,14 @@ class MainWindow(QMainWindow):
     def _drawing_renderer_data(
         self,
         source_document: PartDocument,
-    ) -> tuple[ViewerMesh, dict[str, str], list[tuple[ViewerMesh, str]]]:
+    ) -> tuple[
+        ViewerMesh,
+        dict[str, str],
+        list[tuple[ViewerMesh, str]],
+        dict[tuple[str, int], str],
+    ]:
         component_documents: dict[str, PartDocument] | None = None
+        component_geometry_signature: list[tuple[object, ...]] = []
         if source_document.document_settings.get("type") == "assembly":
             component_documents = {}
             assembly_path = source_document.source_file_path
@@ -17662,15 +17811,53 @@ class MainWindow(QMainWindow):
                     except Exception:
                         continue
                 component_documents[component.entity_id] = component_document
+                component_keys = component_document._shape_history_cache_keys(
+                    component_document.history_objects_at(
+                        component_document.history_cursor()
+                    )
+                )
+                component_geometry_signature.append((
+                    component.entity_id,
+                    str(component_path),
+                    component_keys[-1] if component_keys else "",
+                    tuple(component.coordinate_system.origin),
+                    tuple(component.coordinate_system.rotation),
+                    bool(component.suppressed),
+                    bool(component.user_visible),
+                ))
+            geometry_signature = tuple(component_geometry_signature)
+            previous_signature = source_document.__dict__.get(
+                "_drawing_component_geometry_signature"
+            )
+            if previous_signature != geometry_signature:
+                # An Assembly history key describes its component containers,
+                # but not the current geometry state of their source Parts.
+                # A changed open Part must therefore invalidate the assembled
+                # body even before that Part is explicitly saved to disk.
+                source_document._shape_history_cache.clear()
+                source_document._body_result_cache.clear()
+                source_document.__dict__[
+                    "_drawing_component_geometry_signature"
+                ] = geometry_signature
         scene = build_document_viewer_scene_data(
             source_document,
             show_sketches=False,
             component_documents=component_documents,
         )
+        edge_reference_ids: dict[tuple[str, int], str] = {}
+        for edge in scene.mesh.edges:
+            if edge.element_kind != "edge":
+                continue
+            curve = scene.curve_reference(edge.owner_id, edge.edge_index)
+            if curve is not None and curve.reference_id:
+                edge_reference_ids[(edge.owner_id, edge.edge_index)] = str(
+                    curve.reference_id
+                )
         return (
             scene.mesh,
             dict(scene.surface_colors_by_owner_id),
             [(scene.mesh, "#B9C2CC")],
+            edge_reference_ids,
         )
 
     def _drawing_projection_geometry(
@@ -17678,7 +17865,7 @@ class MainWindow(QMainWindow):
         source_document: PartDocument,
         orientation: object,
     ) -> dict[str, Any]:
-        mesh, _colors, _shaded_meshes = self._drawing_renderer_data(
+        mesh, _colors, _shaded_meshes, _edge_references = self._drawing_renderer_data(
             source_document
         )
         return {"model_extent": mesh_projection_extent(mesh, orientation)}
@@ -17753,7 +17940,9 @@ class MainWindow(QMainWindow):
         projection_geometry = self._drawing_projection_geometry(
             source_document, "isometric"
         )
-        mesh, colors, _shaded = self._drawing_renderer_data(source_document)
+        mesh, colors, _shaded, edge_references = self._drawing_renderer_data(
+            source_document
+        )
         if mesh.is_empty:
             QMessageBox.critical(
                 self, tr("message.open_failed"), tr("drawing.source.empty")
@@ -17778,7 +17967,9 @@ class MainWindow(QMainWindow):
             "auxiliary_edges": "hidden",
             **projection_geometry,
         }
-        self.drawing_workspace.set_view_render_data(view_id, mesh, colors)
+        self.drawing_workspace.set_view_render_data(
+            view_id, mesh, colors, edge_references
+        )
 
         def placed(placed_id: str) -> None:
             if placed_id != view_id:
@@ -17852,8 +18043,12 @@ class MainWindow(QMainWindow):
                 if sheet is not None:
                     values["scale"] = float(sheet.get("default_scale_numerator", 1.0)) / max(float(sheet.get("default_scale", 1.0)), 0.001)
             self.drawing_workspace.update_view(view_id, values)
-            mesh, colors, _shaded = self._drawing_renderer_data(source_document)
-            self.drawing_workspace.set_view_render_data(view_id, mesh, colors)
+            mesh, colors, _shaded, edge_references = (
+                self._drawing_renderer_data(source_document)
+            )
+            self.drawing_workspace.set_view_render_data(
+                view_id, mesh, colors, edge_references
+            )
 
         def finished(result: int) -> None:
             if result != QDialog.DialogCode.Accepted:
@@ -18527,12 +18722,81 @@ class MainWindow(QMainWindow):
             return {component.entity_id}
         if self.document is None:
             return set()
+        history = self.document.history_objects()
+        component_index = next((
+            index for index, candidate in enumerate(history)
+            if candidate.entity_id == component.entity_id
+        ), len(history))
         return {
             candidate.entity_id
-            for candidate in self.document.history_objects()
+            for candidate in history[:component_index]
             if candidate.container_type == ContainerType.COMPONENT
-            and candidate.entity_id != component.entity_id
         }
+
+    def _assembly_original_face_candidate(
+        self,
+        dialog: AssemblyComponentPropertiesDialog,
+        position: QPointF | QPoint | None,
+    ) -> tuple[ZimaEntity, int, str, str, tuple, tuple, ViewerMesh, str] | None:
+        """Pick a mate face from original component meshes, never Assembly result."""
+        if position is None or self.document is None:
+            return None
+        allowed_owner_ids = self._assembly_reference_pick_owner_ids(
+            dialog.component, dialog.active_pick[1]
+        )
+        original_results = getattr(
+            dialog, "_original_component_results", {}
+        )
+        hits = []
+        for owner_id in allowed_owner_ids:
+            for result, mesh, transform in original_results.get(owner_id, ()):
+                for depth, mesh_owner, face_index in self.native_viewer.faces_at_mesh(
+                    mesh, QPointF(position)
+                ):
+                    surface = result.surface(mesh_owner, face_index)
+                    face_reference = (
+                        parse_face_reference(surface.reference_id)
+                        if surface is not None else None
+                    )
+                    if (
+                        surface is None
+                        or surface.kind != "plane"
+                        or surface.origin is None
+                        or surface.normal is None
+                        or face_reference is None
+                    ):
+                        continue
+                    owner = self.document.find_entity(owner_id)
+                    if owner is None:
+                        continue
+                    descriptor = assembly_face_descriptor(AssemblyFaceRef(
+                        owner_id, face_reference
+                    ))
+                    origin = transform_point(transform, surface.origin)
+                    normal = tuple(
+                        sum(transform[row][axis] * surface.normal[axis]
+                            for axis in range(3))
+                        for row in range(3)
+                    )
+                    length = math.sqrt(sum(value * value for value in normal))
+                    if length <= 1.0e-12:
+                        continue
+                    normal = tuple(value / length for value in normal)
+                    hits.append((
+                        depth,
+                        owner,
+                        face_index,
+                        descriptor,
+                        f"{owner.name} / {face_reference.role}",
+                        origin,
+                        normal,
+                        mesh,
+                        mesh_owner,
+                    ))
+        if not hits:
+            return None
+        _depth, *candidate = max(hits, key=lambda item: item[0])
+        return tuple(candidate)
 
     @staticmethod
     def _assembly_mate_target_component_ids(
@@ -18657,9 +18921,17 @@ class MainWindow(QMainWindow):
             self._view_hover_parts.clear()
             self._view_hover_label.clear()
             return
+        assembly_reference_pick_active = (
+            self.assembly_component_dialog is not None
+            and self.assembly_component_dialog.isVisible()
+            and not self.assembly_component_dialog.selection_paused
+        )
         if (
-            self.point_constraint_dialog is not None
-            and self.point_constraint_dialog.isVisible()
+            (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            or assembly_reference_pick_active
         ):
             # Container Properties accept topology references only.  Never
             # offer or colour the complete historical container here.
@@ -18732,6 +19004,23 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
         if self._dimension_inspection_visuals:
+            return
+        if (
+            self.assembly_component_dialog is not None
+            and self.assembly_component_dialog.isVisible()
+            and not self.assembly_component_dialog.selection_paused
+        ):
+            # Assembly mate rows accept faces/axes, never a complete
+            # component container. A preview rebuild used to race with the
+            # one-shot topology setup and occasionally delivered this object
+            # signal instead. Restore the authoritative mate-picking mode and
+            # leave the active row unchanged.
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_selected_object(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self._configure_assembly_reference_picking()
             return
         selected_source_mesh = None
         force_clear = self._dismiss_view_selection_requested
@@ -19799,52 +20088,45 @@ class MainWindow(QMainWindow):
             or dialog.selection_paused
         ):
             return False
-        owner = (
-            self.document.find_entity(owner_id)
-            if self.document is not None
-            else None
+        original = self._assembly_original_face_candidate(
+            dialog, self.native_viewer._last_click_position
         )
-        scene = self._native_viewer_scene
-        surface = (
-            scene.surface_reference(owner_id, face_index)
-            if scene is not None
-            else None
-        )
-        if surface is None or surface.kind != "plane":
-            self.statusBar().showMessage(
-                tr("assembly.properties.planar_faces_only"), 4000
+        if original is not None:
+            (
+                owner,
+                original_face_index,
+                descriptor,
+                label,
+                origin,
+                normal,
+                _mesh,
+                _mesh_owner,
+            ) = original
+            self._register_lazy_assembly_frame(
+                dialog,
+                descriptor,
+                origin,
+                normal,
+                owner.entity_id == dialog.component.entity_id,
+            )
+            dialog.accept_face(
+                owner.entity_id,
+                original_face_index,
+                owner.name,
+                descriptor,
+                label,
             )
             return True
-        stable_face = (
-            self._stable_component_face_descriptor(owner, face_index)
-            if owner is not None
-            and owner.container_type == ContainerType.COMPONENT
-            else None
+        # A visible face of the evaluated Assembly result is deliberately not
+        # a mate reference. Only an original source-solid hit may enter a row.
+        self.statusBar().showMessage(
+            tr(
+                "assembly.properties.original_geometry_regeneration_required"
+                if getattr(dialog, "_incomplete_original_components", set())
+                else "assembly.properties.face_without_stable_identity"
+            ),
+            5000,
         )
-        if owner is None or stable_face is None:
-            self.statusBar().showMessage(
-                tr("assembly.properties.face_without_stable_identity"),
-                4000,
-            )
-            return True
-        if surface.origin is None or surface.normal is None:
-            return True
-        descriptor, label = stable_face
-        self._register_lazy_assembly_frame(
-            dialog,
-            descriptor,
-            surface.origin,
-            surface.normal,
-            owner.entity_id == dialog.component.entity_id,
-        )
-        if dialog.accept_face(
-            owner_id,
-            face_index,
-            owner.name,
-            descriptor,
-            label,
-        ):
-            self._select_native_tree_object(owner_id)
         return True
 
     def _source_topology_reference_at_cursor(
@@ -20925,6 +21207,37 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self._dimension_inspection_visuals:
             self.native_viewer._set_hovered_face(None)
+            return
+        assembly_dialog = self.assembly_component_dialog
+        if (
+            assembly_dialog is not None
+            and assembly_dialog.isVisible()
+            and not assembly_dialog.selection_paused
+        ):
+            original = self._assembly_original_face_candidate(
+                assembly_dialog,
+                self.native_viewer._last_model_hover_position,
+            )
+            if original is None:
+                self.native_viewer.set_source_topology_hover(None)
+                return
+            (
+                component,
+                original_face_index,
+                _descriptor,
+                _label,
+                _origin,
+                _normal,
+                original_mesh,
+                mesh_owner,
+            ) = original
+            self.native_viewer.set_source_topology_hover(
+                original_mesh.face_mesh(mesh_owner, original_face_index),
+                "face",
+            )
+            self._set_view_hover(
+                "face", component.entity_id, original_face_index
+            )
             return
         if self.native_viewer._cycled_topology_candidate == (
             "face",
@@ -22754,6 +23067,18 @@ class MainWindow(QMainWindow):
             if geometry is None:
                 return
             menu = QMenu(self)
+            text_properties_action = None
+            repeat_properties_action = None
+            repeat_region_id = str(geometry.get("repeat_region_id", ""))
+            if repeat_region_id:
+                repeat_properties_action = menu.addAction(
+                    "Vlastnosti BOM oblasti"
+                )
+            text_group = str(geometry.get("text_group", ""))
+            if geometry.get("text_role") == "anchor" and text_group:
+                text_properties_action = menu.addAction(
+                    tr("menu.context.text_properties")
+                )
             line_action = None
             if geometry.get("type") in ("segment", "construction"):
                 line_action = menu.addAction(
@@ -22786,7 +23111,13 @@ class MainWindow(QMainWindow):
             action = menu.exec(
                 self.native_viewer.mapToGlobal(position)
             )
-            if action == line_action:
+            if action == repeat_properties_action:
+                self._edit_repeat_region_for_entity(
+                    self._sketch_selected_entity_id
+                )
+            elif action == text_properties_action:
+                self._edit_sketch_text(text_group)
+            elif action == line_action:
                 self._toggle_sketch_line_type(
                     self._sketch_selected_entity_id
                 )
@@ -24159,6 +24490,7 @@ class MainWindow(QMainWindow):
         )[source_path] = source_document
 
         existing_components = self.document.history_objects()
+        fit_inserted_component = not existing_components
         insertion_x = 0.0
         source_shape = source_document.build_active_shape()
         if existing_components and source_shape is not None:
@@ -24201,7 +24533,10 @@ class MainWindow(QMainWindow):
         # Opening component properties rebuilds the scene once with its
         # selectable reference geometry.  Rebuilding here first used to
         # triangulate the complete assembly twice for every insertion.
-        self._edit_assembly_component(component)
+        self._edit_assembly_component(
+            component,
+            fit_view=fit_inserted_component,
+        )
 
     @staticmethod
     def _shape_bounds(shape) -> tuple[float, float, float, float, float, float] | None:
@@ -24671,6 +25006,7 @@ class MainWindow(QMainWindow):
         component: ZimaEntity,
         *,
         show_dialog: bool = True,
+        fit_view: bool = False,
     ) -> None:
         existing_dialog = self.assembly_component_dialog
         if existing_dialog is not None:
@@ -24744,6 +25080,64 @@ class MainWindow(QMainWindow):
         }
         dialog._reference_frames = frames
         dialog._source_frame_keys = source_frame_keys
+        original_component_results: dict[str, list[tuple]] = {}
+        incomplete_original_components: set[str] = set()
+        assembly_history = self.document.history_objects()
+        component_index = assembly_history.index(component)
+        for original_component in assembly_history[:component_index + 1]:
+            if original_component.container_type != ContainerType.COMPONENT:
+                continue
+            source_document = self._component_source_document(original_component)
+            if source_document is None:
+                continue
+            source_keys = source_document._shape_history_cache_keys(
+                source_document.history_objects_at(
+                    source_document.history_cursor()
+                )
+            )
+            calculated = (
+                source_document._body_result_cache.get(source_keys[-1])
+                if source_keys else None
+            )
+            if calculated is None:
+                continue
+            transform = coordinate_system_transform(
+                original_component.coordinate_system
+            )
+            original_component_results[original_component.entity_id] = [
+                (
+                    source_body,
+                    transform_viewer_mesh(source_body.mesh, transform),
+                    transform,
+                )
+                for source_body in calculated.source_bodies.values()
+            ]
+            source_history = source_document.history_objects_at(
+                source_document.history_cursor()
+            )
+            if (
+                not original_component_results[original_component.entity_id]
+                and len(source_history) > 1
+            ):
+                # This cache predates persisted source-body topology. Do not
+                # silently fall back to the final Part Body: that is exactly
+                # the result geometry Assembly mates must never reference.
+                incomplete_original_components.add(
+                    original_component.entity_id
+                )
+                source_document.regeneration_required = True
+                continue
+            # A one-container imported Part has no separate history result;
+            # its calculated body is itself the original solid.
+            if not original_component_results[original_component.entity_id]:
+                rebound = calculated.with_owner(original_component.entity_id)
+                original_component_results[original_component.entity_id] = [(
+                    rebound,
+                    transform_viewer_mesh(rebound.mesh, transform),
+                    transform,
+                )]
+        dialog._original_component_results = original_component_results
+        dialog._incomplete_original_components = incomplete_original_components
 
         def commit_mate_value(row_index: int, raw_value: str) -> None:
             try:
@@ -25353,6 +25747,8 @@ class MainWindow(QMainWindow):
                     ),
                 )
             self.rebuild_view(fit=False)
+            if dialog.isVisible() and not dialog.selection_paused:
+                self._configure_assembly_reference_picking()
             update_mate_dimensions(rows)
             highlight_active_reference(dialog.active_reference_descriptor())
 
@@ -25387,6 +25783,8 @@ class MainWindow(QMainWindow):
                 previous_component_transform,
             )
             self.rebuild_view(fit=False)
+            if dialog.isVisible() and not dialog.selection_paused:
+                self._configure_assembly_reference_picking()
 
         dialog.matesSubmitted.connect(apply_mates)
         dialog.matesSubmitted.connect(
@@ -25456,7 +25854,7 @@ class MainWindow(QMainWindow):
         if show_dialog:
             dialog.show()
             position_dialog_top_right_after_show(dialog)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        self.rebuild_view(fit=fit_view, rebuild_geometry=False)
         if show_dialog:
             # Do this after rebuild_view: generic selection synchronization
             # may otherwise restore object mode before Qt exposes the dialog.
@@ -28826,10 +29224,17 @@ class MainWindow(QMainWindow):
                 roll_degrees=roll_degrees,
             )
         else:
+            screen = self.native_viewer.screen()
+            pixels_per_millimeter = (
+                float(screen.logicalDotsPerInch()) / 25.4
+                if screen is not None
+                else 96.0 / 25.4
+            )
             self.native_viewer.animate_view_normal(
                 view_direction,
                 frame[0],
                 roll_degrees=roll_degrees,
+                pixels_per_world_unit=pixels_per_millimeter,
             )
 
     @classmethod
@@ -28889,6 +29294,8 @@ class MainWindow(QMainWindow):
     def _set_sketch_tool(self, tool: str) -> None:
         if self._sketch_edit_entity_id is None:
             return
+        if tool != "rectangle":
+            self._creating_repeat_region = False
         if tool == "text":
             if self._sketch_text_dialog is None:
                 dialog = SketchTextPropertiesDialog(self)
@@ -29077,6 +29484,7 @@ class MainWindow(QMainWindow):
         self._apply_sketch_text_dialog()
         self._sketch_text_edit_group = None
         self._sketch_text_edit_baseline = None
+        self._sketch_text_waiting_confirmation = False
         if self._sketch_edit_entity_id is not None and was_editing:
             self._set_sketch_tool("select")
         elif self._sketch_edit_entity_id is not None:
@@ -29106,6 +29514,7 @@ class MainWindow(QMainWindow):
                 self._refresh_sketch_overlay(populate_tree=False)
         self._sketch_text_edit_group = None
         self._sketch_text_edit_baseline = None
+        self._sketch_text_waiting_confirmation = False
         if self._sketch_edit_entity_id is not None and self._sketch_tool == "text":
             self._remove_pending_sketch_points()
             self._sketch_pending_points.clear()
@@ -29717,12 +30126,19 @@ class MainWindow(QMainWindow):
             if self._sketch_text_dialog is None:
                 self._set_sketch_tool("text")
                 return
+            if self._sketch_text_waiting_confirmation:
+                self._sketch_text_dialog.raise_()
+                self._sketch_text_dialog.activateWindow()
+                return
             # Text has one placement point. Unlike multi-point sketch tools,
-            # that anchor is an ordinary left-click step; MMB is not needed
-            # to finish it.
+            # that anchor is an ordinary left-click step.  Once placed, the
+            # view remains locked until the properties window is confirmed;
+            # subsequent clicks must not create another text accidentally.
             self._sketch_pending_points[:] = [(x, y)]
+            self._sketch_text_waiting_confirmation = True
             self._refresh_sketch_overlay()
-            self._commit_pending_sketch_text()
+            self._sketch_text_dialog.raise_()
+            self._sketch_text_dialog.activateWindow()
             return
         if (
             confirm_final
@@ -31601,13 +32017,27 @@ class MainWindow(QMainWindow):
             selected is not None
             and entity_id == self._sketch_selected_entity_id
         )
-        self._sketch_selected_entity_id = (
-            None
-            if deselecting
-            else entity_id
-            if selected is not None
-            else None
+        repeat_region_id = (
+            str(selected.get("repeat_region_id", ""))
+            if selected is not None else ""
         )
+        if repeat_region_id:
+            region_ids = {
+                str(entity.get("id", ""))
+                for entity in self._stored_sketch_entities(sketch)
+                if str(entity.get("repeat_region_id", "")) == repeat_region_id
+            }
+            self._sketch_selected_entity_id = None
+            self._sketch_selected_entity_ids = set() if deselecting else region_ids
+        else:
+            self._sketch_selected_entity_ids.clear()
+            self._sketch_selected_entity_id = (
+                None
+                if deselecting
+                else entity_id
+                if selected is not None
+                else None
+            )
         self._sketch_selected_reference = None
         self._sketch_selected_external_reference_id = None
         signals_were_blocked = self.native_viewer.blockSignals(True)
@@ -37811,13 +38241,18 @@ class MainWindow(QMainWindow):
         font = QFont(families[0] if families else "osifont")
         font.setPixelSize(1000)
         path = QPainterPath()
-        path.addText(QPointF(0.0, 0.0), font, value)
+        metrics = QFontMetricsF(font)
+        for line_index, line in enumerate(value.splitlines() or [""]):
+            path.addText(
+                QPointF(0.0, line_index * metrics.lineSpacing()),
+                font,
+                line,
+            )
         bounds = path.boundingRect()
         if bounds.height() <= 1.0e-9 or height <= 1.0e-9:
             return ()
         # The entered ISO text height is the capital height.  It must not
         # change with accents, lowercase letters or descenders in `value`.
-        metrics = QFontMetricsF(font)
         scale = height / max(metrics.capHeight(), 1.0)
         polygons: list[tuple[tuple[float, float], ...]] = []
         flatten_transform = QTransform.fromScale(scale, scale)
@@ -38692,26 +39127,178 @@ class MainWindow(QMainWindow):
             if constraint not in constraints:
                 constraints.append(constraint)
                 driven["constraints"] = constraints
+        repeat_region_id = (
+            f"BOM-{uuid4().hex[:8]}" if self._creating_repeat_region else ""
+        )
+        repeat_step = abs(opposite[1] - first[1])
+        created_geometry_ids: set[str] = set()
         for start_id, end_id in (
             (point_ids[0], point_ids[1]),
             (point_ids[1], point_ids[2]),
             (point_ids[2], point_ids[3]),
             (point_ids[3], point_ids[0]),
         ):
+            geometry_id = self._next_sketch_geometry_id(entities)
+            created_geometry_ids.add(geometry_id)
             entities.append({
-                "id": self._next_sketch_geometry_id(entities),
+                "id": geometry_id,
                 "type": "segment",
                 "point_ids": [start_id, end_id],
+                **({
+                    "repeat_region_id": repeat_region_id,
+                    "repeat_region_kind": "bom",
+                    "repeat_region_direction": "up",
+                    "repeat_region_step": repeat_step,
+                    "role": "repeat_region",
+                } if repeat_region_id else {}),
             })
         sketch.parameters["profile"] = "entities"
         self._store_sketch_entities(sketch, entities)
+        repeat_new_point_ids = set(self._sketch_pending_new_point_ids)
         self._sketch_pending_points.clear()
         self._sketch_pending_point_ids.clear()
         self._sketch_pending_new_point_ids.clear()
         self._sketch_pending_constraint = None
         self._sketch_rectangle_axis_mode = False
         self._sketch_rectangle_axis_id = None
+        if repeat_region_id:
+            self._creating_repeat_region = False
+            self._sketch_selected_entity_id = None
+            self._sketch_selected_entity_ids = created_geometry_ids
+            self._sketch_tool = "select"
         self._regenerate_active_sketch_constraints(sketch)
+        if repeat_region_id and created_geometry_ids:
+            self._repeat_region_new_point_ids = repeat_new_point_ids
+            self._edit_repeat_region_for_entity(
+                next(iter(created_geometry_ids)), is_new=True
+            )
+
+    def _start_bom_repeat_region(self, _checked: bool = False) -> None:
+        if (
+            self.document is None
+            or self._document_type(self.document) != "title_block"
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        self._set_sketch_tool("rectangle")
+        self._creating_repeat_region = True
+        self._rebuild_application_toolbar()
+
+    def _edit_repeat_region_for_entity(
+        self, entity_id: str, is_new: bool = False
+    ) -> None:
+        if self.document is None or self._sketch_edit_entity_id is None:
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        member = next((
+            item for item in entities
+            if str(item.get("id", "")) == entity_id
+        ), None)
+        region_id = str(member.get("repeat_region_id", "")) if member else ""
+        if not region_id:
+            return
+        members = [
+            item for item in entities
+            if str(item.get("repeat_region_id", "")) == region_id
+        ]
+        if not members:
+            return
+        if self._repeat_region_dialog is not None:
+            self._repeat_region_dialog.close()
+        dialog = RepeatRegionPropertiesDialog(self)
+        dialog.set_repeat_values(
+            str(members[0].get("repeat_region_direction", "up")),
+            float(members[0].get("repeat_region_step", 1.0)),
+        )
+        self._repeat_region_edit_id = region_id
+        self._repeat_region_is_new = is_new
+        self._repeat_region_baseline = {} if is_new else {
+            str(item.get("id", "")): copy.deepcopy(item)
+            for item in members
+        }
+        dialog.applyRequested.connect(self._apply_repeat_region_dialog)
+        dialog.accepted.connect(self._accept_repeat_region_dialog)
+        dialog.rejected.connect(self._cancel_repeat_region_dialog)
+        dialog.finished.connect(self._close_repeat_region_dialog)
+        self._repeat_region_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _apply_repeat_region_dialog(self) -> None:
+        if (
+            self._repeat_region_dialog is None
+            or self._repeat_region_edit_id is None
+            or self.document is None
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        direction, step = self._repeat_region_dialog.repeat_values()
+        entities = self._stored_sketch_entities(sketch)
+        for item in entities:
+            if str(item.get("repeat_region_id", "")) == self._repeat_region_edit_id:
+                item["repeat_region_direction"] = direction
+                item["repeat_region_step"] = step
+        self._store_sketch_entities(sketch, entities)
+        self._repeat_region_baseline = {
+            str(item.get("id", "")): copy.deepcopy(item)
+            for item in entities
+            if str(item.get("repeat_region_id", "")) == self._repeat_region_edit_id
+        }
+        self._refresh_sketch_overlay(populate_tree=False)
+
+    def _accept_repeat_region_dialog(self) -> None:
+        self._apply_repeat_region_dialog()
+
+    def _cancel_repeat_region_dialog(self) -> None:
+        if (
+            self.document is None
+            or self._sketch_edit_entity_id is None
+        ):
+            return
+        sketch = self.document.find_entity(self._sketch_edit_entity_id)
+        if sketch is None:
+            return
+        entities = self._stored_sketch_entities(sketch)
+        if self._repeat_region_is_new and not self._repeat_region_baseline:
+            entities = [
+                item for item in entities
+                if str(item.get("repeat_region_id", ""))
+                != self._repeat_region_edit_id
+            ]
+            used_point_ids = {
+                str(point_id)
+                for item in entities
+                for point_id in item.get("point_ids", ())
+            }
+            entities = [
+                item for item in entities
+                if not (
+                    item.get("type") == "point"
+                    and str(item.get("id", ""))
+                    in self._repeat_region_new_point_ids
+                    and str(item.get("id", "")) not in used_point_ids
+                )
+            ]
+        for index, item in enumerate(entities):
+            baseline = self._repeat_region_baseline.get(str(item.get("id", "")))
+            if baseline is not None:
+                entities[index] = copy.deepcopy(baseline)
+        self._store_sketch_entities(sketch, entities)
+        self._refresh_sketch_overlay(populate_tree=False)
+
+    def _close_repeat_region_dialog(self, _result: int) -> None:
+        self._repeat_region_dialog = None
+        self._repeat_region_edit_id = None
+        self._repeat_region_baseline = {}
+        self._repeat_region_is_new = False
+        self._repeat_region_new_point_ids.clear()
 
     def _commit_oriented_sketch_rectangle(
         self,
@@ -40592,7 +41179,12 @@ class MainWindow(QMainWindow):
                 lambda: self._reopen_sketch_properties(sketch_id),
             )
 
-    def _leave_sketch_edit(self, *, restore: bool) -> None:
+    def _leave_sketch_edit(
+        self,
+        *,
+        restore: bool,
+        restore_view: bool = True,
+    ) -> None:
         if self._sketch_edit_entity_id is None:
             return
         sketch_id = self._sketch_edit_entity_id
@@ -40687,7 +41279,13 @@ class MainWindow(QMainWindow):
         self._sketch_selected_external_reference_id = None
         self._populate_tree()
         self._rebuild_application_toolbar()
-        if (
+        if not restore_view:
+            # A tab switch installs another document immediately. Rebuilding
+            # and animating the old sketch's model scene here creates the
+            # unwanted 3D fly-through between two 2D template editors.
+            self._native_viewer_scene = None
+            self.native_viewer.clear_scene()
+        elif (
             self.document is not None
             and not restore
             and sketch_changed
@@ -40743,7 +41341,7 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.native_viewer.update()
-        if return_camera is not None:
+        if restore_view and return_camera is not None:
             self.native_viewer.animate_camera_state(return_camera)
         self.statusBar().showMessage(
             tr(
@@ -43967,7 +44565,34 @@ class MainWindow(QMainWindow):
                 source_shape,
                 owner_id=obj.entity_id,
             )
-            source_bodies[obj.entity_id] = BodyResult.from_mesh(source_mesh)
+            source_registry = standalone_topology_registry(
+                self.document, obj, source_shape
+            )
+            source_bodies[obj.entity_id] = BodyResult.from_mesh(
+                source_mesh,
+                face_reference_ids={
+                    (obj.entity_id, face_index): reference.serialize()
+                    for face_index in set(source_mesh.triangle_face_indices)
+                    if (reference := source_registry.reference_for_runtime_index(
+                        face_index
+                    )) is not None
+                },
+                edge_reference_ids={
+                    (obj.entity_id, edge.edge_index): reference.serialize()
+                    for edge in source_mesh.edges
+                    if edge.element_kind == "edge"
+                    and (reference := source_registry.edge_reference_for_runtime_index(
+                        edge.edge_index
+                    )) is not None
+                },
+                vertex_reference_ids={
+                    (obj.entity_id, point.point_index): reference.serialize()
+                    for point in source_mesh.points
+                    if (reference := source_registry.vertex_reference_for_runtime_index(
+                        point.point_index
+                    )) is not None
+                },
+            )
         QApplication.processEvents()
         invalid_features = [
             child
@@ -44131,6 +44756,46 @@ class MainWindow(QMainWindow):
             and current_body_cache_keys[-1]
             in self.document._body_result_cache
         )
+        if (
+            current_body_result_cached
+            and self.document.document_settings.get("type") == "assembly"
+        ):
+            cache_key = current_body_cache_keys[-1]
+            cached_result = self.document._body_result_cache.get(cache_key)
+            component_ids = {
+                component.entity_id
+                for component in self.document.history_objects_at(
+                    history_boundary
+                )
+                if component.container_type == ContainerType.COMPONENT
+            }
+            unstable_component_faces = any(
+                any(
+                    key.startswith(f"{component_id}:face:")
+                    for component_id in component_ids
+                )
+                and parse_assembly_face_descriptor(surface.reference_id) is None
+                for key, surface in getattr(
+                    cached_result, "faces", {}
+                ).items()
+            )
+            unstable_component_edges = any(
+                any(
+                    key.startswith(f"{component_id}:edge:")
+                    for component_id in component_ids
+                )
+                and parse_assembly_edge_descriptor(curve.reference_id) is None
+                for key, curve in getattr(
+                    cached_result, "edges", {}
+                ).items()
+            )
+            if unstable_component_faces or unstable_component_edges:
+                # Runtime face/edge indices cannot be admitted as Assembly
+                # mate references. Rebuild once from the component Parts so
+                # the scene receives persisted AssemblyFaceRef/AssemblyEdgeRef
+                # descriptors before any hover or click is handled.
+                self.document._body_result_cache.pop(cache_key, None)
+                current_body_result_cached = False
         if (
             cached_body_shape is None
             and reuse_body_geometry

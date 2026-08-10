@@ -10,6 +10,7 @@ BLACK: Point3 = (0.0, 0.0, 0.0)
 X_AXIS_COLOR: Point3 = (0.91, 0.30, 0.24)
 Y_AXIS_COLOR: Point3 = (0.18, 0.80, 0.44)
 Z_AXIS_COLOR: Point3 = (0.20, 0.60, 0.86)
+ARROW_HALF_ANGLE_DEGREES = 10.0
 
 
 @dataclass(frozen=True)

@@ -30,7 +30,7 @@ MASS_DENSITY = 7.850000E-06
 MASS_DENSITY = kg/mm^3
 
 [UserParameters]
-Order = nazev, norma, polotovar, material, mnozstvi, kreslil, schvalil, verze, datum, presnost, tolerovani, hmotnost_sestavy, mnozstvi_sestav, hmotnost
+Order = nazev, norma, polotovar, material, mnozstvi, kreslil, schvalil, verze, datum, presnost, tolerovani, hmotnost
 
 [UserParameterLabels]
 datum\cs = Datum
@@ -41,10 +41,6 @@ kreslil\cs = Kreslil
 kreslil\de = Gezeichnet von
 kreslil\en = Drew
 kreslil\fr = Dessiné par
-hmotnost_sestavy\cs = Hmotnost sestavy
-hmotnost_sestavy\de = Baugruppengewicht
-hmotnost_sestavy\en = Assembly weight
-hmotnost_sestavy\fr = Masse de l'assemblage
 hmotnost\cs = Hmotnost
 hmotnost\de = Gewicht
 hmotnost\en = Weight
@@ -57,10 +53,6 @@ mnozstvi\cs = Množství
 mnozstvi\de = Menge
 mnozstvi\en = Quantity
 mnozstvi\fr = Quantité
-mnozstvi_sestav\cs = Množství sestav
-mnozstvi_sestav\de = Baugruppenmenge
-mnozstvi_sestav\en = Assembly quantity
-mnozstvi_sestav\fr = Quantité d'assemblages
 nazev\cs = Název
 nazev\de = Name
 nazev\en = Name
@@ -102,8 +94,6 @@ verze = 00
 datum = 
 presnost = ISO 2768-mK
 tolerovani = ISO 8015
-hmotnost_sestavy = 
-mnozstvi_sestav = 
 hmotnost = 0
 
 [Relations]

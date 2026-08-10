@@ -15,7 +15,7 @@ from zima_cad.sketch_model import SketchModel
 
 
 TITLE_BLOCK_TOKEN_PATTERN = re.compile(
-    r"&([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)"
+    r"&((?:[^\W\d]|_)\w*(?:\.(?:[^\W\d]|_)\w*)*)"
 )
 
 
@@ -42,9 +42,20 @@ def title_block_token_scope(token: str) -> str:
     """Classify a token by the document which owns its editable value."""
     if token.startswith(("drawing.", "local.")):
         return "drawing"
-    if token.startswith(("document.", "sheet.")):
+    if token.startswith(("document.", "sheet.", "bom.")):
         return "system"
     return "model"
+
+
+def title_block_parameter_key(token: str, context: dict) -> str:
+    """Resolve a displayed/localized parameter name to its stable key."""
+    key = str(token)
+    if key.startswith("model."):
+        key = key.removeprefix("model.")
+    elif key.startswith("user_parameter."):
+        key = key.removeprefix("user_parameter.")
+    aliases = context.get("parameter_aliases", {})
+    return str(aliases.get(key, key)) if isinstance(aliases, dict) else key
 
 
 def resolve_title_block_text(
@@ -56,8 +67,14 @@ def resolve_title_block_text(
     """Resolve every token embedded in one title-block text field."""
     template = title_block_field_text(field)
     field_format = str(field.get("format", ""))
+    field_locale = str(field.get("locale", "cs")).strip() or "cs"
 
     def value(token: str) -> str:
+        bom_row = context.get("bom_row", {})
+        if token == "bom.item_number":
+            return str(bom_row.get("item", "")) if isinstance(bom_row, dict) else ""
+        if token == "bom.quantity":
+            return str(bom_row.get("quantity", "")) if isinstance(bom_row, dict) else ""
         if token == "document.file_stem":
             return str(context.get("file_stem", ""))
         if token == "sheet.format":
@@ -80,11 +97,14 @@ def resolve_title_block_text(
         if token.startswith(("drawing.", "local.")):
             key = token.split(".", 1)[1]
             return str(context.get("local_parameters", {}).get(key, ""))
-        if token.startswith("model."):
-            token = token.removeprefix("model.")
-        elif token.startswith("user_parameter."):
-            token = token.removeprefix("user_parameter.")
-        return str(context.get("parameters", {}).get(token, ""))
+        key = title_block_parameter_key(token, context)
+        localized_values = context.get("parameter_values", {}).get(key, {})
+        if isinstance(localized_values, dict):
+            if "" in localized_values:
+                return str(localized_values.get("", ""))
+            if field_locale in localized_values:
+                return str(localized_values.get(field_locale, ""))
+        return str(context.get("parameters", {}).get(key, ""))
 
     resolved = TITLE_BLOCK_TOKEN_PATTERN.sub(
         lambda match: value(match.group(1)),
@@ -156,7 +176,11 @@ def load_title_block(path: Path) -> dict:
     height = parser.getfloat("TitleBlock", "Height")
     if width <= 0.0 or height <= 0.0:
         raise ValueError("Title-block dimensions must be positive.")
+    locale = parser.get("TitleBlock", "Locale", fallback="cs").strip() or "cs"
     geometry, pens = load_native_geometry(parser, "Geometry")
+    for entity in geometry:
+        if entity.get("kind") == "text":
+            entity["locale"] = locale
     sketch_model = None
     if parser.has_option("Sketch", "Data"):
         sketch_model = SketchModel.from_dict(json.loads(parser.get("Sketch", "Data")))
@@ -243,7 +267,12 @@ def load_title_block(path: Path) -> dict:
         )
         if value is not None
     ]
+    for entity in geometry:
+        if entity.get("kind") == "text":
+            entity["locale"] = locale
     fields = _load_fields(parser, pens)
+    for field in fields:
+        field["locale"] = locale
     if sketch_model is not None:
         anchors = {
             str(point.attributes.get("template_field_id")): point
@@ -267,12 +296,27 @@ def load_title_block(path: Path) -> dict:
     schema_version = parser.getint(
         "TitleBlock", "SchemaVersion", fallback=1
     )
+    repeat_regions = []
+    for section in parser.sections():
+        if not section.startswith("RepeatRegion."):
+            continue
+        repeat_regions.append({
+            "id": section.removeprefix("RepeatRegion.").strip(),
+            "kind": parser.get(section, "Kind", fallback="generic").lower(),
+            "x": parser.getfloat(section, "X"),
+            "y": parser.getfloat(section, "Y"),
+            "width": parser.getfloat(section, "Width"),
+            "height": parser.getfloat(section, "Height"),
+            "direction": parser.get(section, "Direction", fallback="up").lower(),
+            "step": parser.getfloat(section, "Step", fallback=0.0),
+        })
     return {
         "schema_version": schema_version,
         "coordinate_system": (
             "bottom_right" if schema_version >= 3 else "bottom_left"
         ),
         "name": parser.get("TitleBlock", "Name", fallback=path.stem),
+        "locale": locale,
         "width": width,
         "height": height,
         "anchor": parser.get(
@@ -284,5 +328,6 @@ def load_title_block(path: Path) -> dict:
             min(geometry_y, default=0.0),
         ),
         "fields": fields,
+        "repeat_regions": repeat_regions,
         "pens": pens,
     }

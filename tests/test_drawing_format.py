@@ -85,7 +85,7 @@ Line001 = 0, 0, 1, 1, BLUE
             "ASSEMBLY_WEIGHT", "ASSEMBLY_QUANTITY",
         })
         self.assertEqual(fields["DRAWN_BY"]["text"], "&kreslil")
-        self.assertEqual(fields["DRAWN_BY"]["default"], "ING. VLADIMÍR ZIMA")
+        self.assertEqual(fields["DRAWN_BY"]["default"], "-")
         self.assertEqual(fields["DRAWN_BY"]["align"], "right")
         self.assertEqual(fields["DRAWN_BY"]["offset_y"], -0.7)
         self.assertEqual(fields["APPROVED_BY"]["text"], "&schvalil")
@@ -194,6 +194,39 @@ Line001 = 0, 0, 1, 1, BLUE
                 sheet={},
             ),
             "Číslo ZE0019-0200-0001.03 / A",
+        )
+
+    def test_czech_parameter_label_resolves_to_stable_model_key(self) -> None:
+        text = "&Název / &Materiál / &Číslo_položky"
+        self.assertEqual(
+            title_block_tokens(text),
+            ("Název", "Materiál", "Číslo_položky"),
+        )
+        self.assertEqual(
+            resolve_title_block_text(
+                {"text": "&Název / &Materiál"},
+                context={
+                    "parameters": {"nazev": "OBJÍMKA", "material": "S235JR"},
+                    "parameter_aliases": {
+                        "Název": "nazev",
+                        "Materiál": "material",
+                    },
+                },
+                sheet={},
+            ),
+            "OBJÍMKA / S235JR",
+        )
+
+    def test_bom_row_tokens_are_system_values(self) -> None:
+        self.assertEqual(title_block_token_scope("bom.item_number"), "system")
+        self.assertEqual(title_block_token_scope("bom.quantity"), "system")
+        self.assertEqual(
+            resolve_title_block_text(
+                {"text": "&bom.item_number / &bom.quantity"},
+                context={"bom_row": {"item": "3", "quantity": "7"}},
+                sheet={},
+            ),
+            "3 / 7",
         )
 
 

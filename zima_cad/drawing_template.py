@@ -253,6 +253,7 @@ def load_drawing_template(
         model = _legacy_model(parser, geometry_section, coordinate_width)
     if template_type == "title_block":
         _add_title_block_fields(model, parser, coordinate_width)
+        _add_repeat_region_helpers(model, parser)
     _strip_template_text_outlines(model)
 
     settings = default_document_settings()
@@ -398,6 +399,8 @@ def _native_geometry(model: SketchModel) -> list[tuple[str, str]]:
             )))))
 
     for item in entities:
+        if item.get("repeat_region_id"):
+            continue
         if item.get("text_role") in {"outline", "outline_point"}:
             continue
         if item.get("template_field_id"):
@@ -474,12 +477,111 @@ def _serialize(document: PartDocument) -> str:
     model = SketchModel.from_dict(json.loads(str(template_sketch(document).parameters["sketch_data"])))
     if template_type == "title_block":
         _store_title_block_fields(parser, model)
+        _store_repeat_regions(parser, model)
     parser["Sketch"] = {"Data": json.dumps(model.to_dict(), ensure_ascii=False, separators=(",", ":"))}
     geometry_section = "FrameGeometry" if template_type == "drawing_format" else "Geometry"
     parser[geometry_section] = dict(_native_geometry(model))
     buffer = io.StringIO()
     parser.write(buffer)
     return buffer.getvalue().rstrip() + "\n"
+
+
+def _add_repeat_region_helpers(
+    model: SketchModel,
+    parser: configparser.ConfigParser,
+) -> None:
+    """Expose persisted repeat regions as non-printing sketch helpers."""
+    next_point = 1
+    next_geometry = 1
+
+    def point_id() -> str:
+        nonlocal next_point
+        while f"p{next_point}" in model.points:
+            next_point += 1
+        result = f"p{next_point}"
+        next_point += 1
+        return result
+
+    def geometry_id() -> str:
+        nonlocal next_geometry
+        while f"g{next_geometry}" in model.geometry:
+            next_geometry += 1
+        result = f"g{next_geometry}"
+        next_geometry += 1
+        return result
+
+    for section in parser.sections():
+        if not section.startswith("RepeatRegion."):
+            continue
+        region_id = section.removeprefix("RepeatRegion.").strip() or "Region"
+        if any(
+            str(geometry.attributes.get("repeat_region_id", "")) == region_id
+            for geometry in model.geometry.values()
+        ):
+            continue
+        x = parser.getfloat(section, "X")
+        y = parser.getfloat(section, "Y")
+        width = parser.getfloat(section, "Width")
+        height = parser.getfloat(section, "Height")
+        corners = ((x, y), (x + width, y), (x + width, y + height), (x, y + height))
+        point_ids = []
+        for px, py in corners:
+            existing = next((
+                point.point_id for point in model.points.values()
+                if abs(point.x - px) <= 1.0e-9 and abs(point.y - py) <= 1.0e-9
+            ), None)
+            if existing is None:
+                existing = point_id()
+                model.add_point(SketchPoint(existing, px, py, construction=True))
+            point_ids.append(existing)
+        for index in range(4):
+            helper_id = geometry_id()
+            model.add_geometry(SketchGeometry(
+                helper_id,
+                GeometryType.SEGMENT,
+                (point_ids[index], point_ids[(index + 1) % 4]),
+                attributes={
+                    "repeat_region_id": region_id,
+                    "repeat_region_kind": parser.get(section, "Kind", fallback="bom"),
+                    "repeat_region_direction": parser.get(section, "Direction", fallback="up"),
+                    "repeat_region_step": parser.getfloat(section, "Step", fallback=height),
+                    "role": "repeat_region",
+                },
+            ))
+
+
+def _store_repeat_regions(
+    parser: configparser.ConfigParser,
+    model: SketchModel,
+) -> None:
+    groups: dict[str, list[SketchGeometry]] = {}
+    for geometry in model.geometry.values():
+        region_id = str(geometry.attributes.get("repeat_region_id", ""))
+        if region_id:
+            groups.setdefault(region_id, []).append(geometry)
+    for section in tuple(parser.sections()):
+        if section.startswith("RepeatRegion."):
+            parser.remove_section(section)
+    for region_id, geometry in groups.items():
+        point_ids = {
+            point_id for item in geometry for point_id in item.point_ids
+            if point_id in model.points
+        }
+        points = [model.points[point_id] for point_id in point_ids]
+        if not points:
+            continue
+        sample = geometry[0].attributes
+        x0, x1 = min(point.x for point in points), max(point.x for point in points)
+        y0, y1 = min(point.y for point in points), max(point.y for point in points)
+        parser[f"RepeatRegion.{region_id}"] = {
+            "Kind": str(sample.get("repeat_region_kind", "bom")),
+            "X": f"{x0:.12g}",
+            "Y": f"{y0:.12g}",
+            "Width": f"{x1 - x0:.12g}",
+            "Height": f"{y1 - y0:.12g}",
+            "Direction": str(sample.get("repeat_region_direction", "up")),
+            "Step": f"{float(sample.get('repeat_region_step', y1 - y0)):.12g}",
+        }
 
 
 def _store_title_block_fields(

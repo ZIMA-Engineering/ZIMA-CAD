@@ -20,6 +20,19 @@ zvolený nástroj aktivní a je připravený k dalšímu zadání. Samovolně se
 `Výběr` nepřepíná. Nástroj se ukončí rychlým dvojklikem prostředním tlačítkem,
 výslovným zvolením `Výběr` nebo zrušením příslušného dialogu.
 
+## Výchozí měřítko a text
+
+Běžná modelová skica se při prvním otevření přiblíží podle logického DPI
+aktuálního monitoru. Cílem je přibližně 1 modelový mm na 1 fyzický mm
+obrazovky. Přiblížení zůstává uživatelské a nejde o kalibrované měření.
+Rámečky `.frmz` a razítka `.tblz` místo toho při otevření zobrazí celý list.
+
+Po potvrzení kotevního bodu textu se otevřou společné interní
+**Vlastnosti skici**. Dokud uživatel nepotvrdí **OK**, **Použít** nebo
+**Zrušit**, view nesmí přijmout další bod textu. Editor používá víceřádkové
+pole přibližně pro pět řádků a ukládá zalomení řádků. Stejný dialog a stejné
+ovládání se používají při vytvoření i pozdější editaci textu.
+
 ## Základní princip
 
 Zadávání geometrie je postupné odebírání možností, tedy stupňů volnosti.

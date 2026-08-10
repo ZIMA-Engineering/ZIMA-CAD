@@ -143,8 +143,6 @@ def default_user_parameters() -> dict[str, str]:
         "datum": "",
         "presnost": "ISO 2768-mK",
         "tolerovani": "ISO 8015",
-        "hmotnost_sestavy": "",
-        "mnozstvi_sestav": "",
         "hmotnost": "",
     }
 
@@ -162,8 +160,6 @@ def default_user_parameter_order() -> list[str]:
         "datum",
         "presnost",
         "tolerovani",
-        "hmotnost_sestavy",
-        "mnozstvi_sestav",
         "hmotnost",
     ]
 
@@ -176,12 +172,6 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "de": "Gezeichnet von",
             "en": "Drew",
             "fr": "Dessiné par",
-        },
-        "hmotnost_sestavy": {
-            "cs": "Hmotnost sestavy",
-            "de": "Baugruppengewicht",
-            "en": "Assembly weight",
-            "fr": "Masse de l'assemblage",
         },
         "hmotnost": {
             "cs": "Hmotnost",
@@ -200,12 +190,6 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "de": "Menge",
             "en": "Quantity",
             "fr": "Quantité",
-        },
-        "mnozstvi_sestav": {
-            "cs": "Mno\u017estv\u00ed sestav",
-            "de": "Baugruppenmenge",
-            "en": "Assembly quantity",
-            "fr": "Quantit\u00e9 d'assemblages",
         },
         "nazev": {"cs": "N\u00e1zev", "de": "Name", "en": "Name", "fr": "Nom"},
         "presnost": {
@@ -4900,7 +4884,6 @@ def _register_feature_incidence_topology(
         registry.register_vertex,
     )
 
-
 def _resolved_face_refs_for_shape(
     registry: TopologyRegistry,
     face,
@@ -6071,7 +6054,7 @@ def create_empty_assembly() -> PartDocument:
     settings = default_document_settings()
     settings["type"] = "assembly"
     settings["body_visible"] = "true"
-    return PartDocument(
+    document = PartDocument(
         document_settings=settings,
         root=ZimaEntity(
             name="Assembly001",
@@ -6079,6 +6062,11 @@ def create_empty_assembly() -> PartDocument:
             combine_mode=CombineMode.NONE,
         ),
     )
+    document.relations = [{
+        "target": "hmotnost",
+        "expression": "model.mass",
+    }]
+    return document
 
 
 def create_empty_drawing() -> PartDocument:

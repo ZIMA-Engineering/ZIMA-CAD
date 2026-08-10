@@ -15,6 +15,7 @@ from zima_cad.model import (
     EntityKind,
     PartDocument,
     ZimaEntity,
+    active_face_registry,
     coordinate_system_transform,
     geometric_edge_reference,
     identity_transform,

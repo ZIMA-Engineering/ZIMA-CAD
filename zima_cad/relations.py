@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -78,21 +79,74 @@ def _density_kg_per_mm3(document) -> float:
 
 
 def model_values(document) -> tuple[SimpleNamespace, SimpleNamespace]:
-    shape = document.build_active_shape()
     volume = 0.0
     area = 0.0
-    if shape is not None and not shape.IsNull():
-        properties = GProp_GProps()
-        brepgprop.VolumeProperties(shape, properties)
-        volume = abs(float(properties.Mass()))
-        properties = GProp_GProps()
-        brepgprop.SurfaceProperties(shape, properties)
-        area = abs(float(properties.Mass()))
+    mass = 0.0
+    if document.document_settings.get("type") == "assembly":
+        from zima_cad.model import ContainerType
+        from zima_cad.storage import load_part_document
+
+        objects = document.history_objects_at(document.history_cursor())
+        document_cache = document.__dict__.setdefault(
+            "_assembly_component_document_cache", {}
+        )
+        for component in objects:
+            if component.container_type != ContainerType.COMPONENT:
+                continue
+            raw_path = str(component.parameters.get("source_path", "")).strip()
+            if not raw_path:
+                raise RelationError(
+                    f"Assembly component {component.name!r} has no source file"
+                )
+            source_path = Path(raw_path)
+            if not source_path.is_absolute():
+                assembly_path = document.source_file_path
+                if assembly_path is None:
+                    raise RelationError(
+                        f"Cannot resolve component {component.name!r} before "
+                        "the assembly is saved"
+                    )
+                source_path = assembly_path.parent / source_path
+            source_path = source_path.resolve()
+            source_document = document_cache.get(source_path)
+            if source_document is None:
+                try:
+                    source_document = load_part_document(source_path)
+                except (OSError, ValueError) as exc:
+                    raise RelationError(
+                        f"Cannot load assembly component {source_path}"
+                    ) from exc
+                document_cache[source_path] = source_document
+            shape = document.build_assembly_component_shape(
+                component,
+                objects,
+                source_document=source_document,
+            )
+            if shape is None or shape.IsNull():
+                continue
+            properties = GProp_GProps()
+            brepgprop.VolumeProperties(shape, properties)
+            component_volume = abs(float(properties.Mass()))
+            volume += component_volume
+            mass += component_volume * _density_kg_per_mm3(source_document)
+            properties = GProp_GProps()
+            brepgprop.SurfaceProperties(shape, properties)
+            area += abs(float(properties.Mass()))
+    else:
+        shape = document.build_active_shape()
+        if shape is not None and not shape.IsNull():
+            properties = GProp_GProps()
+            brepgprop.VolumeProperties(shape, properties)
+            volume = abs(float(properties.Mass()))
+            properties = GProp_GProps()
+            brepgprop.SurfaceProperties(shape, properties)
+            area = abs(float(properties.Mass()))
+        mass = volume * _density_kg_per_mm3(document)
     material = SimpleNamespace(density=_density_kg_per_mm3(document))
     model = SimpleNamespace(
         volume=volume,
         area=area,
-        mass=volume * material.density,
+        mass=mass,
     )
     return model, material
 

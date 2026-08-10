@@ -67,6 +67,8 @@ as the document model, geometric kernel integration and user workflows evolve.
   - Ctrl multi-selection in the tree and sketch view, rectangle selection and
     mirrored geometry with persistent point-pair symmetry constraints
 - remaining work:
+  - DXF import into the active Sketch with unit, layer and geometry mapping
+  - DXF export of Sketch geometry with preserved real dimensions
   - direct manipulation (dragging) of sketch points and geometry with the left
     mouse button, including live constraint solving during the drag
   - intelligent entity input with inference, snapping and predictable
@@ -150,6 +152,10 @@ as the document model, geometric kernel integration and user workflows evolve.
 - shell and thickness
 - holes and threads
 - mirrors and patterns
+- cutting a solid with a selected surface or surface body
+- surface modeling foundation: creation, trimming, extending, joining and
+  inspection of surface bodies
+- conversion workflows between suitable closed surface sets and solid bodies
 - robust feature history and reference recovery
 - additional Boolean and surface operations
 
@@ -203,6 +209,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - component colors stored per instance rather than globally
 - rename workflow updates component and external-reference file links
 - remaining work:
+  - DXF import from the Part and Assembly applications, with explicit creation
+    and placement of a Sketch instead of treating DXF as a solid body
   - add diagnostics and recovery for invalid, conflicting and redundant mates
   - extend stable semantic topology IDs to the remaining unsupported geometry
     and dependency workflows
@@ -211,7 +219,8 @@ as the document model, geometric kernel integration and user workflows evolve.
   - insertion and nesting of subassemblies
   - degrees-of-freedom visualization
   - interference and collision checking
-  - bill of materials
+  - extend the implemented title-block BOM Repeat Region into a complete
+    assembly BOM/table workflow with editing, sorting and production output
 
 ## 10. Drawing
 
@@ -258,6 +267,7 @@ as the document model, geometric kernel integration and user workflows evolve.
     text into the remaining drawing annotations
   - extend the implemented editable sheet-frame/title-block templates and
     parameter-driven fields with production zones and table workflows
-  - assembly drawings and bills of materials
+  - complete assembly drawing BOM/table workflows beyond the implemented
+    title-block Repeat Region, Item Number and Quantity fields
   - sheet-metal flat-pattern drawings
   - PDF and DXF export

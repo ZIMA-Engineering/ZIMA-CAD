@@ -10,6 +10,14 @@ visualization.
 Development plans and major feature milestones are tracked in
 [ROADMAP.md](ROADMAP.md).
 
+Current documentation:
+
+- [User manual](doc/UZIVATELSKY_MANUAL.md)
+- [Drawings, title blocks and BOM regions](doc/DRAWINGS.md)
+- [Assembly references and mates](doc/ASSEMBLY_REFERENCES.md)
+- [Sketcher interaction](doc/SKETCHER.md)
+- [Stable topology naming](doc/STABLE_TOPOLOGY_NAMING.md)
+
 ## License
 
 Copyright © 2026 Vladimir Zima.
@@ -125,9 +133,10 @@ feature suppression.
 
 Assembly components are rendered as separate shapes in an OCCT compound rather
 than being fused into one result. Loaded source Parts, evaluated shapes and
-document scenes are reused. Saving an open source Part invalidates every
-dependent assembly scene, so switching back to an assembly cannot display a
-stale component. Signature-validated compressed BREP caches are persisted for
+document scenes are reused. Changing an open source Part invalidates every
+dependent assembly scene; the dependency signature also covers its current
+unsaved geometry, so switching back to an assembly cannot display a stale
+component. Signature-validated compressed BREP caches are persisted for
 imported STEP Parts as well; an older imported Part gains this fast-load cache
 after it is opened and saved once. Interactive File/Open loads `.prtz` documents
 and prepares large embedded-STEP display meshes outside the Qt GUI thread, so
@@ -220,8 +229,8 @@ unsupported versions are rejected instead of being interpreted through silent
 legacy fallbacks. A future incompatible format change must increment the
 version and either provide a deliberate one-shot converter or clearly report
 that the older document is unsupported. The current clean original-solid
-reference model is document format `10`; format-9 result-body references are
-not migrated.
+reference model is document format `11`. Older result-body reference formats
+are not migrated.
 
 ## Configuration
 

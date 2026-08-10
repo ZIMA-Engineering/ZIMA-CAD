@@ -68,6 +68,7 @@ from zima_cad.spline_geometry import (
 )
 from zima_cad.opengl_platform import OPENGL_CONFIG, platform_shader
 from zima_cad.viewer_data import (
+    ARROW_HALF_ANGLE_DEGREES,
     Point3,
     SilhouetteEdge,
     ViewerMesh,
@@ -484,6 +485,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchViewClicked = Signal()
     sketchEntitySelected = Signal(str)
     sketchTextEditRequested = Signal(str)
+    sketchEntityEditRequested = Signal(str)
     sketchEntityAdditiveSelected = Signal(str)
     sketchEntitiesSelected = Signal(object, bool)
     sketchCornerRadiusSelected = Signal(str, str, str)
@@ -1093,13 +1095,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         roll_degrees: float = 0.0,
         duration_ms: int = ANIMATION_DURATION_MS,
+        pixels_per_world_unit: float | None = None,
     ) -> None:
         nx, ny, nz = normal
         length = sqrt(nx * nx + ny * ny + nz * nz)
         if length <= 1e-12:
             return
         target_yaw, target_pitch = camera_angles_for_view_direction(normal)
-        target_zoom = 1.0
+        target_zoom = (
+            max(1.0e-6, float(pixels_per_world_unit))
+            * max(self._scene_radius, 1.0e-9)
+            * 2.0
+            / max(1.0, float(self.height()))
+            if pixels_per_world_unit is not None
+            else 1.0
+        )
 
         target_center = (
             self._scene_center
@@ -3733,6 +3743,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self.sketchDimensionEditRequested.emit(dimension_key)
                 event.accept()
                 return
+            candidates = self._sketch_selection_candidates(event.position())
+            repeat_candidate = next((
+                entity_id for entity_id in candidates
+                if any(
+                    str(entity.get("id", "")) == entity_id
+                    and entity.get("repeat_region_id")
+                    for entity in self._sketch_entities
+                )
+            ), None)
+            if repeat_candidate is not None:
+                self.sketchEntityEditRequested.emit(repeat_candidate)
+                event.accept()
+                return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._sketch_frame is None
@@ -4530,7 +4553,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     perpendicular_x = -direction_y
                     perpendicular_y = direction_x
                     arrow_length = 10.0
-                    half_width = arrow_length * tan(radians(15.0))
+                    half_width = arrow_length * tan(radians(
+                        ARROW_HALF_ANGLE_DEGREES
+                    ))
                     base_x = endpoint.x() - direction_x * arrow_length
                     base_y = endpoint.y() - direction_y * arrow_length
                     arrow = QPolygonF(
@@ -4665,7 +4690,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ux, uy = dx / length, dy / length
             px, py = -uy, ux
             arrow_length = 10.0
-            arrow_half_width = arrow_length * tan(radians(15.0))
+            arrow_half_width = arrow_length * tan(radians(
+                ARROW_HALF_ANGLE_DEGREES
+            ))
             tail_length = 7.0
             outside = dimension.arrow_placement == "outside"
             arrow_sign = 1.0 if outside else -1.0
@@ -4930,7 +4957,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 inward_y /= inward_length
                 arrow_length = 10.0
                 tail_length = 7.0
-                half_width = arrow_length * tan(radians(15.0))
+                half_width = arrow_length * tan(radians(
+                    ARROW_HALF_ANGLE_DEGREES
+                ))
                 base_x = tip.x() - inward_x * arrow_length
                 base_y = tip.y() - inward_y * arrow_length
                 base = QPointF(base_x, base_y)
@@ -5022,7 +5051,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         perpendicular_x = -direction_y
         perpendicular_y = direction_x
         arrow_length = 10.0
-        arrow_half_width = arrow_length * tan(radians(15.0))
+        arrow_half_width = arrow_length * tan(radians(
+            ARROW_HALF_ANGLE_DEGREES
+        ))
         tail_length = 7.0
 
         def arrow(
@@ -5842,6 +5873,92 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if entity.get("type") == "point"
             and str(entity.get("id", ""))
         }
+        repeat_groups: dict[str, list[dict]] = {}
+        for entity in self._sketch_entities:
+            region_id = str(entity.get("repeat_region_id", ""))
+            if region_id:
+                repeat_groups.setdefault(region_id, []).append(entity)
+        hovered_repeat_region_id = next((
+            region_id
+            for region_id, members in repeat_groups.items()
+            if self._preview_sketch_entity_id in {
+                str(member.get("id", "")) for member in members
+            }
+        ), None)
+        for region_id, members in repeat_groups.items():
+            region_point_ids = {
+                point_id
+                for member in members
+                for point_id in map(str, member.get("point_ids", ()))
+                if point_id in point_positions
+            }
+            if not region_point_ids:
+                continue
+            local_points = [point_positions[point_id] for point_id in region_point_ids]
+            x0, x1 = min(p[0] for p in local_points), max(p[0] for p in local_points)
+            y0, y1 = min(p[1] for p in local_points), max(p[1] for p in local_points)
+            polygon = QPolygonF([
+                self._screen_point(self._camera_point(self._sketch_world_point(point)))
+                for point in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+            ])
+            member_ids = {str(member.get("id", "")) for member in members}
+            selected_region = bool(
+                member_ids & set(self._selected_sketch_entity_ids)
+                or self._selected_sketch_entity_id in member_ids
+            )
+            hovered_region = self._preview_sketch_entity_id in member_ids
+            color = (
+                cyan if selected_region
+                else QColor("#FF7A00") if hovered_region
+                else QColor("#A855F7")
+            )
+            center_local = ((x0 + x1) * 0.5, (y0 + y1) * 0.5)
+            direction = str(members[0].get("repeat_region_direction", "up"))
+            arrow_local = {
+                "up": (center_local[0], y1),
+                "down": (center_local[0], y0),
+                "left": (x0, center_local[1]),
+                "right": (x1, center_local[1]),
+            }.get(direction, (center_local[0], y1))
+            center_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(center_local))
+            )
+            arrow_screen = self._screen_point(
+                self._camera_point(self._sketch_world_point(arrow_local))
+            )
+            painter.setPen(QPen(color, 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawLine(center_screen, arrow_screen)
+            vector = arrow_screen - center_screen
+            length = hypot(vector.x(), vector.y())
+            if length > 1e-6:
+                ux, uy = vector.x() / length, vector.y() / length
+                nx, ny = -uy, ux
+                painter.setBrush(color)
+                arrow_length = 9.0
+                arrow_half_width = arrow_length * tan(radians(
+                    ARROW_HALF_ANGLE_DEGREES
+                ))
+                painter.drawPolygon(QPolygonF([
+                    arrow_screen,
+                    QPointF(
+                        arrow_screen.x() - ux * arrow_length
+                        + nx * arrow_half_width,
+                        arrow_screen.y() - uy * arrow_length
+                        + ny * arrow_half_width,
+                    ),
+                    QPointF(
+                        arrow_screen.x() - ux * arrow_length
+                        - nx * arrow_half_width,
+                        arrow_screen.y() - uy * arrow_length
+                        - ny * arrow_half_width,
+                    ),
+                ]))
+            painter.drawText(
+                QPointF(polygon.boundingRect().left() + 5.0,
+                        polygon.boundingRect().top() - 6.0),
+                "BOM Repeat Region",
+            )
         sketch_geometry_by_id = {
             str(entity.get("id", "")): entity
             for entity in self._sketch_entities
@@ -5933,6 +6050,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         equal_circle_markers: list[tuple[QPointF, str]] = []
         for entity in self._sketch_entities:
             entity_type = str(entity.get("type", ""))
+            repeat_region = bool(entity.get("repeat_region_id"))
             configured_pen = str(entity.get("pen", "")).upper()
             configured_color = (
                 QColor(str(load_drawing_style()["pens"][configured_pen]["color"]))
@@ -5956,6 +6074,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             previewed = (
                 str(entity.get("id", ""))
                 == self._preview_sketch_entity_id
+                or (
+                    repeat_region
+                    and str(entity.get("repeat_region_id", ""))
+                    == hovered_repeat_region_id
+                )
                 or any(
                     reference_id in hovered_reference_ids
                     for reference_id in (
@@ -6148,7 +6271,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         else QColor("#FFFFFF")
                     )
                     painter.setPen(QPen(text_color, 1.0))
-                    painter.drawText(text_origin, value)
+                    line_spacing = QFontMetrics(font).lineSpacing()
+                    for line_index, line in enumerate(value.splitlines() or [""]):
+                        painter.drawText(
+                            text_origin
+                            + QPointF(0.0, line_index * line_spacing),
+                            line,
+                        )
                     painter.restore()
                 point_color = (
                     cyan
@@ -6169,7 +6298,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 painter.drawPolyline(QPolygonF(points))
                 painter.setPen(QPen(yellow, 2.0))
             elif len(points) >= 2:
-                painter.setPen(QPen(configured_color, 2.0))
+                painter.setPen(QPen(
+                    QColor("#A855F7") if repeat_region else configured_color,
+                    2.0,
+                    Qt.PenStyle.DashLine if repeat_region else Qt.PenStyle.SolidLine,
+                ))
                 painter.drawPolyline(QPolygonF(points))
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -7808,7 +7941,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         font.setPixelSize(1000)
         metrics = QFontMetrics(font)
         value = str(entity.get("text_value", ""))
-        ink = QRectF(metrics.tightBoundingRect(value))
+        lines = value.splitlines() or [""]
+        ink = QRectF()
+        for line_index, line in enumerate(lines):
+            line_ink = QRectF(metrics.tightBoundingRect(line)).translated(
+                0.0, line_index * metrics.lineSpacing()
+            )
+            ink = line_ink if ink.isNull() else ink.united(line_ink)
         # Keep the declared CAD height independent of the glyphs contained
         # in this label.  It denotes cap height, not the current ink bounds.
         world_scale = max(float(entity.get("text_height", 10.0)), 0.01) / max(
@@ -11277,16 +11416,28 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         entity_candidates = list(
             dict.fromkeys(self._sketch_entity_candidates(position))
         )
+        repeat_region_ids = {
+            str(entity.get("id", ""))
+            for entity in self._sketch_entities
+            if entity.get("repeat_region_id")
+        }
+        repeat_regions = [
+            entity_id
+            for entity_id in entity_candidates
+            if entity_id in repeat_region_ids
+        ]
         direct_point_ids = self._direct_sketch_point_ids(position)
         direct_points = [
             entity_id
             for entity_id in entity_candidates
             if entity_id in direct_point_ids
+            and entity_id not in repeat_region_ids
         ]
         remaining_entities = [
             entity_id
             for entity_id in entity_candidates
             if entity_id not in direct_point_ids
+            and entity_id not in repeat_region_ids
         ]
         constraint_candidates = [
             f"constraint:{owner_id}:{constraint_index}"
@@ -11295,6 +11446,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             if bounds.adjusted(-5.0, -5.0, 5.0, 5.0).contains(position)
         ]
         candidates = [
+            *repeat_regions,
             *direct_points,
             *constraint_candidates,
             *remaining_entities,

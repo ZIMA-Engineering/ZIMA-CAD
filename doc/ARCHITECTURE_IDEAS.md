@@ -145,7 +145,8 @@ pojmenováním plochy.
   inkoustové stopy konkrétního řetězce.
 - Parametrická pole jsou sémantické textové entity s tokeny; renderer přes
   Sketch nedokresluje žádnou pevně naprogramovanou tabulku.
-- Zbývají řezy, detaily, kusovníky a další produkční výkresové funkce.
+- BOM Repeat Region v razítku včetně Item Number a Quantity je funkční.
+  Zbývají řezy, detaily a další produkční výkresové funkce.
 
 ## Parametry a relace
 

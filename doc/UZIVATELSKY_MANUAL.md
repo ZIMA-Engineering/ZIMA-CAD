@@ -288,6 +288,12 @@ roviny i natočení její osy X. Stejný převod kamery používá příkaz
 Po dokončení nebo opuštění skici se kamera plynule vrátí do polohy, kterou
 měla před vstupem do skicáře.
 
+První přiblížení běžné modelové skici vychází z logického DPI monitoru a míří
+přibližně na poměr 1 mm modelu ku 1 mm na obrazovce. Nejde o metrologicky
+přesné měřidlo, ale nově kreslená úsečka proto vizuálně odpovídá své skutečné
+délce podstatně lépe. Editor rámečku nebo razítka je výjimka: při otevření
+zobrazí celý list, aby zůstala dostupná celá šablona.
+
 Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
 **Obdélník**, **Kružnice**, **Oblouk** a **Spline**. Kružnice se zadává
 prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze určí
@@ -423,6 +429,13 @@ meshe, ale do `.asmz` se ukládá pouze stabilní reference původního solidu.
 Základní roviny počátku zůstávají standardně hnědé; oranžové jsou pouze při
 hoveru. Otevření Vlastností komponenty samo nezapíná zobrazení počátku.
 
+První pole vždy vybírá původní těleso právě umisťovaného dílu. Druhé pole
+vybírá pouze původní geometrii komponent, které jsou ve stromu před ním.
+Výsledné plochy po sestavových odečtech ani celé kontejnery nejsou platnou
+náhradou. Pokud starší cache dílu původní plochy neobsahuje, otevřete zdrojový
+Part, použijte **Regenerovat**, uložte jej a vraťte se do sestavy. Úplný
+datový kontrakt popisují [Reference a vazby sestavy](ASSEMBLY_REFERENCES.md).
+
 Po souososti zůstává volný posun a rotace podél společné osy. Dosednutí čelních
 ploch může uzamknout zbývající posun a následná dvojice bočních rovin pak
 automaticky nabízí úhlovou vazbu. Solver zachovává nejbližší platnou polohu a
@@ -461,10 +474,10 @@ aktuální dokumentový stav. Externí reference vytvořená v sestavě uchováv
 identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
 označí jako ztracená reference místo použití nesprávné geometrie.
 
-Po změně a uložení otevřeného Partu se zneplatní geometrická cache všech
-otevřených sestav, které tento soubor používají. Právě zobrazená sestava se
-obnoví ihned, ostatní při aktivaci svého tabu. Nezměněné komponenty zůstávají
-cacheované.
+Po změně otevřeného Partu se zneplatní geometrická cache všech otevřených
+sestav, které tento soubor používají; podpis závislosti zahrnuje i dosud
+neuložený aktuální stav. Právě zobrazená sestava se obnoví ihned, ostatní při
+aktivaci svého tabu. Nezměněné komponenty zůstávají cacheované.
 
 Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
 ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
@@ -565,6 +578,10 @@ Formáty a razítka jsou uloženy společně v adresáři `config/formats`. Při
 uložení se předchozí obsah automaticky archivuje jako `soubor.frmz.1`,
 `soubor.frmz.2` nebo obdobně `soubor.tblz.1`, `soubor.tblz.2`.
 
+Při vložení se definice rámečku i razítka uloží přímo do aktivního listu.
+Pozdější smazání, přejmenování nebo změna knihovního souboru již existující
+výkres nezmění. Každý list vícelistového výkresu má vlastní nezávislou kopii.
+
 Počátek každého listu leží v pravém dolním rohu. Kladná osa X směřuje zprava
 doleva a kladná osa Y zdola nahoru. Při změně formátu se proto list mění
 směrem doleva a nahoru a budoucí razítko může zůstat na místě.
@@ -620,9 +637,14 @@ Zaškrtávací skupina **Zobrazit popisek pohledu** obsahuje název, zdroj měř
 a měřítko. Nad obrysem pohledu zobrazí bílý popisek o velikosti 5 mm ve tvaru
 `Název` a `M1:1`; popisek lze samostatně vybrat a přesunout.
 
-První lineární výkresová kóta se vytváří výběrem dvou skutečných hran modelu
-a umístěním žluté kóty v listu.
+První lineární výkresová kóta se vytváří výběrem dvou rovnoběžných přímých
+hran modelu a umístěním žluté kóty v listu. Hover je oranžový, potvrzené hrany
+azurové, prostřední klik kótu umístí a prostřední dvojklik nástroj ukončí.
+Kóta drží stabilní reference a po změně rozměru zdrojového modelu se
+přepočítá. Plochy a obecné křivky zatím nelze kotovat.
 
-Rámečky a upravitelná parametrická razítka s ISO fontem jsou funkční. Zbývá
-dokončit řezy, detaily, úplnou sadu ISO kót, tolerance, pozice, popisky,
-technické symboly, kusovníky a export PDF/DXF.
+Rámečky, upravitelná parametrická razítka, česká i anglická mutace a BOM Repeat
+Region s funkcemi **Item Number** a **Quantity** jsou funkční. Zbývá dokončit
+řezy, detaily, úplnou sadu ISO kót, tolerance, pozice, popisky, technické
+symboly a export PDF/DXF. Podrobné ovládání a omezení jsou v dokumentu
+[Výkresy](DRAWINGS.md).

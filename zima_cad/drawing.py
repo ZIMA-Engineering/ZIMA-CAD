@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import copy
 import json
 import numpy as np
 from fractions import Fraction
@@ -18,6 +19,7 @@ from zima_cad.viewer_mesh import (
     edge_visible_in_display,
     silhouette_segments,
 )
+from zima_cad.viewer_data import ARROW_HALF_ANGLE_DEGREES
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -43,6 +45,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -563,6 +566,21 @@ def renderer_projection(
     ]
     visible_lines = _merge_projected_segments(visible_lines)
     hidden_lines = _merge_projected_segments(hidden_lines)
+    center_points = [
+        point
+        for group in (visible_lines, hidden_lines, wireframe, auxiliary)
+        for line in group
+        for point in line
+    ]
+    projection_center = (
+        [
+            (min(point[0] for point in center_points)
+             + max(point[0] for point in center_points)) * 0.5,
+            (min(point[1] for point in center_points)
+             + max(point[1] for point in center_points)) * 0.5,
+        ]
+        if center_points else [0.0, 0.0]
+    )
     visible_lines, hidden_lines, wireframe, auxiliary = _center_projected_groups(
         visible_lines, hidden_lines, wireframe, auxiliary
     )
@@ -571,6 +589,7 @@ def renderer_projection(
         "hidden_polylines": hidden_lines,
         "wireframe_polylines": wireframe,
         "auxiliary_polylines": auxiliary,
+        "projection_center": projection_center,
     }
 
 
@@ -928,6 +947,7 @@ class DrawingCanvas(QWidget):
     projectViewRequested = Signal(str)
     dimensionCreated = Signal()
     dimensionToolCancelled = Signal()
+    dimensionStatusChanged = Signal(str)
     viewDeleteRequested = Signal(str)
     viewMoveFinished = Signal()
     titleBlockFieldDoubleClicked = Signal(str)
@@ -955,10 +975,20 @@ class DrawingCanvas(QWidget):
         self._title_block_picture: QPicture | None = None
         self._title_block_picture_key: tuple | None = None
         self._title_block_field_screen_bounds: dict[str, QRectF] = {}
+        self._hovered_title_block_field_id: str | None = None
+        self._selected_title_block_field_id: str | None = None
         self._lineweight_preview = False
         self._dimension_tool_active = False
         self._dimension_references: list[dict] = []
+        self._dimension_hover_reference: dict | None = None
+        self._dimension_candidate_cycle: tuple[dict, ...] = ()
+        self._dimension_candidate_index = -1
         self._dimension_cursor_sheet: tuple[float, float] | None = None
+        self._dimension_middle_timer = QTimer(self)
+        self._dimension_middle_timer.setSingleShot(True)
+        self._dimension_middle_timer.timeout.connect(
+            self._commit_preview_dimension
+        )
         self._dragged_view_id: str | None = None
         self._drag_start_sheet: tuple[float, float] | None = None
         self._drag_view_start: tuple[float, float] | None = None
@@ -968,6 +998,9 @@ class DrawingCanvas(QWidget):
         self._drag_caption_start_sheet: tuple[float, float] | None = None
         self._drag_caption_position_start: tuple[float, float] | None = None
         self._view_render_data: dict[str, tuple[ViewerMesh, dict[str, str]]] = {}
+        self._view_edge_reference_ids: dict[
+            str, dict[tuple[str, int], str]
+        ] = {}
         self._runtime_view_geometry: dict[str, dict[str, Any]] = {}
         self._shaded_image_cache: dict[str, tuple[tuple[float, float], QImage, QPointF]] = {}
 
@@ -976,9 +1009,13 @@ class DrawingCanvas(QWidget):
         view_id: str,
         mesh: ViewerMesh,
         colors: dict[str, str] | None = None,
+        edge_reference_ids: dict[tuple[str, int], str] | None = None,
     ) -> None:
         view_id = str(view_id)
         self._view_render_data[view_id] = (mesh, dict(colors or {}))
+        self._view_edge_reference_ids[view_id] = dict(
+            edge_reference_ids or {}
+        )
         view = self._view_by_id(view_id)
         if view is None and self._pending_view is not None:
             if str(self._pending_view.get("id", "")) == view_id:
@@ -1007,10 +1044,16 @@ class DrawingCanvas(QWidget):
     def copy_view_render_data(self, source_id: str, target_id: str) -> None:
         data = self._view_render_data.get(str(source_id))
         if data is not None:
-            self.set_view_render_data(str(target_id), data[0], data[1])
+            self.set_view_render_data(
+                str(target_id),
+                data[0],
+                data[1],
+                self._view_edge_reference_ids.get(str(source_id)),
+            )
 
     def clear_view_render_data(self) -> None:
         self._view_render_data.clear()
+        self._view_edge_reference_ids.clear()
         self._runtime_view_geometry.clear()
         self._shaded_image_cache.clear()
         self.update()
@@ -1065,12 +1108,20 @@ class DrawingCanvas(QWidget):
     def set_dimension_tool(self, active: bool) -> None:
         self._dimension_tool_active = bool(active)
         self._dimension_references = []
+        self._dimension_hover_reference = None
+        self._dimension_candidate_cycle = ()
+        self._dimension_candidate_index = -1
         self._dimension_cursor_sheet = None
         if active:
-            self.setCursor(Qt.CursorShape.CrossCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
             self.setFocus()
+            self.dimensionStatusChanged.emit(
+                tr("drawing.dimension.status.select_first")
+            )
         else:
+            self._dimension_middle_timer.stop()
             self.unsetCursor()
+            self.dimensionStatusChanged.emit("")
         self.update()
 
     def set_format_definition(self, definition: dict | None) -> None:
@@ -1092,6 +1143,8 @@ class DrawingCanvas(QWidget):
         self._title_block_picture = None
         self._title_block_picture_key = None
         self._title_block_field_screen_bounds = {}
+        self._hovered_title_block_field_id = None
+        self._selected_title_block_field_id = None
         self.update()
 
     def set_title_block_context(self, context: dict | None) -> None:
@@ -1115,6 +1168,8 @@ class DrawingCanvas(QWidget):
     def set_sheet(self, sheet: dict, *, fit: bool = True) -> None:
         self._sheet = sheet
         self._pending_view = None
+        self._hovered_title_block_field_id = None
+        self._selected_title_block_field_id = None
         self._dragged_view_id = None
         self._drag_start_sheet = None
         self._drag_view_start = None
@@ -1494,6 +1549,8 @@ class DrawingCanvas(QWidget):
             round(self._pan.x(), 3),
             round(self._pan.y(), 3),
             self._lineweight_preview,
+            self._hovered_title_block_field_id,
+            self._selected_title_block_field_id,
         )
         if (
             self._title_block_picture_key == cache_key
@@ -1508,6 +1565,11 @@ class DrawingCanvas(QWidget):
         block_painter.setFont(painter.font())
         original_font = block_painter.font()
         pens = definition.get("pens", {})
+        bom_rows = list(self._title_block_context.get("head_rows", ()))
+        bom_region = next((
+            region for region in definition.get("repeat_regions", ())
+            if str(region.get("kind", "")) == "bom"
+        ), None)
         self._title_block_field_screen_bounds = {}
         bottom_right_coordinates = (
             definition.get("coordinate_system") == "bottom_right"
@@ -1517,6 +1579,42 @@ class DrawingCanvas(QWidget):
             if bottom_right_coordinates:
                 return self._screen_point(x, y)
             return self._screen_point(block_width - x, y)
+
+        def entity_in_region(entity: dict, region: dict | None) -> bool:
+            if region is None:
+                return False
+            x0 = float(region["x"])
+            y0 = float(region["y"])
+            x1 = x0 + float(region["width"])
+            y1 = y0 + float(region["height"])
+            coordinates = [
+                (entity.get("x"), entity.get("y")),
+                (entity.get("x1"), entity.get("y1")),
+                (entity.get("x2"), entity.get("y2")),
+            ]
+            present = [
+                (float(x), float(y)) for x, y in coordinates
+                if x is not None and y is not None
+            ]
+            return bool(present) and all(
+                x0 - 1.0e-6 <= x <= x1 + 1.0e-6
+                and y0 - 1.0e-6 <= y <= y1 + 1.0e-6
+                for x, y in present
+            )
+
+        def bom_context(row: dict | None) -> dict:
+            context = dict(self._title_block_context)
+            if isinstance(row, dict):
+                context["bom_row"] = row
+                for key in (
+                    "parameters",
+                    "parameter_values",
+                    "parameter_aliases",
+                    "file_stem",
+                ):
+                    if key in row:
+                        context[key] = row[key]
+            return context
 
         def draw_box_text(
             text: str,
@@ -1530,10 +1628,11 @@ class DrawingCanvas(QWidget):
             align: str = "left",
             vertical_align: str = "center",
             offset_y: float = 0.0,
+            color_override: QColor | None = None,
         ) -> None:
             pen_definition = pens[pen_name]
             block_painter.setPen(self._drawing_pen(
-                QColor(str(pen_definition["color"])),
+                color_override or QColor(str(pen_definition["color"])),
                 float(pen_definition["width"]),
             ))
             font = QFont(original_font)
@@ -1630,18 +1729,82 @@ class DrawingCanvas(QWidget):
                 radius = float(entity["radius"]) * self._pixels_per_mm
                 block_painter.drawEllipse(center, radius, radius)
             elif entity["kind"] == "text":
+                context = bom_context(bom_rows[0]) if (
+                    bom_rows and entity_in_region(entity, bom_region)
+                ) else self._title_block_context
                 draw_sketch_text(
                     resolve_title_block_text(
                         entity,
-                        context=self._title_block_context,
+                        context=context,
                         sheet=self._sheet,
                     ),
                     entity,
                 )
+        if bom_region is not None and len(bom_rows) > 1:
+            direction = str(bom_region.get("direction", "up"))
+            step = float(bom_region.get("step", 0.0)) or float(
+                bom_region.get("height", 0.0)
+            )
+            direction_vector = {
+                "up": (0.0, step),
+                "down": (0.0, -step),
+                "left": (step, 0.0),
+                "right": (-step, 0.0),
+            }.get(direction, (0.0, step))
+            region_entities = [
+                entity for entity in definition.get("geometry", [])
+                if entity_in_region(entity, bom_region)
+            ]
+            for row_index, row in enumerate(bom_rows[1:], start=1):
+                offset_x = direction_vector[0] * row_index
+                offset_y = direction_vector[1] * row_index
+                context = bom_context(row)
+                for entity in region_entities:
+                    pen_definition = pens[str(entity["pen"])]
+                    block_painter.setPen(self._drawing_pen(
+                        QColor(str(pen_definition["color"])),
+                        float(pen_definition["width"]),
+                    ))
+                    if entity["kind"] == "line":
+                        block_painter.drawLine(
+                            point(float(entity["x1"]) + offset_x,
+                                  float(entity["y1"]) + offset_y),
+                            point(float(entity["x2"]) + offset_x,
+                                  float(entity["y2"]) + offset_y),
+                        )
+                    elif entity["kind"] == "circle":
+                        center = point(
+                            float(entity["x"]) + offset_x,
+                            float(entity["y"]) + offset_y,
+                        )
+                        radius = float(entity["radius"]) * self._pixels_per_mm
+                        block_painter.drawEllipse(center, radius, radius)
+                    elif entity["kind"] == "text":
+                        shifted = dict(entity)
+                        shifted["anchor_x"] = float(
+                            entity.get("anchor_x", entity.get("x", 0.0))
+                        ) + offset_x
+                        shifted["anchor_y"] = float(
+                            entity.get("anchor_y", entity.get("y", 0.0))
+                        ) + offset_y
+                        draw_sketch_text(
+                            resolve_title_block_text(
+                                entity, context=context, sheet=self._sheet
+                            ),
+                            shifted,
+                        )
         for field in definition.get("fields", []):
             pen_definition = pens[str(field["pen"])]
+            field_id = str(field["id"])
+            highlight_color = (
+                QColor("#00D1FF")
+                if field_id == self._selected_title_block_field_id
+                else QColor("#FF8C00")
+                if field_id == self._hovered_title_block_field_id
+                else None
+            )
             block_painter.setPen(self._drawing_pen(
-                QColor(str(pen_definition["color"])),
+                highlight_color or QColor(str(pen_definition["color"])),
                 float(pen_definition["width"]),
             ))
             value = self._title_block_field_value(field)
@@ -1672,6 +1835,7 @@ class DrawingCanvas(QWidget):
                     align=str(field.get("align", "left")),
                     vertical_align=str(field.get("vertical_align", "center")),
                     offset_y=float(field.get("offset_y", 0.0)),
+                    color_override=highlight_color,
                 )
             else:
                 font = QFont(original_font)
@@ -1724,7 +1888,9 @@ class DrawingCanvas(QWidget):
         origin = self._screen_point(0.0, 0.0)
         axis_length = 40.0
         arrow_length = 10.0
-        arrow_half_width = arrow_length * tan(radians(15.0))
+        arrow_half_width = arrow_length * tan(radians(
+            ARROW_HALF_ANGLE_DEGREES
+        ))
         x_color = QColor.fromRgbF(*X_AXIS_COLOR, 1.0)
         y_color = QColor.fromRgbF(*Y_AXIS_COLOR, 1.0)
         x_end = QPointF(origin.x() - axis_length, origin.y())
@@ -1994,10 +2160,11 @@ class DrawingCanvas(QWidget):
             if data is None:
                 return None
             mesh, _colors = data
+            owner_id, edge_index = self._dimension_runtime_edge(reference)
             edge = next((
                 edge for edge in mesh.edges
-                if edge.owner_id == str(reference.get("owner_id", ""))
-                and edge.edge_index == int(reference.get("edge_index", -1))
+                if edge.owner_id == owner_id
+                and edge.edge_index == edge_index
             ), None)
             segment_index = int(reference.get("segment", -1))
             if edge is None or not 0 <= segment_index < len(edge.points) - 1:
@@ -2009,21 +2176,47 @@ class DrawingCanvas(QWidget):
             )
         return None
 
-    @staticmethod
-    def _edge_sheet_points(view: dict, edge: Any) -> list[tuple[float, float]]:
+    def _dimension_runtime_edge(self, reference: dict) -> tuple[str, int]:
+        view_id = str(reference.get("view_id", ""))
+        stable_reference = str(reference.get("topology_reference", ""))
+        if stable_reference:
+            resolved = next((
+                key
+                for key, value in self._view_edge_reference_ids.get(
+                    view_id, {}
+                ).items()
+                if value == stable_reference
+            ), None)
+            if resolved is not None:
+                return str(resolved[0]), int(resolved[1])
+            return "", -1
+        return (
+            str(reference.get("owner_id", "")),
+            int(reference.get("edge_index", -1)),
+        )
+
+    def _edge_sheet_points(
+        self, view: dict, edge: Any
+    ) -> list[tuple[float, float]]:
         horizontal, vertical, _depth = projection_axes(
             view.get("orientation", "isometric")
         )
         scale = float(view.get("scale", 1.0))
         center_x = float(view.get("x", 0.0))
         center_y = float(view.get("y", 0.0))
+        geometry = self._runtime_view_geometry.get(str(view.get("id", "")), {})
+        projection_center = geometry.get("projection_center", (0.0, 0.0))
+        projection_center_x = float(projection_center[0])
+        projection_center_y = float(projection_center[1])
         return [
             (
-                center_x - sum(
-                    horizontal[axis] * point[axis] for axis in range(3)
+                center_x - (
+                    sum(horizontal[axis] * point[axis] for axis in range(3))
+                    - projection_center_x
                 ) * scale,
-                center_y + sum(
-                    vertical[axis] * point[axis] for axis in range(3)
+                center_y + (
+                    sum(vertical[axis] * point[axis] for axis in range(3))
+                    - projection_center_y
                 ) * scale,
             )
             for point in edge.points
@@ -2043,14 +2236,14 @@ class DrawingCanvas(QWidget):
         nearest = QPointF(first.x() + ratio * dx, first.y() + ratio * dy)
         return hypot(point.x() - nearest.x(), point.y() - nearest.y())
 
-    def _dimension_segment_at(self, position: QPointF) -> dict | None:
+    def _dimension_segment_candidates(self, position: QPointF) -> tuple[dict, ...]:
+        candidates: list[tuple[float, dict]] = []
         view = self._view_at(position)
         if view is not None:
             view_id = str(view.get("id", ""))
             data = self._view_render_data.get(view_id)
             if data is not None:
                 mesh, _colors = data
-                best: tuple[float, Any, int] | None = None
                 for edge in mesh.edges:
                     if edge.element_kind != "edge":
                         continue
@@ -2062,31 +2255,125 @@ class DrawingCanvas(QWidget):
                         distance = self._point_segment_distance(
                             position, projected[index], projected[index + 1]
                         )
-                        if distance <= 8.0 and (
-                            best is None or distance < best[0]
-                        ):
-                            best = distance, edge, index
-                if best is not None:
-                    edge = best[1]
-                    return {
-                        "view_id": view_id,
-                        "topology_kind": "edge",
-                        "owner_id": edge.owner_id,
-                        "edge_index": edge.edge_index,
-                        "segment": best[2],
-                    }
-        return None
+                        if distance <= 8.0:
+                            stable_reference = self._view_edge_reference_ids.get(
+                                view_id, {}
+                            ).get((edge.owner_id, edge.edge_index))
+                            if not stable_reference:
+                                continue
+                            candidates.append((distance, {
+                                "view_id": view_id,
+                                "topology_kind": "edge",
+                                "owner_id": edge.owner_id,
+                                "edge_index": edge.edge_index,
+                                "segment": index,
+                                "topology_reference": stable_reference,
+                            }))
+        candidates.sort(key=lambda item: item[0])
+        unique: list[dict] = []
+        seen: set[tuple[str, str, int]] = set()
+        for _distance, reference in candidates:
+            key = (
+                str(reference.get("view_id", "")),
+                str(reference.get("topology_reference", "")),
+                0,
+            )
+            if key not in seen:
+                seen.add(key)
+                unique.append(reference)
+        return tuple(unique)
+
+    def _dimension_segment_at(self, position: QPointF) -> dict | None:
+        candidates = self._dimension_segment_candidates(position)
+        return candidates[0] if candidates else None
+
+    def _emit_dimension_status(self) -> None:
+        if not self._dimension_tool_active:
+            self.dimensionStatusChanged.emit("")
+            return
+        if len(self._dimension_references) == 2:
+            self.dimensionStatusChanged.emit(
+                tr("drawing.dimension.status.place")
+            )
+            return
+        reference = self._dimension_hover_reference
+        if reference is None:
+            key = (
+                "drawing.dimension.status.select_second"
+                if self._dimension_references
+                else "drawing.dimension.status.select_first"
+            )
+            self.dimensionStatusChanged.emit(tr(key))
+            return
+        view = self._view_by_id(str(reference.get("view_id", ""))) or {}
+        view_name = str(
+            view.get("name") or reference.get("view_id", "")
+        )
+        self.dimensionStatusChanged.emit(tr(
+            "drawing.dimension.status.edge_candidate",
+            edge=int(reference.get("edge_index", -1)) + 1,
+            view=view_name,
+            current=max(1, self._dimension_candidate_index + 1),
+            total=max(1, len(self._dimension_candidate_cycle)),
+        ))
+
+    def _dimension_reference_lines(
+        self, reference: dict
+    ) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+        view = self._view_by_id(str(reference.get("view_id", "")))
+        data = self._view_render_data.get(str(reference.get("view_id", "")))
+        if view is None or data is None:
+            return []
+        mesh, _colors = data
+        owner_id, edge_index = self._dimension_runtime_edge(reference)
+        edge = next((
+            edge for edge in mesh.edges
+            if edge.owner_id == owner_id
+            and edge.edge_index == edge_index
+        ), None)
+        if edge is None:
+            return []
+        points = self._edge_sheet_points(view, edge)
+        return list(zip(points, points[1:]))
 
     def _draw_dimension_selection(self, painter: QPainter) -> None:
-        pen = cosmetic_pen(QColor("#FFD400"))
-        painter.setPen(pen)
-        for reference in self._dimension_references:
-            segment = self._resolve_dimension_segment(reference)
-            if segment is not None:
+        if self._dimension_hover_reference is not None:
+            painter.setPen(cosmetic_pen(QColor("#FF8C00")))
+            for first, second in self._dimension_reference_lines(
+                self._dimension_hover_reference
+            ):
                 painter.drawLine(
-                    self._screen_point(*segment[0]),
-                    self._screen_point(*segment[1]),
+                    self._screen_point(*first), self._screen_point(*second)
                 )
+        painter.setPen(cosmetic_pen(QColor("#00D1FF")))
+        for reference in self._dimension_references:
+            for first, second in self._dimension_reference_lines(reference):
+                painter.drawLine(
+                    self._screen_point(*first), self._screen_point(*second),
+                )
+
+    def _commit_preview_dimension(self) -> None:
+        if (
+            not self._dimension_tool_active
+            or len(self._dimension_references) != 2
+            or self._dimension_cursor_sheet is None
+        ):
+            return
+        dimension = {
+            "id": str(uuid4()),
+            "type": "parallel_distance",
+            "first": dict(self._dimension_references[0]),
+            "second": dict(self._dimension_references[1]),
+            "placement": list(self._dimension_cursor_sheet),
+            "color": "#FFD400",
+        }
+        self._sheet.setdefault("dimensions", []).append(dimension)
+        self._dimension_references = []
+        self._dimension_hover_reference = None
+        self._dimension_cursor_sheet = None
+        self.dimensionCreated.emit()
+        self._emit_dimension_status()
+        self.update()
 
     def _draw_dimension(self, painter: QPainter, dimension: dict) -> None:
         first_reference = dimension.get("first")
@@ -2137,7 +2424,9 @@ class DrawingCanvas(QWidget):
         ux, uy = dx / screen_length, dy / screen_length
         px, py = -uy, ux
         arrow_length = max(5.0, 3.0 * self._pixels_per_mm)
-        half_width = max(2.0, arrow_length / 3.0)
+        half_width = arrow_length * tan(radians(
+            ARROW_HALF_ANGLE_DEGREES
+        ))
         painter.setBrush(yellow)
         painter.drawPolygon(QPolygonF((
             first_screen,
@@ -2190,6 +2479,20 @@ class DrawingCanvas(QWidget):
                 candidates.append((area, view))
         return min(candidates, key=lambda item: item[0])[1] if candidates else None
 
+    def _title_block_field_at(self, position: QPointF) -> str | None:
+        definition = self._title_block_definition or {}
+        editable_ids = {
+            str(field.get("id", ""))
+            for field in definition.get("fields", [])
+            if bool(field.get("editable", True))
+        }
+        return next((
+            field_id
+            for field_id, bounds in self._title_block_field_screen_bounds.items()
+            if field_id in editable_ids
+            and bounds.adjusted(-3.0, -3.0, 3.0, 3.0).contains(position)
+        ), None)
+
     def wheelEvent(self, event: QWheelEvent) -> None:
         before = self._sheet_point(event.position())
         factor = 1.0 / 1.15 if event.angleDelta().y() > 0 else 1.15
@@ -2200,6 +2503,17 @@ class DrawingCanvas(QWidget):
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.MiddleButton
+            and self._dimension_tool_active
+        ):
+            if len(self._dimension_references) == 2:
+                self._dimension_cursor_sheet = self._sheet_point(event.position())
+                self._dimension_middle_timer.start(
+                    QApplication.doubleClickInterval()
+                )
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._last_mouse = event.position().toPoint()
@@ -2208,7 +2522,7 @@ class DrawingCanvas(QWidget):
             return
         if event.button() == Qt.MouseButton.LeftButton and self._dimension_tool_active:
             if len(self._dimension_references) < 2:
-                reference = self._dimension_segment_at(event.position())
+                reference = self._dimension_hover_reference
                 if reference is not None and reference not in self._dimension_references:
                     if (
                         self._dimension_references
@@ -2231,23 +2545,27 @@ class DrawingCanvas(QWidget):
                             event.accept()
                             return
                     self._dimension_references = candidate
+                    self._emit_dimension_status()
                     self.update()
                 event.accept()
                 return
-            sheet_position = self._sheet_point(event.position())
-            dimension = {
-                "id": str(uuid4()),
-                "type": "parallel_distance",
-                "first": dict(self._dimension_references[0]),
-                "second": dict(self._dimension_references[1]),
-                "placement": [sheet_position[0], sheet_position[1]],
-                "color": "#FFD400",
-            }
-            self._sheet.setdefault("dimensions", []).append(dimension)
-            self._dimension_references = []
-            self._dimension_cursor_sheet = None
-            self.dimensionCreated.emit()
-            self.update()
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.RightButton and self._dimension_tool_active:
+            candidates = self._dimension_segment_candidates(event.position())
+            if candidates:
+                if candidates != self._dimension_candidate_cycle:
+                    self._dimension_candidate_cycle = candidates
+                    self._dimension_candidate_index = 0
+                else:
+                    self._dimension_candidate_index = (
+                        self._dimension_candidate_index + 1
+                    ) % len(candidates)
+                self._dimension_hover_reference = candidates[
+                    self._dimension_candidate_index
+                ]
+                self._emit_dimension_status()
+                self.update()
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton and self._pending_view is not None:
@@ -2256,6 +2574,16 @@ class DrawingCanvas(QWidget):
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            field_id = self._title_block_field_at(event.position())
+            if field_id is not None:
+                self._selected_title_block_field_id = field_id
+                self._selected_view_id = None
+                self._selected_caption_view_id = None
+                self.viewSelected.emit("")
+                self.update()
+                event.accept()
+                return
+            self._selected_title_block_field_id = None
             caption_view_id = self._caption_at(event.position())
             self._selected_caption_view_id = caption_view_id
             if caption_view_id is not None:
@@ -2297,6 +2625,19 @@ class DrawingCanvas(QWidget):
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
+            field_id = self._title_block_field_at(event.position())
+            if field_id is not None:
+                self._selected_title_block_field_id = field_id
+                self._selected_view_id = None
+                self.update()
+                menu = QMenu(self)
+                properties_action = menu.addAction(
+                    tr("drawing.title_block_field.text_properties")
+                )
+                if menu.exec(event.globalPosition().toPoint()) == properties_action:
+                    self.titleBlockFieldDoubleClicked.emit(field_id)
+                event.accept()
+                return
             view = self._view_at(event.position())
             menu = QMenu(self)
             if view is None:
@@ -2349,17 +2690,41 @@ class DrawingCanvas(QWidget):
             self.update()
         elif self._dimension_tool_active:
             self._dimension_cursor_sheet = self._sheet_point(event.position())
+            candidates = self._dimension_segment_candidates(event.position())
+            if candidates != self._dimension_candidate_cycle:
+                self._dimension_candidate_cycle = candidates
+                self._dimension_candidate_index = 0 if candidates else -1
+            self._dimension_hover_reference = (
+                candidates[self._dimension_candidate_index]
+                if candidates and self._dimension_candidate_index >= 0
+                else None
+            )
+            self._emit_dimension_status()
             self.update()
         elif self._pending_view is not None:
             self._cursor_sheet_position = self._sheet_point(event.position())
             self._update_projection_preview()
             self.update()
         else:
+            field_id = self._title_block_field_at(event.position())
+            if field_id != self._hovered_title_block_field_id:
+                self._hovered_title_block_field_id = field_id
+                self.update()
             view = self._view_at(event.position())
-            hovered = str(view.get("id", "")) if view else None
+            hovered = (
+                str(view.get("id", ""))
+                if view is not None and field_id is None
+                else None
+            )
             if hovered != self._hovered_view_id:
                 self._hovered_view_id = hovered
                 self.update()
+
+    def leaveEvent(self, event) -> None:
+        if self._hovered_title_block_field_id is not None:
+            self._hovered_title_block_field_id = None
+            self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
@@ -2390,15 +2755,20 @@ class DrawingCanvas(QWidget):
             event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.MiddleButton
+            and self._dimension_tool_active
+        ):
+            self._dimension_middle_timer.stop()
+            self.set_dimension_tool(False)
+            self.dimensionToolCancelled.emit()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._pending_view is None:
-            field_id = next((
-                field_id
-                for field_id, bounds in self._title_block_field_screen_bounds.items()
-                if bounds.adjusted(-3.0, -3.0, 3.0, 3.0).contains(
-                    event.position()
-                )
-            ), None)
+            field_id = self._title_block_field_at(event.position())
             if field_id is not None:
+                self._selected_title_block_field_id = field_id
+                self.update()
                 self.titleBlockFieldDoubleClicked.emit(field_id)
                 event.accept()
                 return
@@ -2426,6 +2796,7 @@ class DrawingCanvas(QWidget):
             if self._dimension_references:
                 self._dimension_references = []
                 self._dimension_cursor_sheet = None
+                self._emit_dimension_status()
                 self.update()
             else:
                 self.set_dimension_tool(False)
@@ -2620,8 +2991,11 @@ class DrawingWorkspace(QWidget):
         view_id: str,
         mesh: ViewerMesh,
         colors: dict[str, str] | None = None,
+        edge_reference_ids: dict[tuple[str, int], str] | None = None,
     ) -> None:
-        self.canvas.set_view_render_data(view_id, mesh, colors)
+        self.canvas.set_view_render_data(
+            view_id, mesh, colors, edge_reference_ids
+        )
 
     def set_title_block_context(self, context: dict | None) -> None:
         self._title_block_context = dict(context or {})
@@ -2703,9 +3077,9 @@ class DrawingWorkspace(QWidget):
         self.format_combo.blockSignals(True)
         self.format_combo.setCurrentText(str(sheet.get("format", "A4")))
         self.format_combo.blockSignals(False)
-        self.remove_format_button.setEnabled(bool(sheet.get("format_template")))
+        self.remove_format_button.setEnabled(bool(sheet.get("format_definition")))
         self.remove_title_block_button.setEnabled(
-            bool(sheet.get("title_block_template"))
+            bool(sheet.get("title_block_definition"))
         )
         self.default_scale_numerator_spin.blockSignals(True)
         self.default_scale_spin.blockSignals(True)
@@ -2731,17 +3105,10 @@ class DrawingWorkspace(QWidget):
 
     def _load_active_format(self) -> None:
         sheet = self.active_sheet()
-        format_name = str(sheet.get("format_template", "")) if sheet else ""
-        if not format_name:
-            self.canvas.set_format_definition(None)
-            return
-        path = Path(format_name)
-        if not path.is_absolute():
-            path = self.formats_directory / path
-        try:
-            self.canvas.set_format_definition(load_drawing_format(path))
-        except (OSError, ValueError, configparser.Error):
-            self.canvas.set_format_definition(None)
+        definition = sheet.get("format_definition") if sheet else None
+        self.canvas.set_format_definition(
+            copy.deepcopy(definition) if isinstance(definition, dict) else None
+        )
 
     def _choose_format(self) -> None:
         file_name, _selected_filter = QFileDialog.getOpenFileName(
@@ -2761,11 +3128,8 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None:
             return
-        try:
-            stored_path = path.resolve().relative_to(self.formats_directory)
-        except ValueError:
-            stored_path = path.resolve()
-        sheet["format_template"] = str(stored_path)
+        sheet["format_source_name"] = path.name
+        sheet["format_definition"] = copy.deepcopy(definition)
         sheet["format"] = definition["sheet_format"]
         sheet["orientation"] = definition["orientation"]
         sheet["document_type"] = definition["document_type"]
@@ -2774,19 +3138,10 @@ class DrawingWorkspace(QWidget):
 
     def _load_active_title_block(self) -> None:
         sheet = self.active_sheet()
-        template_name = (
-            str(sheet.get("title_block_template", "")) if sheet else ""
+        definition = sheet.get("title_block_definition") if sheet else None
+        self.canvas.set_title_block_definition(
+            copy.deepcopy(definition) if isinstance(definition, dict) else None
         )
-        if not template_name:
-            self.canvas.set_title_block_definition(None)
-            return
-        path = Path(template_name)
-        if not path.is_absolute():
-            path = self.title_blocks_directory / path
-        try:
-            self.canvas.set_title_block_definition(load_title_block(path))
-        except (OSError, ValueError, configparser.Error):
-            self.canvas.set_title_block_definition(None)
 
     def _choose_title_block(self) -> None:
         file_name, _selected_filter = QFileDialog.getOpenFileName(
@@ -2808,11 +3163,8 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None:
             return
-        try:
-            stored_path = path.resolve().relative_to(self.title_blocks_directory)
-        except ValueError:
-            stored_path = path.resolve()
-        sheet["title_block_template"] = str(stored_path)
+        sheet["title_block_source_name"] = path.name
+        sheet["title_block_definition"] = copy.deepcopy(definition)
         self.canvas.set_title_block_definition(definition)
         self.remove_title_block_button.setEnabled(True)
         self._store()
@@ -2821,7 +3173,8 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None:
             return
-        sheet.pop("format_template", None)
+        sheet.pop("format_definition", None)
+        sheet.pop("format_source_name", None)
         sheet.pop("document_type", None)
         self.canvas.set_format_definition(None)
         self.remove_format_button.setEnabled(False)
@@ -2831,7 +3184,8 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None:
             return
-        sheet.pop("title_block_template", None)
+        sheet.pop("title_block_definition", None)
+        sheet.pop("title_block_source_name", None)
         self.canvas.set_title_block_definition(None)
         self.remove_title_block_button.setEnabled(False)
         self._store()
@@ -2890,18 +3244,26 @@ class DrawingWorkspace(QWidget):
         sheet = self.active_sheet()
         if sheet is None or value not in SHEET_FORMATS:
             return
-        had_frame = bool(sheet.get("format_template"))
+        had_frame = bool(sheet.get("format_definition"))
         sheet["format"] = value
         sheet["orientation"] = "portrait" if value == "A4" else "landscape"
         if had_frame:
             matching_frame = self.formats_directory / f"ZE-{value}.frmz"
             if matching_frame.is_file():
-                sheet["format_template"] = matching_frame.name
+                try:
+                    definition = load_drawing_format(matching_frame)
+                except (OSError, ValueError, configparser.Error):
+                    sheet.pop("format_definition", None)
+                    sheet.pop("format_source_name", None)
+                else:
+                    sheet["format_definition"] = copy.deepcopy(definition)
+                    sheet["format_source_name"] = matching_frame.name
             else:
-                sheet.pop("format_template", None)
+                sheet.pop("format_definition", None)
+                sheet.pop("format_source_name", None)
         self._load_active_format()
         self._apply_title_block_context()
-        self.remove_format_button.setEnabled(bool(sheet.get("format_template")))
+        self.remove_format_button.setEnabled(bool(sheet.get("format_definition")))
         self.canvas.set_sheet(sheet, fit=True)
         self._store()
 
