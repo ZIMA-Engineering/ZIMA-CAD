@@ -18704,9 +18704,10 @@ class MainWindow(QMainWindow):
     def _configure_assembly_reference_picking(self) -> None:
         """Put the viewport unconditionally into Assembly mate pick mode."""
         self.native_viewer.set_selection_enabled(True)
-        # Plane mates must not be stolen by ordinary boundary edges.  The
-        # surface filter keeps datum planes and real BREP faces selectable.
-        self.native_viewer.set_selection_filter("surface")
+        # Plane mates must not be stolen by ordinary boundary edges, while
+        # datum/generated axes must remain selectable.  This combined filter
+        # admits surfaces and axis/centreline curves, but no ordinary edges.
+        self.native_viewer.set_selection_filter("surface_axis")
         self.native_viewer.set_interaction_mode("topology")
         self.native_viewer.set_topology_owner_filter(None)
         self.native_viewer.set_excluded_topology_owners(set())
@@ -24953,6 +24954,12 @@ class MainWindow(QMainWindow):
                 ))
             source_document = self._component_source_document(owner)
             if source_document is not None:
+                # A linked Part may have been loaded before generated feature
+                # axes were materialized.  Build the choice/owner whitelist
+                # from the same synchronized persisted model that the scene
+                # renderer consumes, otherwise the axis is visible but can
+                # neither hover nor be accepted as an Assembly reference.
+                source_document.sync_generated_axes()
                 pending = list(source_document.root.children)
                 while pending:
                     source_entity = pending.pop()
@@ -25431,7 +25438,7 @@ class MainWindow(QMainWindow):
                         )
                         if origin is not None:
                             allowed_owner_ids.add(origin.entity_id)
-            self.native_viewer.set_selection_filter("surface")
+            self.native_viewer.set_selection_filter("surface_axis")
             self.native_viewer.set_topology_owner_filter(allowed_owner_ids)
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:

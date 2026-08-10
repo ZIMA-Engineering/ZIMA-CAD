@@ -1873,7 +1873,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def set_selection_filter(self, selection_filter: str) -> None:
         if selection_filter not in {
             "all", "face", "edge", "point", "axis", "plane", "normal",
-            "surface",
+            "surface", "surface_axis",
         }:
             raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
         if selection_filter == self._selection_filter:
@@ -11724,8 +11724,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     candidates.append(
                         ("point", marker.owner_id, marker.point_index)
                     )
-        if include_model_topology or self._selection_filter in {"all", "edge", "axis"}:
+        if include_model_topology or self._selection_filter in {
+            "all", "edge", "axis", "surface_axis"
+        }:
             for edge in mesh.edges:
+                if (
+                    self._selection_filter in {"axis", "surface_axis"}
+                    and edge.element_kind not in {"axis", "centerline"}
+                ):
+                    continue
                 if (
                     not edge_visible_in_display(edge, self._display_mode)
                     and not (
@@ -11751,7 +11758,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ("edge", edge.owner_id, edge.edge_index)
                     )
         if include_model_topology or self._selection_filter in {
-            "all", "plane", "normal", "surface"
+            "all", "plane", "normal", "surface", "surface_axis"
         }:
             for plane in mesh.planes:
                 projected = [
@@ -11770,7 +11777,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ("plane", plane.owner_id, plane.plane_index)
                     )
         if include_model_topology or self._selection_filter in {
-            "all", "face", "normal", "surface"
+            "all", "face", "normal", "surface", "surface_axis"
         }:
             # A tolerant bounding-box query already covers the neighbouring
             # pixels used by topology cycling.  Running five complete face
@@ -11853,7 +11860,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def _pick_plane(self, position: QPointF) -> TopologyKey | None:
-        if self._selection_filter not in {"all", "plane", "normal", "surface"}:
+        if self._selection_filter not in {
+            "all", "plane", "normal", "surface", "surface_axis"
+        }:
             return None
         mesh = self._mesh
         if mesh is None:
@@ -12031,7 +12040,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     ) -> TopologyKey | None:
         if (
             allowed_element_kinds is None
-            and self._selection_filter not in {"all", "edge"}
+            and self._selection_filter
+            not in {"all", "edge", "axis", "surface_axis"}
         ):
             return None
         mesh = self._mesh
@@ -12056,7 +12066,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             ):
                 continue
-            if self._selection_filter == "axis":
+            if self._selection_filter in {"axis", "surface_axis"}:
                 if edge.element_kind not in {"axis", "centerline"}:
                     continue
             elif self._selection_filter not in {"all", "edge"}:
@@ -12104,7 +12114,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             not ignore_selection_filter
             and self._selection_filter
-            not in {"all", "face", "normal", "surface"}
+            not in {"all", "face", "normal", "surface", "surface_axis"}
         ):
             return None
         mesh = self._mesh

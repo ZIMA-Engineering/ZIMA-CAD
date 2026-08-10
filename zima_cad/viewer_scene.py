@@ -344,8 +344,24 @@ def build_document_viewer_scene_data(
                                 obj.entity_id,
                                 reference,
                             ))
-            source_document = (component_documents or {}).get(obj.entity_id)
-            if show_user_axes and source_document is not None:
+        if component_body_layers:
+            body_mesh = combine_viewer_meshes(tuple(component_body_layers))
+        # Component bodies may come from the persisted Assembly result, in
+        # which case the body-building loop above is intentionally skipped.
+        # Datum/generated axes are independent viewer data and must still be
+        # appended from each linked Part document.
+        if show_user_axes:
+            for obj in assembly_objects:
+                if (
+                    obj.container_type != ContainerType.COMPONENT
+                    or not document.is_effectively_visible(obj.entity_id)
+                ):
+                    continue
+                source_document = (component_documents or {}).get(
+                    obj.entity_id
+                )
+                if source_document is None:
+                    continue
                 source_document.sync_generated_axes()
                 component_transform = coordinate_system_transform(
                     obj.coordinate_system
@@ -359,8 +375,6 @@ def build_document_viewer_scene_data(
                         layers,
                         shapes_by_owner_id,
                     )
-        if component_body_layers:
-            body_mesh = combine_viewer_meshes(tuple(component_body_layers))
     elif document.body_is_suppressed():
         for obj in document.history_objects_at(boundary):
             if not document.is_effectively_visible(obj.entity_id):

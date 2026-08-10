@@ -989,6 +989,66 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(len(face_queries), 1)
         self.assertEqual(face_queries[0][1]["bounds_tolerance"], 4.0)
 
+    def test_assembly_reference_filter_includes_axes_but_not_body_edges(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = SimpleNamespace(
+            points=(),
+            edges=(
+                SimpleNamespace(
+                    element_kind="edge",
+                    topology_role="sharp",
+                    owner_id="body",
+                    edge_index=1,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                ),
+                SimpleNamespace(
+                    element_kind="axis",
+                    topology_role="datum",
+                    owner_id="origin",
+                    edge_index=2,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                ),
+            ),
+            planes=(),
+        )
+        viewer._selection_filter = "surface_axis"
+        viewer._display_mode = "shaded_with_edges"
+        viewer._display_edge_points = lambda edge: edge.points
+        viewer._camera_point = lambda point: point
+        viewer._screen_point = lambda point: QPointF(point[0], point[1])
+        viewer._face_hits = lambda *_args, **_kwargs: []
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        candidates = viewer.topology_candidates_at(QPointF(5.0, 0.0))
+
+        self.assertEqual(candidates, (("edge", "origin", 2),))
+
+    def test_assembly_reference_hover_picks_generated_axis(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = SimpleNamespace(
+            is_empty=False,
+            edges=(
+                EdgePolyline(
+                    edge_index=1,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                    owner_id="component:generated-axis",
+                    element_kind="centerline",
+                ),
+            ),
+        )
+        viewer._selection_filter = "surface_axis"
+        viewer._display_mode = "shaded_with_edges"
+        viewer._display_edge_points = lambda edge: edge.points
+        viewer._camera_point = lambda point: point
+        viewer._screen_point = lambda point: QPointF(point[0], point[1])
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        picked = viewer._pick_edge(QPointF(5.0, 0.0))
+
+        self.assertEqual(picked, ("component:generated-axis", 1))
+
     def test_cycled_hidden_face_preview_is_not_replaced_by_cursor_hit(self) -> None:
         window = MainWindow.__new__(MainWindow)
         window._dimension_inspection_visuals = ()
@@ -1114,10 +1174,43 @@ class DrawingViewConventionTests(unittest.TestCase):
         window._configure_assembly_reference_picking()
 
         self.assertIn(("set_selection_enabled", True), calls)
-        self.assertIn(("set_selection_filter", "surface"), calls)
+        self.assertIn(("set_selection_filter", "surface_axis"), calls)
         self.assertIn(("set_interaction_mode", "topology"), calls)
         self.assertIn(("set_excluded_topology_owners", set()), calls)
         self.assertIn(("set_large_mesh_topology_enabled", True), calls)
+
+    def test_assembly_choices_sync_generated_solid_axes_before_picking(self) -> None:
+        source_document = create_empty_part()
+        source_container = source_document.create_container(
+            "Cylinder001", ContainerType.CYLINDER
+        )
+        cylinder = source_document.create_primitive(
+            source_container.entity_id, EntityKind.CYLINDER
+        )
+        cylinder.children.clear()
+
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component001", ContainerType.COMPONENT
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._component_source_document = (
+            lambda candidate: source_document
+            if candidate.entity_id == component.entity_id
+            else None
+        )
+
+        choices = window._assembly_plane_choices(component, True)
+
+        generated_axis = next(
+            child for child in cylinder.children
+            if child.parameters.get("generated_axis") == "true"
+        )
+        descriptor = (
+            f"{component.entity_id}:datum_axis:{generated_axis.entity_id}"
+        )
+        self.assertIn(descriptor, {choice[1] for choice in choices})
 
     def test_lazy_assembly_pick_filter_contains_real_components(self) -> None:
         assembly = create_empty_assembly()

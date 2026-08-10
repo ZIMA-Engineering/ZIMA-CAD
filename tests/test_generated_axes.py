@@ -7,10 +7,13 @@ from zima_cad.model import (
     EntityKind,
     SketchRole,
     ZimaEntity,
+    create_empty_assembly,
     create_empty_part,
     delete_child_entity,
 )
+from zima_cad.body_result import BodyResult
 from zima_cad.sketch_model import GeometryType, SketchGeometry, SketchModel, SketchPoint
+from zima_cad.viewer_data import ViewerMesh
 from zima_cad.viewer_scene import build_document_viewer_scene_data
 
 
@@ -137,6 +140,71 @@ class GeneratedAxisTests(unittest.TestCase):
         visible = build_document_viewer_scene_data(document, show_user_axes=True)
         self.assertNotIn(axis_id, hidden.shapes_by_owner_id)
         self.assertIn(axis_id, visible.shapes_by_owner_id)
+
+    def test_cached_assembly_still_displays_linked_generated_axes(self):
+        source_document = create_empty_part()
+        source_container = source_document.create_container(
+            "Protrusion001", ContainerType.PROTRUSION
+        )
+        source_container.coordinate_system.rotation = (90.0, 0.0, 90.0)
+        sketch = source_document.create_sketch(
+            source_container.entity_id, "xz", SketchRole.PROFILE
+        )
+        model = SketchModel()
+        model.add_point(SketchPoint("center", 12.0, 7.0))
+        model.add_geometry(SketchGeometry(
+            "circle001", GeometryType.CIRCLE, ("center",), {"radius": 3.0}
+        ))
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        feature = ZimaEntity(
+            "Protrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "20",
+                "extent_mode": "one_side",
+                "direction": "forward",
+            },
+        )
+        source_container.add_child(feature)
+
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component001", ContainerType.COMPONENT
+        )
+        empty_mesh = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+        cache_key = assembly._shape_history_cache_keys(
+            assembly.history_objects()
+        )[-1]
+        assembly._body_result_cache[cache_key] = BodyResult.from_mesh(empty_mesh)
+
+        scene = build_document_viewer_scene_data(
+            assembly,
+            component_documents={component.entity_id: source_document},
+            show_user_axes=True,
+        )
+
+        generated_axis = next(
+            child for child in feature.children
+            if child.parameters.get("generated_axis") == "true"
+        )
+        displayed_owner = f"{component.entity_id}:{generated_axis.entity_id}"
+        self.assertIn(displayed_owner, scene.shapes_by_owner_id)
+        self.assertTrue(any(
+            edge.owner_id == displayed_owner
+            and edge.element_kind == "centerline"
+            for edge in scene.mesh.edges
+        ))
 
 
 if __name__ == "__main__":
