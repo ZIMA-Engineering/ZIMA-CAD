@@ -199,6 +199,12 @@ def load_title_block(path: Path) -> dict:
                 })
 
         for entity in entities:
+            # Repeat-region geometry is an editor-only boundary marker.  The
+            # real table geometry inside it is what gets copied for each BOM
+            # row; rendering this marker would cover those lines with its own
+            # editor pen.
+            if entity.get("repeat_region_id"):
+                continue
             if entity.get("text_role") in {"outline", "outline_point"}:
                 continue
             if entity.get("template_field_id"):

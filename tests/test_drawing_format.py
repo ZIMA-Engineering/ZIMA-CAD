@@ -69,6 +69,24 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(definition["height"], 60.0)
         self.assertEqual(definition["coordinate_system"], "bottom_right")
         self.assertEqual(definition["content_origin"], (10.0, 10.0))
+        bom_region = definition["repeat_regions"][0]
+        bom_lines = [
+            entity for entity in definition["geometry"]
+            if entity["kind"] == "line"
+            and all(
+                bom_region["x"] <= float(entity[key])
+                <= bom_region["x"] + bom_region["width"]
+                for key in ("x1", "x2")
+            )
+            and all(
+                bom_region["y"] <= float(entity[key])
+                <= bom_region["y"] + bom_region["height"]
+                for key in ("y1", "y2")
+            )
+        ]
+        self.assertTrue(any(entity["pen"] == "WHITE" for entity in bom_lines))
+        self.assertTrue(any(entity["pen"] == "YELLOW" for entity in bom_lines))
+        self.assertFalse(any(entity["pen"] == "GREEN" for entity in bom_lines))
         self.assertTrue(any(
             entity.get("text") == "ZIMA-Engineering"
             for entity in definition["geometry"]
