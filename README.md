@@ -90,6 +90,10 @@ container keeps its own local frame. Plane, Sketch, Protrusion and Revolve
 also have an independent work-plane/profile offset; this offset does not move
 the container origin. Solid dimensions opened by double-clicking a feature are
 anchored on that actual offset profile plane.
+An Axis container can use a persisted circular edge or cylindrical surface as
+its centreline and a following planar reference to place its origin at the
+line-plane intersection. The same reference contract applies in Part and to
+an active component instance in Assembly.
 
 The Assembly workflow supports inserted part instances, live placement,
 planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate

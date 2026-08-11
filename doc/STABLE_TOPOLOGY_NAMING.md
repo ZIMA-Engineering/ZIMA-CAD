@@ -96,6 +96,12 @@ The central implementation is active, not only a design proposal:
   values; OCCT section history only locates the transient runtime shapes;
 - point, edge and face references survive tested parent dimension/profile
   edits, save/reload and automatic descendant regeneration;
+- calculated viewer packets persist circular-curve frames and infer a
+  cylindrical surface only when every triangulated face vertex satisfies the
+  stored circular radius about the same axis. Axis-container placement can
+  therefore consume a circular edge or cylinder plus a terminating plane
+  without OCCT traversal during hover or selection; cones are explicitly not
+  classified as cylinders;
 - unresolved or ambiguous registry entries do not silently select another
   runtime shape.
 

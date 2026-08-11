@@ -130,6 +130,15 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 - Tabulka polohy přijme nejvýše tři konstrukční reference pro určení
   počátku. Orientační reference mají samostatné dva sloty a do této tabulky
   se nepřidávají.
+- Kontejner **Osa** lze umístit výběrem kruhové hrany nebo válcové plochy
+  původního solidu. První reference určí středovou přímku: použije uložený
+  střed kružnice a její normálu, respektive uloženou osu válce. Protože tato
+  reference ještě neurčuje polohu počátku podél osy, výběr se automaticky
+  přepne na plochy. Následující rovinná plocha umístí počátek osy do svého
+  průsečíku se středovou přímkou. Poté se obnoví běžný výběrový filtr.
+- Kuželová plocha ani obecné zaoblení se pro vytvoření středové osy
+  nepovažují za válcovou plochu. Zaoblení je nadále možné obejít výběrem
+  odpovídající původní kruhové hrany, pokud taková stabilní hrana existuje.
 - Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
   referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
   ukazatel DOF nadále popisuje určenost základního rámce.
@@ -299,6 +308,11 @@ Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
 prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze určí
 poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
 rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
+
+Při kreslení úsečky směrem k lokální ose X nebo Y se přichycení k ose kombinuje
+s nabízenou vodorovnou nebo svislou vazbou. Koncový bod proto skončí přesně na
+ose a úsečka se současně srovná v nabízeném směru; nevznikne pouze přibližná
+vizuální shoda.
 
 Název **Konstrukční čára** označuje konkrétní čárový prvek určený dvěma
 řídicími body. Může nést vazby a kóty, ale nevstupuje do profilu Protrusion.

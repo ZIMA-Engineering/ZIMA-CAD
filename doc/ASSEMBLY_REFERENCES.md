@@ -40,6 +40,13 @@ Plocha se ukládá jako `AssemblyFaceRef`, kruhová hrana jako
 zdrojovou `FaceRef` nebo `EdgeRef`. Do `.asmz` se neukládá pořadové číslo
 plochy či hrany ve výsledném meshi.
 
+Analytická data kruhové hrany (`origin`, `direction`, `radius`) a válcové
+plochy (`origin`, `axis`, `radius`) jsou součástí persistovaných viewer dat.
+Stejný mechanismus proto může v Partu i v aktivované instanci sestavy vytvořit
+kontejner Osa ve středu válce bez živého procházení OCCT topologie. Volitelná
+následující rovinná reference určí počátek této osy jako průsečík roviny se
+středovou přímkou.
+
 Při otevření vlastností nebo zvýraznění se používají již uložená data. OCCT
 smí být vyvolán pouze explicitním výpočtem tělesa, například přes **Použít**,
 **OK** nebo regeneraci modelu; hover, výběr a otevření dialogu nesmějí skrytě
