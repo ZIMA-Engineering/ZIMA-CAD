@@ -66,3 +66,26 @@
   properties, or hover code paths. A user action may invoke OCCT only when it
   explicitly requests a body calculation such as Apply, OK, or model
   regeneration.
+
+## Viewer selection contracts
+
+- Hover, left-click confirmation, and right-click cycling must consume one
+  common ordered candidate list produced by the viewer. An active command may
+  filter that list through its selection contract, but must not run a parallel
+  picker, use different hit tolerances, or recompute a different candidate on
+  click. RMB changes only the active index in the same list.
+- Every active command owns an explicit viewer selection contract defining
+  what is displayed, offered on hover, accepted on click, and persisted.
+- With no active command, Assembly selects complete components and Part
+  selects individual history containers. Hover uses the orange wire and a
+  confirmed selection uses the cyan wire; ordinary result-body topology is
+  not offered.
+- Stable feature, container, Sketcher, and Assembly-mate references use the
+  persisted faces, edges, vertices/points, axes, and planes of original
+  objects/solids. Result Part/Assembly body topology and transient previews
+  are not valid reference owners.
+- Fillet and Chamfer are explicit exceptions: they select edges of the real
+  input body at the operation boundary. This operational body selection is
+  not a general persisted placement reference.
+- Highlight only the exact candidate geometry. Do not colour, tint, or add a
+  coloured overlay for an entire body when offering a topology reference.

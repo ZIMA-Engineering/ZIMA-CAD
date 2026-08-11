@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from math import sqrt
 from typing import Any
 
@@ -152,6 +153,8 @@ def build_document_viewer_scene_data(
     preview_plane_offset: float = 0.0,
     uncut_component_id: str | None = None,
     uncut_component_shape: Any | None = None,
+    uncut_component_mesh: ViewerMesh | None = None,
+    component_mesh_overrides: dict[str, ViewerMesh] | None = None,
     component_documents: dict[str, PartDocument] | None = None,
     cached_body_shape: Any | None = None,
     cached_body_mesh: ViewerMesh | None = None,
@@ -188,11 +191,65 @@ def build_document_viewer_scene_data(
         assembly_objects = document.history_objects_at(boundary)
         assembly_keys = document._shape_history_cache_keys(assembly_objects)
         assembly_cached_result = (
-            document._body_result_cache.get(assembly_keys[-1])
-            if assembly_keys and uncut_component_shape is None
+            cached_body_result
+            if cached_body_result is not None
+            and uncut_component_shape is None
+            and uncut_component_mesh is None
+            else document.cached_body_result_at(assembly_objects)
+            if assembly_keys
+            and uncut_component_shape is None
+            and uncut_component_mesh is None
             else None
         )
         component_body_layers: list[ViewerMesh] = []
+
+        def component_display_color(component: ZimaEntity) -> str:
+            source_document = (component_documents or {}).get(
+                component.entity_id
+            )
+            inherited_color = (
+                source_document.document_settings.get(
+                    "body_color", "#B9C2CC"
+                )
+                if source_document is not None
+                else component.parameters.get("body_color", "#B9C2CC")
+            )
+            return str(
+                component.parameters.get("body_color", inherited_color)
+                if str(component.parameters.get(
+                    "body_color_override", "false"
+                )).lower() == "true"
+                else inherited_color
+            )
+
+        def has_later_assembly_cut(component: ZimaEntity) -> bool:
+            component_index = next(
+                (
+                    index for index, candidate in enumerate(assembly_objects)
+                    if candidate is component
+                ),
+                -1,
+            )
+            if component_index < 0:
+                return False
+            for feature in assembly_objects[component_index + 1:]:
+                if feature.container_type not in (
+                    ContainerType.PROTRUSION,
+                    ContainerType.REVOLVE,
+                ):
+                    continue
+                try:
+                    excluded_ids = json.loads(str(
+                        feature.parameters.get(
+                            "assembly_excluded_component_ids", "[]"
+                        )
+                    ))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if component.entity_id not in excluded_ids:
+                    return True
+            return False
+
         if assembly_cached_result is not None:
             cached_body_result = assembly_cached_result
             cached_body_mesh = assembly_cached_result.mesh
@@ -200,8 +257,8 @@ def build_document_viewer_scene_data(
             layers.append(body_mesh)
             for obj in assembly_objects:
                 if obj.container_type == ContainerType.COMPONENT:
-                    surface_colors_by_owner_id[obj.entity_id] = str(
-                        obj.parameters.get("body_color", "#B9C2CC")
+                    surface_colors_by_owner_id[obj.entity_id] = (
+                        component_display_color(obj)
                     )
         for obj in (
             () if assembly_cached_result is not None else assembly_objects
@@ -213,15 +270,29 @@ def build_document_viewer_scene_data(
             source_document = (component_documents or {}).get(obj.entity_id)
             source_result = None
             if source_document is not None:
-                source_keys = source_document._shape_history_cache_keys(
+                source_result = source_document.cached_body_result_at(
                     source_document.history_objects()
                 )
-                if source_keys:
-                    source_result = source_document._body_result_cache.get(
-                        source_keys[-1]
-                    )
             component_mesh = None
-            if (
+            if obj.entity_id in (component_mesh_overrides or {}):
+                # An activated Part may share its source document with other
+                # Assembly instances.  Those passive instances must retain
+                # their last committed world-space display while the active
+                # document is rolled back for Properties or Sketcher.
+                shape = None
+                component_mesh = component_mesh_overrides[
+                    obj.entity_id
+                ].with_owner(obj.entity_id)
+            elif (
+                obj.entity_id == uncut_component_id
+                and uncut_component_mesh is not None
+            ):
+                shape = None
+                component_mesh = transform_viewer_mesh(
+                    uncut_component_mesh.with_owner(obj.entity_id),
+                    coordinate_system_transform(obj.coordinate_system),
+                )
+            elif (
                 obj.entity_id == uncut_component_id
                 and uncut_component_shape is not None
             ):
@@ -229,7 +300,7 @@ def build_document_viewer_scene_data(
                     uncut_component_shape,
                     coordinate_system_transform(obj.coordinate_system),
                 )
-            elif source_result is not None:
+            elif source_result is not None and not has_later_assembly_cut(obj):
                 shape = None
                 component_mesh = transform_viewer_mesh(
                     source_result.mesh.with_owner(obj.entity_id),
@@ -244,21 +315,8 @@ def build_document_viewer_scene_data(
             if shape is not None or component_mesh is not None:
                 if shape is not None:
                     shapes_by_owner_id[obj.entity_id] = shape
-                inherited_color = (
-                    source_document.document_settings.get(
-                        "body_color", "#B9C2CC"
-                    )
-                    if source_document is not None
-                    else obj.parameters.get("body_color", "#B9C2CC")
-                )
-                surface_colors_by_owner_id[obj.entity_id] = str(
-                    obj.parameters.get("body_color", inherited_color)
-                    if str(
-                        obj.parameters.get(
-                            "body_color_override", "false"
-                        )
-                    ).lower() == "true"
-                    else inherited_color
+                surface_colors_by_owner_id[obj.entity_id] = (
+                    component_display_color(obj)
                 )
                 layers.append(
                     component_mesh
@@ -398,8 +456,8 @@ def build_document_viewer_scene_data(
             and cached_body_shape is None
             and cache_keys
         ):
-            cached_body_result = document._body_result_cache.get(
-                cache_keys[-1]
+            cached_body_result = document.cached_body_result_at(
+                history_objects
             )
         if cached_body_mesh is None and cached_body_result is not None:
             cached_body_mesh = cached_body_result.mesh
@@ -638,6 +696,13 @@ def build_document_viewer_scene_data(
                     )
 
     reference_scene_size = _scene_diagonal(layers)
+    consumed_sketch_ids = {
+        str(feature.parameters.get("sketch_id", ""))
+        for history_object in document.history_objects_at(boundary)
+        for feature in history_object.children
+        if feature.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+        and str(feature.parameters.get("sketch_id", ""))
+    }
     for obj in document.visible_objects():
         _append_object_sketches(
             document,
@@ -650,6 +715,7 @@ def build_document_viewer_scene_data(
             show_user_axes,
             show_user_planes,
             editing_object_id,
+            consumed_sketch_ids,
         )
         _append_object_origins(
             document,
@@ -861,6 +927,7 @@ def _append_object_sketches(
     show_user_axes: bool,
     show_user_planes: bool,
     editing_object_id: str | None,
+    consumed_sketch_ids: set[str],
 ) -> None:
     if not document.is_effectively_visible(obj.entity_id):
         return
@@ -925,6 +992,11 @@ def _append_object_sketches(
         if child.kind == EntityKind.SKETCH:
             if not show_sketches and obj.entity_id != editing_object_id:
                 continue
+            if (
+                child.entity_id in consumed_sketch_ids
+                and obj.entity_id != editing_object_id
+            ):
+                continue
             if obj.container_type in (
                 ContainerType.PROTRUSION,
                 ContainerType.REVOLVE,
@@ -955,6 +1027,7 @@ def _append_object_sketches(
                 show_user_axes,
                 show_user_planes,
                 editing_object_id,
+                consumed_sketch_ids,
             )
 
 

@@ -31,6 +31,7 @@ from zima_cad.topology import (
     resolve_assembly_edge,
 )
 from zima_cad.viewer_scene import build_document_viewer_scene_data
+from zima_cad.viewer_data import ViewerMesh
 
 
 class AssemblyDocumentTests(unittest.TestCase):
@@ -69,6 +70,22 @@ class AssemblyDocumentTests(unittest.TestCase):
                 "#228844",
             )
 
+            assembly_keys = assembly._shape_history_cache_keys(
+                assembly.history_objects()
+            )
+            assembly._body_result_cache[assembly_keys[-1]] = (
+                scene.calculated_body_result
+            )
+            part.document_settings["body_color"] = "#3366AA"
+            cached_scene = build_document_viewer_scene_data(
+                assembly,
+                component_documents={component.entity_id: part},
+            )
+            self.assertEqual(
+                cached_scene.surface_colors_by_owner_id[component.entity_id],
+                "#3366AA",
+            )
+
             component.parameters["body_color"] = "#AA2233"
             component.parameters["body_color_override"] = "true"
             scene = build_document_viewer_scene_data(
@@ -78,6 +95,105 @@ class AssemblyDocumentTests(unittest.TestCase):
             self.assertEqual(
                 scene.surface_colors_by_owner_id[component.entity_id],
                 "#AA2233",
+            )
+
+    def test_empty_active_instance_override_keeps_passive_instances_visible(self):
+        part = create_empty_part()
+        box = part.create_container("Box", ContainerType.BOX)
+        part.create_primitive(box.entity_id, EntityKind.BOX)
+        part_scene = build_document_viewer_scene_data(part)
+        keys = part._shape_history_cache_keys(part.history_objects())
+        part._body_result_cache[keys[-1]] = part_scene.calculated_body_result
+        assembly = create_empty_assembly()
+        first = assembly.create_container("First", ContainerType.COMPONENT)
+        second = assembly.create_container("Second", ContainerType.COMPONENT)
+        empty = ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(), edges=(),
+            points=(), planes=(), bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+
+        scene = build_document_viewer_scene_data(
+            assembly,
+            component_documents={first.entity_id: part, second.entity_id: part},
+            uncut_component_id=second.entity_id,
+            uncut_component_mesh=empty,
+        )
+
+        self.assertIn(first.entity_id, scene.mesh.triangle_owner_ids)
+        self.assertNotIn(second.entity_id, scene.mesh.triangle_owner_ids)
+
+    def test_passive_instance_snapshot_survives_active_part_rollback(self):
+        assembly = create_empty_assembly()
+        passive = assembly.create_container("Passive", ContainerType.COMPONENT)
+        active = assembly.create_container("Active", ContainerType.COMPONENT)
+        passive_world_mesh = ViewerMesh(
+            triangle_positions=(
+                50.0, 0.0, 0.0,
+                51.0, 0.0, 0.0,
+                50.0, 1.0, 0.0,
+            ),
+            triangle_normals=(0.0, 0.0, 1.0) * 3,
+            triangle_face_indices=(0,),
+            triangle_owner_ids=("old-passive-owner",),
+            edges=(), points=(), planes=(),
+            bounds_min=(50.0, 0.0, 0.0),
+            bounds_max=(51.0, 1.0, 0.0),
+        )
+        empty_active_mesh = ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(), edges=(),
+            points=(), planes=(), bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+
+        scene = build_document_viewer_scene_data(
+            assembly,
+            uncut_component_id=active.entity_id,
+            uncut_component_mesh=empty_active_mesh,
+            component_mesh_overrides={
+                passive.entity_id: passive_world_mesh,
+            },
+        )
+
+        self.assertEqual(
+            scene.mesh.triangle_owner_ids,
+            (passive.entity_id,),
+        )
+        self.assertEqual(scene.mesh.bounds_min[0], 50.0)
+        self.assertEqual(scene.mesh.bounds_max[0], 51.0)
+
+    def test_part_round_trip_persists_each_calculated_history_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "history.prtz"
+            part = create_empty_part()
+            first = part.create_container("First", ContainerType.BOX)
+            part.create_primitive(first.entity_id, EntityKind.BOX)
+            second = part.create_container("Second", ContainerType.BOX)
+            primitive = part.create_primitive(second.entity_id, EntityKind.BOX)
+            primitive.parameters["length"] = "25"
+            history = part.history_objects()
+            first_scene = build_document_viewer_scene_data(
+                part, history_boundary=1
+            )
+            final_scene = build_document_viewer_scene_data(
+                part, history_boundary=2
+            )
+            first_key = part._shape_history_cache_keys(history[:1])[-1]
+            final_key = part._shape_history_cache_keys(history)[-1]
+            part._body_result_cache[first_key] = first_scene.calculated_body_result
+            part._body_result_cache[final_key] = final_scene.calculated_body_result
+
+            save_part_document(part, path)
+            loaded = load_part_document(path)
+
+            loaded_history = loaded.history_objects()
+            self.assertIsNotNone(
+                loaded.cached_body_result_at(loaded_history[:1])
+            )
+            self.assertIsNotNone(
+                loaded.cached_body_result_at(loaded_history)
             )
 
     def test_assembly_round_trip_and_component_geometry(self):
@@ -205,8 +321,8 @@ class AssemblyDocumentTests(unittest.TestCase):
                     "operation": "-",
                 },
             )
-            cut.parameters["assembly_target_ids"] = json.dumps(
-                [targets[0].entity_id]
+            cut.parameters["assembly_excluded_component_ids"] = json.dumps(
+                [targets[1].entity_id]
             )
             cut.add_child(sketch)
             cut.add_child(feature)
@@ -218,6 +334,31 @@ class AssemblyDocumentTests(unittest.TestCase):
             self.assertLess(self._volume(result_first), self._volume(original_first))
             self.assertAlmostEqual(
                 self._volume(result_second), self._volume(original_second), places=5
+            )
+            # A calculated Part normally supplies a persisted BodyResult to
+            # the Assembly viewer.  That shortcut must not bypass later
+            # assembly-only cuts targeted at the component.
+            part_scene = build_document_viewer_scene_data(part)
+            part_keys = part._shape_history_cache_keys(part.history_objects())
+            part._body_result_cache[part_keys[-1]] = (
+                part_scene.calculated_body_result
+            )
+            cached_part_scene = build_document_viewer_scene_data(
+                assembly,
+                component_documents={
+                    targets[0].entity_id: part,
+                    targets[1].entity_id: part,
+                },
+            )
+            self.assertIn(
+                targets[0].entity_id,
+                cached_part_scene.shapes_by_owner_id,
+            )
+            self.assertLess(
+                self._volume(cached_part_scene.shapes_by_owner_id[
+                    targets[0].entity_id
+                ]),
+                self._volume(original_first),
             )
             active_scene = build_document_viewer_scene_data(
                 assembly,
@@ -231,6 +372,78 @@ class AssemblyDocumentTests(unittest.TestCase):
                 self._volume(original_first),
                 places=5,
             )
+
+    def test_cached_part_body_does_not_bypass_assembly_revolve_cut(self):
+        part = create_empty_part()
+        box = part.create_container("Box", ContainerType.BOX)
+        primitive = part.create_primitive(box.entity_id, EntityKind.BOX)
+        primitive.parameters.update({
+            "length": "40", "width": "40", "height": "40",
+        })
+        part_scene = build_document_viewer_scene_data(part)
+        part_keys = part._shape_history_cache_keys(part.history_objects())
+        part._body_result_cache[part_keys[-1]] = (
+            part_scene.calculated_body_result
+        )
+
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "block", ContainerType.COMPONENT
+        )
+        cut = assembly.create_container(
+            "Revolved cut", ContainerType.REVOLVE
+        )
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 50.0},
+            {
+                "id": "axis", "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {"id": "a", "type": "point", "x": 5.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 10.0, "y": 30.0},
+            {"id": "d", "type": "point", "x": 5.0, "y": 30.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        sketch = ZimaEntity(
+            "Sketch", EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "Cut", EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "360",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "operation": "-",
+            },
+        )
+        cut.parameters["assembly_excluded_component_ids"] = "[]"
+        cut.add_child(sketch)
+        cut.add_child(feature)
+
+        original = part.build_active_shape()
+        scene = build_document_viewer_scene_data(
+            assembly,
+            component_documents={component.entity_id: part},
+        )
+
+        self.assertIn(component.entity_id, scene.shapes_by_owner_id)
+        self.assertLess(
+            self._volume(scene.shapes_by_owner_id[component.entity_id]),
+            self._volume(original),
+        )
 
     def test_mate_faces_survive_source_boolean_regeneration(self):
         with tempfile.TemporaryDirectory() as directory:

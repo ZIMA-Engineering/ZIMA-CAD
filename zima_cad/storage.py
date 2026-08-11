@@ -31,6 +31,9 @@ from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.versioned_io import write_text_versioned
 
 
+ASSEMBLY_BODY_CACHE_REVISION = "4"
+
+
 class ContainerEntityLimitError(ValueError):
     def __init__(self, container_name: str, entity_names: list[str]) -> None:
         self.container_name = container_name
@@ -85,25 +88,31 @@ def save_part_document(document: PartDocument, file_path: Path) -> None:
     for container in containers:
         write_entity(config, container)
 
-    # Persist the OCCT-independent calculated result alongside the parametric
-    # model. Opening a document can then display and reference the body without
-    # loading OCCT; the parametric history remains authoritative for edits.
+    # Persist every calculated history boundary. Editing an earlier feature
+    # must consume its real input body without substituting the final body or
+    # invoking OCCT from a viewer/property path.
     history = document.history_objects()
-    cache_keys = document._shape_history_cache_keys(history)
-    cached_result = (
-        document._body_result_cache.get(cache_keys[-1])
-        if cache_keys
-        else None
-    )
-    if cached_result is not None:
+    document.cached_body_result_at(history)
+    cached_results = {}
+    for boundary in range(1, len(history) + 1):
+        keys = document._shape_history_cache_keys(history[:boundary])
+        result = document._body_result_cache.get(keys[-1]) if keys else None
+        if result is not None:
+            cached_results[str(boundary)] = result.to_dict()
+    if cached_results:
         result_text = json.dumps(
-            cached_result.to_dict(),
+            cached_results,
             ensure_ascii=True,
             separators=(",", ":"),
         )
-        config["CachedBody"] = {
+        config["CachedBodies"] = {
             "document_signature": _config_model_signature(config),
-            "encoding": "zima-body-json-gzip-base64",
+            "encoding": "zima-history-bodies-json-gzip-base64",
+            "assembly_calculation_revision": (
+                ASSEMBLY_BODY_CACHE_REVISION
+                if document.document_settings.get("type") == "assembly"
+                else ""
+            ),
             "data": base64.b64encode(
                 gzip.compress(result_text.encode("utf-8"), compresslevel=6)
             ).decode("ascii"),
@@ -240,30 +249,56 @@ def _load_cached_body(
     config: configparser.ConfigParser,
     document: PartDocument,
 ) -> None:
-    if not config.has_section("CachedBody"):
+    if not config.has_section("CachedBodies"):
+        return
+    if (
+        document.document_settings.get("type") == "assembly"
+        and config.get(
+            "CachedBodies",
+            "assembly_calculation_revision",
+            fallback="",
+        )
+        != ASSEMBLY_BODY_CACHE_REVISION
+    ):
+        # Viewer packets created before headless mate regeneration could hold
+        # a post-solver intermediate scene (notably an uncut Assembly) under
+        # an otherwise valid model signature. They are calculation caches,
+        # not document data; reject them and let the normal regeneration
+        # boundary create one authoritative current packet.
         return
     history = document.history_objects()
-    cache_keys = document._shape_history_cache_keys(history)
-    if not cache_keys or config.get(
-        "CachedBody", "document_signature", fallback=""
+    if not history or config.get(
+        "CachedBodies", "document_signature", fallback=""
     ) != _config_model_signature(config):
         return
-    if config.get("CachedBody", "encoding", fallback="") != (
-        "zima-body-json-gzip-base64"
+    if config.get("CachedBodies", "encoding", fallback="") != (
+        "zima-history-bodies-json-gzip-base64"
     ):
         return
     try:
         payload = base64.b64decode(
-            config.get("CachedBody", "data", fallback=""),
+            config.get("CachedBodies", "data", fallback=""),
             validate=True,
         )
         result_data = json.loads(gzip.decompress(payload).decode("utf-8"))
-        result = BodyResult.from_dict(result_data)
-        if document.document_settings.get("type", "part") == "part":
-            result = result.with_owner(document.root.entity_id)
+        if not isinstance(result_data, dict):
+            return
     except (KeyError, OSError, TypeError, UnicodeError, ValueError, RuntimeError, json.JSONDecodeError):
         return
-    document._body_result_cache[cache_keys[-1]] = result
+    for raw_boundary, value in result_data.items():
+        try:
+            boundary = int(raw_boundary)
+            result = BodyResult.from_dict(value)
+        except (TypeError, ValueError, RuntimeError):
+            continue
+        if boundary < 1 or boundary > len(history):
+            continue
+        cache_keys = document._shape_history_cache_keys(history[:boundary])
+        if not cache_keys:
+            continue
+        if document.document_settings.get("type", "part") == "part":
+            result = result.with_owner(document.root.entity_id)
+        document._body_result_cache[cache_keys[-1]] = result
 
 
 def _config_model_signature(
@@ -276,7 +311,7 @@ def _config_model_signature(
             tuple(sorted(config.items(section))),
         )
         for section in sorted(config.sections())
-        if section != "CachedBody"
+        if section != "CachedBodies"
     )
     return hashlib.sha256(
         repr(canonical).encode("utf-8")

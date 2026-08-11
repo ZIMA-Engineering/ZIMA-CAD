@@ -356,6 +356,11 @@ def apply_trim_pieces(
             if len(sampled) < 2:
                 continue
             geometry_id = entity_id if survivor_index == 0 else next_id("g")
+            # The original ID belongs to the first surviving piece as well.
+            # Reserve it before another survivor asks next_id("g"); otherwise
+            # trimming more than one piece in a gesture can allocate that same
+            # ID again (for example two geometries named ``g2``).
+            used_ids.add(geometry_id)
             generated.append(geometry_id)
             geometry = copy.deepcopy(source)
             geometry["id"] = geometry_id

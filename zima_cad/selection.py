@@ -14,6 +14,62 @@ class SelectionKind(str, Enum):
     PLANE = "plane"
 
 
+class SelectionPurpose(str, Enum):
+    ASSEMBLY_COMPONENT = "assembly_component"
+    PART_CONTAINER = "part_container"
+    STABLE_REFERENCE = "stable_reference"
+    BODY_EDGE_OPERATION = "body_edge_operation"
+    SKETCH_REFERENCE = "sketch_reference"
+    VIEW_ORIENTATION = "view_orientation"
+
+
+class TopologySource(str, Enum):
+    NONE = "none"
+    ORIGINAL_SOLIDS = "original_solids"
+    INPUT_BODY = "input_body"
+    DISPLAYED_MODEL = "displayed_model"
+
+
+class ViewerInteractionScope(str, Enum):
+    """Objects the shared viewer is allowed to expose in one context."""
+
+    ASSEMBLY_INSTANCES = "assembly_instances"
+    ACTIVE_PART_CONTAINERS = "active_part_containers"
+    ACTIVE_PART_REFERENCES = "active_part_references"
+    SKETCH_EXTERNAL_REFERENCES = "sketch_external_references"
+    ASSEMBLY_MATE_REFERENCES = "assembly_mate_references"
+
+
+@dataclass(frozen=True)
+class ViewerDocumentContext:
+    """Keep display, editing and Assembly-instance identity independent."""
+
+    display_document: Any
+    editing_document: Any
+    active_instance_id: str | None
+    editing_history_boundary: int
+    interaction_scope: ViewerInteractionScope
+
+    @property
+    def displays_active_instance(self) -> bool:
+        return self.active_instance_id is not None
+
+
+@dataclass(frozen=True)
+class ViewerSelectionPolicy:
+    """Authoritative viewer contract for one active interaction."""
+
+    purpose: SelectionPurpose
+    topology_source: TopologySource
+    allowed_kinds: frozenset[SelectionKind]
+    interaction_mode: str
+    selection_filter: str
+
+    @property
+    def uses_original_topology(self) -> bool:
+        return self.topology_source == TopologySource.ORIGINAL_SOLIDS
+
+
 @dataclass(frozen=True)
 class SelectionCandidate:
     kind: SelectionKind

@@ -551,7 +551,12 @@ def _entity_geometry_state(obj: ZimaEntity) -> dict[str, Any]:
             else None
         ),
         "children": tuple(
-            _entity_geometry_state(child) for child in obj.children
+            _entity_geometry_state(child)
+            for child in obj.children
+            # Generated axes are persisted viewer/reference data. They do
+            # not participate in OCCT body calculation and therefore must
+            # never invalidate an otherwise valid calculated BodyResult.
+            if child.parameters.get("generated_axis") != "true"
         ),
     }
 
@@ -626,6 +631,47 @@ class PartDocument:
                 0,
                 create_origin_object("document", scope),
             )
+
+    def cached_body_result_at(
+        self,
+        history_objects: list[ZimaEntity] | None = None,
+    ):
+        """Return the validated persisted result for the current history.
+
+        Viewer-only synchronization may add generated datum axes after a
+        persisted result has already been signature-validated while loading.
+        That changes the history cache key but not body geometry. Rebind the
+        sole validated mesh packet to the current key instead of losing all
+        original-solid reference data or invoking OCCT from a viewer path.
+        """
+        history = (
+            self.history_objects_at(self.history_cursor())
+            if history_objects is None
+            else history_objects
+        )
+        keys = self._shape_history_cache_keys(history)
+        if not keys:
+            return None
+        current_key = keys[-1]
+        result = self._body_result_cache.get(current_key)
+        if result is not None:
+            return result
+        full_history = self.history_objects_at(self.history_cursor())
+        if [item.entity_id for item in history] != [
+            item.entity_id for item in full_history
+        ]:
+            # A sole final packet is never a valid rollback packet for an
+            # earlier feature boundary.
+            return None
+        if (
+            self.regeneration_required
+            or self._shape_history_cache
+            or len(self._body_result_cache) != 1
+        ):
+            return None
+        result = next(iter(self._body_result_cache.values()))
+        self._body_result_cache = {current_key: result}
+        return result
 
     def visible_objects(self) -> list[ZimaEntity]:
         return [
@@ -1341,12 +1387,14 @@ class PartDocument:
             ):
                 continue
             try:
-                target_ids = json.loads(
-                    str(feature.parameters.get("assembly_target_ids", "[]"))
-                )
+                excluded_ids = json.loads(str(
+                    feature.parameters.get(
+                        "assembly_excluded_component_ids", "[]"
+                    )
+                ))
             except (TypeError, ValueError, json.JSONDecodeError):
-                target_ids = []
-            if component.entity_id not in target_ids:
+                excluded_ids = []
+            if component.entity_id in excluded_ids:
                 continue
             tool = self.build_standalone_shape(feature)
             if tool is not None:

@@ -148,6 +148,33 @@ def store_drawing_sheets(document: PartDocument, sheets: list[dict]) -> None:
     )
 
 
+def drawing_history_cursor(
+    document: PartDocument,
+    sheets: list[dict] | None = None,
+) -> int:
+    sheet_count = len(sheets if sheets is not None else drawing_sheets(document))
+    try:
+        cursor = int(
+            document.document_settings.get(
+                "drawing_history_cursor", sheet_count
+            )
+        )
+    except (TypeError, ValueError):
+        cursor = sheet_count
+    return max(0, min(cursor, sheet_count))
+
+
+def set_drawing_history_cursor(
+    document: PartDocument,
+    cursor: int,
+    sheets: list[dict] | None = None,
+) -> None:
+    sheet_count = len(sheets if sheets is not None else drawing_sheets(document))
+    document.document_settings["drawing_history_cursor"] = str(
+        max(0, min(cursor, sheet_count))
+    )
+
+
 def projection_axes(
     orientation: str | dict,
 ) -> tuple[tuple[float, float, float], ...]:
@@ -3209,15 +3236,24 @@ class DrawingWorkspace(QWidget):
         self.activeSheetChanged.emit()
 
     def add_sheet(self) -> None:
-        self.sheets.append(default_sheet(len(self.sheets) + 1))
-        self.active_sheet_index = len(self.sheets) - 1
+        cursor = drawing_history_cursor(self.document, self.sheets)
+        self.sheets.insert(cursor, default_sheet(len(self.sheets) + 1))
+        self.active_sheet_index = cursor
+        set_drawing_history_cursor(
+            self.document, cursor + 1, self.sheets
+        )
         self._refresh_controls(fit=True)
         self._store()
 
     def remove_sheet(self) -> None:
         if len(self.sheets) <= 1:
             return
-        self.sheets.pop(self.active_sheet_index)
+        removed_index = self.active_sheet_index
+        cursor = drawing_history_cursor(self.document, self.sheets)
+        self.sheets.pop(removed_index)
+        if removed_index < cursor:
+            cursor -= 1
+        set_drawing_history_cursor(self.document, cursor, self.sheets)
         self.active_sheet_index = min(self.active_sheet_index, len(self.sheets) - 1)
         self._refresh_controls(fit=True)
         self._store()
@@ -3225,6 +3261,12 @@ class DrawingWorkspace(QWidget):
     def remove_sheets(self, sheet_ids: set[str]) -> None:
         if not sheet_ids:
             return
+        cursor = drawing_history_cursor(self.document, self.sheets)
+        removed_before_cursor = sum(
+            1
+            for index, sheet in enumerate(self.sheets)
+            if index < cursor and str(sheet.get("id", "")) in sheet_ids
+        )
         remaining = [
             sheet for sheet in self.sheets
             if str(sheet.get("id", "")) not in sheet_ids
@@ -3232,6 +3274,11 @@ class DrawingWorkspace(QWidget):
         if len(remaining) == len(self.sheets):
             return
         self.sheets = remaining or [default_sheet()]
+        set_drawing_history_cursor(
+            self.document,
+            cursor - removed_before_cursor,
+            self.sheets,
+        )
         self.active_sheet_index = min(
             self.active_sheet_index,
             len(self.sheets) - 1,

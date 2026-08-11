@@ -9,9 +9,49 @@ from zima_cad.selection import (
     SelectionRequest,
     SelectionResolution,
 )
+from zima_cad.model import (
+    ContainerType,
+    EntityKind,
+    ZimaEntity,
+    create_empty_part,
+)
 
 
 class SelectionControllerTests(unittest.TestCase):
+    def test_empty_history_never_falls_back_to_final_body_result(self):
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        document.create_primitive(container.entity_id, EntityKind.BOX)
+        key = document._shape_history_cache_keys(
+            document.history_objects()
+        )[-1]
+        document._body_result_cache[key] = object()
+
+        self.assertIsNone(document.cached_body_result_at([]))
+
+    def test_generated_viewer_axis_does_not_change_body_cache_key(self):
+        document = create_empty_part()
+        container = document.create_container("Box", ContainerType.BOX)
+        primitive = document.create_primitive(
+            container.entity_id, EntityKind.BOX
+        )
+        history = document.history_objects()
+        original_key = document._shape_history_cache_keys(history)[-1]
+        validated_result = object()
+        document._body_result_cache[original_key] = validated_result
+
+        primitive.add_child(ZimaEntity(
+            name="Generated Axis",
+            kind=EntityKind.AXIS,
+            parameters={"generated_axis": "true"},
+        ))
+        current_key = document._shape_history_cache_keys(history)[-1]
+        self.assertEqual(current_key, original_key)
+
+        self.assertIs(
+            document.cached_body_result_at(history), validated_result
+        )
+
     def test_request_filters_resolves_and_completes(self) -> None:
         completed = []
         controller = SelectionController()

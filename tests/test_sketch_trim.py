@@ -138,6 +138,32 @@ class SketchTrimTests(unittest.TestCase):
         )
         self.assertEqual({piece.entity_id for piece in selected}, {"g1", "g2"})
 
+    def test_split_survivors_never_reuse_original_geometry_id(self):
+        entities = [
+            point("p1", -10, 0), point("p2", 10, 0),
+            point("p3", -3, -5), point("p4", -3, 5),
+            point("p5", 3, -5), point("p6", 3, 5),
+            {"id": "g1", "type": "segment", "point_ids": ["p3", "p4"]},
+            {"id": "g2", "type": "segment", "point_ids": ["p1", "p2"]},
+            {"id": "g3", "type": "segment", "point_ids": ["p5", "p6"]},
+        ]
+        middle = nearest_trim_piece(
+            tuple(
+                piece for piece in trim_topology(entities)
+                if piece.entity_id == "g2"
+            ),
+            (0, 0),
+            0.5,
+        )
+
+        revised, mapping = apply_trim_pieces(entities, (middle,))
+
+        identifiers = [str(entity.get("id", "")) for entity in revised]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        self.assertEqual(mapping["g2"][0], "g2")
+        self.assertNotEqual(mapping["g2"][1], "g2")
+        SketchModel.from_editor_data(revised, []).validate()
+
     def test_ellipse_trim_creates_elliptical_arc(self):
         entities = [
             point("c", 0, 0), point("major", 8, 0), point("minor", 0, 4),

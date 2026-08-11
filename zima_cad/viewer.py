@@ -86,6 +86,17 @@ class SketchConstraintMarker:
     constraint_index: int
     selectable: bool = True
 
+
+@dataclass(frozen=True)
+class ViewerPickCandidate:
+    """One candidate supplied to the common viewer hover/click pipeline."""
+
+    kind: str
+    owner_id: str
+    element_index: int = 0
+    hover_mesh: ViewerMesh | None = None
+    anchor: Point3 | None = None
+
 TopologyKey = tuple[str, int]
 
 
@@ -546,7 +557,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._middle_dragged = False
         self._middle_chorded = False
         self._middle_double_clicked = False
-        self._suppress_next_left_double_click = False
         self._navigation_active = False
         self._orbit_enabled = True
         self._navigation_repaint_pending = False
@@ -554,6 +564,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._face_pick_cache_key: tuple[Any, ...] | None = None
         self._face_pick_cache: tuple[tuple[Any, ...], ...] = ()
         self._face_pick_arrays: dict[str, Any] = {}
+        self._source_face_pick_arrays: dict[tuple[Any, ...], dict[str, Any]] = {}
         self._scene_center: Point3 = (0.0, 0.0, 0.0)
         self._scene_radius = 1.0
         self._gl: QOpenGLExtraFunctions | None = None
@@ -623,11 +634,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             TopologyKey, tuple[tuple[Point3, Point3], ...]
         ] = {}
         self._object_overlay_mesh: ViewerMesh | None = None
+        self._object_overlay_match_owner_id: str | None = None
         self._object_overlay_main_edge_keys: frozenset[TopologyKey] = frozenset()
         self._object_overlay_matched_edge_keys: frozenset[TopologyKey] = frozenset()
         self._passive_sketch_overlay_mesh: ViewerMesh | None = None
         self._source_topology_hover_mesh: ViewerMesh | None = None
         self._source_topology_hover_kind: str | None = None
+        self._source_topology_selection_mesh: ViewerMesh | None = None
+        self._source_topology_selection_kind: str | None = None
         self._object_overlay_color = QColor.fromRgbF(1.0, 0.48, 0.0)
         self._object_overlay_persistent = False
         self._object_overlay_locks_interaction = False
@@ -645,12 +659,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._datum_container_owner_ids: dict[str, str] = {}
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
+        self._pick_candidate_provider = None
+        self._provided_hover_candidate: ViewerPickCandidate | None = None
         self._selection_preview_pending = False
         self._pending_model_hover_position: QPointF | None = None
         self._last_model_hover_position: QPointF | None = None
         self._model_hover_timer = QTimer(self)
         self._model_hover_timer.setSingleShot(True)
-        self._model_hover_timer.setInterval(60)
+        self._model_hover_timer.setInterval(20)
         self._model_hover_timer.timeout.connect(
             self._apply_pending_model_hover
         )
@@ -1255,43 +1271,115 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         """Return every distinct source-mesh face below one screen point."""
         if mesh is None or not mesh.triangle_face_indices:
             return ()
-        positions = mesh.triangle_positions
-        hits: list[tuple[float, str, int]] = []
-        for triangle_index, face_index in enumerate(mesh.triangle_face_indices):
-            offset = triangle_index * 9
-            camera_points = tuple(
-                self._camera_point((
-                    positions[offset + vertex * 3],
-                    positions[offset + vertex * 3 + 1],
-                    positions[offset + vertex * 3 + 2],
-                ))
-                for vertex in range(3)
+        key = (
+            id(mesh),
+            self.width(),
+            self.height(),
+            self.camera.yaw_degrees,
+            self.camera.pitch_degrees,
+            self.camera.roll_degrees,
+            self.camera.pan_x,
+            self.camera.pan_y,
+            self.camera.zoom,
+            self._scene_center,
+            self._scene_radius,
+        )
+        arrays = self._source_face_pick_arrays.get(key)
+        if arrays is None:
+            world = np.asarray(
+                mesh.triangle_positions, dtype=np.float64
+            ).reshape((-1, 3, 3))
+            rotation = np.asarray(
+                _camera_rotation_matrix(
+                    self.camera.yaw_degrees,
+                    self.camera.pitch_degrees,
+                    self.camera.roll_degrees,
+                ),
+                dtype=np.float64,
             )
-            screen_points = tuple(
-                self._screen_point(point) for point in camera_points
+            camera = (
+                world - np.asarray(self._scene_center, dtype=np.float64)
+            ) @ rotation.T
+            scale = (
+                float(self.height()) * 0.5
+                / max(self._scene_radius, 1.0e-12)
+                * self.camera.zoom
             )
-            if not (
-                min(point.x() for point in screen_points)
-                <= position.x()
-                <= max(point.x() for point in screen_points)
-                and min(point.y() for point in screen_points)
-                <= position.y()
-                <= max(point.y() for point in screen_points)
-            ):
-                continue
-            weights = self._triangle_weights(position, *screen_points)
-            if weights is None:
-                continue
-            depth = sum(
-                weight * point[2]
-                for weight, point in zip(weights, camera_points)
+            screen = np.empty((len(camera), 3, 2), dtype=np.float64)
+            screen[:, :, 0] = (
+                self.width() * 0.5 + self.camera.pan_x
+                + camera[:, :, 0] * scale
             )
-            owner_id = (
-                mesh.triangle_owner_ids[triangle_index]
-                if triangle_index < len(mesh.triangle_owner_ids)
-                else ""
+            screen[:, :, 1] = (
+                self.height() * 0.5 + self.camera.pan_y
+                - camera[:, :, 1] * scale
             )
-            hits.append((depth, owner_id, face_index))
+            arrays = {
+                # Keep the mesh alive while this cache entry exists so its
+                # object id cannot be reused for a newly transformed
+                # Assembly pick mesh with different screen coordinates.
+                "mesh": mesh,
+                "screen": screen,
+                "depth": camera[:, :, 2],
+                "owners": np.asarray(mesh.triangle_owner_ids, dtype=object),
+                "faces": np.asarray(mesh.triangle_face_indices),
+            }
+            if len(self._source_face_pick_arrays) >= 16:
+                self._source_face_pick_arrays.clear()
+            self._source_face_pick_arrays[key] = arrays
+        screen = arrays["screen"]
+        x, y = float(position.x()), float(position.y())
+        candidate_indices = np.flatnonzero(
+            (screen[:, :, 0].min(axis=1) <= x)
+            & (screen[:, :, 0].max(axis=1) >= x)
+            & (screen[:, :, 1].min(axis=1) <= y)
+            & (screen[:, :, 1].max(axis=1) >= y)
+        )
+        if not len(candidate_indices):
+            return ()
+        triangles = screen[candidate_indices]
+        first, second, third = (
+            triangles[:, 0], triangles[:, 1], triangles[:, 2]
+        )
+        denominator = (
+            (second[:, 1] - third[:, 1])
+            * (first[:, 0] - third[:, 0])
+            + (third[:, 0] - second[:, 0])
+            * (first[:, 1] - third[:, 1])
+        )
+        valid = np.abs(denominator) > 1.0e-12
+        safe = np.where(valid, denominator, 1.0)
+        first_weight = (
+            (second[:, 1] - third[:, 1]) * (x - third[:, 0])
+            + (third[:, 0] - second[:, 0]) * (y - third[:, 1])
+        ) / safe
+        second_weight = (
+            (third[:, 1] - first[:, 1]) * (x - third[:, 0])
+            + (first[:, 0] - third[:, 0]) * (y - third[:, 1])
+        ) / safe
+        third_weight = 1.0 - first_weight - second_weight
+        valid &= (
+            (first_weight >= -1.0e-8)
+            & (second_weight >= -1.0e-8)
+            & (third_weight >= -1.0e-8)
+        )
+        candidate_indices = candidate_indices[valid]
+        if not len(candidate_indices):
+            return ()
+        weights = np.column_stack((
+            first_weight[valid], second_weight[valid], third_weight[valid]
+        ))
+        depths = np.sum(
+            arrays["depth"][candidate_indices] * weights, axis=1
+        )
+        hits = [
+            (float(depth), str(owner), int(face))
+            for depth, owner, face in zip(
+                depths,
+                arrays["owners"][candidate_indices],
+                arrays["faces"][candidate_indices],
+            )
+        ]
         nearest_by_face: dict[tuple[str, int], float] = {}
         for depth, owner_id, face_index in hits:
             key = owner_id, face_index
@@ -1360,7 +1448,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if mesh is None or mesh.is_empty:
             return None
         hits: list[tuple[float, float, str, int]] = []
-        threshold = 9.0 * float(self.devicePixelRatioF())
+        threshold = (
+            6.0
+            if self._selection_filter in {
+                "axis", "surface_axis", "reference"
+            }
+            else 9.0
+        ) * float(self.devicePixelRatioF())
         for marker in mesh.points:
             if marker.element_kind != "vertex":
                 continue
@@ -1548,6 +1642,135 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         )
         self.update()
 
+    def set_source_topology_selection(
+        self,
+        mesh: ViewerMesh | None,
+        topology_kind: str | None = None,
+    ) -> None:
+        """Show a persisted original reference independently of hover."""
+        self._source_topology_selection_mesh = mesh
+        self._source_topology_selection_kind = (
+            topology_kind if mesh is not None else None
+        )
+        self.update()
+
+    def set_pick_candidate_provider(self, provider) -> None:
+        """Set the candidate source used by the common hover/click path."""
+        self._pick_candidate_provider = provider
+        self._provided_hover_candidate = None
+
+    def _provided_candidate_at(
+        self, position: QPointF
+    ) -> ViewerPickCandidate | None:
+        # A confirmed object owns the viewport until it is explicitly
+        # dismissed.  Continuing to run the ordinary object-hover provider
+        # would let queued mouse/timer signals replace that stable state.
+        # Reference tools explicitly release this lock when they start.
+        if self._object_overlay_locks_interaction:
+            return None
+        provider = self._pick_candidate_provider
+        if provider is None:
+            return None
+        candidate = provider(QPointF(position))
+        if candidate is not None and candidate.kind not in {
+            "object", "point", "edge", "plane", "face",
+        }:
+            raise ValueError(f"Unsupported viewer candidate: {candidate.kind}")
+        return candidate
+
+    def _provided_candidate_for_click(
+        self, position: QPointF
+    ) -> ViewerPickCandidate | None:
+        """Confirm the visible hover instead of repicking an overlap."""
+        hovered = self._provided_hover_candidate
+        hover_position = self._last_model_hover_position
+        if hovered is not None and hover_position is not None:
+            dx = float(position.x()) - float(hover_position.x())
+            dy = float(position.y()) - float(hover_position.y())
+            if dx * dx + dy * dy <= 16.0:
+                return hovered
+        return self._provided_candidate_at(position)
+
+    def _apply_provided_hover(self, candidate: ViewerPickCandidate) -> None:
+        previous = self._provided_hover_candidate
+        self._provided_hover_candidate = candidate
+        self._clear_topology_hover()
+        if candidate.kind == "object":
+            self.set_source_topology_hover(None)
+            # A queued hover timer may run just after the synchronous LMB
+            # selection handler has turned this same mesh cyan.  Never let
+            # that late orange preview downgrade a persistent selection;
+            # mouse navigation deliberately discards transient overlays.
+            if not self._object_overlay_persistent:
+                self.set_object_overlay(
+                    candidate.hover_mesh,
+                    anchor=candidate.anchor,
+                    match_owner_id=candidate.owner_id,
+                )
+            self._set_hovered_object(candidate.owner_id)
+            return
+        if previous is not None and previous.kind == "object":
+            if not self._object_overlay_persistent:
+                self.set_object_overlay(None)
+        self._set_hovered_object(None)
+        self.set_source_topology_hover(candidate.hover_mesh, candidate.kind)
+        {
+            "point": self._set_hovered_point,
+            "edge": self._set_hovered_edge,
+            "plane": self._set_hovered_plane,
+            "face": self._set_hovered_face,
+        }[candidate.kind]((candidate.owner_id, candidate.element_index))
+
+    def _clear_provided_hover(self) -> None:
+        previous = self._provided_hover_candidate
+        if previous is None:
+            return
+        self._provided_hover_candidate = None
+        self.set_source_topology_hover(None)
+        if previous.kind == "object" and not self._object_overlay_persistent:
+            self.set_object_overlay(None)
+
+    def _select_provided_candidate(
+        self, candidate: ViewerPickCandidate
+    ) -> None:
+        # Keep the exact candidate which was previewed/clicked available while
+        # the synchronous selected signal is handled by MainWindow.  Object
+        # selection uses its source mesh to turn the orange preview cyan.
+        self._provided_hover_candidate = candidate
+        if candidate.kind == "object":
+            # Cancel hover work queued before the click.  Otherwise its
+            # timeout can emit hoveredObjectChanged after confirmation and
+            # revive the legacy orange-preview path in MainWindow.
+            self._model_hover_timer.stop()
+            self._model_hover_clear_timer.stop()
+            self._pending_model_hover_position = None
+            # Object identity and its visual confirmation are one viewer
+            # state transition.  Do not rely on MainWindow/tree signal
+            # handling to recreate the cyan source mesh afterwards: camera
+            # navigation and delayed hover both run inside the viewer.
+            self.set_object_overlay(
+                candidate.hover_mesh,
+                selected=True,
+                anchor=candidate.anchor,
+                match_owner_id=candidate.owner_id,
+            )
+            self._set_selected_object(candidate.owner_id)
+            # The selected signal is synchronous, so MainWindow has already
+            # consumed the candidate mesh.  It is no longer a hover state.
+            self._provided_hover_candidate = None
+            return
+        self._cycled_topology_candidate = (
+            candidate.kind, candidate.owner_id, candidate.element_index
+        )
+        self._clear_topology_selection()
+        {
+            "point": self._set_selected_point,
+            "edge": self._set_selected_edge,
+            "plane": self._set_selected_plane,
+            "face": self._set_selected_face,
+        }[candidate.kind]((candidate.owner_id, candidate.element_index))
+        self._cycled_topology_candidate = None
+
     def set_object_overlay(
         self,
         mesh: ViewerMesh | None,
@@ -1555,8 +1778,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         selected: bool = False,
         anchor: Point3 | None = None,
         locks_interaction: bool | None = None,
+        match_owner_id: str | None = None,
     ) -> None:
         self._object_overlay_mesh = mesh
+        self._object_overlay_match_owner_id = (
+            str(match_owner_id) if mesh is not None and match_owner_id else None
+        )
         self._object_overlay_anchor = anchor
         self._object_overlay_persistent = selected
         self._object_overlay_locks_interaction = (
@@ -1596,6 +1823,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         main_by_signature: dict[tuple, list[TopologyKey]] = {}
         for edge in main.edges:
             if edge.screen_constant or edge.element_kind != "edge":
+                continue
+            if (
+                self._object_overlay_match_owner_id is not None
+                and edge.owner_id != self._object_overlay_match_owner_id
+            ):
                 continue
             main_by_signature.setdefault(
                 self._edge_geometry_signature(edge), []
@@ -1707,6 +1939,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def set_dimension_inspection_active(self, active: bool) -> None:
         self._dimension_inspection_active = bool(active)
+
+    def _dismiss_dimensions_and_object_selection(self) -> None:
+        """Leave transient inspection and resume ordinary viewer hover."""
+        self.dimensionsDismissRequested.emit()
+        self._clear_topology_selection()
+        # A tree selection need not be mirrored in the viewport, so always
+        # notify the application even when the viewer is internally empty.
+        self.selectedObjectChanged.emit("")
 
     def set_locked_dimension_keys(
         self,
@@ -1873,7 +2113,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def set_selection_filter(self, selection_filter: str) -> None:
         if selection_filter not in {
             "all", "face", "edge", "point", "axis", "plane", "normal",
-            "surface", "surface_axis",
+            "surface", "surface_axis", "reference",
         }:
             raise ValueError(f"Unknown Viewer selection filter: {selection_filter}")
         if selection_filter == self._selection_filter:
@@ -2249,26 +2489,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._dimension_inspection_active
             and self._dimensions
         ):
-            # Dimension inspection is navigation-only. A click on empty view
-            # closes it; clicks on the inspected model are deliberately
-            # swallowed instead of becoming sketch/model selections.
-            if self._pick_object(event.position()) is None:
-                # Qt will still deliver a double-click event if another click
-                # follows quickly. By then the inspection overlay is already
-                # gone, so remember that the sequence belongs to dismissal.
-                self._suppress_next_left_double_click = True
-                application = QApplication.instance()
-                QTimer.singleShot(
-                    (
-                        application.doubleClickInterval()
-                        if application is not None
-                        else 400
-                    ) + 50,
-                    lambda: setattr(
-                        self, "_suppress_next_left_double_click", False
-                    ),
-                )
-                self.dimensionsDismissRequested.emit()
+            # Inspection remains active until an explicit middle-button
+            # double-click. LMB over the model or empty space must neither
+            # dismiss dimensions nor leak into ordinary object selection.
             event.accept()
             return
         self._stop_camera_animation()
@@ -2548,6 +2771,58 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             event.button() == Qt.MouseButton.LeftButton
             and self._selection_enabled
         ):
+            # Ordinary object RMB cycling has already chosen and painted the
+            # exact candidate to confirm.  Commit that preview before any
+            # provider/ray pick can replace it with another overlapping
+            # container.
+            if (
+                self._interaction_mode == "object"
+                and self._selection_preview_pending
+            ):
+                self._selection_preview_pending = False
+                if self._object_overlay_mesh is not None:
+                    self._object_overlay_persistent = True
+                    self._object_overlay_locks_interaction = True
+                    self._object_overlay_color = QColor.fromRgbF(
+                        0.0, 0.82, 1.0
+                    )
+                else:
+                    self._clear_topology_selection()
+                    if self._hovered_point is not None:
+                        self._set_selected_point(self._hovered_point)
+                    elif self._hovered_plane is not None:
+                        self._set_selected_plane(self._hovered_plane)
+                    elif self._hovered_edge is not None:
+                        self._set_selected_edge(self._hovered_edge)
+                self.selectionPreviewConfirmed.emit()
+                self.update()
+                event.accept()
+                return
+            # RMB cycling deliberately chooses an item which need not be the
+            # front-most hit.  Confirm that identity before asking the common
+            # provider for the front-most candidate again.
+            if self._cycled_topology_candidate is not None:
+                kind, owner_id, element_index = (
+                    self._cycled_topology_candidate
+                )
+                topology_selectors = {
+                    "point": self._set_selected_point,
+                    "edge": self._set_selected_edge,
+                    "plane": self._set_selected_plane,
+                    "face": self._set_selected_face,
+                }
+                self._cycled_topology_candidate = None
+                selector = topology_selectors.get(kind)
+                if selector is not None:
+                    self._clear_topology_selection()
+                    selector((owner_id, element_index))
+                    event.accept()
+                    return
+            provided = self._provided_candidate_for_click(event.position())
+            if provided is not None:
+                self._select_provided_candidate(provided)
+                event.accept()
+                return
             if (
                 self._sketch_frame is None
                 and self._mesh is not None
@@ -2575,43 +2850,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._set_selected_object(owner_id or None)
                 event.accept()
                 return
-            if self._cycled_topology_candidate is not None:
-                kind, owner_id, element_index = (
-                    self._cycled_topology_candidate
-                )
-                self._clear_topology_selection()
-                {
-                    "point": self._set_selected_point,
-                    "edge": self._set_selected_edge,
-                    "plane": self._set_selected_plane,
-                    "face": self._set_selected_face,
-                }[kind]((owner_id, element_index))
-                # Keep the cycled identity available while the selected
-                # signal is delivered synchronously.
-                self._cycled_topology_candidate = None
-                event.accept()
-                return
             if self._interaction_mode == "object":
-                if self._selection_preview_pending:
-                    self._selection_preview_pending = False
-                    if self._object_overlay_mesh is not None:
-                        self._object_overlay_persistent = True
-                        self._object_overlay_locks_interaction = True
-                        self._object_overlay_color = QColor.fromRgbF(
-                            0.0, 0.82, 1.0
-                        )
-                    else:
-                        self._clear_topology_selection()
-                        if self._hovered_point is not None:
-                            self._set_selected_point(self._hovered_point)
-                        elif self._hovered_plane is not None:
-                            self._set_selected_plane(self._hovered_plane)
-                        elif self._hovered_edge is not None:
-                            self._set_selected_edge(self._hovered_edge)
-                    self.selectionPreviewConfirmed.emit()
-                    self.update()
-                    event.accept()
-                    return
                 if self._reference_picking_active:
                     point = self._pick_point(event.position())
                     edge = (
@@ -2696,6 +2935,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and not self._object_overlay_persistent
         ):
             self._object_overlay_mesh = None
+            self._object_overlay_match_owner_id = None
             self._object_overlay_main_edge_keys = frozenset()
             self._object_overlay_matched_edge_keys = frozenset()
             self.update()
@@ -3264,6 +3504,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         ):
             return
         self._last_model_hover_position = QPointF(position)
+        provided = self._provided_candidate_at(position)
+        if provided is not None:
+            self._apply_provided_hover(provided)
+            return
+        self._clear_provided_hover()
         if (
             self._selected_object_id is not None
             or (
@@ -3520,12 +3765,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._sketch_cycle_index = -1
                 self.update()
             elif dismiss_view_selection:
-                self.dimensionsDismissRequested.emit()
-                self._clear_topology_selection()
                 # Keep a plain middle click consistent with an empty-space
                 # click and a middle double-click. A dragged middle gesture
                 # is navigation only and deliberately preserves selection.
-                self.selectedObjectChanged.emit("")
+                self._dismiss_dimensions_and_object_selection()
             event.accept()
             return
         if (
@@ -3696,9 +3939,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if (
             event.button() == Qt.MouseButton.LeftButton
-            and self._suppress_next_left_double_click
+            and self._dimension_inspection_active
         ):
-            self._suppress_next_left_double_click = False
             event.accept()
             return
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -3709,12 +3951,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ):
                 self.sketchFinishCurrentRequested.emit()
             else:
-                self.dimensionsDismissRequested.emit()
-                self._clear_topology_selection()
-                # A tree selection need not be mirrored in the viewport, so
-                # explicitly notify the application even when the viewer was
-                # already internally empty.
-                self.selectedObjectChanged.emit("")
+                self._dismiss_dimensions_and_object_selection()
             self._last_mouse_position = None
             event.accept()
             return
@@ -4628,15 +4865,30 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         painter.end()
 
     def _paint_source_topology_hover(self) -> None:
-        mesh = self._source_topology_hover_mesh
+        self._paint_source_topology_overlay(
+            self._source_topology_selection_mesh,
+            self._source_topology_selection_kind,
+            QColor.fromRgbF(0.0, 0.82, 1.0),
+        )
+        self._paint_source_topology_overlay(
+            self._source_topology_hover_mesh,
+            self._source_topology_hover_kind,
+            QColor.fromRgbF(1.0, 0.48, 0.0),
+        )
+
+    def _paint_source_topology_overlay(
+        self,
+        mesh: ViewerMesh | None,
+        topology_kind: str | None,
+        color: QColor,
+    ) -> None:
         if mesh is None:
             return
-        color = QColor.fromRgbF(1.0, 0.48, 0.0)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QPen(color, 2.0))
+        painter.setPen(QPen(color, 1.0))
         painter.setBrush(QBrush(color))
-        if self._source_topology_hover_kind == "face":
+        if topology_kind == "face":
             painter.setBrush(Qt.BrushStyle.NoBrush)
             for edge in mesh.edges:
                 projected = [
@@ -4645,7 +4897,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 ]
                 for index in range(1, len(projected)):
                     painter.drawLine(projected[index - 1], projected[index])
-        elif self._source_topology_hover_kind == "edge":
+        elif topology_kind == "edge":
             for edge in mesh.edges:
                 projected = [
                     self._screen_point(self._camera_point(point))
@@ -4653,7 +4905,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 ]
                 for index in range(1, len(projected)):
                     painter.drawLine(projected[index - 1], projected[index])
-        elif self._source_topology_hover_kind == "point":
+        elif topology_kind == "point":
             for marker in mesh.points:
                 point = self._screen_point(self._camera_point(marker.position))
                 painter.drawEllipse(point, 6.0, 6.0)
@@ -11707,7 +11959,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         mesh = self._mesh
         if mesh is None:
             return ()
-        threshold = 9.0 * float(self.devicePixelRatioF())
+        threshold = (
+            3.0 if self._selection_filter == "reference" else 9.0
+        ) * float(self.devicePixelRatioF())
         candidates: list[tuple[str, str, int]] = []
         if include_model_topology or self._selection_filter in {"all", "point"}:
             for marker in mesh.points:
@@ -11725,11 +11979,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ("point", marker.owner_id, marker.point_index)
                     )
         if include_model_topology or self._selection_filter in {
-            "all", "edge", "axis", "surface_axis"
+            "all", "edge", "axis", "surface_axis", "reference"
         }:
             for edge in mesh.edges:
                 if (
-                    self._selection_filter in {"axis", "surface_axis"}
+                    self._selection_filter in {
+                        "axis", "surface_axis", "reference"
+                    }
                     and edge.element_kind not in {"axis", "centerline"}
                 ):
                     continue
@@ -11758,7 +12014,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ("edge", edge.owner_id, edge.edge_index)
                     )
         if include_model_topology or self._selection_filter in {
-            "all", "plane", "normal", "surface", "surface_axis"
+            "all", "plane", "normal", "surface", "surface_axis", "reference"
         }:
             for plane in mesh.planes:
                 projected = [
@@ -11812,6 +12068,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             "face": self._set_hovered_face,
         }[kind]((owner_id, element_index))
 
+    def preview_provided_candidate(
+        self, candidate: ViewerPickCandidate
+    ) -> None:
+        """Preview one persisted-data candidate selected by RMB cycling."""
+        # Object previews are confirmed by _selection_preview_pending and its
+        # persistent cyan overlay.  _cycled_topology_candidate is exclusively
+        # consumed by the point/edge/plane/face dispatch in mousePressEvent;
+        # storing "object" there makes the following LMB raise KeyError.
+        self._cycled_topology_candidate = (
+            None
+            if candidate.kind == "object"
+            else (
+                candidate.kind,
+                candidate.owner_id,
+                candidate.element_index,
+            )
+        )
+        self.set_feature_hover_edges(set())
+        self._apply_provided_hover(candidate)
+
     def _paint_planes(self) -> None:
         mesh = self._mesh
         if mesh is None or not mesh.planes:
@@ -11861,14 +12137,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
 
     def _pick_plane(self, position: QPointF) -> TopologyKey | None:
         if self._selection_filter not in {
-            "all", "plane", "normal", "surface", "surface_axis"
+            "all", "plane", "normal", "surface", "surface_axis", "reference"
         }:
             return None
         mesh = self._mesh
         if mesh is None:
             return None
         hits: list[tuple[float, float, str, int]] = []
-        threshold = 8.0 * float(self.devicePixelRatioF())
+        threshold = (
+            6.0
+            if self._selection_filter in {
+                "axis", "surface_axis", "reference"
+            }
+            else 8.0
+        ) * float(self.devicePixelRatioF())
         for plane in mesh.planes:
             if not self._topology_owner_is_selectable(plane.owner_id):
                 continue
@@ -11880,6 +12162,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._screen_point(point)
                 for point in camera_points
             ]
+            if (
+                self._triangle_weights(
+                    position,
+                    screen_points[0],
+                    screen_points[1],
+                    screen_points[2],
+                ) is not None
+                or self._triangle_weights(
+                    position,
+                    screen_points[0],
+                    screen_points[2],
+                    screen_points[3],
+                ) is not None
+            ):
+                hits.append((
+                    0.0,
+                    -sum(point[2] for point in camera_points) / 4.0,
+                    plane.owner_id,
+                    plane.plane_index,
+                ))
+                continue
             for index in range(4):
                 next_index = (index + 1) % 4
                 distance, fraction = self._point_segment_distance(
@@ -12041,13 +12344,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if (
             allowed_element_kinds is None
             and self._selection_filter
-            not in {"all", "edge", "axis", "surface_axis"}
+            not in {"all", "edge", "axis", "surface_axis", "reference"}
         ):
             return None
         mesh = self._mesh
         if mesh is None or mesh.is_empty:
             return None
-        candidates: list[tuple[float, float, str, int]] = []
+        candidates: list[tuple[float, float, str, int, bool]] = []
         threshold = 8.0 * float(self.devicePixelRatioF())
         for edge in mesh.edges:
             if (
@@ -12066,7 +12369,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             ):
                 continue
-            if self._selection_filter in {"axis", "surface_axis"}:
+            if self._selection_filter in {
+                "axis", "surface_axis", "reference"
+            }:
                 if edge.element_kind not in {"axis", "centerline"}:
                     continue
             elif self._selection_filter not in {"all", "edge"}:
@@ -12090,9 +12395,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         camera_points[index - 1][2] * (1.0 - fraction)
                         + camera_points[index][2] * fraction
                     )
-                    candidates.append(
-                        (distance, -depth, edge.owner_id, edge.edge_index)
-                    )
+                    candidates.append((
+                        distance,
+                        -depth,
+                        edge.owner_id,
+                        edge.edge_index,
+                        edge.element_kind in {"axis", "centerline"},
+                    ))
         if not candidates:
             return None
         candidates.sort()
@@ -12111,10 +12420,18 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         *,
         ignore_selection_filter: bool = False,
     ) -> TopologyKey | None:
+        # Assembly Properties use the common provider for original persisted
+        # solid faces.  The evaluated scene Body is display-only and must not
+        # become a fallback candidate when no original face is available at
+        # the cursor.
+        if not ignore_selection_filter and self._selection_filter == "reference":
+            return None
         if (
             not ignore_selection_filter
             and self._selection_filter
-            not in {"all", "face", "normal", "surface", "surface_axis"}
+            not in {
+                "all", "face", "normal", "surface", "surface_axis",
+            }
         ):
             return None
         mesh = self._mesh

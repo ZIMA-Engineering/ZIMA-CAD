@@ -6,8 +6,9 @@ from math import cos, radians, sin
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
@@ -19,15 +20,21 @@ from zima_cad.app import (
     AxisConstraintDialog,
     FamilyTableDialog,
     MainWindow,
+    PointConstraintDialog,
+    ProtrusionConstraintDialog,
     SKETCH_CONSTRAINT_SELECTION_TOOLS,
     SKETCH_ENTITY_SELECTION_TOOLS,
     ViewSelectionMode,
+    canonical_document_path,
 )
 from zima_cad.body_result import BodyResult, SurfaceDescriptor
 from zima_cad.topology import FaceRef
 from zima_cad.drawing import (
     DrawingCanvas,
+    DrawingWorkspace,
     cosmetic_pen,
+    default_sheet,
+    drawing_history_cursor,
     drawing_scale_text,
     delete_drawing_view,
     drawing_sheets,
@@ -51,11 +58,24 @@ from zima_cad.model import (
     make_sketch_shape,
     coordinate_system_transform,
     multiply_transforms,
+    transform_point,
     transform_shape,
 )
 from zima_cad.sketch_model import SketchModel
+from zima_cad.selection import (
+    SelectionController,
+    SelectionKind,
+    SelectionPurpose,
+    SelectionRequest,
+    SelectionResolution,
+    TopologySource,
+    ViewerDocumentContext,
+    ViewerInteractionScope,
+    ViewerSelectionPolicy,
+)
 from zima_cad.viewer import (
     CameraState,
+    ViewerPickCandidate,
     ZimaOpenGLViewer,
     STANDARD_VIEW_ORIENTATIONS,
     _camera_rotation_matrix,
@@ -79,6 +99,1051 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_only_exact_active_component_tree_row_is_cyan(self):
+        assembly = create_empty_assembly()
+        first = assembly.create_container("01.prtz", ContainerType.COMPONENT)
+        second = assembly.create_container("01.prtz", ContainerType.COMPONENT)
+        window = MainWindow.__new__(MainWindow)
+        window._active_component_entity_id = second.entity_id
+        first_item = QTreeWidgetItem([first.name])
+        second_item = QTreeWidgetItem([second.name])
+
+        window._style_active_component_tree_item(first_item, first)
+        window._style_active_component_tree_item(second_item, second)
+
+        self.assertFalse(first_item.font(0).bold())
+        self.assertEqual(
+            first_item.background(0).style(),
+            Qt.BrushStyle.NoBrush,
+        )
+        self.assertTrue(second_item.font(0).bold())
+        self.assertEqual(
+            second_item.background(0).color().name().upper(),
+            "#00D1FF",
+        )
+        self.assertEqual(
+            second_item.foreground(0).color().name().upper(),
+            "#102027",
+        )
+
+    def test_tab_close_collapses_sketch_and_active_component_first(self):
+        window = MainWindow.__new__(MainWindow)
+        window._sketch_edit_entity_id = "sketch"
+        window._active_component_return_document = object()
+        calls = []
+        window._reject_document_scoped_dialogs = lambda: calls.append(
+            "dialogs"
+        )
+        window._leave_sketch_edit = lambda **_kwargs: calls.append(
+            "sketch"
+        )
+        window._leave_active_component_context = (
+            lambda **_kwargs: calls.append("component")
+        )
+        window._store_active_session = lambda: calls.append("session")
+
+        window._prepare_active_document_close()
+
+        self.assertEqual(
+            calls,
+            ["dialogs", "sketch", "component", "session"],
+        )
+
+    def test_assembly_cache_tracks_linked_part_file_content(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Linked", ContainerType.COMPONENT
+        )
+        component.parameters["source_path"] = "linked.prtz"
+        with tempfile.TemporaryDirectory() as directory:
+            assembly_path = Path(directory) / "assembly.asmz"
+            part_path = Path(directory) / "linked.prtz"
+            part_path.write_bytes(b"first revision")
+
+            self.assertFalse(
+                MainWindow._assembly_source_signatures_match(
+                    assembly, assembly_path
+                )
+            )
+            MainWindow._update_assembly_source_signatures(
+                assembly, assembly_path
+            )
+            self.assertTrue(
+                MainWindow._assembly_source_signatures_match(
+                    assembly, assembly_path
+                )
+            )
+            part_path.write_bytes(b"second revision")
+            self.assertFalse(
+                MainWindow._assembly_source_signatures_match(
+                    assembly, assembly_path
+                )
+            )
+
+    def test_assembly_cache_requires_component_and_cut_source_packets(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Part", ContainerType.COMPONENT
+        )
+        cut = assembly.create_container(
+            "Cut", ContainerType.PROTRUSION
+        )
+        history = assembly.history_objects()
+
+        self.assertFalse(MainWindow._cached_source_history_complete(
+            assembly,
+            history,
+            SimpleNamespace(source_bodies={component.entity_id: object()}),
+        ))
+        self.assertTrue(MainWindow._cached_source_history_complete(
+            assembly,
+            history,
+            SimpleNamespace(source_bodies={
+                component.entity_id: object(),
+                cut.entity_id: object(),
+            }),
+        ))
+
+    def test_opening_part_reuses_document_edited_through_assembly(self):
+        window = MainWindow.__new__(MainWindow)
+        source_document = create_empty_part()
+        with tempfile.TemporaryDirectory() as directory:
+            source_path = canonical_document_path(
+                Path(directory) / "source.prtz"
+            )
+            window.document_sessions = []
+            window._assembly_part_documents = {
+                source_path: source_document
+            }
+            window.workspace = SimpleNamespace(windows=[window])
+            installed = []
+            window._install_opened_document = (
+                lambda document, path: installed.append((document, path))
+            )
+
+            with patch("zima_cad.app.load_part_document") as load:
+                self.assertTrue(window.open_document_path(source_path))
+
+            load.assert_not_called()
+            self.assertEqual(installed, [(source_document, source_path)])
+
+    def test_standalone_part_edit_is_published_to_assemblies(self):
+        window = MainWindow.__new__(MainWindow)
+        source_document = create_empty_part()
+        with tempfile.TemporaryDirectory() as directory:
+            source_path = canonical_document_path(
+                Path(directory) / "source.prtz"
+            )
+            window.document = source_document
+            window.current_file_path = source_path
+            window._assembly_part_documents = {}
+            window._dirty_assembly_part_paths = set()
+
+            window._mark_model_for_regeneration()
+
+            self.assertTrue(source_document.regeneration_required)
+            self.assertIs(
+                window._assembly_part_documents[source_path],
+                source_document,
+            )
+            self.assertIn(source_path, window._dirty_assembly_part_paths)
+
+    def test_drawing_add_sheet_inserts_at_history_cursor(self):
+        document = create_empty_drawing()
+        first = default_sheet(1)
+        second = default_sheet(2)
+        document.document_settings["drawing_history_cursor"] = "1"
+        workspace = DrawingWorkspace.__new__(DrawingWorkspace)
+        workspace.document = document
+        workspace.sheets = [first, second]
+        workspace.active_sheet_index = 0
+        workspace._refresh_controls = lambda **_kwargs: None
+        workspace._store = lambda: None
+
+        workspace.add_sheet()
+
+        self.assertEqual(len(workspace.sheets), 3)
+        self.assertIs(workspace.sheets[0], first)
+        self.assertIs(workspace.sheets[2], second)
+        self.assertEqual(workspace.active_sheet_index, 1)
+        self.assertEqual(
+            drawing_history_cursor(document, workspace.sheets), 2
+        )
+
+    def test_assembly_history_cursor_controls_active_components_and_cuts(self):
+        assembly = create_empty_assembly()
+        first = assembly.create_container(
+            "Part", ContainerType.COMPONENT
+        )
+        assembly.create_container("Cut", ContainerType.PROTRUSION)
+
+        assembly.set_history_cursor(1)
+
+        self.assertEqual(assembly.active_history_objects(), [first])
+
+    def test_assembly_regeneration_refreshes_cut_source_face_plane(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Part", ContainerType.COMPONENT
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        reference_id = f"{component.entity_id}:face:1"
+        references = [{
+            "type": "face",
+            "reference_scope": "source_object",
+            "source_object_id": component.entity_id,
+            "entity_id": component.entity_id,
+            "surface_reference_id": reference_id,
+            "equations": [[1.0, 0.0, 0.0, 10.0]],
+        }]
+        body_result = SimpleNamespace(faces={
+            reference_id: SurfaceDescriptor(
+                reference_id=reference_id,
+                kind="plane",
+                origin=(25.0, 0.0, 0.0),
+                normal=(1.0, 0.0, 0.0),
+            )
+        })
+
+        self.assertTrue(
+            window._refresh_history_result_surface_references(
+                references, body_result
+            )
+        )
+        self.assertEqual(
+            references[0]["equations"],
+            [[1.0, 0.0, 0.0, 25.0]],
+        )
+        self.assertEqual(references[0]["entity_id"], component.entity_id)
+
+    def test_part_function_dialog_makes_document_origin_available(self):
+        window = MainWindow.__new__(MainWindow)
+        window._definition_dialog_depth = 0
+        window.point_constraint_dialog = object()
+
+        self.assertTrue(window._definition_origin_is_visible())
+
+    def test_empty_placement_table_keeps_one_explicit_target_row(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = PointConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            suggested_name="Test",
+        )
+
+        self.assertEqual(dialog.references, [])
+        self.assertEqual(dialog.reference_list.rowCount(), 1)
+        self.assertEqual(
+            dialog.reference_list.item(0, 1).data(
+                Qt.ItemDataRole.UserRole
+            ),
+            "empty-reference",
+        )
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_placement_table_keeps_next_target_until_three_references(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = PointConstraintDialog(
+            lambda references, fallback: (
+                fallback,
+                max(0, 3 - len(references)),
+                "",
+                (False, False, False),
+            ),
+            suggested_name="Test",
+        )
+
+        for index in range(3):
+            dialog._add_reference({
+                "type": "point",
+                "key": f"point-{index}",
+                "label": f"Point {index + 1}",
+                "equations": [],
+            })
+            empty_rows = [
+                row
+                for row in range(dialog.reference_list.rowCount())
+                if dialog.reference_list.item(row, 1) is not None
+                and dialog.reference_list.item(row, 1).data(
+                    Qt.ItemDataRole.UserRole
+                ) == "empty-reference"
+            ]
+            self.assertEqual(dialog.reference_list.rowCount(), min(index + 2, 3))
+            self.assertEqual(empty_rows, [index + 1] if index < 2 else [])
+
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_assembly_cut_exceptions_are_individual_instance_rows(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+            subtract_only=True,
+            assembly_components=[
+                ("instance-a", "01.prtz"),
+                ("instance-b", "01.prtz"),
+            ],
+        )
+
+        self.assertEqual(dialog.cut_exception_ids(), [])
+        self.assertEqual(dialog.cut_exception_table.rowCount(), 1)
+        expected_height = (
+            dialog.cut_exception_table.horizontalHeader().sizeHint().height()
+            + 3 * 34
+            + dialog.cut_exception_table.frameWidth() * 2
+        )
+        self.assertEqual(dialog.cut_exception_table.height(), expected_height)
+        dialog.toggle_cut_exception("instance-b")
+
+        self.assertEqual(dialog.cut_exception_ids(), ["instance-b"])
+        self.assertEqual(dialog.cut_exception_table.rowCount(), 2)
+        dialog.toggle_cut_exception("instance-a")
+        self.assertEqual(
+            dialog.cut_exception_ids(),
+            ["instance-b", "instance-a"],
+        )
+        dialog.toggle_cut_exception("instance-b")
+        self.assertEqual(dialog.cut_exception_ids(), ["instance-a"])
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_first_origin_alignment_immediately_shows_remove_crosses(self):
+        application = QApplication.instance() or QApplication([])
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "First", ContainerType.COMPONENT
+        )
+        choices = []
+        for plane, normal in (
+            ("XZ", (0.0, 1.0, 0.0)),
+            ("XY", (0.0, 0.0, 1.0)),
+            ("YZ", (1.0, 0.0, 0.0)),
+        ):
+            choices.extend((
+                (
+                    f"First / {plane}",
+                    f"{component.entity_id}:plane:{plane}",
+                    (0.0, 0.0, 0.0),
+                    normal,
+                ),
+                (
+                    f"Assembly / {plane}",
+                    f"assembly:{plane}",
+                    (0.0, 0.0, 0.0),
+                    normal,
+                ),
+            ))
+        dialog = AssemblyComponentPropertiesDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            component,
+            choices,
+            choices,
+        )
+
+        self.assertTrue(dialog.accept_assembly_origin())
+        self.assertEqual(
+            [
+                dialog.reference_list.cellWidget(row, 0).text()
+                for row in range(3)
+            ],
+            ["×", "×", "×"],
+        )
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_active_instance_context_uses_part_container_policy(self):
+        part = create_empty_part()
+        assembly = create_empty_assembly()
+        context = ViewerDocumentContext(
+            display_document=assembly,
+            editing_document=part,
+            active_instance_id="second-instance",
+            editing_history_boundary=0,
+            interaction_scope=ViewerInteractionScope.ACTIVE_PART_CONTAINERS,
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._viewer_document_context = context
+        window._selection_controller = SelectionController()
+        window.assembly_component_dialog = None
+        window.point_constraint_dialog = None
+        window.orientation_dialog = None
+        window._sketch_reference_mode = False
+
+        policy = window._viewer_selection_policy()
+
+        self.assertEqual(policy.purpose, SelectionPurpose.PART_CONTAINER)
+
+    def test_passive_instance_packet_replaces_assembly_history_source(self):
+        history_source = BodyResult.from_mesh(ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=(), points=(), planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(1.0, 1.0, 1.0),
+        ))
+        instance_packet = BodyResult.from_mesh(ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=(), points=(), planes=(),
+            bounds_min=(70.0, 0.0, 0.0),
+            bounds_max=(71.0, 1.0, 1.0),
+        ))
+
+        resolved = MainWindow._passive_instance_display_results(
+            {"same-instance-id": history_source},
+            {"same-instance-id": instance_packet},
+        )
+
+        self.assertIs(resolved["same-instance-id"], instance_packet)
+
+    def test_sketch_external_reference_scope_can_pick_other_instance(self):
+        part = create_empty_part()
+        assembly = create_empty_assembly()
+        other_mesh = ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                4, ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                owner_id="other-instance",
+            ),),
+            points=(), planes=(), bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(1.0, 0.0, 0.0),
+        )
+        context = ViewerDocumentContext(
+            display_document=assembly,
+            editing_document=part,
+            active_instance_id="active-instance",
+            editing_history_boundary=0,
+            interaction_scope=(
+                ViewerInteractionScope.SKETCH_EXTERNAL_REFERENCES
+            ),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._viewer_document_context = context
+        window._dimension_inspection_visuals = False
+        window.assembly_component_dialog = None
+        window._selection_controller = SelectionController()
+        window.point_constraint_dialog = None
+        window.orientation_dialog = None
+        window._sketch_reference_mode = True
+        window.native_viewer = SimpleNamespace(
+            _pick_axis=lambda _position: None,
+            edge_at_mesh=lambda mesh, _position: (
+                ("other-instance", 4) if mesh is other_mesh else None
+            ),
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(source_bodies={
+                "other-instance": SimpleNamespace(mesh=other_mesh),
+            })
+        )
+
+        candidate = window._viewer_pick_candidate(QPointF(1.0, 1.0))
+
+        self.assertEqual(candidate.owner_id, "other-instance")
+        self.assertEqual(candidate.element_index, 4)
+
+    def test_active_part_container_pick_never_falls_back_to_assembly_mesh(self):
+        part = create_empty_part()
+        container = part.create_container("Box", ContainerType.BOX)
+        part.create_primitive(container.entity_id, EntityKind.BOX)
+        part_mesh = object()
+        assembly_mesh = object()
+        context = ViewerDocumentContext(
+            display_document=create_empty_assembly(),
+            editing_document=part,
+            active_instance_id="second-instance",
+            editing_history_boundary=1,
+            interaction_scope=ViewerInteractionScope.ACTIVE_PART_CONTAINERS,
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._viewer_document_context = context
+        window._viewer_interaction_body_result = SimpleNamespace(
+            mesh=part_mesh,
+            source_bodies={
+                container.entity_id: SimpleNamespace(mesh=part_mesh),
+            },
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(
+                mesh=assembly_mesh,
+                source_bodies={},
+            )
+        )
+        window._definition_history_boundary = lambda: 1
+        window.native_viewer = SimpleNamespace(
+            mesh_is_under_cursor=lambda mesh, _position: mesh is part_mesh
+        )
+
+        selected, mesh = window._part_history_container_at_position(
+            QPointF(1.0, 1.0)
+        )
+
+        self.assertIs(selected, container)
+        self.assertIs(mesh, part_mesh)
+
+    def test_active_part_element_uses_selected_assembly_instance_transform(self):
+        part = create_empty_part()
+        owner = part.create_container("Feature", ContainerType.EMPTY)
+        owner.coordinate_system.origin = (5.0, 0.0, 0.0)
+        assembly = create_empty_assembly()
+        first = assembly.create_container("First", ContainerType.COMPONENT)
+        second = assembly.create_container("Second", ContainerType.COMPONENT)
+        first.coordinate_system.origin = (100.0, 0.0, 0.0)
+        second.coordinate_system.origin = (0.0, 50.0, 0.0)
+        second.coordinate_system.rotation = (0.0, 0.0, 90.0)
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._active_component_return_document = assembly
+        window._active_component_entity_id = second.entity_id
+
+        transform = window._world_transform_for_object(owner)
+
+        actual = tuple(transform_point(transform, (0.0, 0.0, 0.0)))
+        self.assertAlmostEqual(actual[0], 0.0)
+        self.assertAlmostEqual(actual[1], 55.0)
+        self.assertAlmostEqual(actual[2], 0.0)
+        self.assertEqual(window._native_object_origin(owner), actual)
+
+    def test_active_instance_sketch_frame_stays_in_assembly_coordinates(self):
+        part = create_empty_part()
+        owner = part.create_container("Feature", ContainerType.SKETCH)
+        owner.coordinate_system.origin = (5.0, 0.0, 0.0)
+        sketch = part.create_sketch(owner.entity_id)
+        sketch.parameters["plane"] = "xy"
+        assembly = create_empty_assembly()
+        instance = assembly.create_container(
+            "Second 01", ContainerType.COMPONENT
+        )
+        instance.coordinate_system.origin = (10.0, 20.0, 30.0)
+        instance.coordinate_system.rotation = (0.0, 0.0, 90.0)
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._active_component_return_document = assembly
+        window._active_component_entity_id = instance.entity_id
+        window._active_component_world_transform = (
+            coordinate_system_transform(instance.coordinate_system)
+        )
+        # Rollback/recalculation may touch the live Assembly graph.  The
+        # active Sketcher frame must retain the solved transform captured for
+        # the exact selected instance, regardless of chain length.
+        instance.coordinate_system = CoordinateSystem()
+
+        origin, x_axis, y_axis = window._sketch_frame(sketch)
+
+        for actual, expected in zip(origin, (10.0, 25.0, 30.0)):
+            self.assertAlmostEqual(actual, expected)
+        for actual, expected in zip(x_axis, (0.0, 1.0, 0.0)):
+            self.assertAlmostEqual(actual, expected)
+        for actual, expected in zip(y_axis, (-1.0, 0.0, 0.0)):
+            self.assertAlmostEqual(actual, expected)
+
+    def test_active_instance_does_not_enter_part_constraint_solution(self):
+        part = create_empty_part()
+        origin = next(
+            entity
+            for entity in part.root.children
+            if entity.kind == EntityKind.ORIGIN
+        )
+        xy_plane = next(
+            entity
+            for entity in origin.children
+            if entity.kind == EntityKind.PLANE
+            and entity.parameters.get("plane") == "xy"
+        )
+        assembly = create_empty_assembly()
+        instance = assembly.create_container(
+            "Placed part", ContainerType.COMPONENT
+        )
+        instance.coordinate_system.origin = (0.0, 0.0, 90.0)
+        instance.coordinate_system.rotation = (0.0, 0.0, 75.0)
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._active_component_return_document = assembly
+        window._active_component_entity_id = instance.entity_id
+        window._active_component_world_transform = (
+            coordinate_system_transform(instance.coordinate_system)
+        )
+
+        solution, _dof, _status, _constrained = (
+            window._solve_point_constraints(
+                [{"type": "entity", "entity_id": xy_plane.entity_id}],
+                (5.0, 6.0, 7.0),
+            )
+        )
+
+        self.assertEqual(solution, (5.0, 6.0, 0.0))
+        self.assertEqual(
+            window._reference_origin(xy_plane),
+            (0.0, 0.0, 90.0),
+        )
+
+    def test_assembly_cut_tool_is_an_object_pick_candidate(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Part", ContainerType.COMPONENT
+        )
+        cut = assembly.create_container(
+            "Cut", ContainerType.PROTRUSION
+        )
+        cut_mesh = ViewerMesh(
+            triangle_positions=(
+                0.0, 0.0, 0.0,
+                1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+            ),
+            triangle_normals=(0.0, 0.0, 1.0) * 3,
+            triangle_face_indices=(1,),
+            triangle_owner_ids=(cut.entity_id,),
+            edges=(), points=(), planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(1.0, 1.0, 0.0),
+        )
+        result = BodyResult.from_mesh(cut_mesh)
+        calculated = BodyResult(
+            mesh=cut_mesh,
+            source_bodies={
+                component.entity_id: result.with_owner(
+                    component.entity_id
+                ),
+                cut.entity_id: result,
+            },
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window.assembly_component_dialog = None
+        window.point_constraint_dialog = None
+        window._dimension_inspection_visuals = False
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=calculated
+        )
+        window._viewer_document_context = ViewerDocumentContext(
+            display_document=assembly,
+            editing_document=assembly,
+            active_instance_id=None,
+            editing_history_boundary=2,
+            interaction_scope=ViewerInteractionScope.ASSEMBLY_INSTANCES,
+        )
+        window._selection_controller = SelectionController()
+        window.orientation_dialog = None
+        window._sketch_reference_mode = False
+        window.native_viewer = SimpleNamespace(
+            mesh_is_under_cursor=lambda mesh, _position: mesh is cut_mesh,
+            _pick_object=lambda _position: None,
+        )
+
+        candidate = window._viewer_pick_candidate(QPointF(2.0, 2.0))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.kind, "object")
+        self.assertEqual(candidate.owner_id, cut.entity_id)
+        candidates = window._assembly_object_pick_candidates(
+            QPointF(2.0, 2.0)
+        )
+        self.assertEqual(
+            [item.owner_id for item in candidates],
+            [cut.entity_id, component.entity_id],
+        )
+        self.assertIs(candidate.hover_mesh, cut_mesh)
+
+    def test_active_part_selection_scope_excludes_other_instances(self):
+        assembly = create_empty_assembly()
+        first = assembly.create_container("First", ContainerType.COMPONENT)
+        second = assembly.create_container("Second", ContainerType.COMPONENT)
+        second_origin = next(
+            child for child in second.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        generated_owner = f"{second.entity_id}:generated-axis"
+        scene = SimpleNamespace(shapes_by_owner_id={
+            first.entity_id: object(),
+            second.entity_id: object(),
+            generated_owner: object(),
+        })
+
+        allowed, excluded = MainWindow._active_component_selection_scope(
+            assembly, second.entity_id, scene
+        )
+
+        self.assertIn(second.entity_id, allowed)
+        self.assertIn(second_origin.entity_id, allowed)
+        self.assertIn(generated_owner, allowed)
+        self.assertNotIn(first.entity_id, allowed)
+        self.assertEqual(excluded, {first.entity_id})
+
+    def test_feature_overlay_matches_only_the_activated_instance(self):
+        coincident_edge = ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+        main = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(
+                EdgePolyline(1, coincident_edge, owner_id="first"),
+                EdgePolyline(1, coincident_edge, owner_id="second"),
+            ),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(10.0, 0.0, 0.0),
+        )
+        overlay = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                1, coincident_edge, owner_id="second:protrusion"
+            ),),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(10.0, 0.0, 0.0),
+        )
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = main
+        viewer._object_overlay_mesh = overlay
+        viewer._object_overlay_match_owner_id = "second"
+
+        ZimaOpenGLViewer._refresh_object_overlay_edge_matches(viewer)
+
+        self.assertEqual(
+            viewer._object_overlay_main_edge_keys,
+            frozenset({("second", 1)}),
+        )
+
+    def test_assembly_mate_flip_reverses_target_normal(self):
+        normal = (0.0, 0.0, 1.0)
+
+        self.assertEqual(
+            tuple(AssemblyComponentPropertiesDialog._oriented_target_normal(
+                normal, False
+            )),
+            normal,
+        )
+        self.assertEqual(
+            tuple(AssemblyComponentPropertiesDialog._oriented_target_normal(
+                normal, True
+            )),
+            (0.0, 0.0, -1.0),
+        )
+
+    def test_assembly_mate_flip_does_not_reverse_signed_offset_direction(self):
+        normal = (0.0, 0.0, 1.0)
+
+        unflipped_orientation, unflipped_position = (
+            AssemblyComponentPropertiesDialog._mate_target_normals(
+                normal, False
+            )
+        )
+        flipped_orientation, flipped_position = (
+            AssemblyComponentPropertiesDialog._mate_target_normals(
+                normal, True
+            )
+        )
+
+        self.assertEqual(tuple(unflipped_orientation), normal)
+        self.assertEqual(tuple(flipped_orientation), (0.0, 0.0, -1.0))
+        self.assertEqual(tuple(unflipped_position), normal)
+        self.assertEqual(tuple(flipped_position), normal)
+
+    def test_plane_flip_controls_side_when_angle_is_between_axis_and_plane(self):
+        rows = AssemblyComponentPropertiesDialog._with_orientation_roles([
+            {"type": "axis"},
+            {"type": "angle"},
+            {"type": "plane", "flip": True},
+        ])
+
+        self.assertEqual(
+            [row["orientation"] for row in rows],
+            [True, False, True],
+        )
+        self.assertEqual(
+            AssemblyComponentPropertiesDialog._orientation_mate_indices(rows),
+            [2, 0],
+        )
+
+    def test_angle_flip_reverses_angle_direction_without_adding_180_degrees(self):
+        self.assertAlmostEqual(
+            AssemblyComponentPropertiesDialog._signed_mate_angle(11.0, False),
+            radians(11.0),
+        )
+        self.assertAlmostEqual(
+            AssemblyComponentPropertiesDialog._signed_mate_angle(11.0, True),
+            radians(-11.0),
+        )
+
+    def test_assembly_object_hover_uses_complete_persisted_component_mesh(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component", ContainerType.COMPONENT
+        )
+        complete_mesh = object()
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._dimension_inspection_visuals = False
+        window.assembly_component_dialog = None
+        window.native_viewer = SimpleNamespace(
+            _pick_object=lambda _position: component.entity_id
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(
+                source_bodies={
+                    component.entity_id: SimpleNamespace(mesh=complete_mesh)
+                }
+            )
+        )
+        window._native_object_origin = lambda _component: (1.0, 2.0, 3.0)
+
+        candidate = window._viewer_pick_candidate(QPointF(10.0, 20.0))
+
+        self.assertEqual(candidate.owner_id, component.entity_id)
+        self.assertIs(candidate.hover_mesh, complete_mesh)
+        self.assertEqual(candidate.anchor, (1.0, 2.0, 3.0))
+
+    def test_assembly_reference_faces_override_dimension_inspection_gate(self):
+        assembly = create_empty_assembly()
+        candidate = ViewerPickCandidate("face", "component", 7, object())
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._dimension_inspection_visuals = True
+        window.assembly_component_dialog = SimpleNamespace(
+            isVisible=lambda: True,
+            selection_paused=False,
+        )
+        window._assembly_viewer_pick_candidates = (
+            lambda _dialog, _position: ((candidate, None),)
+        )
+
+        selected = window._viewer_pick_candidate(QPointF(10.0, 20.0))
+
+        self.assertIs(selected, candidate)
+
+    def test_assembly_object_hover_always_falls_back_to_all_component_edges(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component", ContainerType.COMPONENT
+        )
+        complete_edges = (
+            EdgePolyline(1, ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                         owner_id=component.entity_id),
+            EdgePolyline(2, ((0.0, 0.0, 1.0), (1.0, 0.0, 1.0)),
+                         owner_id=component.entity_id),
+        )
+        assembly_mesh = ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=complete_edges, points=(), planes=(),
+            bounds_min=(0.0, 0.0, 0.0), bounds_max=(1.0, 0.0, 1.0),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._dimension_inspection_visuals = False
+        window.assembly_component_dialog = None
+        window.native_viewer = SimpleNamespace(
+            _pick_object=lambda _position: component.entity_id
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(
+                source_bodies={}, mesh=assembly_mesh
+            )
+        )
+        window._native_object_origin = lambda _component: None
+
+        candidate = window._viewer_pick_candidate(QPointF(10.0, 20.0))
+
+        self.assertEqual(candidate.hover_mesh.edges, complete_edges)
+
+    def test_assembly_pick_mesh_follows_changed_component_transform(self):
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component", ContainerType.COMPONENT
+        )
+        mesh = ViewerMesh(
+            triangle_positions=(0.0, 0.0, 0.0) * 3,
+            triangle_normals=(0.0, 0.0, 1.0) * 3,
+            triangle_face_indices=(1,),
+            triangle_owner_ids=("source-solid",),
+            edges=(), points=(), planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(0.0, 0.0, 0.0),
+        )
+        source_result = BodyResult.from_mesh(mesh)
+        dialog = SimpleNamespace(_original_component_results={
+            component.entity_id: [(source_result, mesh, None)]
+        })
+        component.coordinate_system.origin = (25.0, 0.0, 0.0)
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+
+        window._refresh_assembly_original_component_results(dialog)
+
+        transformed = dialog._original_component_results[
+            component.entity_id
+        ][0][1]
+        self.assertEqual(transformed.bounds_min[0], 25.0)
+        self.assertEqual(transformed.bounds_max[0], 25.0)
+
+    def test_assembly_placement_invalidates_only_assembly_display_cache(self):
+        assembly = create_empty_assembly()
+        assembly._shape_history_cache["old"] = object()
+        assembly._body_result_cache["old"] = object()
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._native_viewer_scene = object()
+
+        window._invalidate_assembly_display_cache()
+
+        self.assertEqual(assembly._shape_history_cache, {})
+        self.assertEqual(assembly._body_result_cache, {})
+        self.assertIsNone(window._native_viewer_scene)
+
+    def test_active_part_regeneration_invalidates_display_assembly_not_part(self):
+        part = create_empty_part()
+        assembly = create_empty_assembly()
+        part._body_result_cache["fresh-part"] = object()
+        assembly._shape_history_cache["stale-assembly"] = object()
+        assembly._body_result_cache["stale-assembly"] = object()
+        window = MainWindow.__new__(MainWindow)
+        window.document = part
+        window._native_viewer_scene = object()
+
+        window._invalidate_assembly_display_cache(assembly)
+
+        self.assertIn("fresh-part", part._body_result_cache)
+        self.assertEqual(assembly._shape_history_cache, {})
+        self.assertEqual(assembly._body_result_cache, {})
+        self.assertIsNone(window._native_viewer_scene)
+
+    def test_assembly_source_face_precedes_part_self_reference_guard(self):
+        window = MainWindow.__new__(MainWindow)
+        window._dimension_inspection_visuals = False
+        window.document = SimpleNamespace(root=SimpleNamespace(
+            entity_id="assembly-root"
+        ))
+        accepted = []
+        window._accept_assembly_face_reference = (
+            lambda owner_id, face_index: accepted.append(
+                (owner_id, face_index)
+            ) or True
+        )
+        window._current_definition_owns_reference = lambda _owner_id: True
+
+        window._on_native_face_selected("source-component", 7)
+
+        self.assertEqual(accepted, [("source-component", 7)])
+
+    def test_provided_object_click_keeps_source_mesh_for_cyan_confirmation(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._provided_hover_candidate = None
+        viewer._pending_model_hover_position = QPointF(1.0, 1.0)
+        stopped = []
+        viewer._model_hover_timer = SimpleNamespace(
+            stop=lambda: stopped.append("apply")
+        )
+        viewer._model_hover_clear_timer = SimpleNamespace(
+            stop=lambda: stopped.append("clear")
+        )
+        selected = []
+        viewer._set_selected_object = selected.append
+        overlays = []
+        viewer.set_object_overlay = lambda *args, **kwargs: overlays.append(
+            (args, kwargs)
+        )
+        source_mesh = object()
+        candidate = ViewerPickCandidate(
+            "object", "source-container", 0, source_mesh
+        )
+
+        viewer._select_provided_candidate(candidate)
+
+        self.assertIsNone(viewer._provided_hover_candidate)
+        self.assertEqual(selected, ["source-container"])
+        self.assertEqual(stopped, ["apply", "clear"])
+        self.assertIsNone(viewer._pending_model_hover_position)
+        self.assertEqual(overlays, [(
+            (source_mesh,),
+            {
+                "selected": True,
+                "anchor": None,
+                "match_owner_id": "source-container",
+            },
+        )])
+
+    def test_object_cycle_preview_never_enters_topology_click_dispatch(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._cycled_topology_candidate = ("face", "old", 1)
+        viewer.set_feature_hover_edges = lambda _edges: None
+        previewed = []
+        viewer._apply_provided_hover = previewed.append
+        candidate = ViewerPickCandidate(
+            "object", "assembly-cut", 0, object()
+        )
+
+        viewer.preview_provided_candidate(candidate)
+
+        self.assertIsNone(viewer._cycled_topology_candidate)
+        self.assertEqual(previewed, [candidate])
+
+    def test_object_click_confirms_visible_hover_without_repicking_overlap(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        hovered = ViewerPickCandidate("object", "orange-container")
+        viewer._provided_hover_candidate = hovered
+        viewer._last_model_hover_position = QPointF(100.0, 100.0)
+        repicks = []
+        viewer._provided_candidate_at = lambda position: repicks.append(
+            position
+        ) or ViewerPickCandidate("object", "different-container")
+
+        selected = viewer._provided_candidate_for_click(
+            QPointF(102.0, 101.0)
+        )
+
+        self.assertIs(selected, hovered)
+        self.assertEqual(repicks, [])
+
+    def test_late_object_hover_does_not_downgrade_cyan_selection(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._provided_hover_candidate = None
+        viewer._object_overlay_persistent = True
+        viewer._clear_topology_hover = lambda: None
+        viewer.set_source_topology_hover = lambda *_args: None
+        overlay_calls = []
+        viewer.set_object_overlay = lambda *args, **kwargs: overlay_calls.append(
+            (args, kwargs)
+        )
+        viewer._set_hovered_object = lambda _owner_id: None
+
+        viewer._apply_provided_hover(ViewerPickCandidate(
+            "object", "selected-container", 0, object()
+        ))
+
+        self.assertEqual(overlay_calls, [])
+
+    def test_confirmed_object_disables_common_hover_provider(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._object_overlay_locks_interaction = True
+        calls = []
+        viewer._pick_candidate_provider = lambda position: calls.append(
+            position
+        )
+
+        candidate = viewer._provided_candidate_at(QPointF(10.0, 20.0))
+
+        self.assertIsNone(candidate)
+        self.assertEqual(calls, [])
+
     def test_coincident_is_classified_as_selection_not_placement(self):
         self.assertIn("coincident", SKETCH_ENTITY_SELECTION_TOOLS)
         self.assertIn("coincident", SKETCH_CONSTRAINT_SELECTION_TOOLS)
@@ -1024,6 +2089,62 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual(candidates, (("edge", "origin", 2),))
 
+    def test_assembly_reference_filter_never_offers_result_body_face(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._selection_filter = "reference"
+        viewer._face_hits = lambda *_args, **_kwargs: [
+            (1.0, "assembly-result-body", 4)
+        ]
+
+        self.assertIsNone(viewer._pick_face(QPointF()))
+
+    def test_reference_filter_includes_only_datum_axes_from_scene(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = SimpleNamespace(
+            is_empty=False,
+            points=(SimpleNamespace(
+                element_kind="vertex",
+                position=(5.0, 0.0, 0.0),
+                owner_id="point-owner",
+                point_index=1,
+            ),),
+            edges=(
+                SimpleNamespace(
+                    element_kind="edge",
+                    topology_role="sharp",
+                    owner_id="solid",
+                    edge_index=1,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                ),
+                SimpleNamespace(
+                    element_kind="axis",
+                    topology_role="datum",
+                    owner_id="origin",
+                    edge_index=2,
+                    points=((0.0, 3.0, 0.0), (10.0, 3.0, 0.0)),
+                ),
+            ),
+            planes=(),
+        )
+        viewer._selection_filter = "reference"
+        viewer._display_mode = "shaded_with_edges"
+        viewer._display_edge_points = lambda edge: edge.points
+        viewer._camera_point = lambda point: point
+        viewer._screen_point = lambda point: QPointF(point[0], point[1])
+        viewer._face_hits = lambda *_args, **_kwargs: []
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        candidates = viewer.topology_candidates_at(QPointF(5.0, 0.0))
+        outside_precise_axis = viewer.topology_candidates_at(
+            QPointF(5.0, 7.0)
+        )
+
+        self.assertNotIn(("edge", "solid", 1), candidates)
+        self.assertIn(("edge", "origin", 2), candidates)
+        self.assertNotIn(("edge", "origin", 2), outside_precise_axis)
+        self.assertNotIn(("point", "point-owner", 1), candidates)
+
     def test_assembly_reference_hover_picks_generated_axis(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         viewer._mesh = SimpleNamespace(
@@ -1049,6 +2170,131 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual(picked, ("component:generated-axis", 1))
 
+    def test_assembly_datum_axis_is_delivered_to_properties_dialog(self) -> None:
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component", ContainerType.COMPONENT
+        )
+        origin = next(
+            child for child in component.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        accepted = []
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window.assembly_component_dialog = SimpleNamespace(
+            isVisible=lambda: True,
+            selection_paused=False,
+            accept_axis=lambda descriptor: accepted.append(descriptor),
+        )
+
+        consumed = window._accept_assembly_edge_reference(
+            origin.entity_id, 1
+        )
+
+        self.assertTrue(consumed)
+        self.assertEqual(
+            accepted, [f"{component.entity_id}:axis:X"]
+        )
+
+    def test_reference_picker_prefers_axis_over_coincident_body_edge(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._mesh = SimpleNamespace(
+            is_empty=False,
+            edges=(
+                EdgePolyline(
+                    edge_index=1,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                    owner_id="body",
+                    element_kind="edge",
+                ),
+                EdgePolyline(
+                    edge_index=2,
+                    points=((0.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+                    owner_id="component:datum-axis",
+                    element_kind="axis",
+                ),
+            ),
+        )
+        viewer._selection_filter = "reference"
+        viewer._display_mode = "shaded_with_edges"
+        viewer._display_edge_points = lambda edge: edge.points
+        viewer._camera_point = lambda point: point
+        viewer._screen_point = lambda point: QPointF(point[0], point[1])
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        self.assertEqual(
+            viewer._pick_edge(QPointF(5.0, 0.0)),
+            ("component:datum-axis", 2),
+        )
+
+    def test_plane_picker_accepts_plane_interior(self) -> None:
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        plane = SimpleNamespace(
+            owner_id="origin-plane",
+            plane_index=1,
+            corners=(
+                (0.0, 0.0, 0.0),
+                (10.0, 0.0, 0.0),
+                (10.0, 10.0, 0.0),
+                (0.0, 10.0, 0.0),
+            ),
+        )
+        viewer._mesh = SimpleNamespace(planes=(plane,))
+        viewer._selection_filter = "all"
+        viewer._display_plane_corners = lambda item: item.corners
+        viewer._camera_point = lambda point: point
+        viewer._screen_point = lambda point: QPointF(point[0], point[1])
+        viewer._topology_owner_is_selectable = lambda _owner_id: True
+        viewer.devicePixelRatioF = lambda: 1.0
+
+        self.assertEqual(
+            viewer._pick_plane(QPointF(5.0, 5.0)),
+            ("origin-plane", 1),
+        )
+
+    def test_stable_reference_hover_picks_non_scene_source_face(self) -> None:
+        document = create_empty_part()
+        source = document.create_container("Source", ContainerType.BOX)
+        source_mesh = SimpleNamespace(
+            face_mesh=lambda owner_id, face_index: (
+                "face-mesh", owner_id, face_index
+            ),
+            edge_mesh=lambda *_args: None,
+            point_mesh=lambda *_args: None,
+        )
+        viewer = SimpleNamespace(
+            _pick_plane=lambda _position: None,
+            _pick_axis=lambda _position: None,
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window.native_viewer = viewer
+        window.assembly_component_dialog = None
+        window._dimension_inspection_visuals = ()
+        window._viewer_selection_policy = lambda: ViewerSelectionPolicy(
+            SelectionPurpose.STABLE_REFERENCE,
+            TopologySource.ORIGINAL_SOLIDS,
+            frozenset({SelectionKind.FACE}),
+            "topology",
+            "all",
+        )
+        window._source_topology_reference_at_position = (
+            lambda kind, _position: (
+                (source.entity_id, 3, source_mesh)
+                if kind == "face" else None
+            )
+        )
+        candidate = window._viewer_pick_candidate(QPointF(25.0, 30.0))
+
+        self.assertEqual(candidate.kind, "face")
+        self.assertEqual(candidate.owner_id, source.entity_id)
+        self.assertEqual(candidate.element_index, 3)
+        self.assertEqual(
+            candidate.hover_mesh, ("face-mesh", source.entity_id, 3)
+        )
+
     def test_cycled_hidden_face_preview_is_not_replaced_by_cursor_hit(self) -> None:
         window = MainWindow.__new__(MainWindow)
         window._dimension_inspection_visuals = ()
@@ -1060,6 +2306,13 @@ class DrawingViewConventionTests(unittest.TestCase):
             set_feature_hover_edges=lambda edges: cleared.append(edges),
         )
         window._set_view_hover = lambda *value: hovered.append(value)
+        window._viewer_selection_policy = lambda: ViewerSelectionPolicy(
+            SelectionPurpose.VIEW_ORIENTATION,
+            TopologySource.DISPLAYED_MODEL,
+            frozenset({SelectionKind.FACE}),
+            "topology",
+            "face",
+        )
         window._on_native_source_topology_hovered = lambda *_args: self.fail(
             "cycled preview must not be replaced by a cursor ray hit"
         )
@@ -1088,6 +2341,13 @@ class DrawingViewConventionTests(unittest.TestCase):
         document.create_primitive(second.entity_id, EntityKind.BOX)
         window = MainWindow.__new__(MainWindow)
         window.document = document
+        source_mesh = SimpleNamespace()
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(source_bodies={
+                first.entity_id: SimpleNamespace(mesh=source_mesh),
+                second.entity_id: SimpleNamespace(mesh=source_mesh),
+            }),
+        )
         window._cached_source_model_shapes = []
         window._cached_source_model_meshes = {}
         window._definition_history_boundary = lambda: 2
@@ -1129,22 +2389,183 @@ class DrawingViewConventionTests(unittest.TestCase):
         window = MainWindow.__new__(MainWindow)
         window._sketch_edit_entity_id = None
         window._sketch_show_all_dimensions = False
-        window._part_hover_container_id = "old-container"
-        window._part_hover_container_mesh = object()
         window._dismiss_view_selection_requested = False
         window._dimension_overlays = {}
         window._dimension_object_id = None
         window._dimension_bindings = {}
         window._dimension_owner_ids = {}
+        window._dimension_inspection_visuals = False
+        window._dimension_selection_suspended = False
         window.native_viewer = SimpleNamespace(
             set_dimensions=lambda _dimensions: None,
+            set_dimension_inspection_active=lambda _active: None,
         )
 
         window._dismiss_dimension_overlays()
 
         self.assertTrue(window._dismiss_view_selection_requested)
-        self.assertIsNone(window._part_hover_container_id)
-        self.assertIsNone(window._part_hover_container_mesh)
+
+    def test_dimension_dismiss_clears_selection_and_resumes_hover(self) -> None:
+        calls = []
+
+        class Signal:
+            def __init__(self, name):
+                self.name = name
+
+            def emit(self, *args):
+                calls.append((self.name, args))
+
+        viewer = SimpleNamespace(
+            dimensionsDismissRequested=Signal("dimensions"),
+            selectedObjectChanged=Signal("selection"),
+            _clear_topology_selection=lambda: calls.append(
+                ("topology", ())
+            ),
+        )
+
+        ZimaOpenGLViewer._dismiss_dimensions_and_object_selection(viewer)
+
+        self.assertEqual(
+            calls,
+            [
+                ("dimensions", ()),
+                ("topology", ()),
+                ("selection", ("",)),
+            ],
+        )
+
+    def test_application_selection_restores_general_viewer_mode(self) -> None:
+        calls = []
+
+        class Action:
+            def __init__(self, checked=False):
+                self.checked = checked
+
+            def blockSignals(self, blocked):
+                calls.append(("block", blocked))
+                return False
+
+            def setChecked(self, checked):
+                self.checked = checked
+                calls.append(("application_action", checked))
+
+            def isChecked(self):
+                return self.checked
+
+        window = MainWindow.__new__(MainWindow)
+        window.application_selection_action = Action(False)
+        window.view_selection_action = Action(False)
+        window.native_viewer = SimpleNamespace(
+            _dismiss_dimensions_and_object_selection=lambda: calls.append(
+                ("dismiss", True)
+            )
+        )
+        window.rebuild_view = lambda **kwargs: calls.append(
+            ("rebuild", kwargs)
+        )
+
+        window._activate_application_selection()
+
+        self.assertTrue(window.application_selection_action.isChecked())
+        self.assertTrue(window.view_selection_action.isChecked())
+        self.assertIn(("dismiss", True), calls)
+        self.assertIn(
+            (
+                "rebuild",
+                {"fit": False, "rebuild_geometry": False},
+            ),
+            calls,
+        )
+
+    def test_feature_dimensions_suspend_selection_after_profile_cleanup(self):
+        window = MainWindow.__new__(MainWindow)
+        feature = SimpleNamespace(
+            kind=EntityKind.PROTRUSION,
+            parameters={"sketch_id": "sketch"},
+        )
+        container = SimpleNamespace(
+            kind=EntityKind.CONTAINER,
+            container_type=ContainerType.PROTRUSION,
+            children=[feature],
+        )
+        window.document = SimpleNamespace(
+            find_owning_object=lambda _entity_id: container
+        )
+        window._first_editable_dimension_entity = lambda _obj: feature
+        window._dimension_overlays = {"length": object()}
+        calls = []
+        window._show_protrusion_profile_overlay = (
+            lambda _obj: calls.append("profile")
+        )
+        window._begin_dimension_inspection = (
+            lambda: calls.append("suspend")
+        )
+
+        shown = window._show_edit_overlays(container, QPoint())
+
+        self.assertTrue(shown)
+        self.assertEqual(calls, ["profile", "suspend"])
+
+    def test_dimension_inspection_suspends_and_restores_hover_selection(self):
+        calls = []
+
+        class Viewer:
+            def set_selection_enabled(self, enabled):
+                calls.append(("selection", enabled))
+
+            def set_dimension_inspection_active(self, active):
+                calls.append(("inspection", active))
+
+            def _clear_topology_hover(self):
+                calls.append(("clear_hover", None))
+
+            def _clear_topology_selection(self):
+                calls.append(("clear_topology", None))
+
+            def _set_hovered_object(self, owner_id):
+                calls.append(("hovered_object", owner_id))
+
+            def set_dimensions(self, _dimensions):
+                pass
+
+        window = MainWindow.__new__(MainWindow)
+        window.native_viewer = Viewer()
+        window.selection_filter_combo = SimpleNamespace(
+            setEnabled=lambda enabled: calls.append(("combo", enabled))
+        )
+        window.view_selection_enabled = True
+        window._dimension_selection_suspended = False
+        window._dimension_inspection_visuals = False
+        window._dimension_overlays = {}
+        window._dimension_object_id = None
+        window._dimension_bindings = {}
+        window._dimension_owner_ids = {}
+
+        window._begin_dimension_inspection()
+        window._clear_dimension_overlays()
+
+        self.assertIn(("inspection", True), calls)
+        self.assertIn(("selection", False), calls)
+        self.assertEqual(calls[-2:], [("selection", True), ("combo", True)])
+        self.assertFalse(window._dimension_selection_suspended)
+
+    def test_left_click_does_not_dismiss_dimension_inspection(self) -> None:
+        accepted = []
+        viewer = SimpleNamespace(
+            _dimension_inspection_active=True,
+            _dimensions=(object(),),
+            _dismiss_dimensions_and_object_selection=lambda: self.fail(
+                "LMB must not finish dimension inspection"
+            ),
+        )
+        event = SimpleNamespace(
+            button=lambda: Qt.MouseButton.LeftButton,
+            accept=lambda: accepted.append(True),
+        )
+
+        ZimaOpenGLViewer.mousePressEvent(viewer, event)
+
+        self.assertEqual(accepted, [True])
 
     def test_imported_face_reference_is_created_lazily(self) -> None:
         imported = SimpleNamespace(
@@ -1174,10 +2595,65 @@ class DrawingViewConventionTests(unittest.TestCase):
         window._configure_assembly_reference_picking()
 
         self.assertIn(("set_selection_enabled", True), calls)
-        self.assertIn(("set_selection_filter", "surface_axis"), calls)
+        self.assertIn(("set_selection_filter", "reference"), calls)
         self.assertIn(("set_interaction_mode", "topology"), calls)
         self.assertIn(("set_excluded_topology_owners", set()), calls)
         self.assertIn(("set_large_mesh_topology_enabled", True), calls)
+        self.assertIn(("set_object_overlay", None), calls)
+        self.assertIn(("_set_selected_object", None), calls)
+        self.assertIn(("_set_hovered_object", None), calls)
+        self.assertFalse(window.native_viewer._object_overlay_locks_interaction)
+        self.assertFalse(window.native_viewer._object_overlay_persistent)
+
+    def test_viewer_policy_distinguishes_normal_and_feature_selection(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._selection_controller = SelectionController()
+        window._sketch_reference_mode = False
+        window.assembly_component_dialog = None
+        window.point_constraint_dialog = None
+        window.orientation_dialog = None
+
+        window.document = create_empty_part()
+        policy = window._viewer_selection_policy()
+        self.assertEqual(policy.purpose, SelectionPurpose.PART_CONTAINER)
+        self.assertEqual(policy.topology_source, TopologySource.NONE)
+        self.assertEqual(policy.allowed_kinds, {SelectionKind.OBJECT})
+
+        window.document = create_empty_assembly()
+        policy = window._viewer_selection_policy()
+        self.assertEqual(policy.purpose, SelectionPurpose.ASSEMBLY_COMPONENT)
+        self.assertEqual(policy.interaction_mode, "object")
+
+        window._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(candidate),
+            on_complete=lambda _values: None,
+        ))
+        policy = window._viewer_selection_policy()
+        self.assertEqual(policy.purpose, SelectionPurpose.BODY_EDGE_OPERATION)
+        self.assertEqual(policy.topology_source, TopologySource.INPUT_BODY)
+        self.assertEqual(policy.selection_filter, "edge")
+
+    def test_viewer_policy_uses_original_topology_for_container_references(self):
+        window = MainWindow.__new__(MainWindow)
+        window._selection_controller = SelectionController()
+        window._sketch_reference_mode = False
+        window.assembly_component_dialog = None
+        window.orientation_dialog = None
+        window.document = create_empty_part()
+        window.point_constraint_dialog = SimpleNamespace(
+            isVisible=lambda: True,
+        )
+        window._container_orientation_selection_is_active = lambda: False
+
+        policy = window._viewer_selection_policy()
+
+        self.assertEqual(policy.purpose, SelectionPurpose.STABLE_REFERENCE)
+        self.assertTrue(policy.uses_original_topology)
+        self.assertIn(SelectionKind.FACE, policy.allowed_kinds)
+        self.assertIn(SelectionKind.EDGE, policy.allowed_kinds)
+        self.assertIn(SelectionKind.POINT, policy.allowed_kinds)
 
     def test_assembly_choices_sync_generated_solid_axes_before_picking(self) -> None:
         source_document = create_empty_part()
@@ -1309,13 +2785,9 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         window._on_native_object_double_clicked("owning-protrusion")
 
-    def test_view_double_click_uses_the_hovered_container_identity(self) -> None:
+    def test_view_double_click_uses_confirmed_container_identity(self) -> None:
         document = create_empty_part()
         box = document.create_container("Box", ContainerType.BOX)
-        protrusion = document.create_container(
-            "Protrusion",
-            ContainerType.PROTRUSION,
-        )
         activated = []
         shown = []
 
@@ -1336,22 +2808,31 @@ class DrawingViewConventionTests(unittest.TestCase):
             def set_selected_container_origin(_owner_id):
                 return None
 
+            @staticmethod
+            def width():
+                return 800
+
+            @staticmethod
+            def height():
+                return 600
+
         window = MainWindow.__new__(MainWindow)
         window.document = document
         window._sketch_edit_entity_id = None
-        window._part_hover_container_id = protrusion.entity_id
         window._selected_object = lambda: box
         window._edge_treatment_at_last_view_click = lambda _owner_id: None
         window._activate_object_for_editing = (
             lambda target: activated.append(target) or target
         )
-        window._show_protrusion_profile_overlay = shown.append
+        window._show_edit_overlays = (
+            lambda target, _position: shown.append(target)
+        )
         window.native_viewer = Viewer()
 
-        window._on_native_object_double_clicked("")
+        window._on_native_object_double_clicked(box.entity_id)
 
-        self.assertEqual(activated, [protrusion])
-        self.assertEqual(shown, [protrusion])
+        self.assertEqual(activated, [box])
+        self.assertEqual(shown, [box])
 
     def test_sketch_placement_picks_original_face_directly(self) -> None:
         original = ("source-solid", 4, object())
