@@ -317,6 +317,41 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
         self.assertEqual(references[0]["entity_id"], component.entity_id)
 
+    def test_sketch_axis_snap_combines_with_direction_inference(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer._sketch_pending_points = [(5.0, 3.0)]
+        viewer._sketch_entities = []
+        viewer._sketch_external_references = []
+
+        self.assertEqual(
+            viewer._sketch_reference_direction_snap(
+                "sketch_axis:y", "horizontal", (0.0, 3.4)
+            ),
+            (0.0, 3.0),
+        )
+        self.assertEqual(
+            viewer._sketch_reference_direction_snap(
+                "sketch_axis:x", "vertical", (5.4, 0.0)
+            ),
+            (5.0, 0.0),
+        )
+
+    def test_external_segment_button_tracks_selection_command(self):
+        window = MainWindow.__new__(MainWindow)
+        window._selection_controller = SelectionController()
+        self.assertFalse(window._external_segment_command_active())
+
+        window._selection_controller.begin(SelectionRequest(
+            command_id="sketch_external_segment",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(candidate),
+            on_complete=lambda _values: None,
+        ))
+
+        self.assertTrue(window._external_segment_command_active())
+        window._selection_controller.cancel()
+        self.assertFalse(window._external_segment_command_active())
+
     def test_part_function_dialog_makes_document_origin_available(self):
         window = MainWindow.__new__(MainWindow)
         window._definition_dialog_depth = 0

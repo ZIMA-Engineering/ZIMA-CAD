@@ -9087,6 +9087,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     if self._sketch_pending_points
                     else None
                 )
+                if direction_constraint in ("horizontal", "vertical"):
+                    guided = self._sketch_reference_direction_snap(
+                        reference_id,
+                        direction_constraint,
+                        projected,
+                    )
+                    if guided is not None:
+                        projected = guided
                 offer(
                     projected,
                     reference_id,

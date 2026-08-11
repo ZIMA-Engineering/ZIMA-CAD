@@ -119,6 +119,84 @@ class BodyResult:
             changed = True
         return replace(self, faces=faces) if changed else self
 
+    def with_inferred_cylindrical_surfaces(self) -> "BodyResult":
+        """Recover analytic cylinders from persisted mesh/curve data.
+
+        The check deliberately requires every triangulated face vertex to
+        have the radius of one of its circular boundary curves.  A conical or
+        filleted face therefore cannot be mistaken for a cylinder merely
+        because it happens to end in a circle.
+        """
+        curves_by_reference = {
+            descriptor.reference_id: descriptor
+            for descriptor in self.edges.values()
+        }
+        vertices_by_face: dict[str, list[Point3]] = {}
+        for triangle_index, (owner_id, face_index) in enumerate(zip(
+            self.mesh.triangle_owner_ids,
+            self.mesh.triangle_face_indices,
+        )):
+            key = _reference_id(owner_id, "face", face_index)
+            offset = triangle_index * 9
+            vertices_by_face.setdefault(key, []).extend(
+                tuple(
+                    float(self.mesh.triangle_positions[
+                        offset + vertex * 3 + axis
+                    ])
+                    for axis in range(3)
+                )
+                for vertex in range(3)
+            )
+        faces = dict(self.faces)
+        changed = False
+        for key, surface in self.faces.items():
+            if surface.kind != "other":
+                continue
+            circles = tuple(
+                curve
+                for reference_id in surface.boundary_edge_ids
+                if (curve := curves_by_reference.get(reference_id)) is not None
+                and curve.kind == "circle"
+                and curve.origin is not None
+                and curve.direction is not None
+                and curve.radius is not None
+                and curve.radius > 0.0
+            )
+            points = vertices_by_face.get(key, ())
+            if not circles or not points:
+                continue
+            circle = circles[0]
+            axis_length = sqrt(sum(value * value for value in circle.direction))
+            if axis_length <= 1.0e-12:
+                continue
+            axis = tuple(value / axis_length for value in circle.direction)
+            radius = float(circle.radius)
+            tolerance = max(1.0e-6, radius * 1.0e-5)
+            if any(
+                abs(sqrt(sum(value * value for value in radial)) - radius)
+                > tolerance
+                for point in points
+                for delta in [tuple(
+                    point[index] - circle.origin[index] for index in range(3)
+                )]
+                for axial in [sum(
+                    delta[index] * axis[index] for index in range(3)
+                )]
+                for radial in [tuple(
+                    delta[index] - axial * axis[index] for index in range(3)
+                )]
+            ):
+                continue
+            faces[key] = replace(
+                surface,
+                kind="cylinder",
+                origin=circle.origin,
+                axis=axis,
+                radius=radius,
+            )
+            changed = True
+        return replace(self, faces=faces) if changed else self
+
     def to_dict(self) -> dict:
         return {
             "mesh": self.mesh.to_dict(),
@@ -288,7 +366,7 @@ class BodyResult:
             for point in mesh.points
             if point.element_kind in ("point", "vertex")
         })
-        return cls(
+        result = cls(
             mesh=mesh,
             faces=faces,
             edges=edges,
@@ -299,6 +377,7 @@ class BodyResult:
                 else PhysicalProperties()
             ),
         )
+        return result.with_inferred_face_boundaries().with_inferred_cylindrical_surfaces()
 
     def surface(
         self, owner_id: str, face_index: int

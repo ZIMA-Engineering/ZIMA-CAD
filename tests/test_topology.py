@@ -25,6 +25,7 @@ from zima_cad.model import (
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCone, BRepPrimAPI_MakeCylinder
 from OCC.Core.GeomAbs import GeomAbs_Ellipse
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
@@ -59,9 +60,39 @@ from zima_cad.topology import (
     semantic_provenance_id,
 )
 from zima_cad.viewer_mesh import triangulate_shape
+from zima_cad.body_result import BodyResult
 
 
 class StableTopologyTests(unittest.TestCase):
+    def test_body_result_persists_cylindrical_face_axis(self) -> None:
+        mesh = triangulate_shape(
+            BRepPrimAPI_MakeCylinder(7.5, 24.0).Shape(),
+            owner_id="solid",
+        )
+
+        result = BodyResult.from_mesh(mesh)
+
+        cylinders = [
+            surface for surface in result.faces.values()
+            if surface.kind == "cylinder"
+        ]
+        self.assertEqual(len(cylinders), 1)
+        self.assertAlmostEqual(cylinders[0].radius, 7.5)
+        self.assertAlmostEqual(abs(cylinders[0].axis[2]), 1.0)
+
+    def test_body_result_does_not_treat_cone_as_cylinder(self) -> None:
+        mesh = triangulate_shape(
+            BRepPrimAPI_MakeCone(7.5, 3.0, 24.0).Shape(),
+            owner_id="solid",
+        )
+
+        result = BodyResult.from_mesh(mesh)
+
+        self.assertFalse(any(
+            surface.kind == "cylinder"
+            for surface in result.faces.values()
+        ))
+
     @staticmethod
     def _subshape_count(shape, shape_type) -> int:
         explorer = TopExp_Explorer(shape, shape_type)

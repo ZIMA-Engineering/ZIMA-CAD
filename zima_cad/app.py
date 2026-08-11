@@ -9672,17 +9672,14 @@ class MainWindow(QMainWindow):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-weight: 600; padding: 6px;")
         self.tools_toolbar.addWidget(heading)
-        heading_separator = QWidget()
-        heading_separator.setObjectName("applicationHeadingSeparator")
-        heading_separator.setFixedHeight(2)
-        heading_separator.setSizePolicy(
+        self._add_green_toolbar_separator()
+        heading_spacing = QWidget(self.tools_toolbar)
+        heading_spacing.setFixedHeight(5)
+        heading_spacing.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        heading_separator.setStyleSheet(
-            "background-color: #4DD811;"
-        )
-        self.tools_toolbar.addWidget(heading_separator)
+        self.tools_toolbar.addWidget(heading_spacing)
 
         if (
             self._sketch_edit_entity_id is None
@@ -9805,8 +9802,12 @@ class MainWindow(QMainWindow):
             external_segment_action.setToolTip(
                 tr("sketch.command.reference.tooltip")
             )
-            external_segment_action.triggered.connect(
-                self._start_external_segment_command
+            external_segment_action.setCheckable(True)
+            external_segment_action.setChecked(
+                self._external_segment_command_active()
+            )
+            external_segment_action.toggled.connect(
+                self._toggle_external_segment_command
             )
             self._mark_application_command(external_segment_action)
             self._add_sketch_command_menu(
@@ -9825,6 +9826,7 @@ class MainWindow(QMainWindow):
                     "sketch.constraint.concentric",
                 ),
             )
+            self._add_green_toolbar_separator()
             dimension_action = self.tools_toolbar.addAction(
                 tr("sketch.dimensions")
             )
@@ -9845,7 +9847,7 @@ class MainWindow(QMainWindow):
                 lambda _checked=False: self._set_sketch_tool("text")
             )
             self._mark_application_command(text_action)
-            self.tools_toolbar.addSeparator()
+            self._add_green_toolbar_separator()
             trim_action = self.tools_toolbar.addAction(
                 tr("sketch.tool.trim")
             )
@@ -9867,7 +9869,7 @@ class MainWindow(QMainWindow):
                 lambda: self._set_sketch_tool("mirror")
             )
             self._mark_application_command(mirror_action)
-            self.tools_toolbar.addSeparator()
+            self._add_green_toolbar_separator()
             for tool, text_key, icon_name in (
                 ("point", "sketch.tool.point", "point"),
                 (
@@ -9889,6 +9891,8 @@ class MainWindow(QMainWindow):
                 ),
                 ("spline", "sketch.tool.spline", "sketch-spline"),
             ):
+                if tool == "circle":
+                    self._add_green_toolbar_separator()
                 action = self.tools_toolbar.addAction(tr(text_key))
                 action.setIcon(resource_icon(icon_name))
                 action.setCheckable(True)
@@ -9971,7 +9975,7 @@ class MainWindow(QMainWindow):
             sketch_action.setIcon(resource_icon("sketch"))
             self._mark_application_command(sketch_action)
             sketch_action.triggered.connect(self._create_sketch_from_selection)
-            self.tools_toolbar.addSeparator()
+            self._add_green_toolbar_separator()
             protrusion_action = self.tools_toolbar.addAction(
                 tr("protrusion.command")
             )
@@ -9986,6 +9990,7 @@ class MainWindow(QMainWindow):
             revolve_action.setToolTip(tr("assembly.cut.targets.tooltip"))
             self._mark_application_command(revolve_action)
             revolve_action.triggered.connect(self._create_revolve)
+            self._add_green_toolbar_separator()
             fillet_action = self.tools_toolbar.addAction(tr("fillet.command"))
             fillet_action.setIcon(resource_icon("fillet"))
             self._mark_application_command(fillet_action)
@@ -9994,7 +9999,7 @@ class MainWindow(QMainWindow):
             chamfer_action.setIcon(resource_icon("chamfer"))
             self._mark_application_command(chamfer_action)
             chamfer_action.triggered.connect(self._create_chamfer)
-            self.tools_toolbar.addSeparator()
+            self._add_green_toolbar_separator()
             for kind, text_key in (
                 (EntityKind.BOX, "primitive.box"),
                 (EntityKind.SPHERE, "primitive.sphere"),
@@ -10091,6 +10096,21 @@ class MainWindow(QMainWindow):
             button.setMinimumWidth(
                 max(0, self.tools_toolbar.minimumWidth() - 12)
             )
+
+    def _add_green_toolbar_separator(self) -> None:
+        separator = QWidget(self.tools_toolbar)
+        separator.setObjectName("greenToolbarSeparator")
+        separator.setFixedHeight(1)
+        separator.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        separator.setStyleSheet(
+            "QWidget#greenToolbarSeparator {"
+            " background-color: #4DD811; border: none;"
+            "}"
+        )
+        self.tools_toolbar.addWidget(separator)
 
     def _add_sketch_command_menu(
         self,
@@ -10193,6 +10213,11 @@ class MainWindow(QMainWindow):
         )
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setMenu(menu)
+        button.setCheckable(True)
+        button.setChecked(
+            title_key == "sketch.constraints"
+            and self._sketch_tool in SKETCH_CONSTRAINT_SELECTION_TOOLS
+        )
         button.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
@@ -11566,6 +11591,8 @@ class MainWindow(QMainWindow):
         """Create profile geometry from one selected external model edge."""
         if self.document is None or self._sketch_edit_entity_id is None:
             return
+        if self._external_segment_command_active():
+            return
         self._set_sketch_reference_mode(False)
         self._selection_controller.begin(SelectionRequest(
             command_id="sketch_external_segment",
@@ -11584,6 +11611,21 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self.statusBar().showMessage(self._selection_controller.prompt)
+        self._rebuild_application_toolbar()
+
+    def _external_segment_command_active(self) -> bool:
+        request = self._selection_controller.request
+        return bool(
+            self._selection_controller.active
+            and request is not None
+            and request.command_id == "sketch_external_segment"
+        )
+
+    def _toggle_external_segment_command(self, checked: bool) -> None:
+        if checked:
+            self._start_external_segment_command()
+        elif self._external_segment_command_active():
+            self._selection_controller.cancel()
 
     def _finish_external_segment_command(
         self,
@@ -12417,16 +12459,19 @@ class MainWindow(QMainWindow):
         self.selected_face_object_id = None
         self._point_constraint_preview = None
         reference_type = descriptor.get("type")
+        display_reference_type = str(
+            descriptor.get("display_type", reference_type)
+        )
         topology_index = 0
         active_reference_label = str(
             descriptor.get("label", reference.name)
         )
-        if reference_type in ("face", "edge", "vertex"):
+        if display_reference_type in ("face", "edge", "vertex"):
             try:
                 topology_index = int(
                     descriptor.get(
                         "vertex_index"
-                        if reference_type == "vertex"
+                        if display_reference_type == "vertex"
                         else "topology_key",
                         "0",
                     )
@@ -12435,10 +12480,10 @@ class MainWindow(QMainWindow):
                 topology_index = 0
             active_reference_label = self._topology_reference_label(
                 reference,
-                str(reference_type),
+                display_reference_type,
                 topology_index,
             )
-            if reference_type == "face":
+            if display_reference_type == "face":
                 scene = self._native_viewer_scene
                 source_result = (
                     scene.calculated_body_result.source_bodies.get(
@@ -12461,7 +12506,7 @@ class MainWindow(QMainWindow):
                     self.native_viewer._set_selected_face(
                         (reference.entity_id, topology_index)
                     )
-            elif reference_type == "edge":
+            elif display_reference_type == "edge":
                 self.native_viewer._set_selected_edge(
                     (reference.entity_id, topology_index)
                 )
@@ -12482,7 +12527,7 @@ class MainWindow(QMainWindow):
         # Activating a stored reference is a viewer-only operation.  Rebuilding
         # the scene here used to re-enter tree synchronization and accumulate
         # container origins/content highlights after every row click.
-        if reference_type in ("face", "edge", "vertex"):
+        if display_reference_type in ("face", "edge", "vertex"):
             self.native_viewer.set_object_overlay(None)
             scene = self._native_viewer_scene
             source_result = (
@@ -12495,7 +12540,9 @@ class MainWindow(QMainWindow):
             )
             if source_result is not None:
                 topology_kind = (
-                    "point" if reference_type == "vertex" else reference_type
+                    "point"
+                    if display_reference_type == "vertex"
+                    else display_reference_type
                 )
                 element_mesh = {
                     "face": source_result.mesh.face_mesh,
@@ -21294,7 +21341,7 @@ class MainWindow(QMainWindow):
         owner_id: str,
         face_index: int,
     ) -> bool:
-        """Accept a planar placement face without resolving OCCT topology."""
+        """Accept a persisted planar face or cylindrical axis reference."""
         dialog = self.point_constraint_dialog
         scene = self._native_viewer_scene
         if (
@@ -21326,9 +21373,45 @@ class MainWindow(QMainWindow):
                     self.document.root.entity_id,
                     face_index,
                 )
+        if surface is None:
+            return False
         if (
-            surface is None
-            or surface.kind != "plane"
+            isinstance(dialog, AxisConstraintDialog)
+            and surface.kind == "cylinder"
+            and surface.origin is not None
+            and surface.axis is not None
+        ):
+            obj = self.document.find_entity(owner_id)
+            equations = self._axis_line_equations(
+                surface.origin, surface.axis
+            )
+            if obj is None or equations is None:
+                return False
+            metadata = self._shape_reference_metadata(obj)
+            metadata.update({
+                "surface_reference_id": surface.reference_id,
+                "analytic_kind": "cylinder",
+                "display_type": "face",
+                "axis_origin": tuple(surface.origin),
+                "axis_direction": tuple(surface.axis),
+                "radius": surface.radius,
+            })
+            reference_count = len(dialog.references)
+            dialog.add_shape_reference(
+                owner_id,
+                self._topology_reference_label(obj, "face", face_index),
+                "edge",
+                equations,
+                str(face_index),
+                metadata,
+            )
+            accepted = len(dialog.references) > reference_count
+            if accepted:
+                self.native_viewer._cycled_topology_candidate = None
+                self._reference_selection_confirmed()
+            return accepted
+        if (
+            surface.kind != "plane"
             or surface.origin is None
             or surface.normal is None
         ):
@@ -23386,7 +23469,7 @@ class MainWindow(QMainWindow):
         obj: ZimaEntity,
         edge,
     ) -> None:
-        """Add a persisted straight edge without reconstructing OCCT."""
+        """Add a persisted linear or circular axis without reconstructing OCCT."""
         dialog = self.point_constraint_dialog
         if dialog is None or len(edge.points) < 2:
             return
@@ -23400,6 +23483,29 @@ class MainWindow(QMainWindow):
         direction = self._normalized_vector(direction)
         if direction is None:
             return
+        equations = self._axis_line_equations(point, direction)
+        if equations is None:
+            return
+        dialog.add_shape_reference(
+            obj.entity_id,
+            self._topology_reference_label(obj, "edge", edge.edge_index),
+            "edge",
+            equations,
+            str(edge.edge_index),
+            {
+                **self._shape_reference_metadata(obj),
+                "analytic_kind": edge.curve_kind,
+                "axis_origin": tuple(point),
+                "axis_direction": tuple(direction),
+                "radius": edge.curve_radius,
+            },
+        )
+
+    def _axis_line_equations(self, point, direction):
+        """Return the two persisted planes whose intersection is an axis."""
+        direction = self._normalized_vector(direction)
+        if not any(abs(value) > 1.0e-12 for value in direction):
+            return None
         helper = (
             (1.0, 0.0, 0.0)
             if abs(direction[0]) < 0.9
@@ -23412,23 +23518,17 @@ class MainWindow(QMainWindow):
             self._normalized_vector(self._cross_product(direction, first))
             if first is not None else None
         )
-        if first is None or second is None:
-            return
-        equations = [
+        if not any(abs(value) > 1.0e-12 for value in first) or not any(
+            abs(value) > 1.0e-12 for value in second
+        ):
+            return None
+        return [
             [
                 normal[0], normal[1], normal[2],
                 sum(normal[axis] * point[axis] for axis in range(3)),
             ]
             for normal in (first, second)
         ]
-        dialog.add_shape_reference(
-            obj.entity_id,
-            self._topology_reference_label(obj, "edge", edge.edge_index),
-            "edge",
-            equations,
-            str(edge.edge_index),
-            self._shape_reference_metadata(obj),
-        )
 
     def _reference_topology_registry(self, boundary: int):
         """Reuse the displayed result when creating stable pick identities."""
@@ -30887,6 +30987,8 @@ class MainWindow(QMainWindow):
     def _set_sketch_tool(self, tool: str) -> None:
         if self._sketch_edit_entity_id is None:
             return
+        if self._external_segment_command_active():
+            self._selection_controller.cancel()
         if tool != "rectangle":
             self._creating_repeat_region = False
         if tool == "text":
@@ -43133,6 +43235,22 @@ class MainWindow(QMainWindow):
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
         dialog = self.point_constraint_dialog
+        axis_waits_for_stop_face = bool(
+            isinstance(dialog, AxisConstraintDialog)
+            and len(dialog.references) == 1
+            and int(getattr(dialog, "dof", 3)) == 1
+            and str(dialog.references[0].get("analytic_kind", ""))
+            in {"circle", "cylinder"}
+        )
+        # A circular edge/cylindrical surface defines the centreline but not
+        # the axis container's origin along it.  Offer the terminating face
+        # immediately, instead of letting the already selected circle win
+        # the next hover/click again.
+        self.native_viewer.set_selection_filter(
+            "surface"
+            if axis_waits_for_stop_face
+            else self.view_selection_filter.value
+        )
         preview_target = (
             dialog.point_object
             if isinstance(dialog, ProtrusionConstraintDialog)
