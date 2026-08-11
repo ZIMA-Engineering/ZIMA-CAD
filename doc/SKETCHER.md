@@ -15,10 +15,36 @@ Textová kotva se potvrzuje prostředním tlačítkem. Rychlý
 dvojklik prostředním tlačítkem prvním klikem okamžitě potvrdí případný poslední
 bod a druhým klikem ukončí aktivní nástroj a vrátí skicář na `Výběr`.
 
+Pokud má fokus Sketch view, klávesa `Enter` vyvolá tutéž centrální akci
+**Potvrdit** jako krátký klik prostředním tlačítkem: potvrdí právě zobrazený
+bod, kandidáta nebo rozpracovanou geometrii a opakovatelný nástroj ponechá
+aktivní. `Enter` uvnitř číselného nebo textového editoru potvrzuje pouze jeho
+hodnotu; nesmí zároveň odeslat geometrii, zavřít Vlastnosti ani vyvolat **OK**.
+
 Po dokončení geometrie, vazby, kóty nebo jiné opakovatelné operace zůstává
 zvolený nástroj aktivní a je připravený k dalšímu zadání. Samovolně se na
 `Výběr` nepřepíná. Nástroj se ukončí rychlým dvojklikem prostředním tlačítkem,
 výslovným zvolením `Výběr` nebo zrušením příslušného dialogu.
+
+## Jednotné zrušení a Escape
+
+Skicář používá jednu centrální stavovou akci **Zrušit**, kterou vyvolá klávesa
+`Esc` i budoucí tlačítko v liště. Jednotlivé nástroje nesmějí implementovat
+vlastní neslučitelné varianty Escape. Akce postupuje od nejmenšího
+rozpracovaného stavu k celému nástroji:
+
+1. první `Esc` zruší právě rozpracovaný bod, dočasnou geometrii nebo aktuálně
+   zvoleného kandidáta, ale ponechá opakovatelný nástroj aktivní;
+2. další `Esc`, pokud už není nic rozpracováno, ukončí aktivní nástroj a
+   přepne skicář na **Výběr**;
+3. v režimu **Výběr** `Esc` zruší hover a potvrzené označení;
+4. otevřené Vlastnosti se klávesou `Esc` nezavírají a jejich změny se tím
+   nezahazují; k tomu slouží explicitní **Zrušit** v dialogu.
+
+Tlačítko **Zrušit** musí volat tutéž stavovou akci jako klávesa `Esc`. Obdobně
+krátký prostřední klik a `Enter` volají jednu centrální akci **Potvrdit**.
+Stavový automat, myš, klávesnice a tlačítka tedy nesmějí mít oddělené
+implementace téhož příkazu.
 
 ## Výchozí měřítko a text
 
@@ -111,6 +137,15 @@ náhledu; skryté přepsání uživatelova záměru není dovoleno.
 Pokud je pod kurzorem více platných objektů nebo zachycení, pravé tlačítko je
 při zadávání postupně překlikává. Zvláštní pravá akce konkrétního nástroje se
 provede až tehdy, když pod kurzorem není další kandidát k výběru.
+
+Stejný cyklus se má rozšířit také na platné varianty inference/vazby pro právě
+zadávanou geometrii. Příklad úsečky může podle situace nabídnout volný bod,
+totožnost, bod na geometrii, vodorovnost, svislost, tečnost, kolmost nebo
+rovnoběžnost. Do cyklu vstupují pouze matematicky platné a nekonfliktní
+varianty. Pravý klik mění oranžově zobrazenou variantu, levý nebo prostřední
+klik potvrdí přesně tuto variantu a potvrzená inference se uloží jako explicitní
+vazba. Automatika smí nabízet a řadit kandidáty, ale nesmí po potvrzení vytvořit
+jinou skrytou vazbu, než jakou ukazoval náhled.
 
 ## Stupně volnosti bodu
 

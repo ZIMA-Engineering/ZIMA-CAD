@@ -95,6 +95,18 @@
 - Add a solid-cut operation driven by a selected surface or surface body. The
   operation must define the retained side explicitly and store stable
   references to the cutting surface.
+- In Protrusion and Revolve Properties, make **Add** and **Subtract** mutually
+  exclusive toggle buttons that may also both be off. Clicking the currently
+  active operation again clears it; the no-operation state creates a
+  standalone surface result. Do not encode this as a negative length, angle or
+  offset.
+- Add **Flip** wherever a Protrusion/Revolve surface participates in trimming
+  a solid. Flip reverses the persisted cutting half-space, while an in-view
+  arrow previews the currently removed/retained side. Apply recalculates the
+  preview and OK commits it through the ordinary staged feature workflow.
+- Keep `output_kind` (solid/surface), Boolean combination (add/subtract/none)
+  and cutting-side `flip` as separate persisted concepts. Viewer arrows and
+  Properties consume these values without reconstructing OCCT topology.
 - Design the first surface-modeling application and history entities: surface
   creation, trim, extend, join/sew and surface-body inspection.
 - Keep surface bodies distinct from solids in the document model, tree,
@@ -104,6 +116,23 @@
 - Persist all selection and topology data required for later editing during
   explicit Apply/OK/regeneration. Surface hover, tree display and Properties
   opening must not trigger hidden OCCT reconstruction.
+
+## 3D Curve Container
+
+- Implement a parent 3D Curve container containing an ordered list of normal
+  Point containers, not a new 3D Sketcher and not an embedded private point
+  representation.
+- Every child Point retains the existing container contract: mandatory Origin,
+  one Point entity, stable ID, X/Y/Z fallback and ordinary persisted placement
+  references.
+- The order of Point containers in the tree is the path order. **Insert here**
+  determines the insertion position; delete and reorder operations update the
+  path deterministically.
+- The first implementation draws a 3D polyline between the evaluated Point
+  origins. Keep the representation ready for a later Polyline/Spline mode and
+  use the result as the first Sweep path input.
+- Viewer display, hover and selection consume the persisted ordered points.
+  OCCT may create the calculated edge/wire only at Apply, OK or regeneration.
 
 ## Container Orientation and Reference Geometry
 
@@ -202,6 +231,28 @@
   Undo/Redo plus save/reload.
 - Add intelligent entity input: inference, snapping, continuation and clear
   previews while creating connected geometry.
+- Implement one central Sketch cancel action shared by the `Esc` key and a
+  toolbar button. The first invocation cancels the in-progress point/entity or
+  current candidate, the next returns to Select, and Select-mode Escape clears
+  hover/selection. It must not close a Properties window or discard its staged
+  values.
+- Implement one matching Sketch confirm action shared by a short middle click
+  and view-focused `Enter`. An editor-focused Enter commits only that text or
+  numeric value and must never also submit geometry or close Properties.
+- Extend right-button candidate cycling from overlapping geometry to the valid
+  inference/constraint variants of the entity being entered. The orange
+  preview must identify the exact variant that the following confirmation will
+  persist; invalid, redundant and conflicting variants never enter the cycle.
+- Audit the remaining native parameter/edit dialogs and migrate them to the
+  shared internal `Qt.WindowType.SubWindow` properties presentation. Start
+  with the three remaining `QInputDialog` workflows: Family Table column name,
+  document rename and choosing an already open Drawing source. Native file
+  choosers remain system dialogs because they select filesystem resources,
+  not editable feature parameters.
+- Every internal dialog belongs to exactly one `MainWindow` instance. Its
+  parent, bounds, active Apply/OK/Cancel routing, middle-button confirmation
+  and keyboard actions must never use application-global state or affect a
+  second concurrently open ZIMA-CAD window.
 - External Sketch point references stay hidden until the cursor enters their
   snap radius; keep this hover-only behavior for future dense reference types.
 - Continue migrating interactive tools to the central `SelectionController`.

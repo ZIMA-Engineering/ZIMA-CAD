@@ -73,6 +73,10 @@ as the document model, geometric kernel integration and user workflows evolve.
     mouse button, including live constraint solving during the drag
   - intelligent entity input with inference, snapping and predictable
     continuation between consecutively created entities
+  - one central cancel state machine shared by `Esc` and the toolbar, plus
+    right-button cycling of explicitly previewed valid inference variants
+  - one central confirm action shared by view-focused `Enter` and a short
+    middle click, without stealing Enter from active value/text editors
   - finish the basic geometry set with polygons and ellipse support, and
     further stabilize arc and spline editing; Trim is deliberately deferred
   - improve coverage, numerical stability, diagnostics and recovery of the
@@ -110,6 +114,12 @@ as the document model, geometric kernel integration and user workflows evolve.
   dimensions
 - staged Apply/OK evaluation: cyan standalone preview remains live across
   direction and extent changes, while the final Boolean runs only on OK
+- mutually exclusive Add/Subtract controls may both be cleared; this third
+  state creates a standalone surface result instead of performing a solid
+  Boolean
+- solid/surface cutting properties expose a persisted Flip side and an
+  in-view direction arrow identifying which side of the cutting surface is
+  removed or retained
 
 ## 4. Revolve
 
@@ -123,6 +133,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - revolved thin features
 - staged Apply/OK evaluation equivalent to Protrusion, including persistent
   cyan preview for forward, reverse and two-sided angle changes
+- the same Add/Subtract/neither surface-result contract and cutting-side Flip
+  preview as Protrusion
 
 ## 5. Sweep
 
@@ -132,6 +144,18 @@ as the document model, geometric kernel integration and user workflows evolve.
 - profile orientation control
 - guide curves
 - additive and subtractive operations
+
+### 3D curve path foundation
+
+- add a parent **3D Curve** container whose ordered children are ordinary
+  Point containers
+- each child Point keeps the standard Origin, X/Y/Z placement, stable ID and
+  positional-reference workflow
+- tree order, including **Insert here**, defines the curve point order
+- moving, inserting, deleting or reordering a Point updates the displayed 3D
+  curve and later supplies a path for Sweep
+- begin with a polyline through the points; a spline interpolation mode may be
+  added without introducing a separate 3D Sketcher
 
 ## 6. Blend / Loft
 
@@ -153,6 +177,8 @@ as the document model, geometric kernel integration and user workflows evolve.
 - holes and threads
 - mirrors and patterns
 - cutting a solid with a selected surface or surface body
+- explicit retained/removed half-space selection for surface cuts, controlled
+  by Flip and shown by a direction arrow before calculation
 - surface modeling foundation: creation, trimming, extending, joining and
   inspection of surface bodies
 - conversion workflows between suitable closed surface sets and solid bodies

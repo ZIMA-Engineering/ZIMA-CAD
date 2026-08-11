@@ -25,6 +25,20 @@ Každý prostorový kontejner může mít vlastní:
 
 Podřízená geometrie se vyhodnocuje v lokálním souřadném systému kontejneru.
 
+### Kontejner 3D křivky
+
+3D křivka se nebude řešit samostatným prostorovým Sketcherem. Nadřazený
+kontejner **3D křivka** obsahuje běžné kontejnery bodů. Každý bod si zachovává
+vlastní Počátek, polohu X/Y/Z, stabilní ID a standardní polohové reference.
+Pořadí bodových kontejnerů ve stromu je současně pořadím bodů křivky; příkaz
+**Vložit zde** proto určuje místo vložení dalšího bodu.
+
+První varianta pouze spojuje vyhodnocené počátky bodů prostorovou lomenou.
+Pozdější interpolace spline smí být jiným režimem stejného kontejneru, nikoliv
+druhou neslučitelnou reprezentací bodů. Persistované body a jejich pořadí jsou
+zdrojem pravdy pro viewer i následný Sweep; OCCT z nich vytváří edge/wire jen
+při explicitním výpočtu.
+
 ## Interpretace ploch OpenCascade
 
 OpenCascade rozlišuje zejména:
@@ -73,6 +87,20 @@ Vhodné OpenCascade nástroje:
 
 Analýza popisuje pouze právě existující výsledek. Sama o sobě není stabilním
 pojmenováním plochy.
+
+## Plošný výsledek a ořezání solidu
+
+Protrusion a Revolve musí oddělovat tři různé údaje: druh výsledku
+`solid/surface`, booleovskou kombinaci `add/subtract/none` a orientaci řezu
+`flip`. Tlačítka **Přičíst** a **Odečíst** jsou vzájemně výlučná, ale opětovným
+kliknutím na aktivní tlačítko lze vypnout obě. Tento stav vytváří samostatnou
+plochu a nespouští Fuse ani Cut.
+
+Při ořezání solidu plochou musí být vždy explicitně určena ponechaná nebo
+odebíraná polovina prostoru. Vlastnosti zobrazí tlačítko **FLIP** a viewer
+orientovanou šipku. Flip obrací směr šipky a persistovaný výběr strany; nesmí
+být implementován změnou znaménka délky, úhlu nebo odsazení. OCCT provede řez
+jen při **Použít**, **OK** nebo regeneraci.
 
 ## Sketch, Drawing a výměnné formáty
 
