@@ -11767,9 +11767,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 and key not in self._feature_selected_edges
             ):
                 color = QColor.fromRgbF(1.0, 0.48, 0.0)
-            # Ordinary model/sketch edges are recoloured by the GPU edge
-            # pass. QPainter remains only for screen-constant datum geometry.
-            if color is None or edge.element_kind not in {"axis", "centerline"}:
+            # Confirmed operation references are a screen overlay: they must
+            # remain visible through the input solid.  Other ordinary edges
+            # are recoloured by the depth-tested GPU pass.
+            confirmed_reference = (
+                edge.element_kind == "edge"
+                and (
+                    key == self._selected_edge
+                    or key in self._edge_treatment_selection_edges
+                    or key in self._feature_selected_edges
+                    or key in self._constraint_reference_edges
+                    or key in self._assembly_reference_edges
+                )
+            )
+            if color is None or (
+                edge.element_kind not in {"axis", "centerline"}
+                and not confirmed_reference
+            ):
                 continue
             if (
                 not edge_visible_in_display(edge, self._display_mode)
@@ -11781,7 +11795,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(
                 self._datum_centerline_pen(color, 1.5)
                 if edge.element_kind == "centerline"
-                else QPen(color, 1.0, Qt.PenStyle.SolidLine)
+                else QPen(
+                    color,
+                    2.0 if confirmed_reference else 1.0,
+                    Qt.PenStyle.SolidLine,
+                )
             )
             projected = [
                 self._screen_point(self._camera_point(point))

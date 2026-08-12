@@ -33,9 +33,10 @@ from zima_cad.app import (
     SKETCH_ENTITY_SELECTION_TOOLS,
     ViewSelectionMode,
     canonical_document_path,
+    tangent_edge_route,
 )
 from zima_cad.body_result import BodyResult, SurfaceDescriptor
-from zima_cad.topology import FaceRef
+from zima_cad.topology import EdgeRef, FaceRef
 from zima_cad.drawing import (
     DrawingCanvas,
     DrawingWorkspace,
@@ -106,6 +107,160 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    @staticmethod
+    def _route_mesh(edges):
+        points = tuple(point for edge in edges for point in edge.points)
+        return ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=tuple(edges),
+            points=(),
+            planes=(),
+            bounds_min=tuple(min(point[axis] for point in points) for axis in range(3)),
+            bounds_max=tuple(max(point[axis] for point in points) for axis in range(3)),
+        )
+
+    def test_tangent_edge_route_expands_through_line_and_radius(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(
+                2,
+                ((1, 0, 0), (1.01, 0, 0), (1.7, 0.3, 0),
+                 (2, 0.99, 0), (2, 1, 0)),
+                owner_id="body",
+                curve_kind="circle",
+                curve_radius=1.0,
+            ),
+            EdgePolyline(3, ((2, 1, 0), (2, 2, 0)), owner_id="body"),
+        ))
+
+        self.assertEqual(tangent_edge_route(mesh, "body", 1), (1, 2, 3))
+
+    def test_continuous_route_accepts_coarse_radius_endpoint_chord(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(
+                2,
+                ((1, 0, 0), (1.25, 0.1, 0), (1.7, 0.3, 0),
+                 (1.9, 0.75, 0), (2, 1, 0)),
+                owner_id="body",
+                curve_kind="circle",
+                curve_radius=1.0,
+            ),
+            EdgePolyline(3, ((2, 1, 0), (2, 2, 0)), owner_id="body"),
+        ))
+
+        self.assertEqual(tangent_edge_route(mesh, "body", 1), (1, 2, 3))
+
+    def test_tangent_edge_route_stops_at_ambiguous_branch(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(2, ((1, 0, 0), (2, 0, 0)), owner_id="body"),
+            EdgePolyline(3, ((1, 0, 0), (3, 0, 0)), owner_id="body"),
+        ))
+
+        self.assertEqual(tangent_edge_route(mesh, "body", 1), (1,))
+
+    def test_edge_treatment_click_selects_complete_route_as_one_group(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(2, ((1, 0, 0), (2, 0, 0)), owner_id="body"),
+            EdgePolyline(3, ((2, 0, 0), (3, 0, 0)), owner_id="body"),
+        ))
+        window = MainWindow.__new__(MainWindow)
+        window._native_viewer_scene = SimpleNamespace(mesh=mesh)
+        window._edge_treatment_groups = []
+        window._edge_treatment_group_seeds = []
+        window._selection_controller = SelectionController()
+        window._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(value=EdgeRef(
+                "body", "runtime", str(candidate.element_index)
+            )),
+            on_complete=lambda _values: None,
+            maximum_count=100,
+        ))
+
+        update = window._toggle_edge_treatment_route("body", 2)
+
+        self.assertTrue(update.accepted)
+        self.assertEqual(
+            window._selection_controller.candidate_keys,
+            (("edge", "body", 1), ("edge", "body", 2), ("edge", "body", 3)),
+        )
+        self.assertEqual(
+            window._edge_treatment_groups,
+            [(('edge', 'body', 1), ('edge', 'body', 2), ('edge', 'body', 3))],
+        )
+        self.assertEqual(
+            window._edge_treatment_group_seeds,
+            [("edge", "body", 2)],
+        )
+
+    def test_restore_tangent_route_rebuilds_group_from_seed(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(2, ((1, 0, 0), (2, 0, 0)), owner_id="body"),
+            EdgePolyline(3, ((2, 0, 0), (3, 0, 0)), owner_id="body"),
+        ))
+        window = MainWindow.__new__(MainWindow)
+        window._native_viewer_scene = SimpleNamespace(mesh=mesh)
+        window._edge_treatment_route_mesh = mesh
+        window._edge_treatment_groups = []
+        window._edge_treatment_group_seeds = []
+        window._selection_controller = SelectionController()
+        window._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(value=EdgeRef(
+                "body", "runtime", str(candidate.element_index)
+            )),
+            on_complete=lambda _values: None,
+            maximum_count=100,
+        ))
+        window._refresh_fillet_selection_ui = lambda: None
+        window._toggle_edge_treatment_route("body", 2)
+        full_group = window._edge_treatment_groups[0]
+        window._selection_controller.remove_key(("edge", "body", 3))
+        window._edge_treatment_groups[0] = full_group[:-1]
+
+        window._restore_edge_treatment_route(full_group[:-1])
+
+        self.assertEqual(window._edge_treatment_groups[0], full_group)
+        self.assertEqual(len(window._selection_controller.values), 3)
+
+    def test_edge_treatment_plain_click_keeps_existing_route(self):
+        mesh = self._route_mesh((
+            EdgePolyline(1, ((0, 0, 0), (1, 0, 0)), owner_id="body"),
+            EdgePolyline(2, ((0, 2, 0), (1, 2, 0)), owner_id="body"),
+        ))
+        window = MainWindow.__new__(MainWindow)
+        window._native_viewer_scene = SimpleNamespace(mesh=mesh)
+        window._edge_treatment_groups = []
+        window._edge_treatment_group_seeds = []
+        window._selection_controller = SelectionController()
+        window._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(value=EdgeRef(
+                "body", "runtime", str(candidate.element_index)
+            )),
+            on_complete=lambda _values: None,
+            maximum_count=100,
+        ))
+
+        window._toggle_edge_treatment_route("body", 1)
+        window._toggle_edge_treatment_route("body", 2)
+
+        self.assertEqual(
+            window._selection_controller.candidate_keys,
+            (("edge", "body", 1), ("edge", "body", 2)),
+        )
+        self.assertEqual(len(window._edge_treatment_groups), 2)
+
     def test_material_dialog_is_internal_and_cancel_keeps_document(self):
         application = QApplication.instance() or QApplication([])
         parent = QWidget()

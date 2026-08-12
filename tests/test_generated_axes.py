@@ -141,6 +141,31 @@ class GeneratedAxisTests(unittest.TestCase):
         self.assertNotIn(axis_id, hidden.shapes_by_owner_id)
         self.assertIn(axis_id, visible.shapes_by_owner_id)
 
+    def test_rollback_hides_downstream_axes_but_keeps_edited_container(self):
+        document = create_empty_part()
+        upstream = document.create_container("Axis001", ContainerType.AXIS)
+        upstream_axis = document.create_datum_axis(upstream.entity_id)
+        downstream = document.create_container("Axis002", ContainerType.AXIS)
+        downstream_axis = document.create_datum_axis(downstream.entity_id)
+        self.assertIsNotNone(upstream_axis)
+        self.assertIsNotNone(downstream_axis)
+
+        rollback = build_document_viewer_scene_data(
+            document,
+            history_boundary=1,
+            show_user_axes=True,
+        )
+        editing = build_document_viewer_scene_data(
+            document,
+            history_boundary=1,
+            show_user_axes=True,
+            editing_object_id=downstream.entity_id,
+        )
+
+        self.assertIn(upstream_axis.entity_id, rollback.shapes_by_owner_id)
+        self.assertNotIn(downstream_axis.entity_id, rollback.shapes_by_owner_id)
+        self.assertIn(downstream_axis.entity_id, editing.shapes_by_owner_id)
+
     def test_cached_assembly_still_displays_linked_generated_axes(self):
         source_document = create_empty_part()
         source_container = source_document.create_container(

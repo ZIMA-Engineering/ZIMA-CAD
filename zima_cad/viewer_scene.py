@@ -703,7 +703,27 @@ def build_document_viewer_scene_data(
         if feature.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
         and str(feature.parameters.get("sketch_id", ""))
     }
-    for obj in document.visible_objects():
+    display_objects = document.history_objects_at(boundary)
+    if editing_object_id is not None:
+        editing_entity = document.find_entity(editing_object_id)
+        editing_owner = (
+            editing_entity
+            if editing_entity is not None
+            and editing_entity.kind == EntityKind.CONTAINER
+            else document.find_owning_object(editing_object_id)
+        )
+        if (
+            editing_owner is not None
+            and all(
+                obj.entity_id != editing_owner.entity_id
+                for obj in display_objects
+            )
+        ):
+            # The edited container is excluded from the rollback body, but
+            # its own datum geometry remains the active edit/preview. Other
+            # downstream containers must not leak through the boundary.
+            display_objects = [*display_objects, editing_owner]
+    for obj in display_objects:
         _append_object_sketches(
             document,
             obj,

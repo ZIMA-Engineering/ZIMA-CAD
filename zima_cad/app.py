@@ -185,6 +185,7 @@ from zima_cad.selection import (
     SelectionPurpose,
     SelectionRequest,
     SelectionResolution,
+    SelectionUpdate,
     TopologySource,
     ViewerDocumentContext,
     ViewerInteractionScope,
@@ -641,6 +642,93 @@ def create_saved_status_label() -> QLabel:
     label.setStyleSheet("color: #2e9b4f;")
     label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return label
+
+
+def tangent_edge_route(
+    mesh: ViewerMesh,
+    owner_id: str,
+    seed_index: int,
+    *,
+    angular_tolerance_degrees: float = 35.0,
+) -> tuple[int, ...]:
+    """Return one unambiguous continuous smooth edge route.
+
+    Viewer curves are polylines, so the first chord of a radius is only an
+    approximation of its endpoint tangent.  A narrow mathematical tangent
+    tolerance incorrectly breaks ordinary line-radius-line chains.
+    """
+    edges = {
+        edge.edge_index: edge
+        for edge in mesh.edges
+        if edge.owner_id == owner_id
+        and edge.element_kind == "edge"
+        and len(edge.points) >= 2
+    }
+    if seed_index not in edges:
+        return ()
+    diagonal = math.dist(mesh.bounds_min, mesh.bounds_max)
+    point_tolerance = max(1.0e-6, diagonal * 1.0e-6)
+    tangent_limit = math.cos(math.radians(angular_tolerance_degrees))
+
+    def endpoint_key(point) -> tuple[int, int, int]:
+        return tuple(round(value / point_tolerance) for value in point)
+
+    def endpoint_direction(edge: EdgePolyline, endpoint: int):
+        points = edge.points if endpoint == 0 else tuple(reversed(edge.points))
+        origin = points[0]
+        target = next(
+            (point for point in points[1:] if math.dist(origin, point) > point_tolerance),
+            None,
+        )
+        if target is None:
+            return None
+        delta = tuple(target[axis] - origin[axis] for axis in range(3))
+        length = math.sqrt(sum(value * value for value in delta))
+        return tuple(value / length for value in delta)
+
+    endpoints: dict[tuple[int, int, int], list[tuple[int, int]]] = {}
+    for edge in edges.values():
+        for endpoint, point in enumerate((edge.points[0], edge.points[-1])):
+            endpoints.setdefault(endpoint_key(point), []).append(
+                (edge.edge_index, endpoint)
+            )
+
+    selected = {seed_index}
+    pending = [seed_index]
+    while pending:
+        current_index = pending.pop()
+        current = edges[current_index]
+        for current_endpoint, point in enumerate(
+            (current.points[0], current.points[-1])
+        ):
+            current_direction = endpoint_direction(current, current_endpoint)
+            if current_direction is None:
+                continue
+            continuations = []
+            for candidate_index, candidate_endpoint in endpoints.get(
+                endpoint_key(point), ()
+            ):
+                if candidate_index == current_index or candidate_index in selected:
+                    continue
+                candidate_direction = endpoint_direction(
+                    edges[candidate_index], candidate_endpoint
+                )
+                if candidate_direction is None:
+                    continue
+                alignment = abs(sum(
+                    current_direction[axis] * candidate_direction[axis]
+                    for axis in range(3)
+                ))
+                if alignment >= tangent_limit:
+                    continuations.append(candidate_index)
+            # A branch is intentionally not guessed. The seed still remains
+            # a valid one-edge route and the user can add another route.
+            if len(continuations) != 1:
+                continue
+            candidate_index = continuations[0]
+            selected.add(candidate_index)
+            pending.append(candidate_index)
+    return tuple(sorted(selected))
 
 
 class DocumentSubWindowDialog(QDialog):
@@ -1135,7 +1223,7 @@ class EdgeTreatmentPropertiesDialog(QDialog):
     """Shared properties window for multi-edge Fillet and Chamfer."""
 
     removeEdgeRequested = Signal(object)
-    applied = Signal()
+    restoreRouteRequested = Signal(object)
 
     def __init__(
         self,
@@ -1235,8 +1323,11 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         self.edge_list.setMinimumHeight(70)
         self.remove_edge_button = QPushButton(tr("fillet.remove_edge"))
         self.remove_edge_button.clicked.connect(self._remove_selected_edge)
+        self.restore_route_button = QPushButton(tr("fillet.restore_route"))
+        self.restore_route_button.clicked.connect(self._restore_selected_route)
         layout.addWidget(self.edge_list)
         layout.addWidget(self.remove_edge_button)
+        layout.addWidget(self.restore_route_button)
         standard_buttons = (
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
@@ -1341,22 +1432,38 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         self,
         keys: tuple[tuple[str, str, int], ...],
     ) -> None:
+        self.set_selected_edge_groups(tuple((key,) for key in keys))
+
+    def set_selected_edge_groups(
+        self,
+        groups: tuple[tuple[tuple[str, str, int], ...], ...],
+    ) -> None:
         self.edge_list.clear()
-        for number, key in enumerate(keys, 1):
+        for number, group in enumerate(groups, 1):
+            if not group:
+                continue
             item = QListWidgetItem(
-                tr("fillet.edge_item", number=number, index=key[2])
+                f"Trasa {number} · {len(group)} hran"
             )
-            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setData(Qt.ItemDataRole.UserRole, group)
             self.edge_list.addItem(item)
-        self.ok_button.setEnabled(bool(keys))
-        self.remove_edge_button.setEnabled(bool(keys))
+        self.ok_button.setEnabled(bool(groups))
+        self.remove_edge_button.setEnabled(bool(groups))
+        self.restore_route_button.setEnabled(bool(groups))
 
     def _remove_selected_edge(self) -> None:
         item = self.edge_list.currentItem()
         if item is not None:
-            self.removeEdgeRequested.emit(
-                tuple(item.data(Qt.ItemDataRole.UserRole))
-            )
+            self.removeEdgeRequested.emit(tuple(
+                tuple(key) for key in item.data(Qt.ItemDataRole.UserRole)
+            ))
+
+    def _restore_selected_route(self) -> None:
+        item = self.edge_list.currentItem()
+        if item is not None:
+            self.restoreRouteRequested.emit(tuple(
+                tuple(key) for key in item.data(Qt.ItemDataRole.UserRole)
+            ))
 
 
 class ContainerSummaryDialog(DocumentSubWindowDialog):
@@ -11352,6 +11459,12 @@ class MainWindow(QMainWindow):
             wrong_kind_message=tr("edge_treatment.status.select_edge"),
             on_cancel=self._restore_default_selection,
         ))
+        self._view_selection_confirmed = False
+        self._selected_view_edge_treatment_id = None
+        self.native_viewer._cycled_topology_candidate = None
+        self.native_viewer._clear_topology_selection()
+        self.native_viewer.set_object_overlay(None)
+        self.native_viewer._object_overlay_locks_interaction = False
         self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self.statusBar().showMessage(self._selection_controller.prompt)
@@ -11361,14 +11474,20 @@ class MainWindow(QMainWindow):
             operation=operation,
         )
         dialog.removeEdgeRequested.connect(self._remove_fillet_edge)
+        dialog.restoreRouteRequested.connect(self._restore_edge_treatment_route)
         dialog.accept_callback = lambda: self._preview_new_fillet(
             show_preview=False
         )
-        dialog.applied.connect(self._preview_new_fillet)
         dialog.accepted.connect(self._confirm_fillet_properties)
         dialog.rejected.connect(self._cancel_fillet_properties)
         dialog.finished.connect(
             lambda _result, target=dialog: self._clear_fillet_dialog(target)
+        )
+        self._edge_treatment_groups = []
+        self._edge_treatment_group_seeds = []
+        self._edge_treatment_route_mesh = (
+            self._native_viewer_scene.mesh
+            if self._native_viewer_scene is not None else None
         )
         self.edge_treatment_properties_dialog = dialog
         dialog.show()
@@ -11394,8 +11513,8 @@ class MainWindow(QMainWindow):
     def _edge_treatment_source_bodies(self) -> dict[str, BodyResult]:
         """Return persisted viewer data for the individual history sources.
 
-        Fillet/Chamfer Apply and OK are explicit calculation boundaries, so
-        they may materialize missing source meshes here.  Hover, picking and
+        Fillet/Chamfer OK is an explicit calculation boundary, so it may
+        materialize missing source meshes here. Hover, picking and
         later viewer rebuilds only consume these ZIMA viewer packets.
         """
         scene = self._native_viewer_scene
@@ -11457,14 +11576,29 @@ class MainWindow(QMainWindow):
 
         if self.document is None or self.edge_treatment_properties_dialog is None:
             return False
+
+        def reject_calculation(message: str) -> bool:
+            self.statusBar().showMessage(message)
+            QMessageBox.warning(
+                self,
+                self.edge_treatment_properties_dialog.windowTitle(),
+                message,
+            )
+            return False
+
         references = tuple(self._selection_controller.values)
         keys = self._selection_controller.candidate_keys
         if not references or len(references) != len(keys):
+            return reject_calculation(
+                tr("edge_treatment.status.edge_unsupported")
+            )
+        if not self._validate_edge_treatment_route_size(
+            self.edge_treatment_properties_dialog.size
+        ):
             return False
 
-        # An earlier Apply may currently be displayed as a cached preview.
-        # Restore the real document shape first, so every recalculation starts
-        # from the same unmodified body and stable topology keys stay valid.
+        # Start from the unchanged input body so stable topology keys stay
+        # valid and OK cannot compound an earlier transient calculation.
         # A document opened from format 11 normally has only BodyResult in its
         # viewer scene. Fillet/Chamfer are real body calculations, so this is
         # the correct boundary at which the OCCT input body is materialized.
@@ -11472,7 +11606,9 @@ class MainWindow(QMainWindow):
             self._definition_history_boundary()
         )
         if input_shape is None:
-            return False
+            return reject_calculation(
+                tr("edge_treatment.status.failed", error="Chybí vstupní těleso")
+            )
         # Bind the stable ZIMA references directly to the authoritative input
         # body. The viewer supplied only EdgeRef values and is deliberately
         # absent from this body-calculation pipeline.
@@ -11490,14 +11626,18 @@ class MainWindow(QMainWindow):
             try:
                 runtime_index = int(reference.source_id or "0")
             except (TypeError, ValueError):
-                return False
+                return reject_calculation(
+                    tr("edge_treatment.status.edge_unsupported")
+                )
             canonical = geometric_edge_reference(
                 input_shape,
                 runtime_index,
                 reference.feature_id,
             )
             if canonical is None:
-                return False
+                return reject_calculation(
+                    tr("edge_treatment.status.edge_unsupported")
+                )
             canonical_references.append(canonical)
             runtime_indices[canonical] = runtime_index
         references = tuple(canonical_references)
@@ -11527,7 +11667,9 @@ class MainWindow(QMainWindow):
                 else None
             )
             if edge is None:
-                return False
+                return reject_calculation(
+                    tr("edge_treatment.status.edge_unsupported")
+                )
             preview_registry.register_edge(
                 reference,
                 edge,
@@ -11548,10 +11690,9 @@ class MainWindow(QMainWindow):
                     build_result_registry=False,
                 )
         except (RuntimeError, TypeError, ValueError) as error:
-            self.statusBar().showMessage(
+            return reject_calculation(
                 tr("edge_treatment.status.failed", error=str(error))
             )
-            return False
         if show_preview:
             source_bodies = self._edge_treatment_source_bodies()
             self.rebuild_view(
@@ -11567,9 +11708,51 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_edge_treatment_selection_edges(set())
         return True
 
-    def _remove_fillet_edge(self, key: tuple[str, str, int]) -> None:
-        if self._selection_controller.remove_key(key):
-            self._refresh_fillet_selection_ui()
+    def _remove_fillet_edge(
+        self, keys: tuple[tuple[str, str, int], ...]
+    ) -> None:
+        for key in keys:
+            self._selection_controller.remove_key(tuple(key))
+        groups = getattr(self, "_edge_treatment_groups", [])
+        seeds = getattr(self, "_edge_treatment_group_seeds", [])
+        kept_indices = [
+            index for index, group in enumerate(groups)
+            if not any(tuple(key) in group for key in keys)
+        ]
+        self._edge_treatment_groups = [groups[index] for index in kept_indices]
+        self._edge_treatment_group_seeds = [
+            seeds[index] if index < len(seeds) else groups[index][0]
+            for index in kept_indices
+        ]
+        self._refresh_fillet_selection_ui()
+
+    def _restore_edge_treatment_route(
+        self, keys: tuple[tuple[str, str, int], ...]
+    ) -> None:
+        groups = list(getattr(self, "_edge_treatment_groups", []))
+        group_index = next((
+            index for index, group in enumerate(groups)
+            if tuple(group) == tuple(keys)
+        ), None)
+        if group_index is None:
+            return
+        seeds = list(getattr(self, "_edge_treatment_group_seeds", []))
+        seed = seeds[group_index] if group_index < len(seeds) else keys[0]
+        for key in groups[group_index]:
+            self._selection_controller.remove_key(key)
+        route = self._edge_treatment_route_keys(seed[1], seed[2])
+        restored = []
+        for _kind, owner_id, edge_index in route:
+            update = self._selection_controller.toggle(SelectionCandidate(
+                kind=SelectionKind.EDGE,
+                owner_id=owner_id,
+                element_index=edge_index,
+            ))
+            if update.accepted:
+                restored.append((SelectionKind.EDGE.value, owner_id, edge_index))
+        groups[group_index] = tuple(restored) or (seed,)
+        self._edge_treatment_groups = groups
+        self._refresh_fillet_selection_ui()
 
     def _refresh_fillet_selection_ui(self) -> None:
         keys = self._selection_controller.candidate_keys
@@ -11588,7 +11771,176 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_edge_treatment_selection_edges(selected_edges)
         dialog = self.edge_treatment_properties_dialog
         if dialog is not None:
-            dialog.set_selected_edges(keys)
+            groups = tuple(getattr(self, "_edge_treatment_groups", ()))
+            dialog.set_selected_edge_groups(
+                groups or tuple((key,) for key in keys)
+            )
+
+    def _edge_treatment_route_keys(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> tuple[tuple[str, str, int], ...]:
+        mesh = getattr(self, "_edge_treatment_route_mesh", None)
+        if mesh is None:
+            scene = self._native_viewer_scene
+            mesh = scene.mesh if scene is not None else None
+        if mesh is None:
+            return ((SelectionKind.EDGE.value, owner_id, edge_index),)
+        route = tangent_edge_route(mesh, owner_id, edge_index)
+        return tuple(
+            (SelectionKind.EDGE.value, owner_id, index)
+            for index in route or (edge_index,)
+        )
+
+    def _edge_treatment_reference_groups(
+        self,
+        completed_references: tuple[EdgeRef, ...] | None = None,
+    ) -> tuple[tuple[EdgeRef, ...], ...]:
+        if completed_references is not None:
+            groups = []
+            offset = 0
+            for key_group in getattr(self, "_edge_treatment_groups", ()):
+                groups.append(tuple(completed_references[
+                    offset:offset + len(key_group)
+                ]))
+                offset += len(key_group)
+            return tuple(group for group in groups if group)
+        keys = self._selection_controller.candidate_keys
+        values = self._selection_controller.values
+        references_by_key = dict(zip(keys, values))
+        groups = tuple(
+            tuple(
+                reference
+                for key in group
+                if isinstance(
+                    (reference := references_by_key.get(key)), EdgeRef
+                )
+            )
+            for group in getattr(self, "_edge_treatment_groups", ())
+        )
+        return tuple(group for group in groups if group)
+
+    def _validate_edge_treatment_route_size(self, size: float) -> bool:
+        mesh = getattr(self, "_edge_treatment_route_mesh", None)
+        if mesh is None:
+            scene = self._native_viewer_scene
+            mesh = scene.mesh if scene is not None else None
+        if mesh is None:
+            return True
+        selected = {
+            (owner_id, index)
+            for kind, owner_id, index
+            in self._selection_controller.candidate_keys
+            if kind == SelectionKind.EDGE.value
+        }
+        radii = [
+            float(edge.curve_radius)
+            for edge in mesh.edges
+            if (edge.owner_id, edge.edge_index) in selected
+            and edge.curve_kind == "circle"
+            and edge.curve_radius is not None
+            and edge.curve_radius > 0.0
+        ]
+        if not radii:
+            return True
+        available = min(radii)
+        if size < available - max(1.0e-6, available * 1.0e-6):
+            return True
+        self.statusBar().showMessage(
+            f"Požadovaný rozměr {size:g} mm musí být menší než "
+            f"nejmenší radius trasy {available:g} mm."
+        )
+        return False
+
+    @staticmethod
+    def _stored_edge_treatment_groups(
+        feature: ZimaEntity,
+    ) -> tuple[tuple[EdgeRef, ...], ...]:
+        try:
+            raw_groups = json.loads(str(feature.parameters.get(
+                "edge_groups", "[]"
+            )))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_groups = []
+        groups = tuple(
+            tuple(
+                reference
+                for value in group
+                if (reference := parse_edge_reference(value)) is not None
+            )
+            for group in raw_groups
+            if isinstance(group, list)
+        ) if isinstance(raw_groups, list) else ()
+        groups = tuple(group for group in groups if group)
+        if groups:
+            return groups
+        return tuple((reference,) for reference in edge_feature_references(feature))
+
+    def _edge_treatment_seed_references(
+        self,
+        references: tuple[EdgeRef, ...] | None = None,
+    ) -> tuple[EdgeRef, ...]:
+        flat_keys = tuple(
+            key for group in getattr(self, "_edge_treatment_groups", ())
+            for key in group
+        )
+        values = references or self._selection_controller.values
+        by_key = dict(zip(flat_keys, values))
+        return tuple(
+            reference
+            for key in getattr(self, "_edge_treatment_group_seeds", ())
+            if isinstance((reference := by_key.get(key)), EdgeRef)
+        )
+
+    def _toggle_edge_treatment_route(
+        self,
+        owner_id: str,
+        edge_index: int,
+    ) -> SelectionUpdate:
+        route = self._edge_treatment_route_keys(owner_id, edge_index)
+        seed_key = (SelectionKind.EDGE.value, owner_id, edge_index)
+        groups = list(getattr(self, "_edge_treatment_groups", []))
+        seeds = list(getattr(self, "_edge_treatment_group_seeds", []))
+        existing = next(
+            (group for group in groups if seed_key in group),
+            None,
+        )
+        if existing is not None:
+            # Re-clicking an already selected route keeps it selected. Whole
+            # route removal is an explicit Properties-list operation.
+            return SelectionUpdate(consumed=True, accepted=True)
+        new_keys = tuple(
+            key for key in route
+            if key not in self._selection_controller._candidate_keys
+        )
+        accepted_keys = []
+        last_update = SelectionUpdate(consumed=True)
+        original_values = list(self._selection_controller._values)
+        original_keys = list(self._selection_controller._candidate_keys)
+        for _kind, route_owner, route_index in new_keys:
+            last_update = self._selection_controller.toggle(SelectionCandidate(
+                kind=SelectionKind.EDGE,
+                owner_id=route_owner,
+                element_index=route_index,
+            ))
+            if last_update.accepted:
+                accepted_keys.append(
+                    (SelectionKind.EDGE.value, route_owner, route_index)
+                )
+            else:
+                # Route membership is atomic. A partial tangent chain would
+                # contradict the cyan preview and silently change design
+                # intent, so retain the selection exactly as it was.
+                self._selection_controller._values[:] = original_values
+                self._selection_controller._candidate_keys[:] = original_keys
+                return last_update
+        if accepted_keys:
+            groups.append(tuple(accepted_keys))
+            seeds.append(seed_key)
+        self._edge_treatment_groups = groups
+        self._edge_treatment_group_seeds = seeds
+        return last_update
 
     def _edge_treatment_reference_view_keys(
         self,
@@ -11884,6 +12236,14 @@ class MainWindow(QMainWindow):
                 "edge_refs": json.dumps([
                     reference.to_dict() for reference in references
                 ], separators=(",", ":")),
+                "edge_groups": json.dumps([
+                    [reference.to_dict() for reference in group]
+                    for group in self._edge_treatment_reference_groups(references)
+                ], separators=(",", ":")),
+                "edge_group_seeds": json.dumps([
+                    reference.to_dict()
+                    for reference in self._edge_treatment_seed_references(references)
+                ], separators=(",", ":")),
                 size_key: str(size),
                 "unit": "mm",
             },
@@ -11939,7 +12299,10 @@ class MainWindow(QMainWindow):
             current_radius = float(feature.parameters.get(initial_size_key, 4.0))
         except (TypeError, ValueError):
             current_radius = 4.0
-        editable_references = list(edge_feature_references(feature))
+        stored_groups = self._stored_edge_treatment_groups(feature)
+        editable_references = [
+            reference for group in stored_groups for reference in group
+        ]
         dialog = EdgeTreatmentPropertiesDialog(
             current_radius,
             len(editable_references),
@@ -11954,6 +12317,10 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_feature_hover_edges(set())
         self.native_viewer.set_edge_treatment_selection_edges(set())
         self._begin_definition_edit(obj)
+        self._edge_treatment_route_mesh = (
+            self._native_viewer_scene.mesh
+            if self._native_viewer_scene is not None else None
+        )
         self._selection_controller.begin(SelectionRequest(
             command_id=(
                 "fillet_edit"
@@ -11968,24 +12335,100 @@ class MainWindow(QMainWindow):
             wrong_kind_message=tr("edge_treatment.status.select_edge"),
             on_cancel=self._restore_default_selection,
         ))
-        initial_keys = self._edge_treatment_reference_view_keys(
-            editable_references
+        self._view_selection_confirmed = False
+        self.native_viewer._cycled_topology_candidate = None
+        try:
+            stored_seed_refs = [
+                reference
+                for value in json.loads(str(feature.parameters.get(
+                    "edge_group_seeds", "[]"
+                )))
+                if (reference := parse_edge_reference(value)) is not None
+            ]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored_seed_refs = []
+        stored_seed_keys = self._edge_treatment_reference_view_keys(
+            stored_seed_refs
         )
-        self._selection_controller._values[:] = editable_references
-        self._selection_controller._candidate_keys[:] = initial_keys
+        if not stored_seed_keys:
+            # Files created before route seeds were persisted still have the
+            # complete groups. Their first edge is the deterministic seed.
+            stored_seed_keys = [
+                keys[0]
+                for group in stored_groups
+                if (keys := self._edge_treatment_reference_view_keys(
+                    list(group[:1])
+                ))
+            ]
+        initial_key_groups: list[tuple[tuple[str, str, int], ...]] = []
+        initial_seed_keys: list[tuple[str, str, int]] = []
+        for seed in stored_seed_keys:
+            if seed[1] != self.document.root.entity_id:
+                continue
+            route = self._edge_treatment_route_keys(seed[1], seed[2])
+            accepted_keys = []
+            for _kind, route_owner, route_index in route:
+                route_key = (
+                    SelectionKind.EDGE.value,
+                    route_owner,
+                    route_index,
+                )
+                if route_key in self._selection_controller.candidate_keys:
+                    continue
+                update = self._selection_controller.toggle(
+                    SelectionCandidate(
+                        kind=SelectionKind.EDGE,
+                        owner_id=route_owner,
+                        element_index=route_index,
+                    )
+                )
+                if update.accepted:
+                    accepted_keys.append(route_key)
+            if accepted_keys:
+                initial_key_groups.append(tuple(accepted_keys))
+                initial_seed_keys.append(seed)
+        # If a legacy reference cannot be resolved as a seed, retain its
+        # exact stored group instead of opening an apparently empty editor.
+        if not initial_key_groups:
+            initial_keys = self._edge_treatment_reference_view_keys(
+                editable_references
+            )
+            valid_pairs = [
+                (key, reference)
+                for key, reference in zip(initial_keys, editable_references)
+                if key[1] == self.document.root.entity_id
+            ]
+            self._selection_controller._candidate_keys[:] = [
+                key for key, _reference in valid_pairs
+            ]
+            self._selection_controller._values[:] = [
+                reference for _key, reference in valid_pairs
+            ]
+            initial_key_groups = [
+                tuple(key for key, _reference in valid_pairs)
+            ] if valid_pairs else []
+            initial_seed_keys = [
+                initial_key_groups[0][0]
+            ] if initial_key_groups else []
+        self._edge_treatment_groups = initial_key_groups
+        self._edge_treatment_group_seeds = initial_seed_keys
+        editable_references[:] = self._selection_controller.values
         self.edge_treatment_properties_dialog = dialog
+        self.native_viewer._clear_topology_selection()
+        self.native_viewer.set_object_overlay(None)
+        self.native_viewer._object_overlay_locks_interaction = False
+        self.native_viewer.set_selection_enabled(True)
         self.native_viewer.set_selection_filter("edge")
         self.native_viewer.set_interaction_mode("topology")
         self._refresh_fillet_selection_ui()
-        def remove_reference(key) -> None:
-            if self._selection_controller.remove_key(tuple(key)):
-                editable_references[:] = self._selection_controller.values
-                self._refresh_fillet_selection_ui()
-        dialog.removeEdgeRequested.connect(remove_reference)
+        dialog.removeEdgeRequested.connect(self._remove_fillet_edge)
+        dialog.restoreRouteRequested.connect(self._restore_edge_treatment_route)
 
-        def apply_edit(*, keep_open: bool) -> bool:
+        def apply_edit() -> bool:
             editable_references[:] = self._selection_controller.values
             if not editable_references:
+                return False
+            if not self._validate_edge_treatment_route_size(dialog.size):
                 return False
             operation = dialog.operation
             size_key = "radius" if operation == ContainerType.FILLET else "distance"
@@ -11994,6 +12437,14 @@ class MainWindow(QMainWindow):
             feature.parameters[size_key] = str(dialog.size)
             feature.parameters["edge_refs"] = json.dumps([
                 reference.to_dict() for reference in editable_references
+            ], separators=(",", ":"))
+            feature.parameters["edge_groups"] = json.dumps([
+                [reference.to_dict() for reference in group]
+                for group in self._edge_treatment_reference_groups()
+            ], separators=(",", ":"))
+            feature.parameters["edge_group_seeds"] = json.dumps([
+                reference.to_dict()
+                for reference in self._edge_treatment_seed_references()
             ], separators=(",", ":"))
             self._mark_model_for_regeneration()
             history_index = (
@@ -12004,7 +12455,7 @@ class MainWindow(QMainWindow):
             preview_cursor = (
                 history_index + 1 if history_index is not None else 0
             )
-            preview_shape = (
+            _calculated_shape = (
                 self.document.build_shape_at(preview_cursor)
                 if self.document is not None and preview_cursor > 0
                 else None
@@ -12022,30 +12473,8 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(
                     tr("edge_treatment.status.failed", error=error)
                 )
-                if keep_open:
-                    self._clear_dimension_overlays()
-                    self._show_edge_treatment_dimension(
-                        obj, dialog, apply_callback=apply_from_dialog
-                    )
                 return False
-            if keep_open:
-                source_bodies = self._edge_treatment_source_bodies()
-                self._populate_tree()
-                self._select_tree_object_without_reference_event(obj.entity_id)
-                self.rebuild_view(
-                    fit=False,
-                    rebuild_geometry=True,
-                    cached_body_shape=preview_shape,
-                )
-                self._install_scene_source_bodies(source_bodies)
-                self._clear_dimension_overlays()
-                self._show_edge_treatment_dimension(
-                    obj, dialog, apply_callback=apply_from_dialog
-                )
             return True
-
-        def apply_from_dialog() -> None:
-            apply_edit(keep_open=True)
 
         def finish_edit(result: int) -> None:
             source_bodies = self._edge_treatment_source_bodies()
@@ -12060,16 +12489,10 @@ class MainWindow(QMainWindow):
             self._end_definition_edit()
             self._install_scene_source_bodies(source_bodies)
 
-        # OK validates and stores the same values as Apply, but does not paint
-        # the transient preview/dimension for a single frame immediately
-        # before the dialog closes. _end_definition_edit performs the one
-        # final full-history rebuild.
-        dialog.accept_callback = lambda: apply_edit(keep_open=False)
-        dialog.applied.connect(apply_from_dialog)
+        # Route discovery is viewer-data only. OK is the sole OCCT calculation
+        # boundary and the final history rebuild paints its result.
+        dialog.accept_callback = apply_edit
         dialog.finished.connect(finish_edit)
-        self._show_edge_treatment_dimension(
-            obj, dialog, apply_callback=apply_from_dialog
-        )
         dialog.show()
         position_dialog_top_right_after_show(dialog)
 
@@ -19660,19 +20083,10 @@ class MainWindow(QMainWindow):
             )
         scene = self._native_viewer_scene
         if edge_treatment_source_selection:
-            candidate = SelectionCandidate(
-                kind=SelectionKind.EDGE,
-                owner_id=owner_id,
-                element_index=edge_index,
-                shape=shape,
+            update = self._toggle_edge_treatment_route(
+                owner_id,
+                edge_index,
             )
-            if not (
-                QApplication.keyboardModifiers()
-                & Qt.KeyboardModifier.ControlModifier
-            ):
-                self._selection_controller._values.clear()
-                self._selection_controller._candidate_keys.clear()
-            update = self._selection_controller.toggle(candidate)
             self._refresh_fillet_selection_ui()
             count = len(self._selection_controller.candidate_keys)
             self.statusBar().showMessage(
@@ -22255,8 +22669,15 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
         )
+        request = self._selection_controller.request
+        edge_treatment_active = (
+            request is not None
+            and request.command_id
+            in {"fillet", "fillet_edit", "chamfer", "chamfer_edit"}
+        )
         if self.document is None or (
             not self.view_selection_enabled
+            and not edge_treatment_active
             and not self._sketch_reference_mode
             and not point_reference_dialog_active
         ):
@@ -24675,6 +25096,12 @@ class MainWindow(QMainWindow):
     def _show_native_viewer_context_menu(self, position: QPoint) -> None:
         if self.native_viewer.consume_context_menu_suppression():
             return
+        request = self._selection_controller.request
+        edge_treatment_active = (
+            request is not None
+            and request.command_id
+            in {"fillet", "fillet_edit", "chamfer", "chamfer_edit"}
+        )
         selected_edge_treatment = (
             self.document.find_entity(self._selected_view_edge_treatment_id)
             if self.document is not None
@@ -24846,6 +25273,7 @@ class MainWindow(QMainWindow):
             return
         if self.document is None or (
             not self.view_selection_enabled
+            and not edge_treatment_active
             and not self._sketch_reference_mode
             and not (
                 self.point_constraint_dialog is not None
@@ -24860,6 +25288,44 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_reference_mode:
             self._cycle_sketch_reference_candidate(position)
+            return
+        if edge_treatment_active:
+            # Edge operations intentionally offer occluded input-body edges.
+            # RMB only advances the common candidate list; the following LMB
+            # confirms exactly the cyan/orange candidate shown by the viewer.
+            candidates = tuple(
+                candidate
+                for candidate in self.native_viewer.topology_candidates_at(
+                    QPointF(position)
+                )
+                if candidate[0] == "edge"
+            )
+            if not candidates:
+                self._view_candidate_cycle_ids = ()
+                self._view_candidate_cycle_index = -1
+                self.native_viewer._cycled_topology_candidate = None
+                self.native_viewer._clear_topology_hover()
+                return
+            cycle_ids = tuple(
+                f"{kind}:{owner_id}:{element_index}"
+                for kind, owner_id, element_index in candidates
+            )
+            if cycle_ids != self._view_candidate_cycle_ids:
+                self._view_candidate_cycle_index = 0
+            else:
+                self._view_candidate_cycle_index = (
+                    self._view_candidate_cycle_index + 1
+                ) % len(candidates)
+            self._view_candidate_cycle_ids = cycle_ids
+            self.native_viewer.preview_topology_candidate(
+                candidates[self._view_candidate_cycle_index]
+            )
+            self.statusBar().showMessage(
+                tr(
+                    "selection.status.cycled_container",
+                    rank=self._view_candidate_cycle_index + 1,
+                )
+            )
             return
         if self._normal_view_selection_active:
             scene = self._native_viewer_scene
@@ -47396,6 +47862,24 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return
         if self._dimension_inspection_visuals:
+            return
+        request = self._selection_controller.request
+        if (
+            request is not None
+            and request.command_id
+            in {"fillet", "fillet_edit", "chamfer", "chamfer_edit"}
+        ):
+            # The tree item is only edit context.  Mirroring it as a selected
+            # viewport object would make the common picker confirm containers
+            # instead of the input body's (also occluded) operation edges.
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_selected_object(None)
+                self.native_viewer.set_object_overlay(None)
+                self.native_viewer._object_overlay_locks_interaction = False
+                self.native_viewer._object_overlay_persistent = False
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
             return
         dialog = self.point_constraint_dialog
         if (

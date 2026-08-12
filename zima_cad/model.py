@@ -30,6 +30,7 @@ from OCC.Core.BRepBuilderAPI import (
 )
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.GeomAbs import (
@@ -4699,6 +4700,8 @@ def make_fillet_shape(
     )
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Fillet did not produce a solid")
+    if not BRepCheck_Analyzer(result_shape).IsValid():
+        raise ValueError("Fillet produced invalid geometry")
 
     if not build_result_registry:
         return result_shape, TopologyRegistry()
@@ -4817,6 +4820,8 @@ def make_chamfer_shape(
     )
     if result_shape.IsNull() or not _unique_subshapes(result_shape, TopAbs_SOLID):
         raise ValueError("Chamfer did not produce a solid")
+    if not BRepCheck_Analyzer(result_shape).IsValid():
+        raise ValueError("Chamfer produced invalid geometry")
 
     if not build_result_registry:
         return result_shape, TopologyRegistry()
