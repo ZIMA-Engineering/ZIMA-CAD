@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QTreeWidgetItem
+from PySide6.QtWidgets import QApplication, QTreeWidgetItem, QWidget
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
@@ -18,10 +18,17 @@ from OCC.Core.TopExp import TopExp_Explorer
 from zima_cad.app import (
     AssemblyComponentPropertiesDialog,
     AxisConstraintDialog,
+    ContainerSummaryDialog,
+    DocumentTextInputDialog,
     FamilyTableDialog,
+    FileSettingsDialog,
     MainWindow,
+    MaterialDialog,
+    PlaneAttachmentDialog,
     PointConstraintDialog,
     ProtrusionConstraintDialog,
+    RelationsDialog,
+    UserParametersDialog,
     SKETCH_CONSTRAINT_SELECTION_TOOLS,
     SKETCH_ENTITY_SELECTION_TOOLS,
     ViewSelectionMode,
@@ -99,6 +106,184 @@ from zima_cad.viewer_mesh import (
 
 
 class DrawingViewConventionTests(unittest.TestCase):
+    def test_material_dialog_is_internal_and_cancel_keeps_document(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        document = create_empty_part()
+        document.physical_parameters = {"MATERIAL_NAME": "Steel"}
+        dialog = MaterialDialog(
+            document,
+            Path("."),
+            "en",
+            {},
+            parent,
+        )
+
+        value_item = dialog.table.item(0, dialog.VALUE_COLUMN)
+        self.assertIsNotNone(value_item)
+        value_item.setText("Aluminium")
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertEqual(
+            document.physical_parameters,
+            {"MATERIAL_NAME": "Steel"},
+        )
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_document_dialog_rejection_includes_material(self):
+        rejected = []
+        material = SimpleNamespace(
+            isVisible=lambda: True,
+            reject=lambda: rejected.append("material"),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.material_dialog = material
+
+        window._reject_document_scoped_dialogs()
+
+        self.assertEqual(rejected, ["material"])
+
+    def test_user_parameters_dialog_is_internal_and_cancel_keeps_document(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        document = create_empty_part()
+        document.user_parameter_order = ["length"]
+        document.user_parameter_labels = {"length": {"en": "Length"}}
+        document.user_parameter_values = {"length": {"": "10"}}
+        document.user_parameters = {"length": "10"}
+        dialog = UserParametersDialog(document, "en", parent)
+
+        value_item = dialog.table.item(0, dialog.VALUE_COLUMN)
+        self.assertIsNotNone(value_item)
+        value_item.setText("20")
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertEqual(document.user_parameters, {"length": "10"})
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_relations_dialog_is_internal_and_cancel_keeps_document(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        document = create_empty_part()
+        document.relations = [{"target": "mass", "expression": "model.mass"}]
+        dialog = RelationsDialog(document, parent)
+
+        expression_item = dialog.table.item(0, 1)
+        self.assertIsNotNone(expression_item)
+        expression_item.setText("model.volume")
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertEqual(
+            document.relations,
+            [{"target": "mass", "expression": "model.mass"}],
+        )
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_file_settings_dialog_is_internal_and_cancel_keeps_document(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        document = create_empty_part()
+        original_precision = dict(document.document_precision)
+        dialog = FileSettingsDialog(document, parent)
+        parent.resize(1000, 700)
+        parent.show()
+        dialog.show()
+        application.processEvents()
+
+        dialog.decimal_places.setValue(9)
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertGreater(dialog.height(), 100)
+        dialog.reject()
+        self.assertEqual(document.document_precision, original_precision)
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_document_text_input_is_internal_and_cancel_has_no_acceptance(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        accepted = []
+        dialog = DocumentTextInputDialog(
+            "Rename",
+            "Name",
+            "part.prtz",
+            parent,
+        )
+        dialog.accepted.connect(lambda: accepted.append(dialog.text()))
+
+        dialog.text_edit.setText("renamed.prtz")
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertEqual(accepted, [])
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_family_table_add_column_uses_internal_prompt(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        dialog = FamilyTableDialog(create_empty_part(), "part.prtz", parent)
+
+        dialog._add_column()
+        prompt = dialog._add_column_dialog
+
+        self.assertTrue(prompt.windowFlags() & Qt.WindowType.SubWindow)
+        prompt.text_edit.setText("WIDTH")
+        prompt.accept()
+        self.assertEqual(dialog.table.columnCount(), 2)
+        self.assertEqual(dialog.table.horizontalHeaderItem(1).text(), "WIDTH")
+        dialog.reject()
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_container_summary_is_internal_and_cancel_keeps_object(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        document = create_empty_part()
+        obj = document.root
+        original_name = obj.name
+        dialog = ContainerSummaryDialog(obj, document, parent)
+
+        dialog.name_edit.setText("Changed")
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        self.assertEqual(obj.name, original_name)
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_plane_attachment_dialog_is_internal(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        dialog = PlaneAttachmentDialog("Source", "Target", "front", parent)
+
+        dialog.reject()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertFalse(dialog.isModal())
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
     def test_only_exact_active_component_tree_row_is_cyan(self):
         assembly = create_empty_assembly()
         first = assembly.create_container("01.prtz", ContainerType.COMPONENT)

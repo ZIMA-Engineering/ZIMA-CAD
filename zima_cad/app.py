@@ -643,6 +643,161 @@ def create_saved_status_label() -> QLabel:
     return label
 
 
+class DocumentSubWindowDialog(QDialog):
+    """Shared in-application window for editors owned by one document tab."""
+
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        if isinstance(parent, QWidget):
+            self.setWindowFlags(
+                Qt.WindowType.SubWindow
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.setAutoFillBackground(True)
+            self.setObjectName("documentSubWindow")
+            self.setStyleSheet(
+                "QDialog#documentSubWindow {"
+                " background: palette(window);"
+                " border: 1px solid palette(mid);"
+                " border-radius: 5px;"
+                "}"
+            )
+        self.setModal(False)
+        self._title_drag_origin: QPointF | None = None
+        self._title_drag_window_origin: QPoint | None = None
+
+        self.content_layout = QVBoxLayout(self)
+        self.content_layout.setContentsMargins(8, 6, 8, 8)
+        self._internal_title_bar = QWidget(self)
+        self._internal_title_bar.setObjectName("documentSubWindowTitleBar")
+        self._internal_title_bar.setFixedHeight(34)
+        self._internal_title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+        self._internal_title_bar.setStyleSheet(
+            "QWidget#documentSubWindowTitleBar {"
+            " background: palette(midlight);"
+            " border: 1px solid palette(mid);"
+            " border-radius: 4px;"
+            "}"
+        )
+        title_layout = QHBoxLayout(self._internal_title_bar)
+        title_layout.setContentsMargins(10, 2, 4, 2)
+        title_label = QLabel(title)
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_layout.addWidget(title_label, 1)
+        close_button = QPushButton("×")
+        close_button.setFixedSize(27, 26)
+        close_button.setToolTip(tr("button.cancel"))
+        close_button.setStyleSheet(
+            "QPushButton { border: none; border-radius: 4px;"
+            " font-size: 18px; font-weight: 700; }"
+            "QPushButton:hover { background: #b83232; color: white; }"
+        )
+        close_button.clicked.connect(self.reject)
+        title_layout.addWidget(close_button)
+        self._internal_title_bar.installEventFilter(self)
+        self.content_layout.addWidget(self._internal_title_bar)
+
+    def showEvent(self, event) -> None:
+        # QDialog normally obtains its initial size from the window manager.
+        # SubWindow children have no native manager, and dialogs without an
+        # explicit resize could therefore collapse to the title bar only.
+        self.ensurePolished()
+        self.content_layout.activate()
+        hint = self.sizeHint()
+        if hint.isValid():
+            self.resize(
+                max(self.width(), hint.width()),
+                max(self.height(), hint.height()),
+            )
+        super().showEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._internal_title_bar:
+            if (
+                event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = event.globalPosition()
+                self._title_drag_window_origin = self.pos()
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_origin is not None
+                and self._title_drag_window_origin is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                delta = event.globalPosition() - self._title_drag_origin
+                target = self._title_drag_window_origin + QPoint(
+                    int(delta.x()), int(delta.y())
+                )
+                parent = self.parentWidget()
+                if parent is not None:
+                    target.setX(max(
+                        0, min(target.x(), parent.width() - self.width())
+                    ))
+                    target.setY(max(
+                        0, min(target.y(), parent.height() - 34)
+                    ))
+                self.move(target)
+                event.accept()
+                return True
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._title_drag_origin = None
+                self._title_drag_window_origin = None
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.move(
+            max(0, min(self.x(), parent.width() - self.width())),
+            max(0, min(self.y(), parent.height() - self.height())),
+        )
+
+
+class DocumentTextInputDialog(DocumentSubWindowDialog):
+    """Small shared text prompt that remains owned by one document tab."""
+
+    def __init__(
+        self,
+        title: str,
+        label: str,
+        text: str = "",
+        parent=None,
+    ) -> None:
+        super().__init__(title, parent)
+        self.setMinimumWidth(420)
+        form = QFormLayout()
+        self.text_edit = QLineEdit(text)
+        form.addRow(label, self.text_edit)
+        self.content_layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        self.content_layout.addWidget(buttons)
+        self.text_edit.selectAll()
+
+    def text(self) -> str:
+        return self.text_edit.text()
+
+
 class NoWheelComboBox(QComboBox):
     def wheelEvent(self, event) -> None:
         event.ignore()
@@ -1204,12 +1359,11 @@ class EdgeTreatmentPropertiesDialog(QDialog):
             )
 
 
-class ContainerSummaryDialog(QDialog):
+class ContainerSummaryDialog(DocumentSubWindowDialog):
     applied = Signal()
 
     def __init__(self, obj: ZimaEntity, document: PartDocument, parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(tr("dialog.properties.title", name=obj.name))
+        super().__init__(tr("dialog.properties.title", name=obj.name), parent)
         self.object = obj
         self.document = document
         self.decimal_places = display_decimal_places(document=document)
@@ -1218,7 +1372,8 @@ class ContainerSummaryDialog(QDialog):
         self.secondary_combo = None
         self.flip_checkbox = None
 
-        layout = QFormLayout(self)
+        layout = QFormLayout()
+        self.content_layout.addLayout(layout)
 
         self.name_edit = QLineEdit(obj.name)
         self.x_spin = self._create_position_spinbox()
@@ -5205,11 +5360,11 @@ class DrawingViewPropertiesDialog(QDialog):
         super().done(result)
 
 
-class PlaneAttachmentDialog(QDialog):
+class PlaneAttachmentDialog(DocumentSubWindowDialog):
     def __init__(self, source_name: str, target_name: str, face_role: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr("dialog.attachment.title"))
-        layout = QFormLayout(self)
+        super().__init__(tr("dialog.attachment.title"), parent)
+        layout = QFormLayout()
+        self.content_layout.addLayout(layout)
         layout.addRow(tr("dialog.attachment.source"), QLabel(source_name))
         layout.addRow(tr("dialog.attachment.target"), QLabel(target_name))
         layout.addRow(tr("dialog.attachment.face"), QLabel(face_role))
@@ -6340,69 +6495,18 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         return True
 
 
-class FamilyTableDialog(QDialog):
+class FamilyTableDialog(DocumentSubWindowDialog):
     def __init__(
         self,
         document: PartDocument,
         generic_name: str,
         parent=None,
     ) -> None:
-        super().__init__(parent)
-        if isinstance(parent, QWidget):
-            self.setWindowFlags(
-                Qt.WindowType.SubWindow
-                | Qt.WindowType.WindowTitleHint
-                | Qt.WindowType.WindowCloseButtonHint
-            )
-            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-            self.setAutoFillBackground(True)
-            self.setObjectName("familyTableSubWindow")
-            self.setStyleSheet(
-                "QDialog#familyTableSubWindow {"
-                " background: palette(window);"
-                " border: 1px solid palette(mid);"
-                " border-radius: 5px;"
-                "}"
-            )
-        self.setModal(False)
+        super().__init__(tr("dialog.family_table.title"), parent)
         self.document = document
         self.generic_name = generic_name
-        self.setWindowTitle(tr("dialog.family_table.title"))
-        self._title_drag_origin: QPointF | None = None
-        self._title_drag_window_origin: QPoint | None = None
         self.resize(760, 440)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 8)
-        self._internal_title_bar = QWidget(self)
-        self._internal_title_bar.setObjectName("familyTableTitleBar")
-        self._internal_title_bar.setFixedHeight(34)
-        self._internal_title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
-        self._internal_title_bar.setStyleSheet(
-            "QWidget#familyTableTitleBar {"
-            " background: palette(midlight);"
-            " border: 1px solid palette(mid);"
-            " border-radius: 4px;"
-            "}"
-        )
-        title_layout = QHBoxLayout(self._internal_title_bar)
-        title_layout.setContentsMargins(10, 2, 4, 2)
-        title_label = QLabel(self.windowTitle())
-        title_font = title_label.font()
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_layout.addWidget(title_label, 1)
-        close_button = QPushButton("×")
-        close_button.setFixedSize(27, 26)
-        close_button.setToolTip(tr("button.cancel"))
-        close_button.setStyleSheet(
-            "QPushButton { border: none; border-radius: 4px;"
-            " font-size: 18px; font-weight: 700; }"
-            "QPushButton:hover { background: #b83232; color: white; }"
-        )
-        close_button.clicked.connect(self.reject)
-        title_layout.addWidget(close_button)
-        self._internal_title_bar.installEventFilter(self)
-        layout.addWidget(self._internal_title_bar)
+        layout = self.content_layout
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionMode(
@@ -6435,57 +6539,6 @@ class FamilyTableDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._load()
-
-    def eventFilter(self, watched, event) -> bool:
-        if watched is self._internal_title_bar:
-            if (
-                event.type() == QEvent.Type.MouseButtonPress
-                and event.button() == Qt.MouseButton.LeftButton
-            ):
-                self._title_drag_origin = event.globalPosition()
-                self._title_drag_window_origin = self.pos()
-                event.accept()
-                return True
-            if (
-                event.type() == QEvent.Type.MouseMove
-                and self._title_drag_origin is not None
-                and self._title_drag_window_origin is not None
-                and event.buttons() & Qt.MouseButton.LeftButton
-            ):
-                delta = event.globalPosition() - self._title_drag_origin
-                target = self._title_drag_window_origin + QPoint(
-                    int(delta.x()), int(delta.y())
-                )
-                parent = self.parentWidget()
-                if parent is not None:
-                    target.setX(max(
-                        0, min(target.x(), parent.width() - self.width())
-                    ))
-                    target.setY(max(
-                        0, min(target.y(), parent.height() - 34)
-                    ))
-                self.move(target)
-                event.accept()
-                return True
-            if (
-                event.type() == QEvent.Type.MouseButtonRelease
-                and event.button() == Qt.MouseButton.LeftButton
-            ):
-                self._title_drag_origin = None
-                self._title_drag_window_origin = None
-                event.accept()
-                return True
-        return super().eventFilter(watched, event)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        parent = self.parentWidget()
-        if parent is None:
-            return
-        self.move(
-            max(0, min(self.x(), parent.width() - self.width())),
-            max(0, min(self.y(), parent.height() - self.height())),
-        )
 
     @staticmethod
     def document_data(
@@ -6579,18 +6632,35 @@ class FamilyTableDialog(QDialog):
                 self.table.removeRow(row)
 
     def _add_column(self) -> None:
-        name, accepted = QInputDialog.getText(
-            self,
+        existing = getattr(self, "_add_column_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dialog = DocumentTextInputDialog(
             tr("dialog.family_table.add_column"),
             tr("dialog.family_table.column_name"),
+            parent=self,
         )
+        self._add_column_dialog = dialog
+        dialog.accepted.connect(
+            lambda: self._finish_add_column(dialog.text())
+        )
+
+        def finished(_result: int) -> None:
+            if getattr(self, "_add_column_dialog", None) is dialog:
+                self._add_column_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+
+    def _finish_add_column(self, name: str) -> None:
         name = name.strip()
         existing = {
             str(self.table.horizontalHeaderItem(column).text()).strip()
             for column in range(1, self.table.columnCount())
         }
-        if not accepted:
-            return
         if not name or name in existing:
             QMessageBox.warning(
                 self, tr("dialog.family_table.title"),
@@ -6605,6 +6675,12 @@ class FamilyTableDialog(QDialog):
             if row == 0:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, column, item)
+
+    def reject(self) -> None:
+        add_column_dialog = getattr(self, "_add_column_dialog", None)
+        if add_column_dialog is not None and add_column_dialog.isVisible():
+            add_column_dialog.reject()
+        super().reject()
 
     def _delete_columns(self) -> None:
         columns = sorted(
@@ -6663,7 +6739,7 @@ class FamilyTableDialog(QDialog):
             super().accept()
 
 
-class UserParametersDialog(QDialog):
+class UserParametersDialog(DocumentSubWindowDialog):
     KEY_COLUMN = 0
     SHARED_COLUMN = 1
     LABEL_COLUMN = 2
@@ -6676,8 +6752,7 @@ class UserParametersDialog(QDialog):
         parent=None,
         save_callback: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(tr("dialog.parameters.title"))
+        super().__init__(tr("dialog.parameters.title"), parent)
         self.resize(920, 560)
         self.setMinimumSize(760, 420)
         self.setSizeGripEnabled(True)
@@ -6688,7 +6763,7 @@ class UserParametersDialog(QDialog):
         self.labels = copy.deepcopy(document.user_parameter_labels)
         self.values = copy.deepcopy(document.user_parameter_values)
 
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
 
         language_form = QFormLayout()
         self.language_combo = QComboBox()
@@ -6916,7 +6991,7 @@ class UserParametersDialog(QDialog):
         super().accept()
 
 
-class RelationsDialog(QDialog):
+class RelationsDialog(DocumentSubWindowDialog):
     """Structured target/expression editor for model-owned relations."""
 
     def __init__(
@@ -6925,12 +7000,11 @@ class RelationsDialog(QDialog):
         parent=None,
         save_callback: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(tr("dialog.relations.title"), parent)
         self.document = document
         self.save_callback = save_callback
-        self.setWindowTitle(tr("dialog.relations.title"))
         self.resize(820, 440)
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
         explanation = QLabel(tr("dialog.relations.explanation"))
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -7054,7 +7128,7 @@ class RelationsDialog(QDialog):
             super().accept()
 
 
-class FileSettingsDialog(QDialog):
+class FileSettingsDialog(DocumentSubWindowDialog):
     UNIT_CHOICES = {
         "Length": ("mm", "cm", "m", "in"),
         "Angle": ("deg", "rad"),
@@ -7070,12 +7144,11 @@ class FileSettingsDialog(QDialog):
         parent=None,
         save_callback: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(tr("dialog.file_settings.title"))
+        super().__init__(tr("dialog.file_settings.title"), parent)
         self.document = document
         self.save_callback = save_callback
 
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
         form = QFormLayout()
         self.unit_edits: dict[str, QComboBox] = {}
         for unit_name, choices in self.UNIT_CHOICES.items():
@@ -7358,7 +7431,7 @@ class OptionsDialog(QDialog):
         super().accept()
 
 
-class MaterialDialog(QDialog):
+class MaterialDialog(DocumentSubWindowDialog):
     PROPERTY_COLUMN = 0
     VALUE_COLUMN = 1
     UNIT_COLUMN = 2
@@ -7431,8 +7504,7 @@ class MaterialDialog(QDialog):
         parent=None,
         save_callback: Callable[[], bool] | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(tr("dialog.material.title"))
+        super().__init__(tr("dialog.material.title"), parent)
         self.resize(1100, 700)
         self.setMinimumSize(620, 380)
         self.setSizeGripEnabled(True)
@@ -7446,7 +7518,7 @@ class MaterialDialog(QDialog):
         )
         self.parameter_units: dict[str, str] = dict(document.physical_parameter_units)
 
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
 
         top_layout = QHBoxLayout()
         top_layout.addWidget(QLabel(tr("dialog.material.current_data")))
@@ -16372,17 +16444,41 @@ class MainWindow(QMainWindow):
         self._update_window_title()
         self._refresh_window_menu()
 
+    def event(self, event) -> bool:
+        result = super().event(event)
+        if (
+            event.type() == QEvent.Type.WindowActivate
+            and hasattr(self, "workspace")
+        ):
+            # A document editor belongs to one MainWindow as well as one tab.
+            # Activating another ZIMA-CAD window therefore cancels editors in
+            # the window being left. Child/system dialogs (for example the
+            # material file picker) do not activate a MainWindow and must not
+            # trigger this path.
+            for window in tuple(self.workspace.windows):
+                if window is self or not isinstance(window, MainWindow):
+                    continue
+                window._reject_document_scoped_dialogs()
+        return result
+
     def _reject_document_scoped_dialogs(self) -> None:
         """Cancel editors owned by the document that is being left."""
 
         dialogs = (
-            self.dimension_properties_dialog,
-            self.edge_treatment_properties_dialog,
-            self.point_constraint_dialog,
-            self.assembly_component_dialog,
-            self.orientation_dialog,
-            self._sketch_text_dialog,
+            getattr(self, "dimension_properties_dialog", None),
+            getattr(self, "edge_treatment_properties_dialog", None),
+            getattr(self, "point_constraint_dialog", None),
+            getattr(self, "assembly_component_dialog", None),
+            getattr(self, "orientation_dialog", None),
+            getattr(self, "_sketch_text_dialog", None),
             getattr(self, "family_table_dialog", None),
+            getattr(self, "material_dialog", None),
+            getattr(self, "user_parameters_dialog", None),
+            getattr(self, "relations_dialog", None),
+            getattr(self, "file_settings_dialog", None),
+            getattr(self, "rename_document_dialog", None),
+            getattr(self, "container_summary_dialog", None),
+            getattr(self, "plane_attachment_dialog", None),
             getattr(self, "drawing_view_properties_dialog", None),
         )
         rejected: set[int] = set()
@@ -17014,15 +17110,32 @@ class MainWindow(QMainWindow):
     def rename_document_file(self) -> None:
         if self.document is None or self.current_file_path is None:
             return
+        existing = getattr(self, "rename_document_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         old_path = canonical_document_path(self.current_file_path)
-        new_name, accepted = QInputDialog.getText(
-            self,
+        dialog = DocumentTextInputDialog(
             tr("dialog.rename.title"),
             tr("dialog.rename.label"),
-            text=old_path.name,
+            old_path.name,
+            self,
         )
-        if not accepted:
-            return
+        self.rename_document_dialog = dialog
+        dialog.accepted.connect(
+            lambda: self._rename_document_file_to(old_path, dialog.text())
+        )
+
+        def finished(_result: int) -> None:
+            if getattr(self, "rename_document_dialog", None) is dialog:
+                self.rename_document_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+
+    def _rename_document_file_to(self, old_path: Path, new_name: str) -> None:
         new_name = Path(new_name.strip()).name
         if not new_name:
             return
@@ -17998,14 +18111,28 @@ class MainWindow(QMainWindow):
 
             save_callback = save_drawing_source_parameters
 
+        existing = getattr(self, "user_parameters_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         dialog = UserParametersDialog(
             parameter_document,
             self.settings.language,
             self,
             save_callback=save_callback,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._store_active_session()
+        self.user_parameters_dialog = dialog
+
+        def finished(result: int) -> None:
+            if result == QDialog.DialogCode.Accepted:
+                self._store_active_session()
+            if getattr(self, "user_parameters_dialog", None) is dialog:
+                self.user_parameters_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def show_relations_dialog(self) -> None:
         if (
@@ -18013,13 +18140,27 @@ class MainWindow(QMainWindow):
             or self._document_type(self.document) not in ("part", "assembly")
         ):
             return
+        existing = getattr(self, "relations_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         dialog = RelationsDialog(
             self.document,
             self,
             save_callback=self._apply_and_save_document,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._store_active_session()
+        self.relations_dialog = dialog
+
+        def finished(result: int) -> None:
+            if result == QDialog.DialogCode.Accepted:
+                self._store_active_session()
+            if getattr(self, "relations_dialog", None) is dialog:
+                self.relations_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def show_family_table_dialog(self) -> None:
         if (
@@ -18058,6 +18199,11 @@ class MainWindow(QMainWindow):
             )
             return
 
+        existing = getattr(self, "material_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         dialog = MaterialDialog(
             self.document,
             self.settings.materials_path,
@@ -18066,8 +18212,17 @@ class MainWindow(QMainWindow):
             self,
             save_callback=self._apply_and_save_document,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._store_active_session()
+        self.material_dialog = dialog
+
+        def finished(result: int) -> None:
+            if result == QDialog.DialogCode.Accepted:
+                self._store_active_session()
+            if getattr(self, "material_dialog", None) is dialog:
+                self.material_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def show_file_settings_dialog(self) -> None:
         if self.document is None:
@@ -18078,13 +18233,27 @@ class MainWindow(QMainWindow):
             )
             return
 
+        existing = getattr(self, "file_settings_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         dialog = FileSettingsDialog(
             self.document,
             self,
             save_callback=self._apply_and_save_document,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._store_active_session()
+        self.file_settings_dialog = dialog
+
+        def finished(result: int) -> None:
+            if result == QDialog.DialogCode.Accepted:
+                self._store_active_session()
+            if getattr(self, "file_settings_dialog", None) is dialog:
+                self.file_settings_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def show_options_dialog(self) -> None:
         dialog = OptionsDialog(
@@ -25935,6 +26104,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.document is None:
             return
+        existing = getattr(self, "plane_attachment_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         source_plane = self.document.find_entity(source_plane_id)
         source_object = self.document.find_owning_object(source_plane_id)
         target = self.document.find_entity(target_object_id)
@@ -25952,7 +26126,43 @@ class MainWindow(QMainWindow):
             face_role,
             self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        self.plane_attachment_dialog = dialog
+        dialog.accepted.connect(
+            lambda: self._apply_plane_attachment(
+                dialog,
+                source_plane_id,
+                target_object_id,
+                face_role,
+            )
+        )
+
+        def finished(_result: int) -> None:
+            if getattr(self, "plane_attachment_dialog", None) is dialog:
+                self.plane_attachment_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+
+    def _apply_plane_attachment(
+        self,
+        dialog: PlaneAttachmentDialog,
+        source_plane_id: str,
+        target_object_id: str,
+        face_role: str,
+    ) -> None:
+        if self.document is None:
+            return
+        source_plane = self.document.find_entity(source_plane_id)
+        source_object = self.document.find_owning_object(source_plane_id)
+        target = self.document.find_entity(target_object_id)
+        if (
+            source_plane is None
+            or source_object is None
+            or target is None
+            or source_plane.kind != EntityKind.PLANE
+            or source_object.kind != EntityKind.CONTAINER
+        ):
             return
         source_object.attachment = PlaneOnFaceAttachment(
             source_plane=str(source_plane.parameters.get("plane", "xy")),
@@ -26391,17 +26601,31 @@ class MainWindow(QMainWindow):
             self._edit_generic_object(obj)
             return
 
+        existing = getattr(self, "container_summary_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
         dialog = ContainerSummaryDialog(obj, self.document, self)
+        self.container_summary_dialog = dialog
         dialog.applied.connect(lambda: self._refresh_object_properties(obj))
         self._begin_definition_edit(obj)
-        try:
-            if (
-                dialog.exec() == QDialog.DialogCode.Accepted
-                and dialog.apply_to_object()
-            ):
-                self._refresh_object_properties(obj)
-        finally:
-            self._end_definition_edit()
+
+        def finished(result: int) -> None:
+            try:
+                if (
+                    result == QDialog.DialogCode.Accepted
+                    and dialog.apply_to_object()
+                ):
+                    self._refresh_object_properties(obj)
+            finally:
+                self._end_definition_edit()
+                if getattr(self, "container_summary_dialog", None) is dialog:
+                    self.container_summary_dialog = None
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
 
     def _assembly_stored_topology_choice(
         self,
