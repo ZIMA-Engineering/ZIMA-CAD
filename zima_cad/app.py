@@ -78,6 +78,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHeaderView,
     QInputDialog,
@@ -148,6 +149,7 @@ from zima_cad.numeric_expression import (
     NumericExpressionError,
     evaluate_numeric_expression,
 )
+from zima_cad.widgets import PositiveQuantitySpinBox
 from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
@@ -234,6 +236,7 @@ from zima_cad.body_result import BodyResult
 from zima_cad.viewer import (
     AngularDimension,
     CameraState,
+    ExtentHandle,
     LinearDimension,
     RadialDimension,
     ViewerPickCandidate,
@@ -419,6 +422,13 @@ TREE_ICON_NAMES = {
 def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
     ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
     cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+    # Enter belongs to the editor which currently owns keyboard focus (most
+    # importantly a numeric spin box).  Committing a field must not also
+    # accept and close its Properties dialog.  OK remains an explicit button
+    # action and the shared middle-button double-click gesture.
+    for button in buttons.buttons():
+        button.setAutoDefault(False)
+        button.setDefault(False)
     if ok_button is not None:
         ok_button.setText(tr("button.ok"))
     if cancel_button is not None:
@@ -1304,7 +1314,7 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         size_label_font.setBold(True)
         self.size_label.setFont(size_label_font)
         layout.addWidget(self.size_label)
-        self.size_spin = QDoubleSpinBox()
+        self.size_spin = PositiveQuantitySpinBox()
         self.size_spin.setDecimals(3)
         self.size_spin.setRange(0.001, 1_000_000.0)
         self.size_spin.setSingleStep(1.0)
@@ -1319,7 +1329,22 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         edges_label_font.setBold(True)
         edges_label.setFont(edges_label_font)
         layout.addWidget(edges_label)
-        self.edge_list = QListWidget()
+        self.edge_list = QTreeWidget()
+        self.edge_list.setColumnCount(2)
+        self.edge_list.setHeaderLabels([
+            tr("fillet.route_column"),
+            tr("fillet.objects_column"),
+        ])
+        self.edge_list.setRootIsDecorated(True)
+        self.edge_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.edge_list.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.edge_list.header().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
         self.edge_list.setMinimumHeight(70)
         self.remove_edge_button = QPushButton(tr("fillet.remove_edge"))
         self.remove_edge_button.clicked.connect(self._remove_selected_edge)
@@ -1437,16 +1462,33 @@ class EdgeTreatmentPropertiesDialog(QDialog):
     def set_selected_edge_groups(
         self,
         groups: tuple[tuple[tuple[str, str, int], ...], ...],
+        descriptions: dict[tuple[str, str, int], str] | None = None,
     ) -> None:
         self.edge_list.clear()
         for number, group in enumerate(groups, 1):
             if not group:
                 continue
-            item = QListWidgetItem(
-                f"Trasa {number} · {len(group)} hran"
+            route_item = QTreeWidgetItem([
+                tr("fillet.route_item", number=number),
+                tr("fillet.object_count", count=len(group)),
+            ])
+            route_item.setData(
+                0, Qt.ItemDataRole.UserRole, tuple(group)
             )
-            item.setData(Qt.ItemDataRole.UserRole, group)
-            self.edge_list.addItem(item)
+            self.edge_list.addTopLevelItem(route_item)
+            for key in group:
+                child = QTreeWidgetItem([
+                    "",
+                    (descriptions or {}).get(
+                        key,
+                        tr("fillet.edge_object", index=key[2]),
+                    ),
+                ])
+                child.setData(
+                    0, Qt.ItemDataRole.UserRole, tuple(group)
+                )
+                route_item.addChild(child)
+            route_item.setExpanded(True)
         self.ok_button.setEnabled(bool(groups))
         self.remove_edge_button.setEnabled(bool(groups))
         self.restore_route_button.setEnabled(bool(groups))
@@ -1455,14 +1497,16 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         item = self.edge_list.currentItem()
         if item is not None:
             self.removeEdgeRequested.emit(tuple(
-                tuple(key) for key in item.data(Qt.ItemDataRole.UserRole)
+                tuple(key)
+                for key in item.data(0, Qt.ItemDataRole.UserRole)
             ))
 
     def _restore_selected_route(self) -> None:
         item = self.edge_list.currentItem()
         if item is not None:
             self.restoreRouteRequested.emit(tuple(
-                tuple(key) for key in item.data(Qt.ItemDataRole.UserRole)
+                tuple(key)
+                for key in item.data(0, Qt.ItemDataRole.UserRole)
             ))
 
 
@@ -1727,7 +1771,11 @@ class PrimitivePropertiesDialog(QDialog):
 
         self.parameter_edits: dict[str, QDoubleSpinBox] = {}
         for key, label_key, minimum in self.PARAMETER_DEFINITIONS[primitive.kind]:
-            spinbox = QDoubleSpinBox()
+            spinbox = (
+                PositiveQuantitySpinBox()
+                if minimum > 0.0
+                else QDoubleSpinBox()
+            )
             spinbox.setRange(minimum, 1_000_000.0)
             spinbox.setDecimals(self.decimal_places)
             spinbox.setSingleStep(1.0)
@@ -2188,7 +2236,8 @@ class PointConstraintDialog(QDialog):
                 Qt.Key.Key_Enter,
             )
             and spinbox is not None
-            and watched.window() is self
+            and isinstance(watched, QWidget)
+            and (watched is self or self.isAncestorOf(watched))
         ):
             spinbox.interpretText()
             event.accept()
@@ -2249,6 +2298,25 @@ class PointConstraintDialog(QDialog):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         position_dialog_top_right_after_show(self)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # QDialog treats Return as Accept even when no push button is
+            # marked as the default.  Properties use Return only to commit
+            # the editor which owns focus; closing remains an explicit OK.
+            focused = QApplication.focusWidget()
+            spinbox = None
+            widget = focused
+            while isinstance(widget, QWidget) and widget is not self:
+                if isinstance(widget, QAbstractSpinBox):
+                    spinbox = widget
+                    break
+                widget = widget.parentWidget()
+            if spinbox is not None:
+                spinbox.interpretText()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def done(self, result: int) -> None:
         application = QApplication.instance()
@@ -3134,7 +3202,7 @@ class AxisConstraintDialog(PointConstraintDialog):
             self._axis_direction_changed
         )
         self._axis_direction_changed()
-        self.length_spin = QDoubleSpinBox()
+        self.length_spin = PositiveQuantitySpinBox()
         self.length_spin.setRange(0.001, 1_000_000.0)
         self.length_spin.setDecimals(self.decimal_places)
         self.length_spin.setSuffix(" mm")
@@ -4102,7 +4170,11 @@ class SolidConstraintDialog(AxisConstraintDialog):
         for key, label_key, minimum in PrimitivePropertiesDialog.PARAMETER_DEFINITIONS[
             solid_kind
         ]:
-            edit = QDoubleSpinBox()
+            edit = (
+                PositiveQuantitySpinBox()
+                if minimum > 0.0
+                else QDoubleSpinBox()
+            )
             edit.setRange(minimum, 1_000_000.0)
             edit.setDecimals(self.decimal_places)
             edit.setSingleStep(1.0)
@@ -4316,7 +4388,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
         self.length_spin.setVisible(False)
         if self.length_label is not None:
             self.length_label.setVisible(False)
-        self.diameter_spin = QDoubleSpinBox()
+        self.diameter_spin = PositiveQuantitySpinBox()
         self.diameter_spin.setRange(0.001, 1_000_000.0)
         self.diameter_spin.setDecimals(self.decimal_places)
         self.diameter_spin.setSuffix(" mm")
@@ -4451,11 +4523,11 @@ class SketchConstraintDialog(PlaneConstraintDialog):
 class ProtrusionConstraintDialog(PlaneConstraintDialog):
     createProtrusionRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str,
-        float, float, str, str, str, str
+        float, float, str, str, str, float, str, str
     )
     updateProtrusionRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str,
-        float, float, str, str, str, str
+        float, float, str, str, str, float, str, str
     )
     editSketchRequested = Signal(str)
     directionChanged = Signal(str)
@@ -4562,17 +4634,77 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self.result_type_combo = QComboBox()
         self.result_type_combo.addItem(tr("protrusion.result.solid"), "solid")
         self.result_type_combo.addItem(
-            tr("protrusion.result.surface"), "surface"
+            tr("protrusion.result.thin"), "thin"
         )
         result_type = str(feature_parameters.get("result_type", "solid"))
+        if result_type not in {"solid", "thin"}:
+            result_type = "solid"
         self.result_type_combo.setCurrentIndex(
             max(0, self.result_type_combo.findData(result_type))
         )
+        result_type_row = QWidget()
+        result_type_layout = QHBoxLayout(result_type_row)
+        result_type_layout.setContentsMargins(0, 0, 0, 0)
+        result_type_layout.addWidget(self.result_type_combo, 1)
+        self.result_type_flip_button = QPushButton(
+            tr("protrusion.switch")
+        )
+        self.result_type_flip_button.clicked.connect(
+            self._flip_result_type
+        )
+        result_type_layout.addWidget(self.result_type_flip_button)
         feature_form.addRow(
-            tr("protrusion.result_type"), self.result_type_combo
+            tr("protrusion.result_type"), result_type_row
         )
         self.result_type_combo.currentIndexChanged.connect(
             self._update_result_controls
+        )
+
+        self.thin_thickness_spin = PositiveQuantitySpinBox()
+        self.thin_thickness_spin.setRange(0.001, 1_000_000.0)
+        self.thin_thickness_spin.setDecimals(self.decimal_places)
+        self.thin_thickness_spin.setSuffix(" mm")
+        self.thin_thickness_spin.setValue(float(
+            feature_parameters.get("thin_thickness", 1.0)
+        ))
+        feature_form.addRow(
+            tr("protrusion.thin.thickness"), self.thin_thickness_spin
+        )
+        self.thin_thickness_label = feature_form.labelForField(
+            self.thin_thickness_spin
+        )
+        self.thin_mode_combo = QComboBox()
+        self.thin_mode_combo.addItem(
+            tr("protrusion.one_side"), "one_side"
+        )
+        self.thin_mode_combo.addItem(
+            tr("protrusion.reverse"), "other_side"
+        )
+        self.thin_mode_combo.addItem(
+            tr("protrusion.symmetric"), "symmetric"
+        )
+        self.thin_mode_combo.setCurrentIndex(max(
+            0, self.thin_mode_combo.findData(str(
+                feature_parameters.get("thin_mode", "one_side")
+            ))
+        ))
+        thin_mode_row = QWidget()
+        thin_mode_layout = QHBoxLayout(thin_mode_row)
+        thin_mode_layout.setContentsMargins(0, 0, 0, 0)
+        thin_mode_layout.addWidget(self.thin_mode_combo, 1)
+        self.thin_mode_switch_button = QPushButton(tr("protrusion.switch"))
+        self.thin_mode_switch_button.clicked.connect(
+            lambda _checked=False: self._cycle_combo(self.thin_mode_combo)
+        )
+        thin_mode_layout.addWidget(self.thin_mode_switch_button)
+        feature_form.addRow(tr("protrusion.thin.side"), thin_mode_row)
+        self.thin_mode_label = feature_form.labelForField(thin_mode_row)
+        self.thin_mode_row = thin_mode_row
+        self.thin_thickness_spin.valueChanged.connect(
+            lambda _value: self.definitionChanged.emit()
+        )
+        self.thin_mode_combo.currentIndexChanged.connect(
+            lambda _index: self.definitionChanged.emit()
         )
 
         self.own_sketch_button = QPushButton("SKETCH")
@@ -4601,9 +4733,16 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self.extent_mode_combo.setCurrentIndex(
             max(0, self.extent_mode_combo.findData(extent_mode))
         )
-        feature_form.addRow(tr("protrusion.extent"), self.extent_mode_combo)
+        extent_row = QWidget()
+        extent_layout = QHBoxLayout(extent_row)
+        extent_layout.setContentsMargins(0, 0, 0, 0)
+        extent_layout.addWidget(self.extent_mode_combo, 1)
+        self.extent_switch_button = QPushButton(tr("protrusion.switch"))
+        self.extent_switch_button.clicked.connect(self._cycle_extent_mode)
+        extent_layout.addWidget(self.extent_switch_button)
+        feature_form.addRow(tr("protrusion.extent"), extent_row)
         self.extent_mode_label = feature_form.labelForField(
-            self.extent_mode_combo
+            extent_row
         )
         self.protrusion_direction_combo = QComboBox()
         self.protrusion_direction_combo.addItem("↑", "forward")
@@ -4616,22 +4755,27 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
                 ),
             )
         )
-        feature_form.addRow(
-            tr("protrusion.direction"), self.protrusion_direction_combo
-        )
-        self.forward_length_spin = QDoubleSpinBox()
-        self.reverse_length_spin = QDoubleSpinBox()
+        direction_row = QWidget()
+        direction_layout = QHBoxLayout(direction_row)
+        direction_layout.setContentsMargins(0, 0, 0, 0)
+        direction_layout.addWidget(self.protrusion_direction_combo, 1)
+        self.direction_flip_button = QPushButton(tr("protrusion.flip"))
+        self.direction_flip_button.clicked.connect(self._flip_direction)
+        direction_layout.addWidget(self.direction_flip_button)
+        feature_form.addRow(tr("protrusion.direction"), direction_row)
+        self.forward_length_spin = PositiveQuantitySpinBox()
+        self.reverse_length_spin = PositiveQuantitySpinBox()
         for spin in (self.forward_length_spin, self.reverse_length_spin):
             spin.setRange(0.001, 1_000_000.0)
             spin.setDecimals(self.decimal_places)
             spin.setSuffix(" mm")
         self.forward_length_spin.setValue(
             float(feature_parameters.get(
-                "length_forward", feature_parameters.get("length", 10.0)
+                "length_forward", feature_parameters.get("length", 50.0)
             ))
         )
         self.reverse_length_spin.setValue(
-            float(feature_parameters.get("length_reverse", 10.0))
+            float(feature_parameters.get("length_reverse", 60.0))
         )
         feature_form.addRow(
             tr("protrusion.length_forward"), self.forward_length_spin
@@ -4645,6 +4789,16 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self.reverse_length_label = feature_form.labelForField(
             self.reverse_length_spin
         )
+        # QFormLayout collapses a hidden row even when its QSizePolicy asks to
+        # retain size. Keep this row physically present and change opacity
+        # instead, so Extent never alters any layout geometry above it.
+        self._reverse_length_effects: list[QGraphicsOpacityEffect] = []
+        for widget in (self.reverse_length_spin, self.reverse_length_label):
+            if widget is None:
+                continue
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
+            self._reverse_length_effects.append(effect)
 
         operation_widget = QWidget()
         operation_layout = QHBoxLayout(operation_widget)
@@ -4758,6 +4912,15 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
                 self.cut_exception_widget,
             )
         self._apply_compact_reference_layout()
+        if isinstance(dialog_layout, QVBoxLayout):
+            # Keep Placement and every following form row anchored to the
+            # top. The reference table used to own the layout's only stretch
+            # factor, so changing Extent redistributed vertical space above
+            # the controls. Optional length rows now grow only at the bottom.
+            dialog_layout.setStretch(
+                dialog_layout.indexOf(self.reference_list), 0
+            )
+            dialog_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._defer_feature_rebuild = False
         self._commit_deferred_feature = False
         self._provisional_apply_pending = False
@@ -4863,31 +5026,78 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.directionChanged.emit(direction)
         self.definitionChanged.emit()
 
+    @staticmethod
+    def _cycle_combo(combo: QComboBox) -> None:
+        for offset in range(1, combo.count() + 1):
+            index = (combo.currentIndex() + offset) % combo.count()
+            item = combo.model().item(index)
+            if item is None or item.isEnabled():
+                combo.setCurrentIndex(index)
+                return
+
+    def _flip_result_type(self, _checked: bool = False) -> None:
+        self._cycle_combo(self.result_type_combo)
+
+    def _cycle_extent_mode(self, _checked: bool = False) -> None:
+        self._cycle_combo(self.extent_mode_combo)
+
+    def _flip_direction(self, _checked: bool = False) -> None:
+        if self.extent_mode_combo.currentData() == "two_sides":
+            forward = self.forward_length_spin.value()
+            reverse = self.reverse_length_spin.value()
+            self.forward_length_spin.blockSignals(True)
+            self.reverse_length_spin.blockSignals(True)
+            try:
+                self.forward_length_spin.setValue(reverse)
+                self.reverse_length_spin.setValue(forward)
+            finally:
+                self.forward_length_spin.blockSignals(False)
+                self.reverse_length_spin.blockSignals(False)
+        target = (
+            "reverse"
+            if self.protrusion_direction_combo.currentData() == "forward"
+            else "forward"
+        )
+        index = self.protrusion_direction_combo.findData(target)
+        if index >= 0:
+            self.protrusion_direction_combo.setCurrentIndex(index)
+
     def _set_protrusion_operation(self, operation: CombineMode) -> None:
         self.add_operation_button.setChecked(operation == CombineMode.ADD)
         self.subtract_operation_button.setChecked(operation == CombineMode.SUBTRACT)
         self.definitionChanged.emit()
 
     def _update_result_controls(self, _index: int = -1) -> None:
-        solid = self.result_type_combo.currentData() == "solid"
-        # Creation and editing share one stable interaction contract.  Do not
-        # make Add/Subtract disappear merely because a stored/open profile is
-        # currently represented as a surface; keep the operation visible and
-        # disable it until a solid result is available.
+        thin = self.result_type_combo.currentData() == "thin"
         show_operation = not self._subtract_only
         if hasattr(self, "operation_widget"):
             self.operation_widget.setVisible(show_operation)
             self.operation_label.setVisible(show_operation)
-            self.add_operation_button.setEnabled(solid)
-            self.subtract_operation_button.setEnabled(solid)
+            self.add_operation_button.setEnabled(True)
+            self.subtract_operation_button.setEnabled(True)
+        for widget in (
+            self.thin_thickness_spin,
+            self.thin_thickness_label,
+            self.thin_mode_row,
+            self.thin_mode_label,
+        ):
+            if widget is not None:
+                widget.setVisible(thin)
         self.definitionChanged.emit()
 
     def _update_extent_controls(self, _index: int = -1) -> None:
         mode = self.extent_mode_combo.currentData()
         show_both_lengths = mode in ("two_sides", "symmetric")
-        self.reverse_length_spin.setVisible(show_both_lengths)
+        self.reverse_length_spin.setVisible(True)
+        self.reverse_length_spin.setEnabled(show_both_lengths)
+        self.reverse_length_spin.setFocusPolicy(
+            Qt.FocusPolicy.StrongFocus
+            if show_both_lengths else Qt.FocusPolicy.NoFocus
+        )
         if self.reverse_length_label is not None:
-            self.reverse_length_label.setVisible(show_both_lengths)
+            self.reverse_length_label.setVisible(True)
+        for effect in self._reverse_length_effects:
+            effect.setOpacity(1.0 if show_both_lengths else 0.0)
         if mode == "symmetric":
             self._synchronize_symmetric_length(
                 self.reverse_length_spin,
@@ -4968,21 +5178,17 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         solid_item = self.result_type_combo.model().item(
             self.result_type_combo.findData("solid")
         )
-        surface_item = self.result_type_combo.model().item(
-            self.result_type_combo.findData("surface")
+        thin_item = self.result_type_combo.model().item(
+            self.result_type_combo.findData("thin")
         )
         solid_enabled = status in ("closed", "pending")
         if solid_item is not None:
             solid_item.setEnabled(solid_enabled)
-        if surface_item is not None:
-            surface_item.setEnabled(not self._subtract_only)
+        if thin_item is not None:
+            thin_item.setEnabled(status in ("open", "mixed", "closed", "pending"))
         if not solid_enabled and self.result_type_combo.currentData() == "solid":
             self.result_type_combo.setCurrentIndex(
-                self.result_type_combo.findData("surface")
-            )
-        if self._subtract_only and self.result_type_combo.currentData() == "surface":
-            self.result_type_combo.setCurrentIndex(
-                self.result_type_combo.findData("solid")
+                self.result_type_combo.findData("thin")
             )
 
     def _submit_and_edit_sketch(self) -> None:
@@ -5044,7 +5250,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         result_type = str(self.result_type_combo.currentData())
         if (
             (result_type == "solid" and self._profile_status not in ("closed", "pending"))
-            or (result_type == "surface" and self._subtract_only)
+            or (result_type == "thin" and self._profile_status == "invalid")
         ):
             return False
         arguments = (
@@ -5061,10 +5267,10 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             str(self.extent_mode_combo.currentData()),
             str(self.protrusion_direction_combo.currentData()),
             result_type,
+            self.thin_thickness_spin.value(),
+            str(self.thin_mode_combo.currentData()),
             (
-                CombineMode.NONE.value
-                if result_type == "surface"
-                else CombineMode.SUBTRACT.value
+                CombineMode.SUBTRACT.value
                 if self.subtract_operation_button.isChecked()
                 else CombineMode.ADD.value
             ),
@@ -5079,11 +5285,11 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
 class RevolveConstraintDialog(ProtrusionConstraintDialog):
     createRevolveRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str, float, float,
-        str, str, str, str
+        str, str, str, float, str, str
     )
     updateRevolveRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str, float, float,
-        str, str, str, str
+        str, str, str, float, str, str
     )
 
     def __init__(
@@ -5153,6 +5359,65 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
                 ),
             )
         )
+        defaults = {
+            "one_side": [360.0, 360.0],
+            "two_sides": [45.0, 45.0],
+            "symmetric": [45.0, 45.0],
+        }
+        try:
+            stored_sets = json.loads(str(
+                parameters.get("extent_value_sets", "{}")
+            ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored_sets = {}
+        self._revolve_extent_value_sets = defaults
+        if isinstance(stored_sets, dict):
+            for mode, values in stored_sets.items():
+                if mode not in defaults or not isinstance(values, list):
+                    continue
+                try:
+                    first, second = float(values[0]), float(values[1])
+                except (IndexError, TypeError, ValueError):
+                    continue
+                self._revolve_extent_value_sets[mode] = [first, second]
+        active_mode = str(self.extent_mode_combo.currentData())
+        self._revolve_extent_value_sets[active_mode] = [
+            self.forward_length_spin.value(),
+            self.reverse_length_spin.value(),
+        ]
+        self.forward_length_spin.valueChanged.connect(
+            self._remember_current_revolve_extent
+        )
+        self.reverse_length_spin.valueChanged.connect(
+            self._remember_current_revolve_extent
+        )
+        self.extent_mode_combo.currentIndexChanged.connect(
+            self._load_revolve_extent_values
+        )
+
+    def _remember_current_revolve_extent(self, _value: float) -> None:
+        mode = str(self.extent_mode_combo.currentData())
+        self._revolve_extent_value_sets[mode] = [
+            self.forward_length_spin.value(),
+            self.reverse_length_spin.value(),
+        ]
+
+    def _load_revolve_extent_values(self, _index: int = -1) -> None:
+        mode = str(self.extent_mode_combo.currentData())
+        values = self._revolve_extent_value_sets[mode]
+        for spin, value in zip(
+            (self.forward_length_spin, self.reverse_length_spin), values
+        ):
+            blocked = spin.blockSignals(True)
+            try:
+                spin.setValue(value)
+            finally:
+                spin.blockSignals(blocked)
+        self.definitionChanged.emit()
+
+    def revolve_extent_value_sets(self) -> dict[str, list[float]]:
+        self._remember_current_revolve_extent(0.0)
+        return copy.deepcopy(self._revolve_extent_value_sets)
 
     def _submit(self) -> bool:
         name = self.name_edit.text().strip()
@@ -5169,7 +5434,7 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
         result_type = str(self.result_type_combo.currentData())
         if (
             (result_type == "solid" and self._profile_status not in ("closed", "pending"))
-            or (result_type == "surface" and self._subtract_only)
+            or (result_type == "thin" and self._profile_status == "invalid")
         ):
             return False
         arguments = (
@@ -5186,10 +5451,10 @@ class RevolveConstraintDialog(ProtrusionConstraintDialog):
             str(self.extent_mode_combo.currentData()),
             str(self.protrusion_direction_combo.currentData()),
             result_type,
+            self.thin_thickness_spin.value(),
+            str(self.thin_mode_combo.currentData()),
             (
-                CombineMode.NONE.value
-                if result_type == "surface"
-                else CombineMode.SUBTRACT.value
+                CombineMode.SUBTRACT.value
                 if self.subtract_operation_button.isChecked()
                 else CombineMode.ADD.value
             ),
@@ -5296,7 +5561,7 @@ class DrawingViewPropertiesDialog(QDialog):
         self.scale_mode_combo.addItem(tr("drawing.scale.sheet"), "sheet")
         self.scale_mode_combo.addItem(tr("drawing.scale.local"), "local")
         self.scale_mode_combo.setCurrentIndex(max(0, self.scale_mode_combo.findData(str(view.get("scale_mode", "sheet")))))
-        self.scale_spin = QDoubleSpinBox()
+        self.scale_spin = PositiveQuantitySpinBox()
         self.scale_spin.setRange(0.001, 1000.0)
         self.scale_spin.setDecimals(3)
         self.scale_spin.setValue(float(view.get("scale", 1.0)))
@@ -8717,7 +8982,7 @@ class SketchTextPropertiesDialog(QDialog):
         self.text_label = QLabel(tr("sketch.text.dialog.value"))
         form.addRow(self.text_label)
         form.addRow(self.text_edit)
-        self.height_spin = QDoubleSpinBox()
+        self.height_spin = PositiveQuantitySpinBox()
         self.height_spin.setRange(0.01, 1_000_000.0)
         self.height_spin.setDecimals(3)
         self.height_spin.setValue(10.0)
@@ -8877,7 +9142,7 @@ class RepeatRegionPropertiesDialog(SketchTextPropertiesDialog):
         ):
             self.direction_combo.addItem(label, value)
         self._properties_form.addRow("Směr opakování", self.direction_combo)
-        self.step_spin = QDoubleSpinBox()
+        self.step_spin = PositiveQuantitySpinBox()
         self.step_spin.setRange(0.001, 1_000_000.0)
         self.step_spin.setDecimals(3)
         self.step_spin.setSuffix(" mm")
@@ -9364,6 +9629,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.sketchDimensionDragged.connect(
             self._on_sketch_dimension_dragged
+        )
+        self.native_viewer.extentHandleDragged.connect(
+            self._on_extent_handle_dragged
         )
         self.native_viewer.sketchDimensionSelected.connect(
             self._select_dimension_overlay
@@ -10265,6 +10533,14 @@ class MainWindow(QMainWindow):
                 action.setEnabled(has_document)
 
     def _mark_application_command(self, action: QAction) -> None:
+        # A body double-click owns a transient inspection presentation and
+        # suspends ordinary picking. Every subsequently launched modelling
+        # command must end that inspection before its own selection contract
+        # is installed; otherwise the cyan body preview and dimensions stay
+        # on screen and the stale inspection guard rejects face clicks.
+        action.triggered.connect(
+            lambda _checked=False: self._end_dimension_inspection_for_command()
+        )
         button = self.tools_toolbar.widgetForAction(action)
         if button is not None:
             button.setObjectName("applicationCommandButton")
@@ -10406,6 +10682,15 @@ class MainWindow(QMainWindow):
         )
         self.tools_toolbar.addWidget(button)
 
+    def _end_dimension_inspection_for_command(self) -> None:
+        if not (
+            self._dimension_inspection_visuals
+            or self._dimension_selection_suspended
+            or self._dimension_overlays
+        ):
+            return
+        self._dismiss_dimension_overlays()
+
     def _create_sketch_from_selection(self) -> None:
         selected = self._selected_object()
         reference = (
@@ -10469,6 +10754,32 @@ class MainWindow(QMainWindow):
                 fit=False, rebuild_geometry=False
             )
         )
+
+    def _arm_selected_profile_container_transform(
+        self,
+        selected: ZimaEntity | None,
+    ) -> None:
+        """Preserve placement when a tree-selected Sketch becomes a feature."""
+        if self.document is None or selected is None:
+            return
+        owner = (
+            selected
+            if selected.kind == EntityKind.CONTAINER
+            else self.document.find_owning_object(selected.entity_id)
+        )
+        if owner is None or owner.container_type != ContainerType.SKETCH:
+            return
+        sketch = (
+            selected
+            if selected.kind == EntityKind.SKETCH
+            else next((
+                child for child in owner.children
+                if child.kind == EntityKind.SKETCH
+                and child.sketch_role() == SketchRole.PROFILE
+            ), None)
+        )
+        if sketch is not None and sketch.sketch_role() == SketchRole.PROFILE:
+            self._view_transform_sketch_id = sketch.entity_id
 
     def _transform_view_sketch(self, target_type: ContainerType) -> bool:
         """Convert a standalone Sketch container selected in the viewport."""
@@ -10539,6 +10850,8 @@ class MainWindow(QMainWindow):
                 "one_side",
                 "forward",
                 "solid",
+                1.0,
+                "one_side",
                 operation,
             )
         else:
@@ -10557,6 +10870,8 @@ class MainWindow(QMainWindow):
                 "one_side",
                 "forward",
                 "solid",
+                1.0,
+                "one_side",
                 operation,
             )
         if not applied:
@@ -10590,9 +10905,10 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog.raise_()
             self.point_constraint_dialog.activateWindow()
             return
+        selected = self._selected_object()
+        self._arm_selected_profile_container_transform(selected)
         if self._transform_view_sketch(ContainerType.PROTRUSION):
             return
-        selected = self._selected_object()
         initial_id = ""
         if selected is not None:
             if selected.kind == EntityKind.SKETCH:
@@ -10640,23 +10956,23 @@ class MainWindow(QMainWindow):
         dialog.createProtrusionRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._apply_new_protrusion(
                 dialog, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id,
                 length_forward, length_reverse, extent_mode, direction,
-                result_type, operation,
+                result_type, thin_thickness, thin_mode, operation,
             )
         )
         dialog.updateProtrusionRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._update_protrusion(
                 dialog.point_object, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id,
                 length_forward, length_reverse, extent_mode, direction,
-                result_type, operation,
+                result_type, thin_thickness, thin_mode, operation,
                 defer_rebuild=(
                     dialog._defer_feature_rebuild
                     or dialog._provisional_apply_pending
@@ -10670,11 +10986,23 @@ class MainWindow(QMainWindow):
                 dialog, sketch_id
             )
         )
+        dialog.directionChanged.connect(
+            lambda direction: self._preview_protrusion_direction(
+                dialog, direction
+            )
+        )
+        dialog.definitionChanged.connect(
+            lambda: self._preview_protrusion_dialog_frame(dialog)
+        )
+        dialog.definitionChanged.connect(
+            lambda: self._show_new_protrusion_extent_handles(dialog)
+        )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._show_new_protrusion_extent_handles(dialog)
 
     def _create_revolve(self) -> None:
         if self.document is None:
@@ -10683,9 +11011,10 @@ class MainWindow(QMainWindow):
             self.point_constraint_dialog.raise_()
             self.point_constraint_dialog.activateWindow()
             return
+        selected = self._selected_object()
+        self._arm_selected_profile_container_transform(selected)
         if self._transform_view_sketch(ContainerType.REVOLVE):
             return
-        selected = self._selected_object()
         initial_id = ""
         if selected is not None:
             if selected.kind == EntityKind.SKETCH:
@@ -10734,22 +11063,24 @@ class MainWindow(QMainWindow):
         dialog.createRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._apply_new_revolve(
                 dialog, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id, angle,
-                angle_reverse, extent_mode, direction, result_type, operation,
+                angle_reverse, extent_mode, direction, result_type,
+                thin_thickness, thin_mode, operation,
             )
         )
         dialog.updateRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._update_revolve(
                 dialog.point_object, references, fallback, name,
                 show_internal, show_auxiliary, rotation, source_mode,
                 sketch_id, angle, angle_reverse, extent_mode, direction,
-                result_type, operation,
+                result_type, thin_thickness, thin_mode, operation,
+                extent_value_sets=dialog.revolve_extent_value_sets(),
                 defer_rebuild=(
                     dialog._defer_feature_rebuild
                     or dialog._provisional_apply_pending
@@ -10822,11 +11153,13 @@ class MainWindow(QMainWindow):
         dialog.updateRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._update_revolve(
                 obj, references, fallback, name, show_internal,
                 show_auxiliary, rotation, source_mode, sketch_id, angle,
-                angle_reverse, extent_mode, direction, result_type, operation,
+                angle_reverse, extent_mode, direction, result_type,
+                thin_thickness, thin_mode, operation,
+                extent_value_sets=dialog.revolve_extent_value_sets(),
                 defer_rebuild=(
                     dialog._defer_feature_rebuild
                     or dialog._provisional_apply_pending
@@ -10853,6 +11186,76 @@ class MainWindow(QMainWindow):
         if rebuild_rollback:
             self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
+
+    def _preview_protrusion_dialog_frame(
+        self,
+        dialog: ProtrusionConstraintDialog,
+    ) -> None:
+        """Transform the persisted wire with the dialog's staged RX/RY/RZ."""
+        owner = dialog.point_object
+        base_mesh = getattr(dialog, "_frame_preview_object_mesh", None)
+        base_sketch = getattr(dialog, "_frame_preview_sketch_mesh", None)
+        base_world = getattr(
+            dialog, "_frame_preview_world_transform", None
+        )
+        if owner is None or base_world is None:
+            self._show_new_protrusion_extent_handles(dialog)
+            return
+        references = dialog._solution_references()
+        sketch = next((
+            child for child in owner.children
+            if child.kind == EntityKind.SKETCH
+            and child.sketch_role() == SketchRole.PROFILE
+        ), None)
+        fallback_plane = (
+            str(sketch.parameters.get("plane", "xz"))
+            if sketch is not None else "xz"
+        )
+        _plane, base_rotation = self._datum_plane_frame(
+            references, fallback_plane
+        )
+        staged = CoordinateSystem(
+            origin=tuple(float(value) for value in (
+                dialog.solution
+                or tuple(edit.value() for edit in dialog.coordinate_edits)
+            )),
+            rotation=self._rotation_with_local_offset(
+                base_rotation,
+                tuple(edit.value() for edit in dialog.rotation_edits),
+            ),
+        )
+        def homogeneous(transform) -> np.ndarray:
+            matrix = np.eye(4, dtype=float)
+            matrix[:3, :4] = np.array(transform, dtype=float)[:3, :4]
+            return matrix
+
+        current_local = homogeneous(
+            coordinate_system_transform(owner.coordinate_system)
+        )
+        current_world = homogeneous(base_world)
+        staged_local = homogeneous(
+            coordinate_system_transform(staged)
+        )
+        try:
+            parent_world = current_world @ np.linalg.inv(current_local)
+            staged_world = parent_world @ staged_local
+            delta = staged_world @ np.linalg.inv(current_world)
+        except np.linalg.LinAlgError:
+            return
+        transform = tuple(tuple(float(value) for value in row) for row in delta)
+        self.native_viewer.set_object_overlay(
+            transform_viewer_mesh(base_mesh, transform)
+            if base_mesh is not None else None,
+            selected=True,
+            locks_interaction=False,
+            match_owner_id=self._active_component_entity_id,
+        )
+        self.native_viewer.set_passive_sketch_overlay(
+            transform_viewer_mesh(base_sketch, transform)
+            if base_sketch is not None else None
+        )
+        dialog._frame_preview_coordinate_system = staged
+        self._show_new_protrusion_extent_handles(dialog)
 
     def _edit_protrusion(
         self,
@@ -10905,11 +11308,12 @@ class MainWindow(QMainWindow):
         dialog.updateProtrusionRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
-            extent_mode, direction, result_type, operation:
+            extent_mode, direction, result_type, thin_thickness, thin_mode, operation:
             self._update_protrusion(
                 obj, references, fallback, name, show_internal, show_auxiliary,
                 rotation, source_mode, sketch_id, length_forward,
-                length_reverse, extent_mode, direction, result_type, operation,
+                length_reverse, extent_mode, direction, result_type,
+                thin_thickness, thin_mode, operation,
                 defer_rebuild=(
                     dialog._defer_feature_rebuild
                     or dialog._provisional_apply_pending
@@ -10923,6 +11327,14 @@ class MainWindow(QMainWindow):
                 dialog, sketch_id
             )
         )
+        dialog.directionChanged.connect(
+            lambda direction: self._preview_protrusion_direction(
+                dialog, direction
+            )
+        )
+        dialog.definitionChanged.connect(
+            lambda: self._preview_protrusion_dialog_frame(dialog)
+        )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
@@ -10930,11 +11342,233 @@ class MainWindow(QMainWindow):
         if rebuild_rollback:
             self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
+        dialog._frame_preview_object_mesh = (
+            self.native_viewer._object_overlay_mesh
+        )
+        dialog._frame_preview_sketch_mesh = (
+            self.native_viewer._passive_sketch_overlay_mesh
+        )
+        dialog._frame_preview_world_transform = (
+            self._world_transform_for_object(obj)
+        )
+
+    def _show_new_protrusion_extent_handles(
+        self, dialog: ProtrusionConstraintDialog
+    ) -> None:
+        """Show the extrusion axis directly from the staged dialog state.
+
+        This is intentionally independent of a calculated solid/surface. An
+        open profile has no successful body preview yet, but its extrusion
+        direction and requested lengths are already fully defined.
+        """
+        coordinate_system = getattr(
+            dialog, "_frame_preview_coordinate_system", None
+        ) or self._definition_preview_coordinate_system()
+        owner = dialog.point_object
+        if coordinate_system is None and owner is None:
+            self.native_viewer.set_extent_handles(())
+            return
+        references = dialog._solution_references()
+        plane = self._datum_plane_frame(references, "xz")[0]
+        local_direction = {
+            "xy": (0.0, 0.0, 1.0),
+            "xz": (0.0, 1.0, 0.0),
+            "yz": (1.0, 0.0, 0.0),
+        }.get(plane, (0.0, 1.0, 0.0))
+        transform = (
+            coordinate_system_transform(coordinate_system)
+            if coordinate_system is not None
+            else self._world_transform_for_object(owner)
+        )
+        profile_offset = self._container_plane_offset(references)
+        local_origin = tuple(
+            value * profile_offset for value in local_direction
+        )
+        origin = transform_point(transform, local_origin)
+        direction_end = transform_point(transform, tuple(
+            local_origin[index] + local_direction[index]
+            for index in range(3)
+        ))
+        direction = tuple(
+            direction_end[index] - origin[index] for index in range(3)
+        )
+        direction_length = math.sqrt(sum(value * value for value in direction))
+        if direction_length <= 1.0e-9:
+            self.native_viewer.set_extent_handles(())
+            return
+        direction = tuple(value / direction_length for value in direction)
+        if dialog.protrusion_direction_combo.currentData() == "reverse":
+            direction = tuple(-value for value in direction)
+        mode = str(dialog.extent_mode_combo.currentData())
+        handle_specs = [(
+            "length_forward",
+            direction,
+            dialog.forward_length_spin.value(),
+        )]
+        if mode in {"two_sides", "symmetric"}:
+            handle_specs.append((
+                "length_reverse",
+                tuple(-value for value in direction),
+                (
+                    dialog.forward_length_spin.value()
+                    if mode == "symmetric"
+                    else dialog.reverse_length_spin.value()
+                ),
+            ))
+        handles = tuple(
+            ExtentHandle(key, origin, handle_direction, length)
+            for key, handle_direction, length in handle_specs
+        )
+        self.native_viewer.set_extent_handles(tuple(handles))
+
+        # The first feature Properties window exists before an owned Sketch
+        # and Protrusion entity have been committed.  _primitive_dimensions()
+        # therefore has nothing to inspect even though the staged extrusion
+        # length is already well defined.  Draw the yellow dimensions from
+        # the exact same frame and values as the purple handles so creation
+        # and later editing share one visual contract.
+        local_offset_direction = self._protrusion_dimension_axes(plane)[1]
+        offset_end = transform_point(transform, tuple(
+            local_origin[index] + local_offset_direction[index]
+            for index in range(3)
+        ))
+        offset_direction = self._normalized_vector(tuple(
+            offset_end[index] - origin[index] for index in range(3)
+        ))
+        if not any(abs(value) > 1.0e-9 for value in offset_direction):
+            offset_direction = (1.0, 0.0, 0.0)
+        margin = max(
+            8.0,
+            max((abs(length) for _key, _direction, length in handle_specs), default=0.0)
+            * 0.16,
+        )
+        staged_dimensions = tuple(
+            LinearDimension(
+                key=key,
+                first_point=origin,
+                second_point=tuple(
+                    origin[index] + handle_direction[index] * length
+                    for index in range(3)
+                ),
+                first_dimension_point=tuple(
+                    origin[index] + offset_direction[index] * margin
+                    for index in range(3)
+                ),
+                second_dimension_point=tuple(
+                    origin[index]
+                    + handle_direction[index] * length
+                    + offset_direction[index] * margin
+                    for index in range(3)
+                ),
+                direction=handle_direction,
+            )
+            for key, handle_direction, length in handle_specs
+            if length > 1.0e-9
+        )
+        extent_keys = {"length_forward", "length_reverse"}
+        retained_dimensions = tuple(
+            dimension for dimension in self.native_viewer._dimensions
+            if dimension.key not in extent_keys
+        )
+        self.native_viewer.set_dimensions((
+            *retained_dimensions,
+            *staged_dimensions,
+        ))
+        staged_by_key = {
+            dimension.key: dimension for dimension in staged_dimensions
+        }
+        for stale_key in extent_keys - staged_by_key.keys():
+            stale_overlay = self._dimension_overlays.pop(stale_key, None)
+            if stale_overlay is not None:
+                stale_overlay.deleteLater()
+        value_by_key = {
+            key: length for key, _handle_direction, length in handle_specs
+        }
+        for key, dimension in staged_by_key.items():
+            overlay = self._dimension_overlays.get(key)
+            if overlay is None:
+                overlay = ParameterEditOverlay(self.native_viewer)
+                overlay.valueCommitted.connect(
+                    lambda value, staged_key=key, staged_dialog=dialog:
+                    self._commit_staged_protrusion_dialog_value(
+                        staged_dialog,
+                        staged_key,
+                        value,
+                    )
+                )
+                overlay.selected.connect(
+                    lambda staged_key=key:
+                    self._select_dimension_overlay(staged_key)
+                )
+                self._dimension_overlays[key] = overlay
+            value = value_by_key[key]
+            overlay.show_value(
+                self._format_display_value(value),
+                " mm",
+                display_value=self._format_dimension_display(value, 3),
+            )
+        QTimer.singleShot(0, self._position_dimension_overlays)
+
+    def _commit_staged_protrusion_dialog_value(
+        self,
+        dialog: ProtrusionConstraintDialog,
+        key: str,
+        raw_value: str,
+    ) -> None:
+        """Commit a dimension before the transient feature entity exists."""
+        if self.point_constraint_dialog is not dialog:
+            return
+        try:
+            value = evaluate_numeric_expression(str(raw_value))
+        except NumericExpressionError:
+            return
+        if not math.isfinite(value) or abs(value) <= 1.0e-9:
+            return
+        if value < 0.0:
+            dialog._flip_direction()
+        value = abs(value)
+        target = (
+            dialog.reverse_length_spin
+            if key == "length_reverse"
+            else dialog.forward_length_spin
+        )
+        target.setValue(value)
+        if str(dialog.extent_mode_combo.currentData()) == "symmetric":
+            dialog.forward_length_spin.setValue(value)
+            dialog.reverse_length_spin.setValue(value)
+        self._show_new_protrusion_extent_handles(dialog)
+
+    def _preview_protrusion_direction(
+        self, dialog: ProtrusionConstraintDialog, direction: str
+    ) -> None:
+        owner = dialog.point_object
+        if owner is None or owner.container_type != ContainerType.PROTRUSION:
+            return
+        feature = next((
+            child for child in owner.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ), None)
+        if feature is None:
+            return
+        feature.parameters["direction"] = direction
+        feature.parameters["length_forward"] = (
+            f"{dialog.forward_length_spin.value():.12g}"
+        )
+        feature.parameters["length_reverse"] = (
+            f"{dialog.reverse_length_spin.value():.12g}"
+        )
+        dialog._provisional_apply_pending = True
+        QTimer.singleShot(
+            0,
+            lambda target=owner:
+            self._restore_returned_feature_wire_preview(target),
+        )
 
     def _apply_new_protrusion(
         self, dialog, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, length_forward,
-        length_reverse, extent_mode, direction, result_type, operation,
+        length_reverse, extent_mode, direction, result_type,
+        thin_thickness, thin_mode, operation,
     ) -> None:
         if self.document is None:
             return
@@ -10946,7 +11580,8 @@ class MainWindow(QMainWindow):
         if not self._set_protrusion_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
-            extent_mode, direction, result_type, operation,
+            extent_mode, direction, result_type, thin_thickness, thin_mode,
+            operation,
         ):
             self.document.delete_container(obj.entity_id)
             return
@@ -10966,7 +11601,8 @@ class MainWindow(QMainWindow):
     def _update_protrusion(
         self, obj, references, fallback, name, show_internal, show_auxiliary,
         rotation, source_mode, sketch_id, length_forward, length_reverse,
-        extent_mode, direction, result_type, operation,
+        extent_mode, direction, result_type, thin_thickness, thin_mode,
+        operation,
         *, defer_rebuild: bool = False, force_rebuild: bool = False,
     ) -> None:
         if obj is None:
@@ -10975,7 +11611,8 @@ class MainWindow(QMainWindow):
         if self._set_protrusion_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
-            extent_mode, direction, result_type, operation,
+            extent_mode, direction, result_type, thin_thickness, thin_mode,
+            operation,
         ):
             if force_rebuild and bool(
                 getattr(obj, "_transient_history_preview", False)
@@ -11016,7 +11653,8 @@ class MainWindow(QMainWindow):
     def _set_protrusion_definition(
         self, obj, references, fallback, name, show_internal, show_auxiliary,
         rotation, source_mode, sketch_id, length_forward, length_reverse,
-        extent_mode, direction, result_type, operation,
+        extent_mode, direction, result_type, thin_thickness, thin_mode,
+        operation,
     ) -> bool:
         if self.document is None:
             return False
@@ -11088,6 +11726,8 @@ class MainWindow(QMainWindow):
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "result_type": result_type,
+                "thin_thickness": f"{thin_thickness:.12g}",
+                "thin_mode": thin_mode,
                 "operation": operation,
                 "profile_offset": f"{profile_offset:.12g}",
             }
@@ -11117,7 +11757,8 @@ class MainWindow(QMainWindow):
     def _apply_new_revolve(
         self, dialog, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        angle_reverse, extent_mode, direction, result_type, operation,
+        angle_reverse, extent_mode, direction, result_type,
+        thin_thickness, thin_mode, operation,
     ) -> None:
         if self.document is None:
             return
@@ -11130,10 +11771,14 @@ class MainWindow(QMainWindow):
         if not self._set_revolve_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
-            extent_mode, direction, result_type, operation,
+            extent_mode, direction, result_type, thin_thickness, thin_mode,
+            operation,
         ):
             self.document.delete_container(obj.entity_id)
             return
+        self._store_revolve_extent_value_sets(
+            obj, dialog.revolve_extent_value_sets()
+        )
         dialog.adopt_created_entity(obj, obj)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
@@ -11150,8 +11795,10 @@ class MainWindow(QMainWindow):
     def _update_revolve(
         self, obj, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        angle_reverse, extent_mode, direction, result_type, operation,
-        *, defer_rebuild: bool = False, force_rebuild: bool = False,
+        angle_reverse, extent_mode, direction, result_type,
+        thin_thickness, thin_mode, operation,
+        *, extent_value_sets: dict[str, list[float]] | None = None,
+        defer_rebuild: bool = False, force_rebuild: bool = False,
     ) -> None:
         if obj is None:
             return
@@ -11159,8 +11806,13 @@ class MainWindow(QMainWindow):
         if self._set_revolve_definition(
             obj, references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
-            extent_mode, direction, result_type, operation,
+            extent_mode, direction, result_type, thin_thickness, thin_mode,
+            operation,
         ):
+            if extent_value_sets is not None:
+                self._store_revolve_extent_value_sets(
+                    obj, extent_value_sets
+                )
             if force_rebuild and bool(
                 getattr(obj, "_transient_history_preview", False)
             ):
@@ -11181,10 +11833,25 @@ class MainWindow(QMainWindow):
                 return
             self._refresh_object_properties(obj)
 
+    @staticmethod
+    def _store_revolve_extent_value_sets(
+        obj: ZimaEntity,
+        values: dict[str, list[float]],
+    ) -> None:
+        feature = next((
+            child for child in obj.children
+            if child.kind == EntityKind.REVOLVE and not child.locked
+        ), None)
+        if feature is not None:
+            feature.parameters["extent_value_sets"] = json.dumps(
+                values, separators=(",", ":")
+            )
+
     def _set_revolve_definition(
         self, obj, references, fallback, name, show_internal,
         show_auxiliary, rotation, source_mode, sketch_id, angle,
-        angle_reverse, extent_mode, direction, result_type, operation,
+        angle_reverse, extent_mode, direction, result_type,
+        thin_thickness, thin_mode, operation,
     ) -> bool:
         if self.document is None:
             return False
@@ -11256,6 +11923,8 @@ class MainWindow(QMainWindow):
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "result_type": result_type,
+                "thin_thickness": f"{thin_thickness:.12g}",
+                "thin_mode": thin_mode,
                 "operation": operation,
                 "profile_offset": f"{profile_offset:.12g}",
             }
@@ -11772,9 +12441,47 @@ class MainWindow(QMainWindow):
         dialog = self.edge_treatment_properties_dialog
         if dialog is not None:
             groups = tuple(getattr(self, "_edge_treatment_groups", ()))
+            displayed_groups = groups or tuple((key,) for key in keys)
             dialog.set_selected_edge_groups(
-                groups or tuple((key,) for key in keys)
+                displayed_groups,
+                self._edge_treatment_key_descriptions(displayed_groups),
             )
+
+    def _edge_treatment_key_descriptions(
+        self,
+        groups: tuple[tuple[tuple[str, str, int], ...], ...],
+    ) -> dict[tuple[str, str, int], str]:
+        """Describe selected route members using persisted viewer curves."""
+        mesh = getattr(self, "_edge_treatment_route_mesh", None)
+        edges = {
+            (edge.owner_id, edge.edge_index): edge
+            for edge in mesh.edges
+        } if mesh is not None else {}
+        descriptions = {}
+        for key in (key for group in groups for key in group):
+            edge = edges.get((key[1], key[2]))
+            curve_kind = str(
+                getattr(edge, "curve_kind", "other")
+            ).lower()
+            kind_key = {
+                "line": "fillet.object.line",
+                "circle": "fillet.object.radius",
+                "ellipse": "fillet.object.ellipse",
+                "spline": "fillet.object.spline",
+            }.get(curve_kind, "fillet.object.edge")
+            label = tr(kind_key)
+            radius = getattr(edge, "curve_radius", None)
+            if curve_kind == "circle" and radius is not None:
+                label = tr(
+                    "fillet.object.radius_value",
+                    radius=f"{float(radius):g}",
+                )
+            descriptions[key] = tr(
+                "fillet.object_item",
+                object=label,
+                index=key[2],
+            )
+        return descriptions
 
     def _edge_treatment_route_keys(
         self,
@@ -11954,8 +12661,61 @@ class MainWindow(QMainWindow):
                 for index in range(1, len(references) + 1)
             ]
         scene = self._native_viewer_scene
+        owner_id = self.document.root.entity_id
+        # The rollback scene's persisted curve descriptors are authoritative
+        # for UI highlighting and picking. A loaded document may deliberately
+        # have no live TopoDS shape, but every calculated viewer edge retains
+        # the EdgeRef resolved at its calculation boundary.
+        viewer_indices_by_reference: dict[EdgeRef, int] = {}
+        if scene is not None:
+            for edge in scene.mesh.edges:
+                if edge.owner_id != owner_id or edge.element_kind != "edge":
+                    continue
+                descriptor = scene.curve_reference(
+                    owner_id, edge.edge_index
+                )
+                stored = (
+                    parse_edge_reference(descriptor.reference_id)
+                    if descriptor is not None
+                    else None
+                )
+                if stored is not None:
+                    viewer_indices_by_reference.setdefault(
+                        stored, edge.edge_index
+                    )
+        mapped: list[tuple[str, str, int] | None] = []
+        unresolved: list[tuple[int, EdgeRef]] = []
+        available_indices = {
+            edge.edge_index
+            for edge in scene.mesh.edges
+            if edge.owner_id == owner_id and edge.element_kind == "edge"
+        } if scene is not None else set()
+        for ordinal, reference in enumerate(references):
+            runtime_index = viewer_indices_by_reference.get(reference)
+            if (
+                runtime_index is None
+                and reference.role == "body_runtime"
+            ):
+                try:
+                    candidate_index = int(reference.source_id or "0")
+                except (TypeError, ValueError):
+                    candidate_index = 0
+                runtime_index = (
+                    candidate_index
+                    if candidate_index in available_indices
+                    else None
+                )
+            if runtime_index is None:
+                mapped.append(None)
+                unresolved.append((ordinal, reference))
+            else:
+                mapped.append((
+                    SelectionKind.EDGE.value, owner_id, runtime_index
+                ))
+        if not unresolved:
+            return [key for key in mapped if key is not None]
         shape = (
-            scene.shapes_by_owner_id.get(self.document.root.entity_id)
+            scene.shapes_by_owner_id.get(owner_id)
             if scene is not None
             else None
         )
@@ -11964,8 +12724,10 @@ class MainWindow(QMainWindow):
         )
         if shape is None or registry is None:
             return [
-                (SelectionKind.EDGE.value, "", index)
-                for index in range(1, len(references) + 1)
+                key
+                if key is not None
+                else (SelectionKind.EDGE.value, "", index)
+                for index, key in enumerate(mapped, 1)
             ]
         edges = []
         explorer = TopExp_Explorer(shape, TopAbs_EDGE)
@@ -11974,8 +12736,8 @@ class MainWindow(QMainWindow):
             if not any(edge.IsSame(existing) for existing in edges):
                 edges.append(edge)
             explorer.Next()
-        keys = []
-        for ordinal, reference in enumerate(references, 1):
+        keys = list(mapped)
+        for ordinal, reference in unresolved:
             runtime_index = None
             if reference.role == "geometric":
                 # Geometric fallbacks are registered only on demand during
@@ -12004,12 +12766,12 @@ class MainWindow(QMainWindow):
                         for candidate in candidates
                     )
                 ), None)
-            keys.append((
+            keys[ordinal] = (
                 SelectionKind.EDGE.value,
-                self.document.root.entity_id if runtime_index else "",
-                runtime_index or ordinal,
-            ))
-        return keys
+                owner_id if runtime_index else "",
+                runtime_index or ordinal + 1,
+            )
+        return [key for key in keys if key is not None]
 
     def _start_external_segment_command(self) -> None:
         """Create profile geometry from one selected external model edge."""
@@ -12244,6 +13006,14 @@ class MainWindow(QMainWindow):
                     reference.to_dict()
                     for reference in self._edge_treatment_seed_references(references)
                 ], separators=(",", ":")),
+                "edge_group_indices": json.dumps([
+                    [int(key[2]) for key in group]
+                    for group in self._edge_treatment_groups
+                ], separators=(",", ":")),
+                "edge_group_seed_indices": json.dumps([
+                    int(key[2])
+                    for key in self._edge_treatment_group_seeds
+                ], separators=(",", ":")),
                 size_key: str(size),
                 "unit": "mm",
             },
@@ -12347,9 +13117,30 @@ class MainWindow(QMainWindow):
             ]
         except (TypeError, ValueError, json.JSONDecodeError):
             stored_seed_refs = []
-        stored_seed_keys = self._edge_treatment_reference_view_keys(
-            stored_seed_refs
-        )
+        try:
+            stored_seed_indices = [
+                int(value)
+                for value in json.loads(str(feature.parameters.get(
+                    "edge_group_seed_indices", "[]"
+                )))
+            ]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored_seed_indices = []
+        rollback_edge_indices = {
+            edge.edge_index
+            for edge in self._edge_treatment_route_mesh.edges
+            if edge.owner_id == self.document.root.entity_id
+            and edge.element_kind == "edge"
+        } if self._edge_treatment_route_mesh is not None else set()
+        stored_seed_keys = [
+            (SelectionKind.EDGE.value, self.document.root.entity_id, index)
+            for index in stored_seed_indices
+            if index in rollback_edge_indices
+        ]
+        if not stored_seed_keys:
+            stored_seed_keys = self._edge_treatment_reference_view_keys(
+                stored_seed_refs
+            )
         if not stored_seed_keys:
             # Files created before route seeds were persisted still have the
             # complete groups. Their first edge is the deterministic seed.
@@ -12362,7 +13153,43 @@ class MainWindow(QMainWindow):
             ]
         initial_key_groups: list[tuple[tuple[str, str, int], ...]] = []
         initial_seed_keys: list[tuple[str, str, int]] = []
-        for seed in stored_seed_keys:
+        try:
+            stored_index_groups = [
+                [int(value) for value in group]
+                for group in json.loads(str(feature.parameters.get(
+                    "edge_group_indices", "[]"
+                )))
+                if isinstance(group, list)
+            ]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored_index_groups = []
+        for group_number, indices in enumerate(stored_index_groups):
+            accepted_keys = []
+            for route_index in indices:
+                if route_index not in rollback_edge_indices:
+                    continue
+                route_key = (
+                    SelectionKind.EDGE.value,
+                    self.document.root.entity_id,
+                    route_index,
+                )
+                update = self._selection_controller.toggle(
+                    SelectionCandidate(
+                        kind=SelectionKind.EDGE,
+                        owner_id=self.document.root.entity_id,
+                        element_index=route_index,
+                    )
+                )
+                if update.accepted:
+                    accepted_keys.append(route_key)
+            if accepted_keys:
+                initial_key_groups.append(tuple(accepted_keys))
+                initial_seed_keys.append(
+                    stored_seed_keys[group_number]
+                    if group_number < len(stored_seed_keys)
+                    else accepted_keys[0]
+                )
+        for seed in (() if initial_key_groups else stored_seed_keys):
             if seed[1] != self.document.root.entity_id:
                 continue
             route = self._edge_treatment_route_keys(seed[1], seed[2])
@@ -12425,10 +13252,13 @@ class MainWindow(QMainWindow):
         dialog.restoreRouteRequested.connect(self._restore_edge_treatment_route)
 
         def apply_edit() -> bool:
+            # Resolve newly picked rollback-body runtime indices into stable
+            # EdgeRefs and validate the complete operation at the explicit OK
+            # calculation boundary. Creation uses the identical path.
+            if not self._preview_new_fillet(show_preview=False):
+                return False
             editable_references[:] = self._selection_controller.values
             if not editable_references:
-                return False
-            if not self._validate_edge_treatment_route_size(dialog.size):
                 return False
             operation = dialog.operation
             size_key = "radius" if operation == ContainerType.FILLET else "distance"
@@ -12445,6 +13275,14 @@ class MainWindow(QMainWindow):
             feature.parameters["edge_group_seeds"] = json.dumps([
                 reference.to_dict()
                 for reference in self._edge_treatment_seed_references()
+            ], separators=(",", ":"))
+            feature.parameters["edge_group_indices"] = json.dumps([
+                [int(key[2]) for key in group]
+                for group in self._edge_treatment_groups
+            ], separators=(",", ":"))
+            feature.parameters["edge_group_seed_indices"] = json.dumps([
+                int(key[2])
+                for key in self._edge_treatment_group_seeds
             ], separators=(",", ":"))
             self._mark_model_for_regeneration()
             history_index = (
@@ -13416,10 +14254,41 @@ class MainWindow(QMainWindow):
         """Refresh persisted planes from one explicitly calculated prefix."""
         if self.document is None or body_result is None:
             return False
-        surfaces_by_reference_id = {
-            surface.reference_id: (lookup_key, surface)
-            for lookup_key, surface in body_result.faces.items()
-        }
+        source_results: dict[str, BodyResult | None] = {}
+
+        def result_for_reference(value: dict[str, Any]) -> BodyResult | None:
+            if value.get("reference_scope") != "source_object":
+                return body_result
+            source_id = str(value.get("source_object_id", ""))
+            if source_id in source_results:
+                return source_results[source_id]
+            source = self.document.find_entity(source_id)
+            if source is None or source.kind != EntityKind.CONTAINER:
+                source_results[source_id] = None
+                return None
+            # Regeneration is an explicit calculation boundary. Materialize
+            # the original container packet here so a stable source-object
+            # FaceRef is not searched on a later Boolean result where that
+            # face may have been blended, cut or merged away.
+            shape = self.document.build_standalone_shape(source)
+            if shape is None:
+                source_results[source_id] = None
+                return None
+            mesh = triangulate_shape(shape, owner_id=source_id)
+            registry = standalone_topology_registry(
+                self.document, source, shape
+            )
+            source_results[source_id] = BodyResult.from_mesh(
+                mesh,
+                face_reference_ids={
+                    (source_id, face_index): reference.serialize()
+                    for face_index in set(mesh.triangle_face_indices)
+                    if (reference := registry.reference_for_runtime_index(
+                        face_index
+                    )) is not None
+                },
+            )
+            return source_results[source_id]
         changed = False
 
         def visit(value) -> None:
@@ -13429,14 +14298,18 @@ class MainWindow(QMainWindow):
                 if (
                     reference_scope in ("history_result", "source_object")
                     and value.get("type") == "face"
-                    and (
-                        reference_scope == "history_result"
-                        or self._document_type(self.document) == "assembly"
-                    )
                 ):
                     stable_id = str(
                         value.get("surface_reference_id", "")
                     )
+                    reference_result = result_for_reference(value)
+                    surfaces_by_reference_id = {
+                        surface.reference_id: (lookup_key, surface)
+                        for lookup_key, surface in (
+                            reference_result.faces.items()
+                            if reference_result is not None else ()
+                        )
+                    }
                     resolved = surfaces_by_reference_id.get(stable_id)
                     if resolved is not None:
                         lookup_key, surface = resolved
@@ -13465,6 +14338,7 @@ class MainWindow(QMainWindow):
                                 f"{topology_key}"
                             )
                             value["equations"] = [[*normal, distance]]
+                            value.pop("source_anchor", None)
                             changed = True
                 for nested in value.values():
                     visit(nested)
@@ -14182,7 +15056,14 @@ class MainWindow(QMainWindow):
             rx_radians = math.atan2(matrix[2][1], matrix[2][2])
             rz_radians = math.atan2(matrix[1][0], matrix[0][0])
         else:
-            rx_radians = math.atan2(-matrix[0][1], matrix[1][1])
+            # For Rz * Ry * Rx at Ry=+/-90°, m01/m11 carries the
+            # remaining Rx-Rz angle.  Negating m01 mirrored every local RX
+            # correction exactly at the gimbal-lock frame used by
+            # Vysunutí005.
+            rx_radians = math.atan2(
+                matrix[0][1] * (1.0 if ry_radians >= 0.0 else -1.0),
+                matrix[1][1],
+            )
             rz_radians = 0.0
         return tuple(
             math.degrees(value)
@@ -14235,7 +15116,10 @@ class MainWindow(QMainWindow):
             rx = math.atan2(combined[2][1], combined[2][2])
             rz = math.atan2(combined[1][0], combined[0][0])
         else:
-            rx = math.atan2(-combined[0][1], combined[1][1])
+            rx = math.atan2(
+                combined[0][1] * (1.0 if ry >= 0.0 else -1.0),
+                combined[1][1],
+            )
             rz = 0.0
         return tuple(math.degrees(value) for value in (rx, ry, rz))
 
@@ -19866,6 +20750,16 @@ class MainWindow(QMainWindow):
         labels: list[str] = []
         candidates = [obj, *self._descendant_objects(obj)]
         for candidate in candidates:
+            if candidate.kind in (EntityKind.FILLET, EntityKind.CHAMFER):
+                for reference in edge_feature_references(candidate):
+                    if self.document.find_entity(reference.feature_id) is not None:
+                        continue
+                    label = (
+                        f"{tr('sketch.reference.kind.edge')} "
+                        f"{reference.feature_id[:8]}"
+                    )
+                    if label not in labels:
+                        labels.append(label)
             if candidate.kind not in (
                 EntityKind.POINT,
                 EntityKind.AXIS,
@@ -20886,6 +21780,18 @@ class MainWindow(QMainWindow):
         ):
             if self.native_viewer._datum_container_at(position) is not None:
                 return None
+            treatments = self._edge_treatments_in_selection_cycle(position)
+            if treatments:
+                treatment = treatments[0]
+                hover_mesh = self._edge_treatment_hover_mesh(treatment)
+                if hover_mesh is not None:
+                    return ViewerPickCandidate(
+                        "object",
+                        treatment.entity_id,
+                        0,
+                        hover_mesh,
+                        self._native_object_origin(treatment),
+                    )
             hit = self._part_history_container_at_position(position)
             if hit is None:
                 return None
@@ -21199,6 +22105,28 @@ class MainWindow(QMainWindow):
         # container.  Do not let it reopen Protrusion/Revolve properties.
         if self._sketch_edit_entity_id is not None:
             return
+        direct_treatment = (
+            self.document.find_entity(owner_id)
+            if self.document is not None and owner_id
+            else None
+        )
+        if (
+            direct_treatment is not None
+            and direct_treatment.container_type in (
+                ContainerType.FILLET,
+                ContainerType.CHAMFER,
+            )
+        ):
+            self._selected_view_edge_treatment_id = direct_treatment.entity_id
+            self._select_native_tree_object(direct_treatment.entity_id)
+            self.native_viewer.set_feature_selected_edges(
+                self._edge_treatment_boundary_edge_keys(direct_treatment)
+            )
+            self.native_viewer.set_feature_hover_edges(set())
+            self.native_viewer.set_object_overlay(None)
+            self._clear_dimension_overlays()
+            self._show_edge_treatment_dimension(direct_treatment)
+            return
         treatment = self._edge_treatment_at_position(
             getattr(self.native_viewer, "_last_click_position", None)
         )
@@ -21309,32 +22237,111 @@ class MainWindow(QMainWindow):
     ) -> list[ZimaEntity]:
         if self.document is None or position is None:
             return []
-        hits = set(self.native_viewer.topology_candidates_at(
+        # topology_candidates_at() is the common depth/priority ordered list
+        # used by hover, click and RMB cycling.  Never turn it into a set:
+        # doing so discarded that order and made every treatment sharing a
+        # boundary with the hit appear as an unrelated selectable object.
+        hits = tuple(self.native_viewer.topology_candidates_at(
             QPointF(position), include_model_topology=True
         ))
         face_keys, edge_keys = self._edge_treatment_view_keys()
-        return [
+        scene = self._native_viewer_scene
+        result = scene.calculated_body_result if scene is not None else None
+        treatments = tuple(
             container
             for container in reversed(self.document.active_history_objects())
             if container.container_type in (
                 ContainerType.FILLET,
                 ContainerType.CHAMFER,
             )
-            and (
-                any(
-                    ("face", owner_id, index) in hits
-                    for owner_id, index in face_keys.get(
-                        container.entity_id, ()
-                    )
+        )
+        candidates: list[ZimaEntity] = []
+        candidate_ids: set[str] = set()
+
+        for hit_kind, hit_owner, hit_index in hits:
+            # One concrete topology hit owns at most one history treatment.
+            # Prefer its generated face over a shared boundary edge and use
+            # reverse history order to select the visible/latest owner.
+            matched = next((
+                container
+                for container in treatments
+                if (
+                    hit_kind == "face"
+                    and (hit_owner, hit_index)
+                    in face_keys.get(container.entity_id, ())
                 )
-                or any(
-                    ("edge", owner_id, index) in hits
-                    for owner_id, index in edge_keys.get(
-                        container.entity_id, ()
+            ), None)
+            if matched is None:
+                matched = next((
+                    container
+                    for container in treatments
+                    if (
+                        hit_kind == "edge"
+                        and (hit_owner, hit_index)
+                        in edge_keys.get(container.entity_id, ())
                     )
+                ), None)
+            if matched is not None and matched.entity_id not in candidate_ids:
+                candidates.append(matched)
+                candidate_ids.add(matched.entity_id)
+
+        if candidates or result is None:
+            return candidates
+
+        # Persisted generated faces can be pickable even when the generic
+        # topology list omits their triangles.  Keep that fallback ordered by
+        # reverse history, but accept only the first visible treatment; one
+        # screen hit must not manufacture a stack of neighbouring features.
+        for container in treatments:
+            if any(
+                self.native_viewer.mesh_is_under_cursor(
+                    result.mesh.face_mesh(owner_id, face_index),
+                    QPointF(position),
                 )
+                for owner_id, face_index in face_keys.get(
+                    container.entity_id, ()
+                )
+            ):
+                candidates.append(container)
+                break
+        return candidates
+
+    def _edge_treatment_hover_mesh(
+        self,
+        container: ZimaEntity,
+    ) -> ViewerMesh | None:
+        scene = self._native_viewer_scene
+        result = scene.calculated_body_result if scene is not None else None
+        if result is None:
+            return None
+        edge_meshes = tuple(
+            result.mesh.edge_mesh(owner_id, edge_index)
+            for owner_id, edge_index in sorted(
+                self._edge_treatment_boundary_edge_keys(container)
             )
-        ]
+        )
+        hover_mesh = combine_viewer_meshes(edge_meshes)
+        if not hover_mesh.is_empty:
+            return hover_mesh
+        # Some cached packets predate persisted face/edge incidence.  The
+        # generated face is still persisted; derive only its boundary wire
+        # from its triangles instead of tinting the complete result body.
+        boundary_meshes = []
+        for owner_id, face_index in sorted(
+            self._edge_treatment_face_keys(container)
+        ):
+            face_mesh = result.mesh.face_mesh(owner_id, face_index)
+            if not face_mesh.edges:
+                continue
+            boundary_meshes.append(replace(
+                face_mesh,
+                triangle_positions=(),
+                triangle_normals=(),
+                triangle_face_indices=(),
+                triangle_owner_ids=(),
+            ))
+        fallback = combine_viewer_meshes(tuple(boundary_meshes))
+        return None if fallback.is_empty else fallback
 
     def _show_protrusion_profile_overlay(self, obj: ZimaEntity) -> None:
         if (
@@ -21367,7 +22374,9 @@ class MainWindow(QMainWindow):
         # Properties window.  Tear down an older inspection before installing
         # the new sketch/result overlays; otherwise _show_all_sketch_dimensions
         # clears the freshly installed wires when the previous inspection flag
-        # is still active.
+        # is still active.  The purple extent manipulator is different: it is
+        # an editing control and therefore belongs only to the active feature
+        # Properties dialog, never to passive double-click inspection.
         self._clear_dimension_overlays()
         sketch_shape = make_sketch_shape(
             obj,
@@ -21423,6 +22432,33 @@ class MainWindow(QMainWindow):
         )
         self._show_all_sketch_dimensions(sketch)
         extrusion_dimensions = self._primitive_dimensions(feature)
+        extent_handles = []
+        active_dialog = self.point_constraint_dialog
+        properties_active = bool(
+            isinstance(active_dialog, ProtrusionConstraintDialog)
+            and active_dialog.point_object is obj
+        )
+        if properties_active and feature.kind == EntityKind.PROTRUSION:
+            for dimension in extrusion_dimensions:
+                if not isinstance(dimension, LinearDimension) or dimension.key not in {
+                    "length_forward", "length_reverse",
+                }:
+                    continue
+                vector = tuple(
+                    dimension.second_point[index]
+                    - dimension.first_point[index]
+                    for index in range(3)
+                )
+                length = math.sqrt(sum(value * value for value in vector))
+                if length <= 1.0e-9:
+                    continue
+                extent_handles.append(ExtentHandle(
+                    key=dimension.key,
+                    origin=dimension.first_point,
+                    direction=tuple(value / length for value in vector),
+                    length=length,
+                ))
+        self.native_viewer.set_extent_handles(tuple(extent_handles))
         work_plane_dimensions = tuple(
             dimension for dimension in self._reference_dimensions(obj)
             if dimension.key == "work_plane_offset"
@@ -21662,8 +22698,58 @@ class MainWindow(QMainWindow):
             value = evaluate_numeric_expression(str(raw_value))
         except NumericExpressionError:
             return
+        reverse_requested = value < 0.0
+        value = abs(value)
         if value <= 1.0e-9:
             return
+        owner = self.document.find_owning_object(feature.entity_id)
+        dialog = self.point_constraint_dialog
+        staged_preview = bool(
+            owner is not None
+            and isinstance(dialog, ProtrusionConstraintDialog)
+            and dialog.point_object is owner
+        )
+        if reverse_requested:
+            if staged_preview:
+                # Use exactly the Properties Flip contract.  In two-sided
+                # mode this also exchanges start/end values; symmetric mode
+                # keeps equal magnitudes and exchanges only their identity.
+                dialog._flip_direction()
+                feature.parameters["direction"] = str(
+                    dialog.protrusion_direction_combo.currentData()
+                )
+                if feature.kind == EntityKind.PROTRUSION:
+                    feature.parameters["length_forward"] = (
+                        f"{dialog.forward_length_spin.value():.12g}"
+                    )
+                    feature.parameters["length_reverse"] = (
+                        f"{dialog.reverse_length_spin.value():.12g}"
+                    )
+                else:
+                    feature.parameters["angle"] = (
+                        f"{dialog.forward_length_spin.value():.12g}"
+                    )
+                    feature.parameters["angle_reverse"] = (
+                        f"{dialog.reverse_length_spin.value():.12g}"
+                    )
+            else:
+                feature.parameters["direction"] = (
+                    "reverse"
+                    if str(feature.parameters.get("direction", "forward"))
+                    == "forward"
+                    else "forward"
+                )
+                if str(feature.parameters.get("extent_mode", "one_side")) == "two_sides":
+                    forward_key, reverse_key = (
+                        ("length_forward", "length_reverse")
+                        if feature.kind == EntityKind.PROTRUSION
+                        else ("angle", "angle_reverse")
+                    )
+                    forward = feature.parameters.get(forward_key, "0")
+                    feature.parameters[forward_key] = feature.parameters.get(
+                        reverse_key, "0"
+                    )
+                    feature.parameters[reverse_key] = forward
         formatted_value = f"{value:.12g}"
         parameter_key = self._feature_dimension_parameter_key(feature, key)
         if (
@@ -21685,18 +22771,12 @@ class MainWindow(QMainWindow):
             feature.parameters["angle_reverse"] = formatted_value
         else:
             feature.parameters[parameter_key] = formatted_value
-        owner = self.document.find_owning_object(feature.entity_id)
         self._mark_model_for_regeneration()
         if (
             owner is not None
             and owner.container_type
             in (ContainerType.PROTRUSION, ContainerType.REVOLVE)
         ):
-            dialog = self.point_constraint_dialog
-            staged_preview = (
-                isinstance(dialog, ProtrusionConstraintDialog)
-                and dialog.point_object is owner
-            )
             if staged_preview:
                 # Rebuild only the standalone cyan prism/revolution.  Never
                 # run Fuse/Cut while its Properties window is still open.
@@ -21743,6 +22823,50 @@ class MainWindow(QMainWindow):
                     self.native_viewer.height() // 2,
                 ),
             )
+
+    def _on_extent_handle_dragged(
+        self, key: str, signed_value: float, finished: bool
+    ) -> None:
+        """Apply one snapped feature-handle value through the dimension path."""
+        dialog = self.point_constraint_dialog
+        if not isinstance(dialog, ProtrusionConstraintDialog):
+            return
+        owner = dialog.point_object
+        value = abs(float(signed_value))
+        if value < 1.0:
+            value = 1.0
+        crossed_key = getattr(self, "_extent_handle_crossed_key", None)
+        if signed_value < 0.0 and crossed_key != key:
+            dialog._flip_direction()
+            self._extent_handle_crossed_key = key
+        elif signed_value >= 0.0:
+            self._extent_handle_crossed_key = None
+        spin = (
+            dialog.forward_length_spin
+            if key == "length_forward" else dialog.reverse_length_spin
+        )
+        spin.setValue(value)
+        if owner is None:
+            self._show_new_protrusion_extent_handles(dialog)
+            if finished:
+                self._extent_handle_crossed_key = None
+            return
+        if owner.container_type != ContainerType.PROTRUSION:
+            return
+        feature = next((
+            child for child in owner.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ), None)
+        if feature is None:
+            return
+        feature.parameters["direction"] = str(
+            dialog.protrusion_direction_combo.currentData()
+        )
+        self._commit_protrusion_preview_value(
+            feature.entity_id, key, f"{value:.12g}"
+        )
+        if finished:
+            self._extent_handle_crossed_key = None
 
     @staticmethod
     def _feature_dimension_parameter_key(
@@ -23597,6 +24721,13 @@ class MainWindow(QMainWindow):
             descriptor = result.curve(owner_id, edge.edge_index)
             if descriptor is None:
                 continue
+            # Do not assign every generated-edge carrying treatment ancestry
+            # to that treatment.  Downstream Boolean/topology inheritance can
+            # legitimately propagate the latest fillet ID onto much of the
+            # final body's wire (01.prtz demonstrated this on nearly every
+            # visible edge).  A treatment's exact selectable wire is only
+            # the persisted boundary of its own generated face, which is the
+            # same narrow identity already used by Properties.
             for container_id in containers_by_boundary_id.get(
                 descriptor.reference_id, ()
             ):
@@ -23615,12 +24746,225 @@ class MainWindow(QMainWindow):
         _faces, edges = self._edge_treatment_view_keys()
         return set(edges.get(container.entity_id, ()))
 
+    def _edge_treatment_curve_frame(
+        self,
+        container: ZimaEntity,
+        curves: Sequence[Any],
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Return a persisted, deterministic (point, tangent, section) frame.
+
+        The frame is derived only from the viewer curve descriptors.  In
+        particular a closed circle does not use an arbitrary tessellation
+        vertex: its parameter zero is the projection of the owning
+        container's local X axis (then Y/Z) into the circle plane.
+        """
+        transform = self._world_transform_for_object(container)
+        frame_origin = np.asarray(
+            transform_point(transform, (0.0, 0.0, 0.0)), dtype=float
+        )
+        frame_axes = [
+            np.asarray(transform_point(transform, axis), dtype=float)
+            - frame_origin
+            for axis in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        ]
+
+        def unit(vector: np.ndarray) -> np.ndarray | None:
+            length = float(np.linalg.norm(vector))
+            return vector / length if length > 1.0e-9 else None
+
+        def projected_axis(normal: np.ndarray) -> np.ndarray | None:
+            for axis in frame_axes:
+                projected = axis - normal * float(axis @ normal)
+                if (direction := unit(projected)) is not None:
+                    return direction
+            return None
+
+        # Analytic circles get priority on cylindrical treatments.  Their
+        # stable parameter origin makes the displayed section independent of
+        # tessellation density and of a regenerated preview.
+        ordered_curves = sorted(
+            curves,
+            key=lambda curve: (
+                0 if getattr(curve, "kind", "") == "circle" else 1,
+                str(getattr(curve, "reference_id", "")),
+            ),
+        )
+        for curve in ordered_curves:
+            points = [np.asarray(point, dtype=float) for point in curve.points]
+            if curve.kind == "circle" and curve.origin is not None:
+                center = np.asarray(curve.origin, dtype=float)
+                axis = unit(np.asarray(curve.direction, dtype=float)) \
+                    if curve.direction is not None else None
+                if axis is None:
+                    continue
+                is_closed = (
+                    len(points) < 2
+                    or float(np.linalg.norm(points[0] - points[-1])) <= 1.0e-7
+                )
+                radial = projected_axis(axis) if is_closed else unit(points[0] - center)
+                if radial is None:
+                    continue
+                radius = float(curve.radius or 0.0)
+                if radius <= 1.0e-9 and points:
+                    radius = float(np.linalg.norm(points[0] - center))
+                if radius <= 1.0e-9:
+                    continue
+                point = center + radial * radius if is_closed else points[0]
+                tangent = unit(np.cross(axis, radial))
+                if tangent is not None:
+                    return point, tangent, radial
+
+        # Lines, arcs and splines use their first persisted parametric point.
+        for curve in ordered_curves:
+            points = [np.asarray(point, dtype=float) for point in curve.points]
+            if not points:
+                continue
+            point = points[0]
+            tangent = next(
+                (candidate for other in points[1:]
+                 if (candidate := unit(other - point)) is not None),
+                None,
+            )
+            if tangent is None:
+                continue
+            radial = point - frame_origin
+            radial -= tangent * float(radial @ tangent)
+            section = unit(radial)
+            if section is None:
+                section = projected_axis(tangent)
+            if section is not None:
+                return point, tangent, section
+        return None
+
+    def _edge_treatment_fillet_dimension_frame(
+        self,
+        container: ZimaEntity,
+        curves: Sequence[Any],
+        radius: float,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Construct the radial dimension from the fillet's two rim curves."""
+        rim_frames = []
+        for curve in curves:
+            if getattr(curve, "kind", "") != "circle":
+                continue
+            frame = self._edge_treatment_curve_frame(container, (curve,))
+            if frame is not None:
+                rim_frames.append(frame)
+        if len(rim_frames) < 2 or radius <= 1.0e-9:
+            return None
+
+        # A generated fillet face normally has exactly two circular rims.
+        # If topology contains more, the pair whose chord best matches a
+        # quarter-circle fillet is the deterministic useful pair.
+        pairs = [
+            (first, second)
+            for index, first in enumerate(rim_frames)
+            for second in rim_frames[index + 1:]
+            if 1.0e-9 < float(np.linalg.norm(second[0] - first[0]))
+            <= 2.0 * radius + 1.0e-7
+        ]
+        if not pairs:
+            return None
+        first, second = min(
+            pairs,
+            key=lambda pair: abs(
+                float(np.linalg.norm(pair[1][0] - pair[0][0]))
+                - radius * math.sqrt(2.0)
+            ),
+        )
+        first_point, first_tangent, _first_section = first
+        second_point, second_tangent, _second_section = second
+        tangent = first_tangent
+        if float(tangent @ second_tangent) < 0.0:
+            second_tangent = -second_tangent
+        averaged_tangent = tangent + second_tangent
+        tangent_length = float(np.linalg.norm(averaged_tangent))
+        if tangent_length > 1.0e-9:
+            tangent = averaged_tangent / tangent_length
+
+        chord = second_point - first_point
+        chord_length = float(np.linalg.norm(chord))
+        chord_direction = chord / chord_length
+        perpendicular = np.cross(tangent, chord_direction)
+        perpendicular_length = float(np.linalg.norm(perpendicular))
+        if perpendicular_length <= 1.0e-9:
+            return None
+        perpendicular /= perpendicular_length
+        height_squared = radius * radius - (chord_length * 0.5) ** 2
+        if height_squared < -1.0e-7:
+            return None
+        height = math.sqrt(max(0.0, height_squared))
+        midpoint = (first_point + second_point) * 0.5
+        centers = (
+            midpoint + perpendicular * height,
+            midpoint - perpendicular * height,
+        )
+        transform = self._world_transform_for_object(container)
+        owner_origin = np.asarray(
+            transform_point(transform, (0.0, 0.0, 0.0)), dtype=float
+        )
+
+        def arc_point(center: np.ndarray) -> np.ndarray:
+            first_radius = (first_point - center) / radius
+            second_radius = (second_point - center) / radius
+            bisector = first_radius + second_radius
+            length = float(np.linalg.norm(bisector))
+            return (
+                center + bisector / length * radius
+                if length > 1.0e-9 else midpoint
+            )
+
+        # For the ordinary external fillet choose the solution whose arc
+        # bows away from the container origin. This distinguishes the two
+        # mathematical circle centers without consulting live OCCT topology.
+        candidates = [(center, arc_point(center)) for center in centers]
+        return max(
+            candidates,
+            key=lambda item: (
+                float(np.linalg.norm(item[1] - owner_origin))
+                - float(np.linalg.norm(item[0] - owner_origin))
+            ),
+        )
+
+    def _edge_treatment_rim_points(
+        self,
+        container: ZimaEntity,
+        curves: Sequence[Any],
+        expected_chord: float,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return the two stable witness points of a treatment face."""
+        points = [
+            frame[0]
+            for curve in curves
+            if getattr(curve, "kind", "") == "circle"
+            if (frame := self._edge_treatment_curve_frame(
+                container, (curve,)
+            )) is not None
+        ]
+        pairs = [
+            (first, second)
+            for index, first in enumerate(points)
+            for second in points[index + 1:]
+            if float(np.linalg.norm(second - first)) > 1.0e-9
+        ]
+        if not pairs:
+            return None
+        return min(
+            pairs,
+            key=lambda pair: abs(
+                float(np.linalg.norm(pair[1] - pair[0])) - expected_chord
+            ),
+        )
+
     def _show_edge_treatment_dimension(
         self,
         container: ZimaEntity,
         dialog: EdgeTreatmentPropertiesDialog | None = None,
         *,
         apply_callback: Callable[[], None] | None = None,
+        _fixed_frame: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+        _fixed_radial_frame: tuple[np.ndarray, np.ndarray] | None = None,
+        _fixed_chamfer_rims: tuple[np.ndarray, np.ndarray] | None = None,
     ) -> None:
         if self.document is None:
             return
@@ -23636,52 +24980,83 @@ class MainWindow(QMainWindow):
             )
             if (descriptor := result.curve(owner_id, index)) is not None
         ]
+        frame = _fixed_frame
+        if frame is None and dialog is not None:
+            frame = getattr(dialog, "_edge_treatment_dimension_frame", None)
+        if frame is None:
+            frame = self._edge_treatment_curve_frame(container, selected_curves)
+            if frame is not None and dialog is not None:
+                # This belongs to the dialog activation, not to a preview.
+                # Apply/recalculation therefore cannot move or flip the
+                # displayed normal section; closing the dialog destroys it.
+                dialog._edge_treatment_dimension_frame = frame
+        if frame is None:
+            return
+        frame_point, edge_direction, section_direction = frame
         if container.container_type == ContainerType.CHAMFER:
             feature = next((
                 child for child in container.children
                 if child.kind == EntityKind.CHAMFER
             ), None)
-            usable_curves = [
-                curve for curve in selected_curves
-                if len(curve.points) >= 2
-                and math.dist(curve.points[0], curve.points[-1]) > 1.0e-9
-            ]
-            if feature is None or not usable_curves:
+            if feature is None:
                 return
             try:
-                curve = max(
-                    usable_curves,
-                    key=lambda candidate: math.dist(
-                        candidate.points[0], candidate.points[-1]
-                    ),
-                )
-                first_point = np.array(curve.points[0], dtype=float)
-                second_point = np.array(curve.points[-1], dtype=float)
-                edge_direction = second_point - first_point
-                edge_length = float(np.linalg.norm(edge_direction))
-                if edge_length <= 1.0e-9:
-                    return
-                edge_direction /= edge_length
-                trial = np.array((0.0, 0.0, 1.0))
-                if abs(float(edge_direction @ trial)) > 0.9:
-                    trial = np.array((0.0, 1.0, 0.0))
-                side = np.cross(edge_direction, trial)
-                side /= np.linalg.norm(side)
                 distance = float(feature.parameters.get("distance", 1.0))
-                midpoint = (first_point + second_point) * 0.5
-                measured_end = midpoint + side * distance
-                offset = edge_direction * max(edge_length * 0.15, distance)
+                measurement_direction = np.cross(
+                    edge_direction, section_direction
+                )
+                measurement_direction /= np.linalg.norm(
+                    measurement_direction
+                )
+                rim_points = _fixed_chamfer_rims
+                if rim_points is None and dialog is not None:
+                    rim_points = getattr(
+                        dialog, "_edge_treatment_chamfer_rims", None
+                    )
+                if rim_points is None:
+                    rim_points = self._edge_treatment_rim_points(
+                        container,
+                        selected_curves,
+                        distance * math.sqrt(2.0),
+                    )
+                    if rim_points is not None and dialog is not None:
+                        dialog._edge_treatment_chamfer_rims = rim_points
+                if rim_points is None:
+                    rim_points = (
+                        frame_point,
+                        frame_point + measurement_direction * distance,
+                    )
+                first_witness, second_witness = rim_points
+                # Put both arrow points on one line parallel to the measured
+                # direction. Each extension therefore starts at its actual
+                # rim circle and runs only in the other section direction.
+                offset_distance = max(distance * 1.5, 4.0)
+                first_section = float(first_witness @ section_direction)
+                second_section = float(second_witness @ section_direction)
+                dimension_section = max(
+                    first_section, second_section
+                ) + offset_distance
+                first_dimension_point = first_witness + section_direction * (
+                    dimension_section - first_section
+                )
+                second_dimension_point = second_witness + section_direction * (
+                    dimension_section - second_section
+                )
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 return
             key = f"chamfer_distance:{container.entity_id}"
             dimension = LinearDimension(
                 key=key,
-                first_point=tuple(float(value) for value in midpoint),
-                second_point=tuple(float(value) for value in measured_end),
-                first_dimension_point=tuple(float(value) for value in midpoint + offset),
-                second_dimension_point=tuple(float(value) for value in measured_end + offset),
-                direction=tuple(float(value) for value in side),
-                value_suffix=" × 45°",
+                first_point=tuple(float(value) for value in first_witness),
+                second_point=tuple(float(value) for value in second_witness),
+                first_dimension_point=tuple(
+                    float(value) for value in first_dimension_point
+                ),
+                second_dimension_point=tuple(
+                    float(value) for value in second_dimension_point
+                ),
+                direction=tuple(float(value) for value in measurement_direction),
+                value_suffix="x45°",
             )
             self._dimension_object_id = feature.entity_id
             self.native_viewer.set_dimensions((dimension,))
@@ -23729,7 +25104,11 @@ class MainWindow(QMainWindow):
                     return
                 self.rebuild_view(fit=False, rebuild_geometry=True)
                 self._clear_dimension_overlays()
-                self._show_edge_treatment_dimension(container)
+                self._show_edge_treatment_dimension(
+                    container,
+                    _fixed_frame=frame,
+                    _fixed_chamfer_rims=rim_points,
+                )
 
             overlay.valueCommitted.connect(update_chamfer_distance)
             overlay.selected.connect(
@@ -23743,24 +25122,36 @@ class MainWindow(QMainWindow):
             self._position_dimension_overlays()
             QTimer.singleShot(0, self._position_dimension_overlays)
             return
-        for curve in selected_curves:
-            if (
-                curve.kind != "circle"
-                or curve.origin is None
-                or not curve.points
-            ):
-                continue
-            feature = next((
-                child for child in container.children
-                if child.kind == EntityKind.FILLET
-            ), None)
-            if feature is None:
+        feature = next((
+            child for child in container.children
+            if child.kind == EntityKind.FILLET
+        ), None)
+        if feature is not None:
+            try:
+                radius = float(feature.parameters.get("radius", 1.0))
+            except (TypeError, ValueError):
                 return
+            radial_frame = _fixed_radial_frame
+            if radial_frame is None and dialog is not None:
+                radial_frame = getattr(
+                    dialog, "_edge_treatment_radial_dimension_frame", None
+                )
+            if radial_frame is None:
+                radial_frame = self._edge_treatment_fillet_dimension_frame(
+                    container, selected_curves, radius
+                )
+                if radial_frame is not None and dialog is not None:
+                    dialog._edge_treatment_radial_dimension_frame = radial_frame
+            if radial_frame is None:
+                radial_center = frame_point - section_direction * radius
+                radial_point = frame_point
+            else:
+                radial_center, radial_point = radial_frame
             key = f"fillet_radius:{container.entity_id}"
             dimension = RadialDimension(
                 key=key,
-                center=curve.origin,
-                radius_point=curve.points[len(curve.points) // 2],
+                center=tuple(float(value) for value in radial_center),
+                radius_point=tuple(float(value) for value in radial_point),
                 value_prefix="R",
                 arrow_placement="outside",
             )
@@ -23771,7 +25162,7 @@ class MainWindow(QMainWindow):
                 overlay,
                 feature,
                 dimension,
-                feature.parameters.get("radius", curve.radius or 0.0),
+                radius,
             )
 
             def refresh_overlay(value: float) -> None:
@@ -23813,7 +25204,11 @@ class MainWindow(QMainWindow):
                         return
                     self.rebuild_view(fit=False, rebuild_geometry=True)
                     self._clear_dimension_overlays()
-                    self._show_edge_treatment_dimension(container)
+                    self._show_edge_treatment_dimension(
+                        container,
+                        _fixed_frame=frame,
+                        _fixed_radial_frame=radial_frame,
+                    )
 
             overlay.valueCommitted.connect(update_dialog_radius)
             overlay.selected.connect(
@@ -25590,15 +26985,12 @@ class MainWindow(QMainWindow):
                     )
                 ]
                 if treatment_candidates:
-                    treatment_ids = {
-                        candidate[1] for candidate in treatment_candidates
-                    }
-                    candidates = treatment_candidates + [
-                        candidate
-                        for candidate in candidates
-                        if candidate != root_candidate
-                        and candidate[1] not in treatment_ids
-                    ]
+                    # A generated fillet/chamfer wire is an exact history
+                    # object hit.  Do not append all parent/body containers
+                    # whose projected geometry happens to occupy the same
+                    # pixels; that made RMB cycling appear to select random
+                    # unrelated objects after the treatment itself.
+                    candidates = treatment_candidates
                     insert_at = len(treatment_candidates)
             scene = self._native_viewer_scene
             calculated_result = (
@@ -30787,7 +32179,12 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError):
                 continue
             if (
-                dimension_type not in ("distance_x", "distance_y")
+                dimension_type == "distance"
+                and abs(target_length) <= 1.0e-12
+            ) or (
+                dimension_type not in (
+                    "distance", "distance_x", "distance_y"
+                )
                 and target_length <= 1.0e-12
             ):
                 continue
@@ -31410,7 +32807,21 @@ class MainWindow(QMainWindow):
             "xz": ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
             "yz": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
         }.get(plane, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
-        origin = transform_point(transform, (0.0, 0.0, 0.0))
+        try:
+            profile_offset = float(
+                sketch.parameters.get("profile_offset", 0.0)
+            )
+        except (TypeError, ValueError):
+            profile_offset = 0.0
+        # The editable Sketcher frame must be the same physical work plane
+        # used by make_sketch_shape()/Protrusion.  Previously it ignored the
+        # persisted profile offset and opened every owned sketch at the
+        # container origin; leaving Sketcher then made it jump back to the
+        # correctly offset plane.
+        origin = transform_point(
+            transform,
+            self._plane_local_offset(plane, profile_offset),
+        )
         x_axis = tuple(
             sum(transform[row][column] * local_x_axis[column] for column in range(3))
             for row in range(3)
@@ -43614,12 +45025,10 @@ class MainWindow(QMainWindow):
                 sketch_profile_status(sketch) if sketch is not None else "invalid"
             )
             evaluated_result_type = (
-                "solid" if final_profile_status == "closed" else "surface"
+                "solid" if final_profile_status == "closed" else "thin"
             )
             # Profile result type is derived afresh every time Sketcher is
-            # finished.  This handles both directions: closing a contour
-            # creates a solid, reopening it returns the dependent feature to
-            # a surface instead of preserving a stale earlier choice.
+            # finished. This handles both directions for the current modes.
             sketch_affects_solid = False
             for owner in self.document.history_objects():
                 for feature in owner.children:
@@ -43822,6 +45231,12 @@ class MainWindow(QMainWindow):
             and dialog.point_object is target
         ):
             self._show_protrusion_profile_overlay(target)
+            if target.container_type == ContainerType.PROTRUSION:
+                # The profile may be open and therefore have no calculable
+                # solid/surface preview. Reinstall the staged manipulator
+                # from dialog values rather than making it conditional on
+                # build_standalone_shape().
+                self._show_new_protrusion_extent_handles(dialog)
             origin = next(
                 (
                     child for child in target.children
@@ -45268,6 +46683,7 @@ class MainWindow(QMainWindow):
         self._dimension_bindings.clear()
         self._dimension_owner_ids.clear()
         self.native_viewer.set_dimensions(())
+        self.native_viewer.set_extent_handles(())
         self.native_viewer.set_dimension_inspection_active(False)
         if self._dimension_inspection_visuals:
             self._dimension_inspection_visuals = False
@@ -45279,11 +46695,24 @@ class MainWindow(QMainWindow):
             action = getattr(self, "application_selection_action", None)
             if action is not None:
                 action.setChecked(self.view_selection_enabled)
+            reference_dialog_active = bool(
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            # Properties may be opened directly from a feature-dimension
+            # inspection. The properties dialog installs its topology
+            # selection contract before this stale inspection is torn down.
+            # Never let the cleanup restore the ordinary application toggle
+            # over that newer contract, otherwise faces still hover nowhere
+            # and clicks cannot reach the reference table.
+            selection_enabled = (
+                reference_dialog_active or self.view_selection_enabled
+            )
             self.native_viewer.set_selection_enabled(
-                self.view_selection_enabled
+                selection_enabled
             )
             self.selection_filter_combo.setEnabled(
-                self.view_selection_enabled
+                selection_enabled
             )
 
     def _dismiss_dimension_overlays(self) -> None:
@@ -45393,14 +46822,25 @@ class MainWindow(QMainWindow):
                             edited_sketch_dimension is None
                             or edited_sketch_dimension.get("type") != "angle"
                         )
-                        and value <= 0.0
                         and (
-                            edited_sketch_dimension is None
-                            or edited_sketch_dimension.get("type")
-                            not in (
-                                "distance_line",
-                                "distance_x",
-                                "distance_y",
+                            (
+                                edited_sketch_dimension is not None
+                                and edited_sketch_dimension.get("type")
+                                == "distance"
+                                and abs(value) <= 1.0e-12
+                            )
+                            or (
+                                value <= 0.0
+                                and (
+                                    edited_sketch_dimension is None
+                                    or edited_sketch_dimension.get("type")
+                                    not in (
+                                        "distance",
+                                        "distance_line",
+                                        "distance_x",
+                                        "distance_y",
+                                    )
+                                )
                             )
                         )
                     )
@@ -45678,6 +47118,16 @@ class MainWindow(QMainWindow):
             if dimension is None:
                 self._clear_dimension_overlays()
                 return
+            dimension_type = str(dimension.get("type", ""))
+            # An ordinary distance is mathematically unsigned. Treat a
+            # negative value entered by the user as an explicit request to
+            # mirror the movable side through the anchored endpoint, while
+            # keeping the persisted driving length positive. X/Y distances
+            # remain genuinely signed and therefore keep their raw value.
+            flip_ordinary_distance = (
+                dimension_type == "distance" and value < 0.0
+            )
+            solved_value = abs(value) if flip_ordinary_distance else value
             original_dimension_locks = {
                 str(item.get("id", "")): bool(item.get("locked", False))
                 for item in dimensions
@@ -45698,7 +47148,7 @@ class MainWindow(QMainWindow):
             )
             candidate_model.drive_all_dimensions_at_current_values()
             solved = candidate_model.try_direct_axis_dimension_update(
-                dimension_id, value
+                dimension_id, solved_value
             )
             if not solved:
                 # Seed the numerical solver with the obvious local move. Do
@@ -45707,7 +47157,13 @@ class MainWindow(QMainWindow):
                 # redefine a connected dimension before solving begins.
                 seeded_entities = copy.deepcopy(entities)
                 seeded_dimension = copy.deepcopy(dimension)
-                seeded_dimension["value"] = value
+                # The simple geometry pass deliberately accepts the signed
+                # seed here. For a negative ordinary distance this places the
+                # free endpoint on the opposite ray before the unsigned
+                # equation solver takes over.
+                seeded_dimension["value"] = (
+                    value if flip_ordinary_distance else solved_value
+                )
                 self._apply_sketch_distance_dimensions(
                     entity,
                     seeded_entities,
@@ -45723,7 +47179,7 @@ class MainWindow(QMainWindow):
                         candidate_point.x, candidate_point.y = (
                             self._sketch_point_position(seeded_point)
                         )
-                candidate_model.dimensions[dimension_id].value = value
+                candidate_model.dimensions[dimension_id].value = solved_value
                 solved = candidate_model.solve()
             if not solved and dimension.get("type") == "angle":
                 angle_point_ids = list(
@@ -45788,7 +47244,7 @@ class MainWindow(QMainWindow):
                         dimensions,
                     )
                     candidate_model.drive_all_dimensions_at_current_values()
-                    candidate_model.dimensions[dimension_id].value = value
+                    candidate_model.dimensions[dimension_id].value = solved_value
                     solved = candidate_model.solve()
             if not solved:
                 self.statusBar().showMessage(
@@ -46286,6 +47742,48 @@ class MainWindow(QMainWindow):
                 )
                 if primary_role == "back":
                     normal = tuple(-value for value in normal)
+                # The reference normal defines the uncorrected container
+                # frame. RX/RY/RZ are local corrections applied afterwards;
+                # the actual work plane and profile offset follow the
+                # corrected local sketch-plane normal.  Drawing this
+                # dimension along the original reference normal made
+                # Vysunutí005 (base RY=90°, correction RX=35°) disagree with
+                # both the purple manipulator and the calculated geometry.
+                frame_owner = (
+                    entity
+                    if entity.kind == EntityKind.CONTAINER
+                    else owner
+                )
+                profile_sketch = (
+                    next((
+                        child for child in frame_owner.children
+                        if child.kind == EntityKind.SKETCH
+                        and child.sketch_role() == SketchRole.PROFILE
+                    ), None)
+                    if frame_owner is not None else None
+                )
+                if frame_owner is not None and profile_sketch is not None:
+                    sketch_plane = str(
+                        profile_sketch.parameters.get("plane", "xz")
+                    )
+                    local_normal = {
+                        "xy": (0.0, 0.0, 1.0),
+                        "yz": (1.0, 0.0, 0.0),
+                        "xz": (0.0, 1.0, 0.0),
+                    }.get(sketch_plane, (0.0, 1.0, 0.0))
+                    transform = self._world_transform_for_object(frame_owner)
+                    transformed_origin = transform_point(
+                        transform, (0.0, 0.0, 0.0)
+                    )
+                    transformed_normal = transform_point(
+                        transform, local_normal
+                    )
+                    corrected_normal = self._normalized_vector(tuple(
+                        transformed_normal[index] - transformed_origin[index]
+                        for index in range(3)
+                    ))
+                    if corrected_normal != (0.0, 0.0, 0.0):
+                        normal = corrected_normal
                 offset_point = tuple(
                     base[axis] + normal[axis] * offset for axis in range(3)
                 )
@@ -46553,28 +48051,30 @@ class MainWindow(QMainWindow):
                 if sketch is not None and sketch.kind == EntityKind.SKETCH
                 else "xz"
             )
-            extrusion_direction, offset_direction = (
+            plane_normal, offset_direction = (
                 self._protrusion_dimension_axes(sketch_plane)
             )
+            extrusion_direction = plane_normal
+            direction = str(
+                primitive.parameters.get("direction", "forward")
+            )
+            if direction == "reverse":
+                extrusion_direction = tuple(
+                    -value for value in extrusion_direction
+                )
             profile_offset = number("profile_offset", 0.0)
             profile_origin = tuple(
                 value * profile_offset
-                for value in extrusion_direction
+                for value in plane_normal
             )
             offset = tuple(value * margin for value in offset_direction)
             extent_mode = str(
                 primitive.parameters.get("extent_mode", "one_side")
             )
-            direction = str(
-                primitive.parameters.get("direction", "forward")
-            )
             if extent_mode == "symmetric":
                 reverse = forward
             elif extent_mode == "one_side":
-                if direction == "reverse":
-                    reverse, forward = forward, 0.0
-                else:
-                    reverse = 0.0
+                reverse = 0.0
             if forward > 1.0e-9:
                 specifications.append((
                     "length_forward",

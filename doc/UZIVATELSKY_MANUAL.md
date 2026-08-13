@@ -228,6 +228,23 @@ Po dvojkliku na Protrusion nebo Revolve se jejich prostorové kóty zobrazují n
 skutečné profilové rovině. Je-li zadané odsazení pracovní roviny, počátek
 lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
 
+Uzavřený profil vytváří běžný solid. Otevřený profil automaticky nabídne režim
+**Thin**, který vytvoří tenkostěnný solid s tloušťkou na první stranu, druhou
+stranu nebo symetricky. Běžný Part nevytváří samostatná plošná tělesa; ta budou
+patřit do budoucího plošného modeláře.
+
+Protrusion zobrazuje po celou dobu aktivních Vlastností fialový manipulátor a
+žlutou editovatelnou kótu. Tažení je plynulé, zobrazená hodnota se přichytává po
+1 mm. Záporná hodnota zadaná do prostorové kóty délky nebo úhlu obrátí směr
+prvku, ale uložená a zobrazená velikost zůstane kladná. U oboustranného rozsahu
+**Otočit** vymění Start/End i jejich dvě hodnoty; symetrický rozsah hodnoty
+sjednotí, ale identity obou koncových ploch zachová.
+
+Skica, náhled, výsledné těleso, fialový manipulátor a žlutá kóta používají
+stejný fyzický rámec i při záporném odsazení pracovní roviny a korekcích
+`RX/RY/RZ`. Skica se proto při otevření kreslí přímo v odsazené a natočené
+rovině, nikoliv dočasně v počátku kontejneru.
+
 ### Zaoblení hrany
 
 Příkaz **Zaoblení** rovnou otevře jediné okno **Vlastnosti zaoblení**, které se
@@ -262,6 +279,11 @@ persistované hraniční hrany. Drát celého výsledného tělesa ani původní
 hrana se v tomto režimu nepřekreslují. Přechod na jiný kandidát předchozí
 oranžové zvýraznění vždy odstraní.
 
+U kruhového zaoblení se kóta poloměru zobrazí ve stabilním normálovém řezu mezi
+oběma krajními kružnicemi zaoblené plochy. Hrot leží na oblouku mezi nimi a
+směřuje ke středu poloměru. Poloha řezu se při změně hodnoty ani překreslení
+náhledu nepřehodí na jinou část kružnice.
+
 ### Sražení hrany
 
 **Sražení** používá stejné uspořádání a ovládání jako Zaoblení, ale jde o
@@ -272,7 +294,8 @@ vzdálenost se měří na obou sousedních plochách.
 
 Výběr více hran pomocí `Ctrl`, seznam hran, **Použít**, **OK**, prostřední
 tlačítko, rollback stromu a chování náhledu jsou shodné se Zaoblením. Změna
-Existující Zaoblení ani Sražení se ve Vlastnostech na druhý typ nepřevádí.
+hodnoty se vztahuje na všechny vybrané hrany. Existující Zaoblení ani Sražení
+se ve Vlastnostech na druhý typ nepřevádí.
 
 Kliknutí ve view zvýrazní pouze hraniční hrany sražené plochy. Dvojklik zobrazí
 editovatelnou lineární kótu vzdálenosti a pravé tlačítko → **Vlastnosti** otevře
@@ -280,7 +303,9 @@ společné okno. Neproveditelná vzdálenost nebo kombinace hran zachová posled
 platné těleso.
 
 Stejně jako u Zaoblení zvýrazňuje najetí pouze persistované hraniční hrany
-sražené plochy. Dvojklik zobrazuje hodnotu sražení ve tvaru vzdálenost × úhel.
+sražené plochy. Dvojklik zobrazuje hodnotu sražení v kompaktním tvaru
+`5x45°`. U kruhového sražení leží kóta ve stabilním normálovém řezu a obě její
+vynášecí čáry začínají přímo na krajních kružnicích sražené plochy.
 
 ## Režim skici
 

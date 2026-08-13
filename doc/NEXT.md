@@ -92,14 +92,18 @@
 
 ## Surface Modeling
 
+- Keep the ordinary Part application solid-only. A closed profile creates an
+  ordinary solid and an open profile creates a thin solid; neither silently
+  creates a standalone surface body.
+- Stabilize the current thin-solid foundation first: wall-side controls,
+  Inside/Outside and Start/End identities, self-intersection diagnostics and
+  reference recovery when switching between thin and ordinary solid results.
 - Add a solid-cut operation driven by a selected surface or surface body. The
   operation must define the retained side explicitly and store stable
   references to the cutting surface.
-- In Protrusion and Revolve Properties, make **Add** and **Subtract** mutually
-  exclusive toggle buttons that may also both be off. Clicking the currently
-  active operation again clears it; the no-operation state creates a
-  standalone surface result. Do not encode this as a negative length, angle or
-  offset.
+- Design standalone surface creation as part of an explicit future
+  surface-modeling workspace, not as a third implicit Add/Subtract state in
+  ordinary Protrusion or Revolve.
 - Add **Flip** wherever a Protrusion/Revolve surface participates in trimming
   a solid. Flip reverses the persisted cutting half-space, while an in-view
   arrow previews the currently removed/retained side. Apply recalculates the
@@ -140,6 +144,12 @@
   Sketch, Protrusion and Revolve on real feature chains. Positional references,
   optional FRONT/TOP orientation mapping, RX/RY/RZ corrections and work-plane
   offset are now separate concerns.
+- Add regression coverage for an offset profile with base RY at the gimbal-lock
+  boundary plus local RX correction. The Sketch plane, preview wire, calculated
+  body, yellow dimension and purple manipulator must share one transform.
+- Preserve Protrusion/Revolve direction-defined Start and End identities across
+  one-sided, two-sided and symmetric mode changes. Flip must exchange the two
+  side values only where they are independently defined.
 - Continue extending semantic topology references from the now-supported
   container planar-face/orientation constraints to edge, vertex and curved-face
   container constraints.

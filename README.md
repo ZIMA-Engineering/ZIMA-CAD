@@ -69,6 +69,12 @@ direction in Part, Assembly and Drawing: forward zooms out and backward zooms
 in. Protrusion and Revolve use a staged workflow: Apply keeps the properties
 open and shows a cyan standalone feature preview without a Boolean operation;
 OK performs the final Fuse/Cut and closes the properties.
+Closed profiles create ordinary solids and open profiles create thin solids;
+the ordinary Part application does not implicitly create standalone surfaces.
+Their direction-defined Start/End identities, positive in-view dimensions and
+purple extent manipulators remain stable across one-sided, two-sided,
+symmetric and Flip changes. Profile-plane offset and RX/RY/RZ correction use
+the same physical frame in Sketcher, preview, dimensions and body calculation.
 Fillet uses the same single properties window for creation and editing. It
 supports a shared radius over multiple stable edge references; Apply previews
 without inserting a history feature and OK commits exactly one feature. The
@@ -77,6 +83,10 @@ detailed implementation contract is documented in
 Chamfer uses the same Edge Properties workflow, multi-edge selection, stable
 references and rollback. The shared contract is in
 [doc/EDGE_TREATMENTS.md](doc/EDGE_TREATMENTS.md).
+Fillet and Chamfer inspection highlights only their exact persisted boundary
+wires. Circular dimensions use a deterministic normal section: the Fillet
+arrow lies on the arc between both rim circles, and both Chamfer extension
+lines start on the actual rim circles.
 Editing any Part history container follows the common rollback, tree, and view
 contract in [doc/HISTORY_EDITING.md](doc/HISTORY_EDITING.md): the view is
 evaluated before the edited container, that container stays visible and green,

@@ -38,6 +38,35 @@ rotation and clears through the common view-selection rules. A left double
 click exposes the editable radius or distance dimension. Context-menu
 Properties opens the shared Edge Properties window.
 
+Hover, left-click and RMB cycling consume the same ordered viewer candidate
+list. A treatment contributes only the persisted boundary edges of its own
+generated face. Generated-edge ancestry inherited by later Boolean operations
+must not make the rest of the result body selectable as that treatment.
+
+## Inspection dimensions
+
+Treatment dimensions use a deterministic normal section derived entirely from
+persisted curve descriptors. The section is calculated once when inspection or
+Properties is activated and remains fixed until that interaction ends; preview
+regeneration must not move it to another tessellation point.
+
+- A complete circle has no intrinsic start. Its stable parameter zero is the
+  owning container's local X axis projected into the circle plane, falling back
+  to local Y or Z when parallel to the circle axis.
+- An arc, line or spline uses its first persisted parametric point and tangent.
+- A Fillet radius is constructed between the two circular rims of the generated
+  fillet face. The stored radius and rim chord determine the section-circle
+  centre; the arrow touches the arc between the rims and points toward that
+  centre.
+- A Chamfer dimension is rotated by 90 degrees inside the same normal section.
+  Its two witness/extension lines start at stable points on the two actual rim
+  circles and meet one common dimension line. The text uses compact `5x45°`
+  formatting with no spaces around `x`.
+
+This inspection is UI geometry only and must not call OCCT. All analytic curve
+data required by it is produced and persisted at the explicit body-calculation
+boundary.
+
 ## Extension points
 
 The initial Chamfer is intentionally symmetric. Two-distance and

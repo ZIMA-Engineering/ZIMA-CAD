@@ -276,6 +276,20 @@ class TopologyRegistry:
     _vertex_runtime_indices_by_ref: dict[VertexRef, list[int]] = field(
         default_factory=dict
     )
+    _face_parents: dict[FaceRef, FaceRef] = field(default_factory=dict)
+    _edge_parents: dict[EdgeRef, EdgeRef] = field(default_factory=dict)
+    _vertex_parents: dict[VertexRef, VertexRef] = field(default_factory=dict)
+
+    def register_face_parent(self, child: FaceRef, parent: FaceRef) -> None:
+        self._face_parents[child] = parent
+
+    def register_edge_parent(self, child: EdgeRef, parent: EdgeRef) -> None:
+        self._edge_parents[child] = parent
+
+    def register_vertex_parent(
+        self, child: VertexRef, parent: VertexRef
+    ) -> None:
+        self._vertex_parents[child] = parent
 
     def register_face(
         self,
@@ -358,7 +372,9 @@ class TopologyRegistry:
         return indices[0] if len(indices) == 1 else None
 
     def resolve(self, reference: FaceRef) -> TopologyResolution:
-        exact = tuple(self._faces_by_ref.get(reference, ()))
+        exact = self._resolve_with_parents(
+            reference, self._faces_by_ref, self._face_parents
+        )
         if len(exact) == 1:
             return TopologyResolution(
                 TopologyResolutionState.RESOLVED,
@@ -384,11 +400,28 @@ class TopologyRegistry:
         )
 
     @staticmethod
+    def _resolve_with_parents(reference, shapes_by_ref, parents) -> tuple[Any, ...]:
+        visited = set()
+        current = reference
+        while current not in visited:
+            visited.add(current)
+            exact = tuple(shapes_by_ref.get(current, ()))
+            if exact:
+                return exact
+            current = parents.get(current)
+            if current is None:
+                break
+        return ()
+
+    @staticmethod
     def _resolve_reference(
         reference: EdgeRef | VertexRef,
         shapes_by_ref: dict[Any, list[Any]],
+        parents: dict[Any, Any],
     ) -> TopologyResolution:
-        exact = tuple(shapes_by_ref.get(reference, ()))
+        exact = TopologyRegistry._resolve_with_parents(
+            reference, shapes_by_ref, parents
+        )
         if len(exact) == 1:
             return TopologyResolution(
                 TopologyResolutionState.RESOLVED,
@@ -414,10 +447,14 @@ class TopologyRegistry:
         )
 
     def resolve_edge(self, reference: EdgeRef) -> TopologyResolution:
-        return self._resolve_reference(reference, self._edges_by_ref)
+        return self._resolve_reference(
+            reference, self._edges_by_ref, self._edge_parents
+        )
 
     def resolve_vertex(self, reference: VertexRef) -> TopologyResolution:
-        return self._resolve_reference(reference, self._vertices_by_ref)
+        return self._resolve_reference(
+            reference, self._vertices_by_ref, self._vertex_parents
+        )
 
     @property
     def references(self) -> tuple[FaceRef, ...]:

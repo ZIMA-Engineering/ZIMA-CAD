@@ -1125,12 +1125,18 @@ class PartDocument:
                     if mode == "symmetric":
                         reverse = forward
                     elif mode == "one_side":
-                        if str(feature.parameters.get("direction", "forward")) == "reverse":
-                            reverse, forward = forward, 0.0
-                        else:
-                            reverse = 0.0
+                        reverse = 0.0
+                    direction_sign = (
+                        -1.0
+                        if str(feature.parameters.get(
+                            "direction", "forward"
+                        )) == "reverse"
+                        else 1.0
+                    )
                     span = max(forward + reverse, 1.0)
-                    axial_center = (forward - reverse) / 2.0
+                    axial_center = (
+                        direction_sign * (forward - reverse) / 2.0
+                    )
                     for geometry_id, geometry in sketch_model.geometry.items():
                         if geometry.geometry_type.value != "circle" or not geometry.point_ids:
                             continue
@@ -1685,20 +1691,6 @@ def apply_object_to_shape(
         )
         status_owner = solid_feature or obj
         record_build_status = not accept_first_shape
-        surface_result = (
-            (is_protrusion or is_revolve)
-            and solid_feature is not None
-            and str(solid_feature.parameters.get("result_type", "solid"))
-            == "surface"
-        )
-        if surface_result:
-            if record_build_status:
-                status_owner.parameters.pop("build_status", None)
-            result_shape = _compound_shapes(
-                [candidate for candidate in (result_shape, shape) if candidate is not None]
-            )
-            shape = None
-
         def solid_count(candidate) -> int:
             return len(unique_solids(candidate))
 
@@ -2423,6 +2415,290 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
             common = BRepAlgoAPI_Common(outer, inner).Shape()
             common_area = surface_area(common)
             if math.isclose(
+                common_area, areas[inner_index],
+                rel_tol=1.0e-7, abs_tol=1.0e-9,
+            ):
+                containers.append((areas[outer_index], outer_index))
+        if containers:
+            parents[inner_index] = min(containers)[1]
+    depths: list[int] = []
+    for index in range(len(faces)):
+        depth = 0
+        parent = parents[index]
+        visited = {index}
+        while parent is not None and parent not in visited:
+            visited.add(parent)
+            depth += 1
+            parent = parents[parent]
+        depths.append(depth)
+    profiles = []
+    for outer_index, outer in enumerate(faces):
+        if depths[outer_index] % 2:
+            continue
+        profile = outer
+        for hole_index, parent in enumerate(parents):
+            if parent == outer_index and depths[hole_index] == depths[outer_index] + 1:
+                profile = BRepAlgoAPI_Cut(profile, faces[hole_index]).Shape()
+        if not profile.IsNull():
+            profiles.append(profile)
+    return profiles
+
+
+def _make_simple_thin_profile_faces(
+    sketch: ZimaEntity,
+    thickness: float,
+    mode: str,
+    provenance_target: ZimaEntity | None = None,
+):
+    """Create one planar band around one open chain of straight segments.
+
+    This deliberately narrow first Thin implementation rejects curves,
+    branches, multiple chains, closed chains and degenerate mitres. Rejection
+    is preferable to returning a plausible but topologically wrong solid.
+    """
+    try:
+        model = SketchModel.from_dict(json.loads(str(
+            sketch.parameters.get("sketch_data", "{}")
+        )))
+        entities, _dimensions = model.to_editor_data()
+    except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+        return []
+    points = {
+        str(item.get("id", "")): (
+            float(item.get("x", 0.0)), float(item.get("y", 0.0))
+        )
+        for item in entities
+        if isinstance(item, dict) and item.get("type") == "point"
+    }
+    segments = [
+        (
+            str(item.get("id", "")),
+            *tuple(map(str, item.get("point_ids", ()))),
+        )
+        for item in entities
+        if isinstance(item, dict)
+        and item.get("role") != "construction"
+        and item.get("type") == "segment"
+        and len(item.get("point_ids", ())) == 2
+    ]
+    unsupported = any(
+        isinstance(item, dict)
+        and item.get("role") != "construction"
+        and item.get("type") not in ("point", "segment")
+        for item in entities
+    )
+    if unsupported or not segments or any(
+        point_id not in points
+        for _geometry_id, first_id, second_id in segments
+        for point_id in (first_id, second_id)
+    ):
+        return []
+    adjacency: dict[str, list[tuple[str, str]]] = {}
+    for geometry_id, first, second in segments:
+        adjacency.setdefault(first, []).append((second, geometry_id))
+        adjacency.setdefault(second, []).append((first, geometry_id))
+    ends = [point_id for point_id, linked in adjacency.items() if len(linked) == 1]
+    if len(ends) != 2 or any(len(linked) > 2 for linked in adjacency.values()):
+        return []
+    ordered_ids = [ends[0]]
+    ordered_geometry_ids: list[str] = []
+    previous = ""
+    while ordered_ids[-1] != ends[1]:
+        candidates = [
+            (point_id, geometry_id)
+            for point_id, geometry_id in adjacency[ordered_ids[-1]]
+            if point_id != previous
+        ]
+        if len(candidates) != 1 or candidates[0][0] in ordered_ids:
+            return []
+        previous, (next_id, geometry_id) = ordered_ids[-1], candidates[0]
+        ordered_ids.append(next_id)
+        ordered_geometry_ids.append(geometry_id)
+    if len(ordered_ids) != len(adjacency):
+        return []
+    chain = [points[point_id] for point_id in ordered_ids]
+
+    def offset_chain(distance: float) -> list[tuple[float, float]] | None:
+        lines = []
+        for first, second in zip(chain, chain[1:]):
+            dx, dy = second[0] - first[0], second[1] - first[1]
+            length = math.hypot(dx, dy)
+            if length <= 1.0e-9:
+                return None
+            nx, ny = -dy / length, dx / length
+            lines.append((
+                (first[0] + nx * distance, first[1] + ny * distance),
+                (dx / length, dy / length),
+            ))
+        result = [lines[0][0]]
+        for first_line, second_line in zip(lines, lines[1:]):
+            first_point, first_direction = first_line
+            second_point, second_direction = second_line
+            denominator = (
+                first_direction[0] * second_direction[1]
+                - first_direction[1] * second_direction[0]
+            )
+            if abs(denominator) <= 1.0e-10:
+                result.append(second_point)
+                continue
+            delta = (
+                second_point[0] - first_point[0],
+                second_point[1] - first_point[1],
+            )
+            factor = (
+                delta[0] * second_direction[1]
+                - delta[1] * second_direction[0]
+            ) / denominator
+            intersection = (
+                first_point[0] + factor * first_direction[0],
+                first_point[1] + factor * first_direction[1],
+            )
+            if math.dist(intersection, chain[len(result)]) > thickness * 100.0:
+                return None
+            result.append(intersection)
+        last_point, last_direction = lines[-1]
+        segment_length = math.dist(chain[-2], chain[-1])
+        result.append((
+            last_point[0] + last_direction[0] * segment_length,
+            last_point[1] + last_direction[1] * segment_length,
+        ))
+        return result
+
+    half = thickness * 0.5
+    first_distance, second_distance = {
+        "one_side": (0.0, thickness),
+        "other_side": (-thickness, 0.0),
+        "symmetric": (-half, half),
+    }.get(mode, (0.0, thickness))
+    first_side = offset_chain(first_distance)
+    second_side = offset_chain(second_distance)
+    if first_side is None or second_side is None:
+        return []
+    first_role, second_role = (
+        ("outside", "inside")
+        if first_distance > second_distance
+        else ("inside", "outside")
+    )
+    if provenance_target is not None:
+        boundaries = [
+            {
+                "role": first_role,
+                "source_id": geometry_id,
+                "first": list(first_side[index]),
+                "second": list(first_side[index + 1]),
+            }
+            for index, geometry_id in enumerate(ordered_geometry_ids)
+        ]
+        boundaries.extend(
+            {
+                "role": second_role,
+                "source_id": geometry_id,
+                "first": list(second_side[index]),
+                "second": list(second_side[index + 1]),
+            }
+            for index, geometry_id in enumerate(ordered_geometry_ids)
+        )
+        boundaries.extend((
+            {
+                "role": "profile_start",
+                "source_id": ordered_ids[0],
+                "first": list(first_side[0]),
+                "second": list(second_side[0]),
+            },
+            {
+                "role": "profile_end",
+                "source_id": ordered_ids[-1],
+                "first": list(first_side[-1]),
+                "second": list(second_side[-1]),
+            },
+        ))
+        provenance_target.parameters["thin_profile_provenance"] = json.dumps(
+            {
+                "boundaries": boundaries,
+                "vertices": [
+                    {
+                        "role": first_role,
+                        "source_id": point_id,
+                        "position": list(first_side[index]),
+                    }
+                    for index, point_id in enumerate(ordered_ids)
+                ] + [
+                    {
+                        "role": second_role,
+                        "source_id": point_id,
+                        "position": list(second_side[index]),
+                    }
+                    for index, point_id in enumerate(ordered_ids)
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    polygon = [*first_side, *reversed(second_side)]
+
+    def crosses(a, b, c, d) -> bool:
+        def orientation(p, q, r) -> float:
+            return (
+                (q[0] - p[0]) * (r[1] - p[1])
+                - (q[1] - p[1]) * (r[0] - p[0])
+            )
+        first = orientation(a, b, c)
+        second = orientation(a, b, d)
+        third = orientation(c, d, a)
+        fourth = orientation(c, d, b)
+        return first * second < -1.0e-12 and third * fourth < -1.0e-12
+
+    polygon_edges = tuple(zip(polygon, (*polygon[1:], polygon[0])))
+    for first_index, first_edge in enumerate(polygon_edges):
+        for second_index, second_edge in enumerate(polygon_edges):
+            if second_index <= first_index + 1 or (
+                first_index == 0 and second_index == len(polygon_edges) - 1
+            ):
+                continue
+            if crosses(*first_edge, *second_edge):
+                return []
+    builder = BRepBuilderAPI_MakePolygon()
+    for x, y in polygon:
+        builder.Add(gp_Pnt(x, y, 0.0))
+    builder.Close()
+    if not builder.IsDone():
+        return []
+    try:
+        face = BRepBuilderAPI_MakeFace(builder.Wire()).Face()
+    except (RuntimeError, ValueError):
+        return []
+    return [face] if not face.IsNull() else []
+
+    def surface_area(shape) -> float:
+        properties = GProp_GProps()
+        brepgprop.SurfaceProperties(shape, properties)
+        return abs(float(properties.Mass()))
+
+    areas = [surface_area(face) for face in faces]
+    bounds = []
+    for face in faces:
+        box = Bnd_Box()
+        brepbndlib.Add(face, box)
+        bounds.append(box.Get())
+    parents: list[int | None] = [None] * len(faces)
+    for inner_index, inner in enumerate(faces):
+        containers: list[tuple[float, int]] = []
+        for outer_index, outer in enumerate(faces):
+            if outer_index == inner_index or areas[outer_index] <= areas[inner_index]:
+                continue
+            outer_bounds = bounds[outer_index]
+            inner_bounds = bounds[inner_index]
+            tolerance = 1.0e-7
+            if not (
+                outer_bounds[0] <= inner_bounds[0] + tolerance
+                and outer_bounds[1] <= inner_bounds[1] + tolerance
+                and outer_bounds[3] >= inner_bounds[3] - tolerance
+                and outer_bounds[4] >= inner_bounds[4] - tolerance
+            ):
+                continue
+            common = BRepAlgoAPI_Common(outer, inner).Shape()
+            common_area = surface_area(common)
+            if math.isclose(
                 common_area,
                 areas[inner_index],
                 rel_tol=1.0e-7,
@@ -2470,7 +2746,7 @@ def _compound_shapes(shapes: list[Any]):
 
 
 def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
-    """Build a straight extrusion from the closed profile of a referenced sketch."""
+    """Build a solid extrusion from a closed or supported Thin profile."""
     if document is None:
         return None
     feature = next(
@@ -2486,8 +2762,13 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         return None
     result_type = str(parameters.get("result_type", "solid"))
     profiles = (
-        _make_sketch_profile_wires(sketch, include_open=True)
-        if result_type == "surface"
+        _make_simple_thin_profile_faces(
+            sketch,
+            max(1.0e-9, float(parameters.get("thin_thickness", 1.0))),
+            str(parameters.get("thin_mode", "one_side")),
+            feature,
+        )
+        if result_type == "thin"
         else _make_sketch_profile_faces(sketch)
     )
     if not profiles:
@@ -2499,10 +2780,7 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     if extent_mode == "symmetric":
         reverse = forward
     elif extent_mode == "one_side":
-        if str(parameters.get("direction", "forward")) == "reverse":
-            reverse, forward = forward, 0.0
-        else:
-            reverse = 0.0
+        reverse = 0.0
     length = forward + reverse
     if length <= 1.0e-9:
         return None
@@ -2520,6 +2798,8 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
         "xz": (0.0, 1.0, 0.0),
         "yz": (1.0, 0.0, 0.0),
     }.get(plane, (0.0, 1.0, 0.0))
+    if str(parameters.get("direction", "forward")) == "reverse":
+        extrusion_direction = tuple(-value for value in extrusion_direction)
     profile_transform = coordinate_system_transform(obj.coordinate_system)
     translated = multiply_transforms(
         profile_transform,
@@ -2538,8 +2818,6 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
             gp_Vec(*(value * length for value in extrusion_direction)),
         ).Shape()
         generated.append(transform_shape(local, translated))
-    if result_type == "surface":
-        return _compound_shapes(generated)
     # Hole nesting has already been resolved while constructing profile
     # faces.  Comparing every extruded solid with every other solid repeated
     # O(N²) expensive OCCT booleans and did no additional useful work.
@@ -2547,7 +2825,7 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
 
 
 def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
-    """Revolve a closed sketch profile around its first construction line."""
+    """Revolve a closed or supported Thin profile around its first axis."""
     if document is None:
         return None
     feature = next(
@@ -2563,8 +2841,13 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
         return None
     result_type = str(parameters.get("result_type", "solid"))
     profiles = (
-        _make_sketch_profile_wires(sketch, include_open=True)
-        if result_type == "surface"
+        _make_simple_thin_profile_faces(
+            sketch,
+            max(1.0e-9, float(parameters.get("thin_thickness", 1.0))),
+            str(parameters.get("thin_mode", "one_side")),
+            feature,
+        )
+        if result_type == "thin"
         else _make_sketch_profile_faces(sketch)
     )
     if not profiles:
@@ -2656,15 +2939,6 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
                 )
     except (RuntimeError, TypeError, ValueError):
         return None
-    if result_type == "surface":
-        local_result = _compound_shapes(local_solids)
-        if local_result is None:
-            return None
-        return transform_shape(
-            local_result,
-            coordinate_system_transform(obj.coordinate_system),
-        )
-
     result = _compound_shapes(local_solids)
     return (
         transform_shape(result, coordinate_system_transform(obj.coordinate_system))
@@ -3187,6 +3461,319 @@ def cylinder_face_registry(
     return registry
 
 
+def _thin_protrusion_topology_registry(
+    feature: ZimaEntity,
+    shape,
+    extrusion_direction: tuple[float, float, float],
+    world_transform,
+    plane_transform,
+    start: float,
+    end: float,
+) -> TopologyRegistry:
+    """Name every topology class created by the first Thin extrusion."""
+    registry = TopologyRegistry()
+
+    def unique_shapes(kind: int) -> list[tuple[Any, int]]:
+        explorer = TopExp_Explorer(shape, kind)
+        result: list[tuple[Any, int]] = []
+        runtime_index = 0
+        while explorer.More():
+            candidate = explorer.Current()
+            if not any(candidate.IsSame(existing) for existing, _ in result):
+                runtime_index += 1
+                result.append((candidate, runtime_index))
+            explorer.Next()
+        return result
+
+    def point_tuple(point) -> tuple[float, float, float]:
+        return (point.X(), point.Y(), point.Z())
+
+    try:
+        raw_provenance = json.loads(str(
+            feature.parameters.get("thin_profile_provenance", "{}")
+        ))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raw_provenance = {}
+
+    def world_profile_point(raw_point, axial: float):
+        if not isinstance(raw_point, (list, tuple)) or len(raw_point) < 2:
+            return None
+        base = transform_point(
+            world_transform,
+            transform_point(
+                plane_transform,
+                (float(raw_point[0]), float(raw_point[1]), 0.0),
+            ),
+        )
+        return tuple(
+            base[index] + extrusion_direction[index] * axial
+            for index in range(3)
+        )
+
+    boundary_records = []
+    for record in raw_provenance.get("boundaries", ()):
+        if not isinstance(record, dict):
+            continue
+        first = world_profile_point(record.get("first"), (start + end) * 0.5)
+        second = world_profile_point(record.get("second"), (start + end) * 0.5)
+        if first is None or second is None:
+            continue
+        boundary_records.append((
+            str(record.get("role", "thin_wall")),
+            str(record.get("source_id", "")),
+            first,
+            second,
+        ))
+    provenance_vertices = []
+    for record in raw_provenance.get("vertices", ()):
+        if not isinstance(record, dict):
+            continue
+        provenance_vertices.append((
+            str(record.get("role", "thin_vertex")),
+            str(record.get("source_id", "")),
+            record.get("position"),
+        ))
+
+    vertices = unique_shapes(TopAbs_VERTEX)
+    vertex_positions = {
+        runtime_index: point_tuple(BRep_Tool.Pnt(vertex))
+        for vertex, runtime_index in vertices
+    }
+    axial_values = [
+        vector_dot(position, extrusion_direction)
+        for position in vertex_positions.values()
+    ]
+    if not axial_values:
+        return registry
+    axial_start, axial_end = min(axial_values), max(axial_values)
+    axial_tolerance = max(1.0e-7, (axial_end - axial_start) * 1.0e-7)
+
+    faces_by_role: dict[str, list[tuple[Any, int]]] = {}
+    for face, runtime_index in unique_shapes(TopAbs_FACE):
+        role = "thin_side"
+        adaptor = BRepAdaptor_Surface(face)
+        if adaptor.GetType() == GeomAbs_Plane:
+            direction = adaptor.Plane().Axis().Direction()
+            normal = (direction.X(), direction.Y(), direction.Z())
+            agreement = abs(vector_dot(normal, extrusion_direction))
+            if agreement > 1.0 - 1.0e-7:
+                box = Bnd_Box()
+                brepbndlib.Add(face, box)
+                bounds = box.Get()
+                centre = tuple(
+                    (bounds[index] + bounds[index + 3]) * 0.5
+                    for index in range(3)
+                )
+                axial = vector_dot(centre, extrusion_direction)
+                role = (
+                    "thin_start"
+                    if abs(axial - axial_start) <= abs(axial - axial_end)
+                    else "thin_end"
+                )
+            else:
+                matches = []
+                for boundary_role, source_id, first, second in boundary_records:
+                    midpoint = tuple(
+                        (first[index] + second[index]) * 0.5
+                        for index in range(3)
+                    )
+                    distance = BRepExtrema_DistShapeShape(
+                        BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(),
+                        face,
+                    )
+                    distance.Perform()
+                    if distance.IsDone() and distance.Value() <= 1.0e-6:
+                        matches.append((boundary_role, source_id))
+                if len(matches) == 1:
+                    role, source_id = matches[0]
+                    thin_reference = FaceRef(
+                        feature.entity_id, role, source_id
+                    )
+                    registry.register_face(
+                        thin_reference,
+                        face,
+                        runtime_index=runtime_index,
+                    )
+                    if role in {"inside", "outside"}:
+                        registry.register_face_parent(
+                            thin_reference,
+                            FaceRef(
+                                feature.entity_id, "generated", source_id
+                            ),
+                        )
+                    continue
+                role = "thin_wall"
+        faces_by_role.setdefault(role, []).append((face, runtime_index))
+    for role, candidates in faces_by_role.items():
+        for fragment, (face, runtime_index) in enumerate(sorted(
+            candidates,
+            key=lambda item: _topology_fragment_key(item[0], TopAbs_FACE),
+        ), 1):
+            registry.register_face(
+                FaceRef(feature.entity_id, role, "thin_profile", fragment),
+                face,
+                runtime_index=runtime_index,
+            )
+
+    edges_by_role: dict[str, list[tuple[Any, int]]] = {}
+    for edge, runtime_index in unique_shapes(TopAbs_EDGE):
+        try:
+            adaptor = BRepAdaptor_Curve(edge)
+            endpoints = tuple(
+                point_tuple(adaptor.Value(parameter))
+                for parameter in (
+                    adaptor.FirstParameter(), adaptor.LastParameter()
+                )
+            )
+        except (AttributeError, RuntimeError):
+            continue
+        axial = tuple(
+            vector_dot(point, extrusion_direction) for point in endpoints
+        )
+        if all(abs(value - axial_start) <= axial_tolerance for value in axial):
+            axial_role = "start"
+        elif all(abs(value - axial_end) <= axial_tolerance for value in axial):
+            axial_role = "end"
+        else:
+            axial_role = "longitudinal"
+        matched = None
+        if axial_role in {"start", "end"}:
+            axial_distance = start if axial_role == "start" else end
+            for boundary_role, source_id, _mid_first, _mid_second in boundary_records:
+                raw_record = next((
+                    record for record in raw_provenance.get("boundaries", ())
+                    if isinstance(record, dict)
+                    and str(record.get("role", "")) == boundary_role
+                    and str(record.get("source_id", "")) == source_id
+                ), None)
+                if raw_record is None:
+                    continue
+                expected = (
+                    world_profile_point(raw_record.get("first"), axial_distance),
+                    world_profile_point(raw_record.get("second"), axial_distance),
+                )
+                if None in expected:
+                    continue
+                if (
+                    math.dist(endpoints[0], expected[0]) <= 1.0e-6
+                    and math.dist(endpoints[1], expected[1]) <= 1.0e-6
+                ) or (
+                    math.dist(endpoints[0], expected[1]) <= 1.0e-6
+                    and math.dist(endpoints[1], expected[0]) <= 1.0e-6
+                ):
+                    matched = EdgeRef(
+                        feature.entity_id,
+                        f"{axial_role}_{boundary_role}",
+                        source_id,
+                    )
+                    break
+        else:
+            for vertex_role, source_id, raw_position in provenance_vertices:
+                expected = (
+                    world_profile_point(raw_position, start),
+                    world_profile_point(raw_position, end),
+                )
+                if None in expected:
+                    continue
+                if (
+                    math.dist(endpoints[0], expected[0]) <= 1.0e-6
+                    and math.dist(endpoints[1], expected[1]) <= 1.0e-6
+                ) or (
+                    math.dist(endpoints[0], expected[1]) <= 1.0e-6
+                    and math.dist(endpoints[1], expected[0]) <= 1.0e-6
+                ):
+                    matched = EdgeRef(
+                        feature.entity_id,
+                        f"longitudinal_{vertex_role}",
+                        source_id,
+                    )
+                    break
+        if matched is not None:
+            registry.register_edge(
+                matched, edge, runtime_index=runtime_index
+            )
+            parent_role = matched.role.split("_", 1)[0]
+            if parent_role in {"start", "end"}:
+                registry.register_edge_parent(
+                    matched,
+                    EdgeRef(
+                        feature.entity_id,
+                        parent_role,
+                        matched.source_id,
+                    ),
+                )
+            continue
+        role = f"thin_{axial_role}"
+        edges_by_role.setdefault(role, []).append((edge, runtime_index))
+    for role, candidates in edges_by_role.items():
+        for fragment, (edge, runtime_index) in enumerate(sorted(
+            candidates,
+            key=lambda item: _topology_fragment_key(item[0], TopAbs_EDGE),
+        ), 1):
+            registry.register_edge(
+                EdgeRef(feature.entity_id, role, "thin_profile", fragment),
+                edge,
+                runtime_index=runtime_index,
+            )
+
+    vertices_by_role: dict[str, list[tuple[Any, int]]] = {}
+    for vertex, runtime_index in vertices:
+        matched_vertex = None
+        for side_role, source_id, raw_position in provenance_vertices:
+            for axial_role, axial_distance in (("start", start), ("end", end)):
+                expected = world_profile_point(raw_position, axial_distance)
+                if (
+                    expected is not None
+                    and math.dist(
+                        vertex_positions[runtime_index], expected
+                    ) <= 1.0e-6
+                ):
+                    matched_vertex = VertexRef(
+                        feature.entity_id,
+                        f"{axial_role}_{side_role}",
+                        source_id,
+                    )
+                    break
+            if matched_vertex is not None:
+                break
+        if matched_vertex is not None:
+            registry.register_vertex(
+                matched_vertex, vertex, runtime_index=runtime_index
+            )
+            parent_role = matched_vertex.role.split("_", 1)[0]
+            registry.register_vertex_parent(
+                matched_vertex,
+                VertexRef(
+                    feature.entity_id,
+                    parent_role,
+                    matched_vertex.source_id,
+                ),
+            )
+            continue
+        axial = vector_dot(
+            vertex_positions[runtime_index], extrusion_direction
+        )
+        role = (
+            "thin_start_vertex"
+            if abs(axial - axial_start) <= axial_tolerance
+            else "thin_end_vertex"
+            if abs(axial - axial_end) <= axial_tolerance
+            else "thin_vertex"
+        )
+        vertices_by_role.setdefault(role, []).append((vertex, runtime_index))
+    for role, candidates in vertices_by_role.items():
+        for fragment, (vertex, runtime_index) in enumerate(sorted(
+            candidates,
+            key=lambda item: _topology_fragment_key(item[0], TopAbs_VERTEX),
+        ), 1):
+            registry.register_vertex(
+                VertexRef(feature.entity_id, role, "thin_profile", fragment),
+                vertex,
+                runtime_index=runtime_index,
+            )
+    return registry
+
+
 def protrusion_face_registry(
     document: PartDocument,
     container: ZimaEntity,
@@ -3223,6 +3810,8 @@ def protrusion_face_registry(
     )
     if extrusion_direction is None:
         return registry
+    if str(feature.parameters.get("direction", "forward")) == "reverse":
+        extrusion_direction = tuple(-value for value in extrusion_direction)
     try:
         sketch_model = SketchModel.from_dict(
             json.loads(str(sketch.parameters.get("sketch_data", "{}")))
@@ -3276,10 +3865,7 @@ def protrusion_face_registry(
     if extent_mode == "symmetric":
         reverse = forward
     elif extent_mode == "one_side":
-        if str(feature.parameters.get("direction", "forward")) == "reverse":
-            reverse, forward = forward, 0.0
-        else:
-            reverse = 0.0
+        reverse = 0.0
     start = -reverse
     end = forward
     point_positions: dict[str, dict[str, tuple[float, float, float]]] = {}
@@ -3287,6 +3873,16 @@ def protrusion_face_registry(
         world_transform,
         transform_point(plane_transform, (0.0, 0.0, 0.0)),
     )
+    if str(feature.parameters.get("result_type", "solid")) == "thin":
+        return _thin_protrusion_topology_registry(
+            feature,
+            shape,
+            extrusion_direction,
+            world_transform,
+            plane_transform,
+            start,
+            end,
+        )
     for point_id, point_2d in sketch_points.items():
         base = transform_point(
             world_transform,
@@ -3457,15 +4053,29 @@ def protrusion_face_registry(
             if distance.IsDone() and distance.Value() <= 1.0e-6:
                 matching_curves.append(source_id)
         if len(matching_curves) == 1:
+            source_id = matching_curves[0]
             registry.register_face(
                 FaceRef(
                     feature_id=feature.entity_id,
                     role="generated",
-                    source_id=matching_curves[0],
+                    source_id=source_id,
                 ),
                 face,
                 runtime_index=runtime_index,
             )
+            # Preserve downstream placement references when the same sketch
+            # lineage changes from Thin to an ordinary closed solid. Both
+            # Thin offset sides collapse onto the one solid side face, while
+            # the persisted reference keeps its original inside/outside role
+            # for a possible later switch back to Thin.
+            for thin_role in ("inside", "outside"):
+                thin_reference = FaceRef(
+                    feature.entity_id, thin_role, source_id
+                )
+                registry.register_face_parent(
+                    thin_reference,
+                    FaceRef(feature.entity_id, "generated", source_id),
+                )
             explorer.Next()
             continue
         if adaptor.GetType() != GeomAbs_Plane:
@@ -3768,6 +4378,19 @@ def protrusion_face_registry(
                 edge,
                 runtime_index=runtime_edge_index,
             )
+            if (
+                matched_reference.role in {"start", "end"}
+                and matched_reference.source_id is not None
+            ):
+                for thin_side in ("inside", "outside"):
+                    thin_reference = EdgeRef(
+                        feature.entity_id,
+                        f"{matched_reference.role}_{thin_side}",
+                        matched_reference.source_id,
+                    )
+                    registry.register_edge_parent(
+                        thin_reference, matched_reference
+                    )
         edge_explorer.Next()
 
     vertex_explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
@@ -3801,6 +4424,15 @@ def protrusion_face_registry(
                 vertex,
                 runtime_index=runtime_vertex_index,
             )
+            for thin_side in ("inside", "outside"):
+                thin_reference = VertexRef(
+                    feature.entity_id,
+                    f"{matched_reference.role}_{thin_side}",
+                    matched_reference.source_id,
+                )
+                registry.register_vertex_parent(
+                    thin_reference, matched_reference
+                )
         vertex_explorer.Next()
     return registry
 

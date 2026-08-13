@@ -1,79 +1,87 @@
-# Session handoff — 2026-08-10
+# Session handoff — 2026-08-13
 
 ## Current state
 
-Work focused on 3D selection/highlighting, edge-treatment inspection, direct
-Sketch dimension updates and exact title-block rendering. Commit `a94f0d6` is
-on `main` and pushed. Numbered `.frmz`/`.tblz` backups and diagnostic images
-remain untracked user data and must not be deleted.
+The current work concentrated on Part Protrusion/Revolve interaction, stable
+placement references, thin solids, Sketch dimension direction and exact
+Fillet/Chamfer inspection. The working tree also contains unrelated user edits
+and diagnostic images; preserve them.
 
-Implemented so far:
+Implemented and manually verified in the GUI:
 
-- thin, colour-only entity highlighting with cached face outlines;
-- point-first picking priority in Sketcher;
-- false orange point marker over lines, axes and construction geometry fixed;
-- preview constraint symbols placed by the point currently being entered;
-- already-satisfied simple constraints skip the numerical Jacobian/solver move;
-- double-click container inspection disables unrelated view picking/highlighting;
-- defining sketch is shown thin yellow and the resulting solid cyan during
-  container inspection and Properties, including after view rotation;
-- empty left click or middle-button double-click leaves inspection mode;
-- double-click races no longer open a different hovered container;
-- right-click gives priority to the currently orange hovered candidate instead
-  of a stale blue selection;
-- Sketch/Protrusion/Revolve placement references reject Body faces and accept
-  only basic container geometry (Point/Axis/Plane);
-- imported STEP selection in the tree highlights only its origin;
-- obsolete Add/Subtract actions were removed from primitive context menus;
-- frame/title-block templates open directly in Sketcher without camera animation;
-- template Sketcher uses `Save and close`; normal sketches retain Finish;
-- translations for the new command were added to cs/en/de/fr.
-- the selection cycle includes supported topology and container objects under
-  the cursor while reference mode highlights only the offered sub-entity;
-- Fillet and Chamfer hover/selection use persisted boundary-edge identities,
-  clear stale highlights when the cycle changes and expose their dimensions
-  on double-click;
-- a changed horizontal/vertical Sketch dimension directly translates the free
-  side when the opposite side is constrained, before using the general solver;
-- title blocks render directly from canonical `[Sketch]` coordinates with no
-  insertion translation or bounds normalization;
-- title-block text preserves semantic alignment, rotation and flip, and its
-  millimetre height is consistently based on font cap height.
+- Protrusion/Revolve Properties keep their rows anchored below Container
+  placement while extent-specific rows appear below them without moving the
+  upper controls;
+- ordinary extrusion defaults to 50 mm; the second two-sided value defaults to
+  60 mm, and Revolve offers 360 degrees for one side and 45 degrees when a
+  two-sided or symmetric mode has no previously entered value;
+- the direction/extent switch keeps explicit Start and End identities stable;
+  flipping a two-sided feature swaps both sides and their dimensions, while a
+  symmetric feature keeps the same Start and End faces;
+- purple Protrusion manipulators and yellow dimensions are visible throughout
+  active Properties, including initial creation, thin mode and after dragging;
+  the manipulator drag is continuous and its displayed value snaps to 1 mm;
+- Enter commits the focused numeric editor without accepting Properties;
+  negative in-view length/angle input flips the feature direction while the
+  displayed driving magnitude remains positive;
+- open profiles create thin solids in the ordinary Part modeler; closed
+  profiles create ordinary solids. Standalone surface output is intentionally
+  reserved for a future surface-modeling workspace;
+- thin features persist semantic Inside/Outside and Start/End topology ancestry
+  and reference recovery follows the nearest surviving descendant, then its
+  parent when no descendant exists;
+- profile-plane offsets, including negative values and RX/RY/RZ correction,
+  use one physical frame for the Sketch, body calculation, yellow dimensions
+  and purple manipulator;
+- Sketch distance dimensions are unsigned except for X/Y axis dimensions;
+  entering a negative ordinary distance mirrors the movable side and persists
+  a positive length;
+- non-negative spin boxes step by 1 mm at and above 1 mm, by 0.1 mm below it,
+  and stop at 0.1 mm through the buttons while retaining finer manual input;
+- Part hover/click/RMB uses the viewer's ordered candidate list. Fillet and
+  Chamfer highlight only the exact persisted boundary wire, never the complete
+  result body;
+- Fillet/Chamfer double-click dimensions use a stable parametric curve frame.
+  Circular treatments derive their section from the owning local axes; radius
+  dimensions point to the arc between both rim circles and chamfer extension
+  lines start on the two actual rim circles;
+- deleting an upstream feature removes invalid operational edge picks and
+  leaves the dependent history item visibly failed rather than silently valid;
+- creation paths for Sketch, Protrusion, Revolve and constrained primitives
+  were exercised after fixing the accidental Protrusion call to Revolve-only
+  extent state.
 
 Verification at handoff:
 
-- Python compilation, `git diff --check`, 63 SketchModel tests and an offscreen
-  Qt render of the current title block passed.
-- Some older Drawing-template assertions describe fields removed or repositioned
-  by the current user-edited `ZE-RAZITKO.tblz`; do not restore deleted fields or
-  coordinates merely to satisfy those stale fixture expectations.
+- the user manually confirmed Protrusion placement/rotation, thin behavior,
+  offset planes, exact Fillet/Chamfer selection and the final treatment
+  dimensions;
+- `python -m py_compile zima_cad/app.py`, `git diff --check`, and the five
+  architecture tests pass;
+- the first open of a document may populate caches; a second open of the tested
+  Part was fast. The dimension-frame calculation runs only when its inspection
+  dimension is activated and does not run during document loading.
 
 ## Continue next
 
-1. Manually verify the full container interaction matrix in the running GUI:
-   double-click inspection, Properties, Apply, OK, Cancel, empty click,
-   middle click/double-click and view rotation, especially in a long history.
-2. Verify Sketcher snapping while entering the second point: horizontal,
-   vertical, parallel and perpendicular suggestions must actively hold the
-   suggested relation, not only display its symbol.
-3. Continue the fast-path solver design for simple constraints and dimensions:
-   detect already-satisfied equations first; otherwise choose a movable entity
-   according to existing constraints before invoking the general solver.
-4. Keep title-block insertion strictly origin-to-origin. Never reintroduce a
-   bounds-derived, 10 mm or other implicit placement correction.
-5. Continue localized title-block tokens and drawing-local field editing. Edits
-   in a placed title block must remain in that drawing and never modify the
-   template.
-6. Review STEP import quality. Keep OpenCASCADE for STEP/B-Rep translation
-   unless a measured issue justifies a different representation; inspect why
-   cylinders are being tessellated/displayed poorly before changing import.
-7. Finish any original items not covered above, then update `ROADMAP.md` only
-   once the behavior has been verified in the GUI.
+1. Add focused regression tests for stable Protrusion Start/End references,
+   two-sided Flip, offset/RX frames, thin-to-solid ancestry and dependent
+   feature recovery after regeneration and save/reload.
+2. Add viewer-data tests for circular Fillet/Chamfer normal sections, both rim
+   witnesses and activation-lifetime frame stability.
+3. Profile cold and warm opening of a long real Part and add stage timings for
+   document decoding, persisted BodyResult loading, regeneration and GPU scene
+   upload.
+4. Finish first-point Sketch inference at origin/reference intersections,
+   including simultaneous coincident/axis suggestions and deterministic snap.
+5. Continue Drawing and title-block work without restoring user-deleted fields
+   or obsolete template coordinates.
 
 ## Development rules to retain
 
-Follow `AGENTS.md`: all feature/property editors are internal Qt SubWindows
-using the shared Container Properties interaction; create/edit share one dialog;
-Apply is transient, OK commits and exits, Cancel restores the last applied state;
-history editing rolls back to the real preceding geometry; legacy Part/Assembly
-file compatibility is not required.
+Follow `AGENTS.md`: feature/property editors are internal Qt SubWindows using
+the shared properties interaction; creation and editing use one dialog;
+calculation occurs only at the explicit staged calculation boundary; history
+editing rolls back to the real preceding geometry; UI selection and inspection
+consume persisted ZIMA viewer data and never reconstruct live OCCT topology;
+legacy Part/Assembly compatibility is not required.

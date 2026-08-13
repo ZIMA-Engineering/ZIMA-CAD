@@ -20,6 +20,7 @@ from zima_cad.app import (
     AxisConstraintDialog,
     ContainerSummaryDialog,
     DocumentTextInputDialog,
+    EdgeTreatmentPropertiesDialog,
     FamilyTableDialog,
     FileSettingsDialog,
     MainWindow,
@@ -35,6 +36,7 @@ from zima_cad.app import (
     canonical_document_path,
     tangent_edge_route,
 )
+from zima_cad.viewer import ExtentHandle
 from zima_cad.body_result import BodyResult, SurfaceDescriptor
 from zima_cad.topology import EdgeRef, FaceRef
 from zima_cad.drawing import (
@@ -260,6 +262,50 @@ class DrawingViewConventionTests(unittest.TestCase):
             (("edge", "body", 1), ("edge", "body", 2)),
         )
         self.assertEqual(len(window._edge_treatment_groups), 2)
+
+    def test_edge_treatment_route_describes_persisted_curve_objects(self):
+        mesh = self._route_mesh((
+            EdgePolyline(
+                1, ((0, 0, 0), (1, 0, 0)), owner_id="body",
+                curve_kind="line",
+            ),
+            EdgePolyline(
+                2, ((1, 0, 0), (1, 1, 0)), owner_id="body",
+                curve_kind="circle", curve_radius=5.0,
+            ),
+        ))
+        window = MainWindow.__new__(MainWindow)
+        window._edge_treatment_route_mesh = mesh
+        groups = ((('edge', 'body', 1), ('edge', 'body', 2)),)
+
+        descriptions = window._edge_treatment_key_descriptions(groups)
+
+        self.assertIn("1", descriptions[("edge", "body", 1)])
+        self.assertIn("5", descriptions[("edge", "body", 2)])
+
+    def test_edge_treatment_dialog_lists_routes_in_two_columns(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        dialog = EdgeTreatmentPropertiesDialog(2.0, parent=parent)
+        group = (("edge", "body", 3), ("edge", "body", 4))
+
+        dialog.set_selected_edge_groups(
+            (group,),
+            {
+                group[0]: "Line · edge 3",
+                group[1]: "Radius R5 mm · edge 4",
+            },
+        )
+
+        self.assertEqual(dialog.edge_list.columnCount(), 2)
+        route = dialog.edge_list.topLevelItem(0)
+        self.assertEqual(route.childCount(), 2)
+        self.assertEqual(route.child(0).text(1), "Line · edge 3")
+        self.assertEqual(
+            route.child(1).data(0, Qt.ItemDataRole.UserRole), group
+        )
+        dialog.close()
+        parent.close()
 
     def test_material_dialog_is_internal_and_cancel_keeps_document(self):
         application = QApplication.instance() or QApplication([])
@@ -657,6 +703,44 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
         self.assertEqual(references[0]["entity_id"], component.entity_id)
 
+    def test_part_regeneration_refreshes_protrusion_source_face_plane(self):
+        document = create_empty_part()
+        source = document.create_container(
+            "First protrusion", ContainerType.PROTRUSION
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        stable_id = '{"feature_id":"first","role":"end"}'
+        references = [{
+            "type": "face",
+            "reference_scope": "source_object",
+            "source_object_id": source.entity_id,
+            "entity_id": source.entity_id,
+            "surface_reference_id": stable_id,
+            "equations": [[0.0, 0.0, 1.0, 100.0]],
+        }]
+        lookup_key = f"{document.root.entity_id}:face:3"
+        body_result = SimpleNamespace(faces={
+            lookup_key: SurfaceDescriptor(
+                reference_id=stable_id,
+                kind="plane",
+                origin=(0.0, 0.0, 120.0),
+                normal=(0.0, 0.0, 1.0),
+            )
+        })
+
+        changed = window._refresh_history_result_surface_references(
+            references, body_result
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            references[0]["equations"],
+            [[0.0, 0.0, 1.0, 120.0]],
+        )
+        self.assertEqual(references[0]["entity_id"], source.entity_id)
+        self.assertEqual(references[0]["topology_key"], "3")
+
     def test_sketch_axis_snap_combines_with_direction_inference(self):
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         viewer._sketch_pending_points = [(5.0, 3.0)]
@@ -787,6 +871,80 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(dialog.cut_exception_ids(), ["instance-a"])
         dialog.close()
         self.assertIsNotNone(application)
+
+    def test_protrusion_quick_controls_cycle_their_matching_states(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+
+        self.assertEqual(dialog.forward_length_spin.value(), 50.0)
+        self.assertEqual(dialog.reverse_length_spin.value(), 60.0)
+        self.assertFalse(dialog.reverse_length_spin.isHidden())
+        self.assertFalse(dialog.reverse_length_spin.isEnabled())
+        self.assertEqual(
+            dialog.reverse_length_spin.graphicsEffect().opacity(), 0.0
+        )
+        self.assertEqual(
+            dialog.layout().stretch(
+                dialog.layout().indexOf(dialog.reference_list)
+            ),
+            0,
+        )
+        self.assertTrue(
+            dialog.layout().alignment() & Qt.AlignmentFlag.AlignTop
+        )
+        dialog.result_type_flip_button.click()
+        self.assertEqual(dialog.result_type_combo.currentData(), "thin")
+        dialog.extent_switch_button.click()
+        self.assertEqual(dialog.extent_mode_combo.currentData(), "two_sides")
+        dialog.forward_length_spin.setValue(10.0)
+        dialog.reverse_length_spin.setValue(20.0)
+        dialog.direction_flip_button.click()
+        self.assertEqual(dialog.forward_length_spin.value(), 20.0)
+        self.assertEqual(dialog.reverse_length_spin.value(), 10.0)
+        dialog.extent_switch_button.click()
+        self.assertEqual(dialog.extent_mode_combo.currentData(), "symmetric")
+        dialog.direction_flip_button.click()
+        self.assertEqual(
+            dialog.protrusion_direction_combo.currentData(), "forward"
+        )
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_extent_handle_drag_snaps_to_whole_millimetres(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        viewer.world_to_screen = lambda point: QPointF(point[0] * 10.0, 0.0)
+        handle = ExtentHandle(
+            "length_forward", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), 50.0
+        )
+
+        self.assertEqual(
+            viewer._extent_handle_value(handle, QPointF(126.0, 4.0)),
+            13.0,
+        )
+        self.assertEqual(
+            viewer._extent_handle_value(handle, QPointF(-44.0, 0.0)),
+            -4.0,
+        )
+
+    def test_extent_handle_survives_transient_empty_preview_rebuild(self):
+        viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
+        handle = ExtentHandle(
+            "length_forward", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), 50.0
+        )
+        viewer._extent_handles = (handle,)
+        viewer._dragged_extent_handle_key = handle.key
+        viewer._hovered_extent_handle_key = handle.key
+        viewer.update = lambda: None
+
+        viewer.set_extent_handles(())
+
+        self.assertEqual(viewer._extent_handles, (handle,))
+        self.assertEqual(viewer._dragged_extent_handle_key, handle.key)
 
     def test_first_origin_alignment_immediately_shows_remove_crosses(self):
         application = QApplication.instance() or QApplication([])
@@ -4401,6 +4559,85 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual((first["x"], first["y"]), (-5.0, 3.0))
         self.assertEqual((second["x"], second["y"]), (-9.0, 9.0))
+
+    def test_negative_ordinary_distance_seed_flips_free_side(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        anchored = {
+            "type": "point",
+            "id": "anchored",
+            "x": 0.0,
+            "y": 0.0,
+            "dimension_locks": ["x", "y"],
+        }
+        free = {
+            "type": "point",
+            "id": "free",
+            "x": 60.0,
+            "y": 80.0,
+        }
+
+        window._apply_sketch_distance_dimensions(
+            SimpleNamespace(),
+            [anchored, free],
+            [{
+                "type": "distance",
+                "point_ids": ["anchored", "free"],
+                "value": -100.0,
+                "driving": True,
+            }],
+        )
+
+        self.assertEqual((anchored["x"], anchored["y"]), (0.0, 0.0))
+        self.assertAlmostEqual(free["x"], -60.0)
+        self.assertAlmostEqual(free["y"], -80.0)
+
+    def test_dimension_cleanup_keeps_properties_reference_picking_enabled(
+        self,
+    ) -> None:
+        enabled = []
+        window = MainWindow.__new__(MainWindow)
+        window._dimension_overlays = {}
+        window._dimension_bindings = {}
+        window._dimension_owner_ids = {}
+        window._dimension_object_id = None
+        window._dimension_inspection_visuals = False
+        window._dimension_selection_suspended = True
+        window.view_selection_enabled = False
+        window.application_selection_action = None
+        window.point_constraint_dialog = SimpleNamespace(
+            isVisible=lambda: True
+        )
+        window.selection_filter_combo = SimpleNamespace(
+            setEnabled=lambda value: enabled.append(("filter", value))
+        )
+        window.native_viewer = SimpleNamespace(
+            set_dimensions=lambda _values: None,
+            set_extent_handles=lambda _values: None,
+            set_dimension_inspection_active=lambda _active: None,
+            set_selection_enabled=lambda value: enabled.append(
+                ("viewer", value)
+            ),
+            set_sketch_overlay=lambda _mesh: None,
+            set_passive_sketch_overlay=lambda _mesh: None,
+            set_object_overlay=lambda _mesh: None,
+        )
+
+        window._clear_dimension_overlays()
+
+        self.assertIn(("viewer", True), enabled)
+        self.assertIn(("filter", True), enabled)
+
+    def test_new_command_ends_body_dimension_inspection(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._dimension_inspection_visuals = True
+        window._dimension_selection_suspended = True
+        window._dimension_overlays = {"length": object()}
+        dismissed = []
+        window._dismiss_dimension_overlays = lambda: dismissed.append(True)
+
+        window._end_dimension_inspection_for_command()
+
+        self.assertEqual(dismissed, [True])
 
     def test_coordinate_dependencies_are_evaluated_per_direction(self) -> None:
         entities = [

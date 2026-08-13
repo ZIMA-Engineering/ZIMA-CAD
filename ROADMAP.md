@@ -107,19 +107,24 @@ as the document model, geometric kernel integration and user workflows evolve.
 - property-panel workflow with return to the originating editor context
 - sketch and main container-origin selection from feature properties
 - one-sided, two-sided and symmetric extrusion
+- stable direction-defined Start and End faces; Flip swaps their meaning and
+  their independent dimensions without relying on transient topology order
 - additive and subtractive operations
 - extrusion up to a selected face or plane
 - profile validation
 - independent profile-plane offset, including correctly offset in-view length
-  dimensions
+  dimensions, editable Sketch frame and RX/RY/RZ-corrected manipulator origin
+- persistent purple extent handles with continuous drag and 1 mm displayed
+  snapping, plus matching editable yellow length dimensions
 - staged Apply/OK evaluation: cyan standalone preview remains live across
   direction and extent changes, while the final Boolean runs only on OK
-- mutually exclusive Add/Subtract controls may both be cleared; this third
-  state creates a standalone surface result instead of performing a solid
-  Boolean
-- solid/surface cutting properties expose a persisted Flip side and an
-  in-view direction arrow identifying which side of the cutting surface is
-  removed or retained
+- closed profiles produce ordinary solids and open profiles produce thin
+  solids with one-side, other-side or symmetric wall thickness
+- persisted thin topology roles (Inside/Outside and Start/End) participate in
+  semantic ancestry and recover references when changing between thin and
+  ordinary solid results
+- ordinary Part modeling intentionally produces solids only; standalone
+  surface output is deferred to the future surface-modeling workspace
 
 ## 4. Revolve
 
@@ -133,8 +138,12 @@ as the document model, geometric kernel integration and user workflows evolve.
 - revolved thin features
 - staged Apply/OK evaluation equivalent to Protrusion, including persistent
   cyan preview for forward, reverse and two-sided angle changes
-- the same Add/Subtract/neither surface-result contract and cutting-side Flip
-  preview as Protrusion
+- stable Start/End direction semantics and positive displayed angles; negative
+  in-view input flips direction
+- 360-degree initial one-sided proposal and independent remembered 45-degree
+  proposals for newly selected two-sided and symmetric modes
+- the same solid/thin profile contract as Protrusion; ordinary Part Revolve
+  does not create standalone surface bodies
 
 ## 5. Sweep
 
@@ -168,11 +177,15 @@ as the document model, geometric kernel integration and user workflows evolve.
 
 ## 7. Advanced Part Modeling
 
-**Status: Multi-edge Fillet and symmetric Chamfer implemented**
+**Status: Multi-edge Fillet and symmetric Chamfer implemented and inspected**
 
 - multi-edge history Fillet with one shared radius, stable semantic edge
   references, unified creation/editing properties and last-valid-body recovery
-- two-distance and distance-plus-angle Chamfer modes
+- symmetric distance Chamfer with stable multi-edge references
+- exact boundary-wire hover/selection and normal-section in-view dimensions;
+  circular Fillet radius and Chamfer witnesses are anchored to both persisted
+  rim circles
+- two-distance and distance-plus-angle Chamfer modes (planned)
 - shell and thickness
 - holes and threads
 - mirrors and patterns

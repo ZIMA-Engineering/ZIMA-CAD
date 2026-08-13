@@ -149,6 +149,16 @@ class RadialDimension:
     diameter: bool = False
 
 
+@dataclass(frozen=True)
+class ExtentHandle:
+    """Viewer-only endpoint manipulator on one persisted feature axis."""
+
+    key: str
+    origin: Point3
+    direction: Point3
+    length: float
+
+
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
 GL_DEPTH_TEST = 0x0B71
@@ -514,6 +524,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchArcDirectionSelected = Signal(bool)
     sketchTrimPreviewRequested = Signal(object)
     sketchTrimGestureRequested = Signal(object)
+    extentHandleDragged = Signal(str, float, bool)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -683,6 +694,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._locked_dimension_keys: frozenset[str] = frozenset()
         self._selected_dimension_key: str | None = None
         self._hovered_dimension_key: str | None = None
+        self._extent_handles: tuple[ExtentHandle, ...] = ()
+        self._hovered_extent_handle_key: str | None = None
+        self._dragged_extent_handle_key: str | None = None
+        self._extent_handle_last_value: float | None = None
         self._suppress_next_context_menu = False
         self._sketch_frame: tuple[Point3, Point3, Point3] | None = None
         self._sketch_entities: tuple[dict[str, Any], ...] = ()
@@ -1662,12 +1677,10 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def _provided_candidate_at(
         self, position: QPointF
     ) -> ViewerPickCandidate | None:
-        # A confirmed object owns the viewport until it is explicitly
-        # dismissed.  Continuing to run the ordinary object-hover provider
-        # would let queued mouse/timer signals replace that stable state.
-        # Reference tools explicitly release this lock when they start.
-        if self._object_overlay_locks_interaction:
-            return None
+        # A confirmed object's cyan overlay remains visually persistent, but
+        # it must not disable candidate identity below the cursor.  Doing so
+        # sent the next hover/double-click through the legacy whole-body
+        # picker while RMB still used the shared candidate list.
         provider = self._pick_candidate_provider
         if provider is None:
             return None
@@ -1936,6 +1949,58 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         }:
             self._hovered_dimension_key = None
         self.update()
+
+    def set_extent_handles(
+        self, handles: tuple[ExtentHandle, ...]
+    ) -> None:
+        if not handles and self._dragged_extent_handle_key is not None:
+            # Rebuilding a staged Thin/solid preview clears dimensions before
+            # installing their replacement. Keep the exact handle geometry
+            # alive across that renderer-only empty frame; otherwise the
+            # first snapped mouse move removes the circle and the following
+            # move has no handle from which to calculate a new value.
+            self.update()
+            return
+        self._extent_handles = handles
+        valid = {handle.key for handle in handles}
+        if self._hovered_extent_handle_key not in valid:
+            self._hovered_extent_handle_key = None
+        self.update()
+
+    def _extent_handle_at(self, position: QPointF) -> ExtentHandle | None:
+        return next((
+            handle for handle in reversed(self._extent_handles)
+            if hypot(
+                self.world_to_screen(tuple(
+                    handle.origin[index]
+                    + handle.direction[index] * handle.length
+                    for index in range(3)
+                )).x() - position.x(),
+                self.world_to_screen(tuple(
+                    handle.origin[index]
+                    + handle.direction[index] * handle.length
+                    for index in range(3)
+                )).y() - position.y(),
+            ) <= 10.0
+        ), None)
+
+    def _extent_handle_value(
+        self, handle: ExtentHandle, position: QPointF
+    ) -> float:
+        origin = self.world_to_screen(handle.origin)
+        unit_end = self.world_to_screen(tuple(
+            handle.origin[index] + handle.direction[index]
+            for index in range(3)
+        ))
+        dx, dy = unit_end.x() - origin.x(), unit_end.y() - origin.y()
+        squared = dx * dx + dy * dy
+        if squared <= 1.0e-9:
+            return handle.length
+        raw = (
+            (position.x() - origin.x()) * dx
+            + (position.y() - origin.y()) * dy
+        ) / squared
+        return float(round(raw))
 
     def set_dimension_inspection_active(self, active: bool) -> None:
         self._dimension_inspection_active = bool(active)
@@ -2342,6 +2407,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # Dimension geometry is spatial context and must follow the camera
         # continuously in Part, Assembly and Sketch alike.
         self._paint_dimensions()
+        self._paint_extent_handles()
         if self._sketch_frame is not None:
             self._paint_sketch_overlay()
             self._paint_sketch_trim_overlay()
@@ -2366,6 +2432,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_planes()
         self._paint_points()
         self._paint_dimensions()
+        self._paint_extent_handles()
         self._paint_sketch_overlay()
         self._paint_sketch_trim_overlay()
         self._paint_sketch_selection_box()
@@ -2373,6 +2440,62 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_passive_sketch_overlay()
         self._paint_source_topology_hover()
         self._paint_edge_labels()
+
+    def _paint_extent_handles(self) -> None:
+        if not self._extent_handles:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        purple = QColor("#D05CFF")
+        orange = QColor("#FF7A00")
+        for handle in self._extent_handles:
+            origin = self.world_to_screen(handle.origin)
+            endpoint = self.world_to_screen(tuple(
+                handle.origin[index]
+                + handle.direction[index] * handle.length
+                for index in range(3)
+            ))
+            color = (
+                orange
+                if handle.key == self._hovered_extent_handle_key
+                and handle.key != self._dragged_extent_handle_key
+                else purple
+            )
+            painter.setPen(QPen(color, 2.0))
+            painter.setBrush(QBrush(color))
+            painter.drawLine(origin, endpoint)
+            dx, dy = endpoint.x() - origin.x(), endpoint.y() - origin.y()
+            length = hypot(dx, dy)
+            if length > 1.0e-6:
+                ux, uy = dx / length, dy / length
+                px, py = -uy, ux
+                arrow_length = 10.0
+                arrow_half_width = arrow_length * tan(radians(
+                    ARROW_HALF_ANGLE_DEGREES
+                ))
+                # The handle owns the exact endpoint. Keep the dimension-like
+                # arrow at a stable screen size and stop its tip before the
+                # circle so both symbols remain legible at every zoom level.
+                arrow_tip = QPointF(
+                    endpoint.x() - ux * 9.0,
+                    endpoint.y() - uy * 9.0,
+                )
+                painter.drawPolygon(QPolygonF([
+                    arrow_tip,
+                    QPointF(
+                        arrow_tip.x() - ux * arrow_length
+                        + px * arrow_half_width,
+                        arrow_tip.y() - uy * arrow_length
+                        + py * arrow_half_width,
+                    ),
+                    QPointF(
+                        arrow_tip.x() - ux * arrow_length
+                        - px * arrow_half_width,
+                        arrow_tip.y() - uy * arrow_length
+                        - py * arrow_half_width,
+                    ),
+                ]))
+            painter.drawEllipse(endpoint, 6.0, 6.0)
 
     def _paint_face_highlight_outlines(self) -> None:
         mesh = self._mesh
@@ -2484,6 +2607,13 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            extent_handle = self._extent_handle_at(event.position())
+            if extent_handle is not None:
+                self._dragged_extent_handle_key = extent_handle.key
+                self._extent_handle_last_value = extent_handle.length
+                event.accept()
+                return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._dimension_inspection_active
@@ -2930,6 +3060,27 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._dragged_extent_handle_key is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            handle = next((
+                item for item in self._extent_handles
+                if item.key == self._dragged_extent_handle_key
+            ), None)
+            if handle is not None:
+                value = self._extent_handle_value(handle, event.position())
+                if value != self._extent_handle_last_value:
+                    self._extent_handle_last_value = value
+                    self.extentHandleDragged.emit(handle.key, value, False)
+            event.accept()
+            return
+        hovered_handle = self._extent_handle_at(event.position())
+        hovered_key = hovered_handle.key if hovered_handle is not None else None
+        if hovered_key != self._hovered_extent_handle_key:
+            self._hovered_extent_handle_key = hovered_key
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.update()
         if (
             self._object_overlay_mesh is not None
             and not self._object_overlay_persistent
@@ -3620,6 +3771,24 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if (
             event.button() == Qt.MouseButton.LeftButton
+            and self._dragged_extent_handle_key is not None
+        ):
+            handle = next((
+                item for item in self._extent_handles
+                if item.key == self._dragged_extent_handle_key
+            ), None)
+            self._dragged_extent_handle_key = None
+            self._extent_handle_last_value = None
+            if handle is not None:
+                self.extentHandleDragged.emit(
+                    handle.key,
+                    self._extent_handle_value(handle, event.position()),
+                    True,
+                )
+            event.accept()
+            return
+        if (
+            event.button() == Qt.MouseButton.LeftButton
             and self._sketch_frame is not None
             and self._sketch_tool == "trim"
             and self._sketch_trim_dragging
@@ -3998,8 +4167,14 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             and self._sketch_frame is None
             and self._interaction_mode == "object"
         ):
+            candidate = self._provided_candidate_for_click(event.position())
             self.objectDoubleClicked.emit(
-                self._pick_object(event.position())
+                (
+                    candidate.owner_id
+                    if candidate is not None and candidate.kind == "object"
+                    else None
+                )
+                or self._pick_object(event.position())
                 or self._selected_object_id
                 or ""
             )
@@ -7230,7 +7405,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 )
             )
             label = (
-                "C  C"
+                "C C"
                 if self._sketch_preview_constraint == "intersection"
                 else "M"
                 if self._sketch_preview_constraint is not None
@@ -9131,11 +9306,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     first_origin[0] + first_factor * first_direction[0],
                     first_origin[1] + first_factor * first_direction[1],
                 )
+                # A crossing is the most specific target under the cursor.
+                # Keep it ahead of midpoint and single-reference projections
+                # so the first point of every sketch tool immediately offers
+                # both coincident relations (C C).
                 offer(
                     intersection,
                     first_id + "||" + second_id,
                     "intersection",
-                    1,
+                    -4,
                 )
 
         for arc in self._sketch_entities:
@@ -9282,7 +9461,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         ),
                         line_id + "||" + reference_id,
                         "intersection",
-                        1,
+                        -4,
                     )
         if (
             self._sketch_tool == "polyline"
