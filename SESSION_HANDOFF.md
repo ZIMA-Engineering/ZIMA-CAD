@@ -77,6 +77,48 @@ Verification at handoff:
 5. Continue Drawing and title-block work without restoring user-deleted fields
    or obsolete template coordinates.
 
+## Agreed future sequence and product decisions
+
+- Next: DXF import into active Sketcher, small Sketcher fixes exposed by real
+  DXF files, then DXF import from Part/Assembly through one shared Import/Export
+  framework. Part/Assembly import creates an explicitly placed ordinary Sketch.
+- Redesign Assembly STEP import so imported data becomes a normal component,
+  preferably a generated `.prtz` referenced relatively by the Assembly.
+- Add unified export including Sketch DXF, model formats and offscreen PNG
+  image export; JPEG is optional and secondary.
+- Add per-Part/per-Assembly-instance transparency. Colored wireframe is deferred
+  because it is rarely used.
+- Then implement a separate 3D Curve history container, ordinary Sweep and a
+  parametric Helix/Sweep workflow for springs. Do not copy the Pro/ENGINEER
+  spring workflow; agree the ZIMA engineering parameter model with the user
+  before coding it.
+- A first useful Pipe feature can remain simple: a 3D Curve plus automatic
+  circular/annular Sweep, outside diameter, wall thickness, bend radius and
+  stable Start/End connector frames. Catalog piping systems come later.
+- Follow Sweep with semantic Hole features and cosmetic thread metadata. Never
+  build real helical solid thread geometry.
+- Add per-face color/appearance in Part through stable semantic `FaceRef`
+  ownership. Assembly inherits source face colors and may add instance-local
+  overrides; imported STEP colors are converted into the same persisted model.
+- Implement named **Section** definitions in Part and Assembly before expanding
+  Drawing section views. Sections are non-destructive model-space clipping and
+  inspection definitions; Drawing should later reuse them rather than own an
+  incompatible duplicate definition.
+- Pattern and Mirror are high-priority Part/Assembly features after the core
+  Part set. Start with linear/circular feature patterns and Part feature/body
+  Mirror, then Assembly component Pattern. Every occurrence must have a
+  stable semantic ID; count changes never shift references to another copy.
+  Do not initially implement a general Assembly reflection transform. Provide
+  **Create mirrored Part** instead: dependent creates a separately identified
+  derived `.prtz` linked to the source; independent creates an ordinary
+  standalone mirrored `.prtz`. Both insert into Assembly as normal components
+  with their own BOM and Drawing identity.
+- Complete Protrusion target extents (face, plane, point, through-all and
+  offsets) with independent stable Start/End definitions and own-value fallback.
+- Central Undo/Redo is intentionally late. Preserve atomic confirmed changes,
+  transient previews and stable IDs now so it can be added after the document
+  model settles.
+
 ## Development rules to retain
 
 Follow `AGENTS.md`: feature/property editors are internal Qt SubWindows using
@@ -85,3 +127,11 @@ calculation occurs only at the explicit staged calculation boundary; history
 editing rolls back to the real preceding geometry; UI selection and inspection
 consume persisted ZIMA viewer data and never reconstruct live OCCT topology;
 legacy Part/Assembly compatibility is not required.
+
+All future reference-driven parameters obey the mandatory own-value fallback
+contract in `doc/STABLE_TOPOLOGY_NAMING.md`: persist and refresh the last
+successfully evaluated independent value, follow supported descendant-to-parent
+ancestry, use that value if the reference becomes missing or ambiguous, keep
+the broken reference visible for repair, and automatically resume association
+if the same semantic reference returns. Never reset to zero or silently bind to
+a different runtime object.

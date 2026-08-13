@@ -153,6 +153,11 @@ as the document model, geometric kernel integration and user workflows evolve.
 - profile orientation control
 - guide curves
 - additive and subtractive operations
+- parametric helix path and sweep along a helix for springs
+- a dedicated spring-oriented definition designed around engineering inputs;
+  do not reproduce the Pro/ENGINEER spring interaction model
+- basic bent Pipe as a semantic 3D-Curve/Sweep feature with diameter, wall
+  thickness, bend radius and stable connector frames
 
 ### 3D curve path foundation
 
@@ -188,7 +193,14 @@ as the document model, geometric kernel integration and user workflows evolve.
 - two-distance and distance-plus-angle Chamfer modes (planned)
 - shell and thickness
 - holes and threads
+- Hole as a semantic feature with through/blind, counterbore/countersink and
+  drill-point definitions
+- cosmetic thread metadata and Drawing representation; real helical BREP
+  thread geometry is intentionally out of scope
 - mirrors and patterns
+- linear and circular semantic Patterns with stable per-occurrence identities,
+  followed by curve/table-driven variants
+- Part feature/body Mirror with semantic source provenance
 - cutting a solid with a selected surface or surface body
 - explicit retained/removed half-space selection for surface cuts, controlled
   by Flip and shown by a direction arrow before calculation
@@ -197,6 +209,10 @@ as the document model, geometric kernel integration and user workflows evolve.
 - conversion workflows between suitable closed surface sets and solid bodies
 - robust feature history and reference recovery
 - additional Boolean and surface operations
+- per-face color and appearance overrides stored by stable semantic face ID,
+  with source-Part inheritance and optional Assembly instance overrides
+- named non-destructive Part Sections for clipped inspection, reusable later by
+  Drawing section views
 
 ## 8. Sheet Metal
 
@@ -247,6 +263,12 @@ as the document model, geometric kernel integration and user workflows evolve.
   assembly-wide Fuse
 - component colors stored per instance rather than globally
 - rename workflow updates component and external-reference file links
+- named Assembly Sections cutting all or selected component instances without
+  modifying their source Part geometry
+- Assembly component Pattern with stable occurrence IDs
+- dependent or independent **Create mirrored Part** documents inserted into
+  Assembly as ordinary components; general reflection-matrix Assembly Mirror
+  is deliberately deferred
 - remaining work:
   - DXF import from the Part and Assembly applications, with explicit creation
     and placement of a Sketch instead of treating DXF as a solid body

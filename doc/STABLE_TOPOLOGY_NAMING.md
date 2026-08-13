@@ -318,6 +318,39 @@ Some references are legitimately unrecoverable after the modeling source is
 deleted or fundamentally changed. Reporting a lost reference is then the
 correct result.
 
+## Mandatory own-value fallback
+
+Every parameter that may be driven by a reference must also persist its own
+independent numeric or geometric fallback value. This is a general document-
+model contract, not a Protrusion-specific convenience.
+
+- While the reference is uniquely resolved and compatible, it drives the
+  parameter and updates the fallback to the last successfully evaluated result.
+- Resolution first follows supported semantic ancestry: use the requested
+  descendant; if it no longer exists, follow its recorded parent where the
+  operation contract permits it.
+- If no unique compatible reference remains, use the last valid own value.
+  Never reset to zero, bind to a numerically similar runtime object or choose a
+  random current topology element.
+- Fallback keeps the model calculable where possible but does not pretend the
+  association is healthy. Keep it visibly `MISSING`, `AMBIGUOUS` or
+  `INCOMPATIBLE` and allow repair in Properties.
+- Retain the original reference payload. If it later resolves uniquely again,
+  reference-driven evaluation resumes without replacing its stable ID.
+- Independent sides and degrees of freedom have independent fallbacks. For
+  example Protrusion Start and End each keep their own length, target offset
+  and direction; placement keeps independent X/Y/Z and RX/RY/RZ values.
+
+Example: an Extrusion defined **up to face** evaluates to 73 mm and stores
+73 mm as its own End length. If the target face is suppressed or deleted, the
+feature remains 73 mm long, reports the lost target and waits for repair.
+Restoring the same semantic face makes it associative again.
+
+The same rule applies to placements, Points, Axes, Planes, Sketch attachments,
+Protrusion/Revolve limits, Assembly mates, 3D-curve points, Sweep paths, Hole
+placement and all future reference-driven parameters. A fallback preserves
+useful geometry; it never erases or conceals reference failure.
+
 ## Implementation stages
 
 1. **Done:** introduce semantic reference types, resolution states and a central
@@ -358,6 +391,11 @@ correct result.
 - Saving and reopening `.prtz` preserves tested Extrusion and Revolve semantic
   references; Assembly coverage must expand with Boolean propagation.
 - A legacy numerical reference is rejected rather than silently rebound.
+- A reference-driven parameter stores its last resolved result as an own value;
+  suppressing its target preserves that value while reporting `MISSING`, and
+  restoring the target resumes association with the same reference payload.
+- Start/End and X/Y/Z/RX/RY/RZ fallbacks remain independent when only one
+  reference or side becomes unresolved.
 
 ## Scope and expectation
 

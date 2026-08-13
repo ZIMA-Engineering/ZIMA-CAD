@@ -69,7 +69,9 @@
   text sizing to the remaining paper-space annotations.
 - Extend the implemented editable sheet-frame/title-block templates and
   parameter-driven fields with production zones and table workflows.
-- Add sections and details after selection and annotation ownership are stable.
+- Add Drawing section views after model-space Part/Assembly Section definitions
+  and selection/annotation ownership are stable; reuse the model definition
+  rather than inventing an incompatible Drawing-only section contract.
 - Keep paper-space geometry in millimetres with the bottom-right sheet origin;
   A4 remains portrait and A3 through A0 remain landscape.
 - Keep runtime drawing geometry derived from renderer-owned model topology;
@@ -89,6 +91,70 @@
 - Keep DXF file parsing separate from Sketch interaction. Import must produce
   normal persisted ZIMA Sketch entities with stable IDs so they can be edited,
   constrained, regenerated and saved like manually created geometry.
+
+## Unified Import and Export
+
+- Build one application-aware Import/Export framework instead of unrelated
+  commands. The active Sketcher, Part, Assembly and Drawing determine which
+  formats and destinations are valid while sharing file, units, diagnostics
+  and progress handling.
+- Importing DXF inside Sketcher populates the active Sketch. Importing DXF from
+  Part or Assembly creates an ordinary explicitly placed Sketch and then uses
+  the same importer; DXF is never treated as a solid body.
+- Redesign Assembly STEP import. A STEP source should become a normal component
+  backed by a generated `.prtz` with a relative Assembly link by default;
+  internal embedding may remain an explicit option. Preserve source units,
+  colors and selectable handling of multiple STEP solids.
+- Add Sketch DXF export and model STEP/STL export through the same framework.
+- Add image export from the current view. PNG is the default for sharp CAD
+  edges and optional transparent background; JPEG is a secondary lossy option.
+  Render offscreen at requested resolution rather than capturing window pixels.
+
+## Display Properties
+
+- Add per-object opacity as viewer/document display state, independent of body
+  geometry and material. In Assembly it belongs to each component instance and
+  must not modify the source `.prtz`.
+- Keep edges readable and hover orange/selection cyan on transparent objects;
+  RMB cycling must still allow selection of geometry behind them.
+- Add **Make others transparent** for in-context component editing and restore
+  the previously stored per-instance opacity when editing ends.
+- Colored wireframe by object/instance is deliberately deferred; it has much
+  lower practical priority than transparency and is rarely used.
+- Add per-face appearance overrides in Part. Store color and later surface-
+  finish metadata against persisted semantic `FaceRef` identities, never an
+  OCCT traversal index or transient result-body face number.
+- A face override follows supported topology ancestry through regeneration. If
+  the face disappears or splits ambiguously, retain the appearance record as
+  unresolved for repair instead of transferring it silently to another face.
+- Assembly normally inherits face appearances from the source `.prtz` and may
+  optionally store an instance-local override without modifying that source.
+  Whole-component color, per-face color, opacity, hover orange and confirmed
+  cyan selection remain independent layers with explicit precedence.
+- Persist imported STEP face colors into the same ordinary ZIMA appearance
+  model during explicit import so later display never rereads STEP or traverses
+  live OCCT topology.
+
+## Model Sections
+
+- Implement **Section** in Part and Assembly first, following the useful
+  model-space workflow known from Pro/ENGINEER/Creo. It is a named persisted
+  model display/inspection definition, not only a Drawing command.
+- A Section references one or more stable datum/planar definitions, stores its
+  kept side and optional offset, and can be activated, deactivated and edited
+  without changing the underlying solid history.
+- The 3D viewer clips displayed bodies and renders clear section boundaries and
+  optional hatch/fill. Picking must distinguish real persisted model topology
+  from transient cut contours; a display-only section contour is not silently
+  accepted as a permanent modeling reference.
+- Assembly Sections may cut all components or an explicit stable component
+  subset while retaining instance colors, per-face appearances and opacity.
+- Drawing section views should later consume the same named Part/Assembly
+  Section definition where appropriate instead of maintaining an unrelated
+  duplicate plane/side model.
+- OCCT may calculate section geometry only when the user explicitly activates,
+  applies or regenerates a Section. Persist the viewer packet needed for later
+  display; camera movement, hover and Properties must not invoke hidden OCCT.
 
 ## Surface Modeling
 
@@ -138,6 +204,48 @@
 - Viewer display, hover and selection consume the persisted ordered points.
   OCCT may create the calculated edge/wire only at Apply, OK or regeneration.
 
+## Sweep, Helix and Springs
+
+- Implement ordinary Sweep after the 3D Curve container: one stable profile,
+  one stable path, controlled profile orientation and Add/Subtract behavior.
+  Start with the predictable perpendicular-profile case before guide curves.
+- Add a dedicated parametric Helix path/container and sweep-along-helix support
+  for springs. Do not copy the Pro/ENGINEER spring workflow: its interaction
+  and parameter model are intentionally considered unsuitable. Design the
+  ZIMA workflow explicitly with the user before implementation.
+- The spring definition should expose engineering intent directly (axis,
+  handedness, coil/mean diameter, wire/profile, pitch or total length, turns
+  and end treatment) instead of forcing construction through an opaque generic
+  sweep setup. The exact minimal parameter set and end-condition behavior are
+  still a design task, not yet a fixed implementation contract.
+- Helix and Sweep follow the same Start/End identities, stable references and
+  mandatory own-value fallback rule as other history features.
+
+## Basic Piping
+
+- Build the first Pipe feature as a thin semantic layer over a 3D Curve and
+  Sweep: route reference, outside diameter, wall thickness or inside diameter,
+  material and stable Start/End connector frames.
+- Support one continuous bent tube first. A polyline route may generate tangent
+  bends from one minimum bend radius while preserving its original route-point
+  identities and deterministic straight/arc segment identities.
+- Keep a full piping-system application (catalog elbows, tees, reducers,
+  flanges, standards, connectivity and BOM) as a later layer. Do not burden the
+  first useful bent-tube feature with that complete system.
+- Route points and bend parameters obey mandatory own-value fallback when a
+  driving reference disappears.
+
+## Holes and Cosmetic Threads
+
+- After Sweep, implement Hole as a semantic history container rather than only
+  an anonymous subtracted cylinder: through/blind depth, cylindrical or conical
+  countersink/counterbore, drill-point bottom, stable axis and entry/end faces.
+- Store thread standard, designation, pitch, tolerance, handedness and threaded
+  length as cosmetic/technological data on a Hole or cylindrical face.
+- Do not generate real helical BREP thread geometry. It is excessively costly
+  for Booleans, triangulation, topology stability, files and assemblies. Use a
+  lightweight viewer representation and correct Drawing annotation instead.
+
 ## Container Orientation and Reference Geometry
 
 - Exercise the shared six-DOF properties workflow for Point, Axis, Plane,
@@ -156,11 +264,76 @@
 - Keep positional references independent from explicit rotational references
   and keep the work-plane offset independent from both. Report remaining
   X/Y/Z/RX/RY/RZ degrees of freedom clearly.
+- Enforce the mandatory own-value fallback contract from
+  `STABLE_TOPOLOGY_NAMING.md` for every reference-driven parameter. A resolved
+  reference refreshes its last valid fallback; a missing, ambiguous or
+  incompatible reference retains usable geometry from that value while
+  remaining visibly broken and repairable. Never replace it with zero or a
+  current runtime topology index.
 - Continue testing the implemented two-row mapping to Front, Back, Top, Bottom,
   Left and Right, including automatic prevention of parallel mappings and the
   valid empty-mapping fallback to the container's local frame.
 - Verify generated locked axes for circular protrusions, cylinders, cones and
   spheres after edit, regeneration, save and reload.
+
+## Feature Extent Targets
+
+- Extend solid Protrusion sides from numeric length to stable target conditions:
+  face, datum plane, point and through-all, with an independent target offset.
+- A target point defines the plane through that point perpendicular to the
+  extrusion direction. Do not offer an axis as a target until its geometric
+  meaning is unambiguous for the selected direction.
+- Start and End each persist the complete independent condition, stable target
+  payload, offset, direction and last valid calculated length. Flip exchanges
+  those side definitions where appropriate; symmetric mode keeps stable
+  Start/End identities.
+- If a target disappears, mandatory own-value fallback keeps the last valid
+  length while marking the target unresolved and repairable.
+
+## Pattern and Mirror
+
+- Implement Pattern as a general semantic history feature after the main Part
+  feature set is stable. Begin with linear and circular patterns; curve-driven,
+  table-driven and reference-driven patterns can follow.
+- A pattern references one or more source features/bodies, not transient result
+  topology. Every occurrence has a deterministic persistent identity derived
+  from the Pattern ID and its semantic occurrence key, never only its current
+  array index.
+- Editing count, spacing, angle, direction or suppressed occurrences preserves
+  identities of surviving occurrences. Deleted occurrences become unresolved;
+  later references must not slide silently to the next array item.
+- Pattern direction/axis references obey mandatory own-value fallback. Preserve
+  the last valid spacing, angle and direction while reporting a lost driver.
+- Implement Part Mirror for selected features and bodies about a stable datum
+  plane or planar face. Mirrored faces, edges and vertices receive provenance
+  from the source semantic identity plus the Mirror operation, including
+  explicit handling of topology lying on the mirror plane.
+- Do not implement a general reflection-matrix Assembly Mirror initially. A
+  negative-handed component transform confuses normals, FRONT/BACK semantics,
+  mates, threads, exports, Drawings and BOM identity.
+- Instead provide **Create mirrored Part** with two explicit document modes:
+  - **Dependent** creates a new derived `.prtz` whose mirror feature references
+    the source Part/document and regenerates when that source changes. It has
+    its own document identity, part number, metadata and Drawing, while its
+    inherited geometry remains associative with the source.
+  - **Independent** creates a new standalone `.prtz` from the mirrored result.
+    It has no regeneration link to the source and can be edited as an ordinary
+    unrelated Part from that point onward.
+- Both modes require an explicit stable mirror plane, output path/name and
+  left/right-hand metadata policy. Assembly then inserts the resulting `.prtz`
+  as an ordinary right-handed component with normal mates and BOM behavior.
+- Pattern and Part Mirror creation/editing use the ordinary rollback, transient
+  preview, selection-contract and own-value-fallback rules. Viewer inspection
+  consumes persisted occurrence/topology data without hidden OCCT traversal.
+
+## Undo and Redo
+
+- Implement central document Undo/Redo late, after the Part, Assembly, Drawing,
+  stable-reference and transaction models have settled. Building it over a
+  changing data model would repeatedly invalidate the command architecture.
+- Continue preparing for it now: transient previews never become document
+  history, stable IDs survive edits, and every confirmed operation should be
+  expressible as one atomic before/after document transaction.
 
 ## Assembly Stabilization
 
