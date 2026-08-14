@@ -89,3 +89,233 @@
   not a general persisted placement reference.
 - Highlight only the exact candidate geometry. Do not colour, tint, or add a
   coloured overlay for an entire body when offering a topology reference.
+
+## Engineering Reasoning
+
+When working on engineering, CAD, geometry, mechanism, manufacturing,
+or design-related tasks in this repository, read and follow:
+
+`doc/AI/ZIMA_ENGINEERING_REASONING.md`
+
+This document defines the engineering reasoning methodology used by ZIMA-CAD.
+
+It is not optional background documentation.
+Treat it as the primary reasoning framework for engineering design tasks.
+
+### Core Engineering Model
+
+Always reduce an engineering problem to:
+
+INPUTS → MEANS → OUTPUTS
+
+Before proposing a detailed solution:
+
+1. Identify the inputs.
+2. Identify the required outputs.
+3. Identify the available means.
+4. Perform an independent measure / sanity check.
+
+Means include manufacturing means.
+
+Do not assume that dimensions, masses, forces, powers, speeds, costs,
+or other values supplied by the user are automatically reasonable.
+
+Use engineering knowledge to independently check their scale.
+
+### Existing Knowledge
+
+Use known mechanisms, existing designs, standards, materials,
+manufacturing methods, and previous solutions as engineering knowledge.
+
+However:
+
+DO NOT EQUATE THE MOST COMMON SOLUTION WITH THE BEST SOLUTION.
+
+Existing knowledge should:
+
+- provide scale,
+- provide references,
+- provide proven principles,
+- expose known limitations,
+- help verify candidates.
+
+It must not unnecessarily restrict invention to statistically common designs.
+
+### Solution Search
+
+Prefer a simple proven solution when it satisfies the requirements.
+
+Do not create novelty merely for novelty's sake.
+
+If no satisfactory known solution exists:
+
+1. combine known principles,
+2. evaluate the result,
+3. modify the concept,
+4. evaluate again.
+
+All evaluation must return to:
+
+INPUTS → MEANS → OUTPUTS
+
+### Escaping a Bad Solution Region
+
+If conventional modifications repeatedly fail, do not endlessly optimize
+the same concept.
+
+Allow the search to leave the current solution region.
+
+Generate alternative candidates that may significantly differ from the
+current design.
+
+These candidates may originate from unusual combinations, deviations,
+unexpected associations, or deliberately introduced exploratory errors.
+
+A candidate is not accepted merely because it is novel.
+
+### Error and Invention
+
+During exploration, error can be useful.
+
+An unexpected or initially incorrect state may reveal a solution region
+that conventional reasoning would not reach.
+
+Therefore:
+
+ALLOW ERROR DURING DISCOVERY.
+
+DO NOT ALLOW ERROR DURING VERIFICATION.
+
+Or equivalently:
+
+"During invention, allow mistakes. During verification, do not."
+
+Once an unusual candidate has been generated, immediately return to
+rigorous engineering evaluation.
+
+### Local Exploration
+
+When an unusual candidate appears promising, explore its neighborhood.
+
+Test at least three useful independent directions where practical.
+
+Determine whether movement in those directions:
+
+- improves the concept,
+- degrades it,
+- has little effect,
+- or causes the principle to fail.
+
+Do not assume that a working solution is a single point.
+
+Try to understand the multidimensional region in which the principle works.
+
+This region is its engineering MEASURE.
+
+Multiple disconnected valid regions may exist for the same problem.
+
+### Verification
+
+Creative generation and engineering verification are separate phases.
+
+During verification, use appropriate deterministic methods whenever possible:
+
+- calculations,
+- geometry checks,
+- CAD kernel results,
+- collision detection,
+- kinematics,
+- tolerance analysis,
+- strength calculations,
+- simulations,
+- manufacturing checks,
+- assembly checks,
+- testing.
+
+Never present an invented assumption as a verified engineering fact.
+
+If verification is incomplete, explicitly state what remains uncertain.
+
+### ZIMA-CAD Architecture
+
+Do not unnecessarily couple engineering reasoning to a particular geometric
+representation.
+
+A design may exist as:
+
+- parametric ZIMA-CAD objects,
+- direct geometry,
+- imported geometry,
+- B-Rep / solid geometry,
+- or an AI-generated intermediate representation.
+
+The engineering intent and the geometric representation are related,
+but they are not the same thing.
+
+Preserve this separation when designing new ZIMA-CAD functionality.
+
+### AI and Human Interaction
+
+The AI should act as an engineering collaborator, not merely as a command
+generator.
+
+When interaction data is available, consider:
+
+- selected objects,
+- hovered objects,
+- cursor position,
+- cursor trajectory,
+- spoken instructions,
+- model geometry,
+- parameters,
+- engineering metadata,
+- manufacturing constraints.
+
+Words such as:
+
+- this,
+- here,
+- there,
+- these,
+- move this,
+- make this larger,
+
+must be resolved against the current CAD interaction context whenever possible.
+
+Do not guess a geometric reference when the available context is ambiguous.
+
+### Engineering Knowledge vs. Engineering Reasoning
+
+Keep these concepts separate.
+
+ENGINEERING KNOWLEDGE answers:
+
+"What do we know?"
+
+ENGINEERING REASONING answers:
+
+"How should we search for a solution?"
+
+ZIMA-CAD should eventually support both.
+
+Engineering knowledge may grow through databases, documentation,
+standards, previous projects, catalog data, calculations, and experience.
+
+The reasoning method is defined primarily by:
+
+`doc/AI/ZIMA_ENGINEERING_REASONING.md`
+
+### Final Principle
+
+Knowledge is used to understand and verify reality.
+
+It must not become a prison that restricts engineering invention to the
+average of previously known solutions.
+
+When a conventional solution works, use it.
+
+When it does not, search elsewhere.
+
+When searching elsewhere, allow mistakes.
+
+When verifying the result, do not.
