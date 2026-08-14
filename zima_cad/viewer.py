@@ -96,6 +96,7 @@ class ViewerPickCandidate:
     element_index: int = 0
     hover_mesh: ViewerMesh | None = None
     anchor: Point3 | None = None
+    reference: Any = None
 
 TopologyKey = tuple[str, int]
 
@@ -2625,7 +2626,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             marker = self._screen_point(
                 self._camera_point(self._insertion_origin_marker)
             )
-            if math.hypot(
+            if hypot(
                 event.position().x() - marker.x(),
                 event.position().y() - marker.y(),
             ) <= 12.0:

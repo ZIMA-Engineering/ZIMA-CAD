@@ -21346,8 +21346,26 @@ class MainWindow(QMainWindow):
             descriptor = f"{component_id}:datum_axis:{source_axis_id}"
             dialog.accept_axis(descriptor)
             return True
-        original = self._assembly_original_edge_candidate(
-            dialog, self.native_viewer._last_click_position
+        provided = getattr(self.native_viewer, "_provided_hover_candidate", None)
+        picked = getattr(self, "_assembly_pick_reference", None)
+        if provided is not None and provided.reference is not None:
+            picked = (
+                provided.kind,
+                provided.owner_id,
+                provided.element_index,
+                provided.reference,
+            )
+        original = (
+            picked[3][1]
+            if picked is not None
+            and picked[0] == "edge"
+            and picked[1] == owner_id
+            and picked[2] == edge_index
+            and picked[3] is not None
+            and picked[3][0] == "edge"
+            else self._assembly_original_edge_candidate(
+                dialog, self.native_viewer._last_click_position
+            )
         )
         cycled = getattr(self, "_assembly_cycled_original_reference", None)
         if (
@@ -21358,6 +21376,7 @@ class MainWindow(QMainWindow):
         ):
             original = cycled[1]
         self._assembly_cycled_original_reference = None
+        self._assembly_pick_reference = None
         if original is not None:
             (
                 owner, descriptor, label, origin, direction,
@@ -21793,6 +21812,7 @@ class MainWindow(QMainWindow):
             candidates.append((ViewerPickCandidate(
                 "face", owner.entity_id, face_index,
                 mesh.face_mesh(mesh_owner, face_index),
+                reference=("face", original_face),
             ), ("face", original_face)))
         # A sharp/circular original edge has a wider screen hit region than
         # the face it bounds. Keep it available for cycling, but do not let
@@ -21804,6 +21824,7 @@ class MainWindow(QMainWindow):
             candidates.append((ViewerPickCandidate(
                 "edge", owner.entity_id, edge_index,
                 mesh.edge_mesh(mesh_owner, edge_index),
+                reference=("edge", original_edge),
             ), ("edge", original_edge)))
         distinct = []
         seen = set()
@@ -22029,7 +22050,17 @@ class MainWindow(QMainWindow):
             candidates = self._assembly_viewer_pick_candidates(
                 assembly_dialog, position
             )
-            return candidates[0][0] if candidates else None
+            if not candidates:
+                self._assembly_pick_reference = None
+                return None
+            candidate, reference = candidates[0]
+            self._assembly_pick_reference = (
+                candidate.kind,
+                candidate.owner_id,
+                candidate.element_index,
+                reference,
+            )
+            return candidate
         if self._dimension_inspection_visuals:
             return None
         policy = self._viewer_selection_policy()
@@ -23803,8 +23834,26 @@ class MainWindow(QMainWindow):
             or dialog.selection_paused
         ):
             return False
-        original = self._assembly_original_face_candidate(
-            dialog, self.native_viewer._last_click_position
+        provided = getattr(self.native_viewer, "_provided_hover_candidate", None)
+        picked = getattr(self, "_assembly_pick_reference", None)
+        if provided is not None and provided.reference is not None:
+            picked = (
+                provided.kind,
+                provided.owner_id,
+                provided.element_index,
+                provided.reference,
+            )
+        original = (
+            picked[3][1]
+            if picked is not None
+            and picked[0] == "face"
+            and picked[1] == owner_id
+            and picked[2] == face_index
+            and picked[3] is not None
+            and picked[3][0] == "face"
+            else self._assembly_original_face_candidate(
+                dialog, self.native_viewer._last_click_position
+            )
         )
         cycled = getattr(self, "_assembly_cycled_original_reference", None)
         if (
@@ -23815,6 +23864,7 @@ class MainWindow(QMainWindow):
         ):
             original = cycled[1]
         self._assembly_cycled_original_reference = None
+        self._assembly_pick_reference = None
         if original is not None:
             (
                 owner,
@@ -28989,6 +29039,26 @@ class MainWindow(QMainWindow):
         fit_inserted_component = not existing_components
         insertion_x = 0.0
         source_shape = source_document.build_active_shape()
+        # Insertion is an explicit calculation boundary.  Materialize the
+        # source Part's persisted viewer BodyResult here so Assembly
+        # Properties can pick its original faces without recalculating during
+        # hover/click.
+        if source_document.cached_body_result_at(
+            source_document.history_objects_at(source_document.history_cursor())
+        ) is None:
+            source_scene = build_document_viewer_scene_data(
+                source_document,
+                history_boundary=len(source_document.active_history_objects()),
+                show_sketches=False,
+            )
+            if source_scene.calculated_body_result is not None:
+                keys = source_document._shape_history_cache_keys(
+                    source_document.active_history_objects()
+                )
+                if keys:
+                    source_document._body_result_cache[keys[-1]] = (
+                        source_scene.calculated_body_result
+                    )
         if existing_components and source_shape is not None:
             existing_bounds = self._shape_bounds(self.document.build_active_shape())
             source_bounds = self._shape_bounds(source_shape)
@@ -29616,6 +29686,15 @@ class MainWindow(QMainWindow):
                 calculated = document.cached_body_result_at(
                     document.history_objects_at(document.history_cursor())
                 )
+                if (
+                    calculated is None
+                    and not document.regeneration_required
+                    and len(document._body_result_cache) == 1
+                ):
+                    # A loaded, unchanged Part can have its sole persisted
+                    # packet under a pre-axis-sync history key. Reuse that
+                    # validated packet; do not invoke OCCT from picking.
+                    calculated = next(iter(document._body_result_cache.values()))
                 if calculated is None:
                     return
                 bodies = list(calculated.source_bodies.values())
