@@ -21752,37 +21752,6 @@ class MainWindow(QMainWindow):
                 candidates.append((ViewerPickCandidate(
                     kind, owner_id, element_index, None
                 ), None))
-        # Origin axes are persisted datum references, but they are not part
-        # of the solid mesh topology. Add them to this same ordered candidate
-        # list so hover, LMB and RMB cycling see identical axis candidates.
-        origin = next((child for child in self.document.root.children
-                       if child.kind == EntityKind.ORIGIN), None)
-        if origin is not None:
-            origin_point = (0.0, 0.0, 0.0)
-            axis_data = (
-                ((1.0, 0.0, 0.0), 1),
-                ((0.0, 1.0, 0.0), 2),
-                ((0.0, 0.0, 1.0), 3),
-            )
-            length = max(float(self.native_viewer._scene_radius) * 0.35, 10.0)
-            for direction, axis_index in axis_data:
-                start = transform_point(
-                    np.eye(4), origin_point
-                )
-                end = tuple(direction[index] * length for index in range(3))
-                start_screen = self.native_viewer._screen_point(
-                    self.native_viewer._camera_point(start)
-                )
-                end_screen = self.native_viewer._screen_point(
-                    self.native_viewer._camera_point(end)
-                )
-                distance, _fraction = self.native_viewer._point_segment_distance(
-                    QPointF(position), start_screen, end_screen
-                )
-                if distance <= 9.0:
-                    candidates.append((ViewerPickCandidate(
-                        "edge", origin.entity_id, axis_index, None
-                    ), None))
         for original_face in self._assembly_original_face_candidates(
             dialog, QPointF(position)
         ):
