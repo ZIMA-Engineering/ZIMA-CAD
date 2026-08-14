@@ -41,6 +41,122 @@ class AssemblyDocumentTests(unittest.TestCase):
         brepgprop.VolumeProperties(shape, properties)
         return abs(float(properties.Mass()))
 
+    def test_assembly_component_may_reference_an_assembly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "block.prtz"
+            subassembly_path = root / "subassembly.asmz"
+            top_path = root / "top.asmz"
+
+            part = create_empty_part()
+            box = part.create_container("Box", ContainerType.BOX)
+            primitive = part.create_primitive(box.entity_id, EntityKind.BOX)
+            primitive.parameters.update({
+                "length": "10", "width": "20", "height": "30",
+            })
+            save_part_document(part, part_path)
+
+            subassembly = create_empty_assembly()
+            subassembly.source_file_path = subassembly_path
+            child = subassembly.create_container("Block", ContainerType.COMPONENT)
+            child.parameters["source_path"] = part_path.name
+            child.coordinate_system.origin = (5.0, 0.0, 0.0)
+            save_part_document(subassembly, subassembly_path)
+
+            top = create_empty_assembly()
+            top.source_file_path = top_path
+            nested = top.create_container("Subassembly", ContainerType.COMPONENT)
+            nested.parameters["source_path"] = subassembly_path.name
+            nested.coordinate_system.origin = (100.0, 0.0, 0.0)
+            save_part_document(top, top_path)
+
+            loaded = load_part_document(top_path)
+            shape = loaded.build_active_shape()
+            self.assertIsNotNone(shape)
+            self.assertAlmostEqual(self._volume(shape), 6000.0, places=5)
+            bounds = self._shape_bounds(shape)
+            self.assertAlmostEqual(bounds[0], 105.0, places=5)
+
+    @staticmethod
+    def _shape_bounds(shape):
+        from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRepBndLib import brepbndlib
+
+        bounds = Bnd_Box()
+        brepbndlib.Add(shape, bounds)
+        return tuple(float(value) for value in bounds.Get())
+
+    def test_recursive_assembly_reference_is_rejected_during_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_path = root / "first.asmz"
+            second_path = root / "second.asmz"
+            first = create_empty_assembly()
+            first.source_file_path = first_path
+            first_component = first.create_container(
+                "Second", ContainerType.COMPONENT
+            )
+            first_component.parameters["source_path"] = second_path.name
+            save_part_document(first, first_path)
+            second = create_empty_assembly()
+            second.source_file_path = second_path
+            second_component = second.create_container(
+                "First", ContainerType.COMPONENT
+            )
+            second_component.parameters["source_path"] = first_path.name
+            save_part_document(second, second_path)
+
+            self.assertIsNone(load_part_document(first_path).build_active_shape())
+
+    def test_explicit_parent_regeneration_can_pull_unsaved_open_subassembly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            part_path = root / "block.prtz"
+            subassembly_path = root / "sub.asmz"
+            parent_path = root / "parent.asmz"
+
+            part = create_empty_part()
+            box = part.create_container("Box", ContainerType.BOX)
+            part.create_primitive(box.entity_id, EntityKind.BOX)
+            save_part_document(part, part_path)
+
+            subassembly = create_empty_assembly()
+            subassembly.source_file_path = subassembly_path
+            first = subassembly.create_container("First", ContainerType.COMPONENT)
+            first.parameters["source_path"] = part_path.name
+            save_part_document(subassembly, subassembly_path)
+
+            parent = create_empty_assembly()
+            parent.source_file_path = parent_path
+            nested = parent.create_container("Sub", ContainerType.COMPONENT)
+            nested.parameters["source_path"] = subassembly_path.name
+            save_part_document(parent, parent_path)
+
+            loaded_parent = load_part_document(parent_path)
+            original_volume = self._volume(loaded_parent.build_active_shape())
+
+            open_subassembly = load_part_document(subassembly_path)
+            second = open_subassembly.create_container(
+                "Second", ContainerType.COMPONENT
+            )
+            second.parameters["source_path"] = part_path.name
+            second.coordinate_system.origin = (100.0, 0.0, 0.0)
+            # Simulate explicit Regenerate choosing the open in-memory source.
+            loaded_parent.__dict__.setdefault(
+                "_assembly_component_document_cache", {}
+            )[subassembly_path.resolve()] = open_subassembly
+            loaded_parent._shape_history_cache.clear()
+            loaded_parent._body_result_cache.clear()
+            open_subassembly._shape_history_cache.clear()
+            open_subassembly._body_result_cache.clear()
+
+            regenerated_volume = self._volume(
+                loaded_parent.build_active_shape()
+            )
+            self.assertAlmostEqual(
+                regenerated_volume, original_volume * 2.0, places=5
+            )
+
     def test_component_inherits_part_color_until_overridden(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1512,7 +1512,11 @@ def make_component_shape(
     document: PartDocument | None,
     component: ZimaEntity,
 ):
-    """Load the referenced part and return its evaluated body shape."""
+    """Load the referenced Part/Assembly and return its evaluated body shape.
+
+    The path stack is document-owned so recursive Assembly evaluation can
+    reject direct and indirect self-insertion deterministically.
+    """
     raw_path = str(component.parameters.get("source_path", "")).strip()
     if not raw_path:
         return None
@@ -1539,9 +1543,24 @@ def make_component_shape(
         if source_document is None:
             source_document = load_part_document(resolved_path)
             document_cache[resolved_path] = source_document
-        if source_document.document_settings.get("type", "part") != "part":
+        if source_document.document_settings.get("type", "part") not in {
+            "part", "assembly",
+        }:
             return None
-        return source_document.build_active_shape()
+        evaluation_stack = (
+            document.__dict__.setdefault("_assembly_evaluation_stack", [])
+            if document is not None
+            else []
+        )
+        if resolved_path in evaluation_stack:
+            return None
+        evaluation_stack.append(resolved_path)
+        source_document.__dict__["_assembly_evaluation_stack"] = evaluation_stack
+        try:
+            return source_document.build_active_shape()
+        finally:
+            evaluation_stack.pop()
+            source_document.__dict__.pop("_assembly_evaluation_stack", None)
     except (OSError, ValueError):
         return None
 

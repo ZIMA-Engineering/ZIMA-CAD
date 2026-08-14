@@ -186,9 +186,14 @@ class VertexRef:
 class AssemblyFaceRef:
     instance_id: str
     face: FaceRef
+    instance_path: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"instance_id": self.instance_id, "face": self.face.to_dict()}
+        return {
+            "instance_id": self.instance_id,
+            "instance_path": list(self.instance_path),
+            "face": self.face.to_dict(),
+        }
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> AssemblyFaceRef:
@@ -198,7 +203,14 @@ class AssemblyFaceRef:
         instance_id = str(value.get("instance_id", "")).strip()
         if not instance_id:
             raise ValueError("AssemblyFaceRef requires instance_id")
-        return cls(instance_id=instance_id, face=FaceRef.from_dict(face))
+        raw_path = value.get("instance_path", ())
+        if not isinstance(raw_path, (list, tuple)):
+            raise ValueError("AssemblyFaceRef instance_path must be a list")
+        return cls(
+            instance_id=instance_id,
+            face=FaceRef.from_dict(face),
+            instance_path=tuple(str(item) for item in raw_path if str(item)),
+        )
 
     def serialize(self) -> str:
         return json.dumps(
@@ -220,9 +232,14 @@ class AssemblyFaceRef:
 class AssemblyEdgeRef:
     instance_id: str
     edge: EdgeRef
+    instance_path: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"instance_id": self.instance_id, "edge": self.edge.to_dict()}
+        return {
+            "instance_id": self.instance_id,
+            "instance_path": list(self.instance_path),
+            "edge": self.edge.to_dict(),
+        }
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> AssemblyEdgeRef:
@@ -232,7 +249,14 @@ class AssemblyEdgeRef:
         instance_id = str(value.get("instance_id", "")).strip()
         if not instance_id:
             raise ValueError("AssemblyEdgeRef requires instance_id")
-        return cls(instance_id=instance_id, edge=EdgeRef.from_dict(edge))
+        raw_path = value.get("instance_path", ())
+        if not isinstance(raw_path, (list, tuple)):
+            raise ValueError("AssemblyEdgeRef instance_path must be a list")
+        return cls(
+            instance_id=instance_id,
+            edge=EdgeRef.from_dict(edge),
+            instance_path=tuple(str(item) for item in raw_path if str(item)),
+        )
 
     def serialize(self) -> str:
         return json.dumps(

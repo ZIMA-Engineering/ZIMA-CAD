@@ -64,6 +64,36 @@ from zima_cad.body_result import BodyResult
 
 
 class StableTopologyTests(unittest.TestCase):
+    def test_nested_assembly_reference_path_round_trip(self) -> None:
+        face = AssemblyFaceRef(
+            "top-instance",
+            FaceRef("feature", "generated", "side"),
+            ("subassembly-instance", "part-instance"),
+        )
+        edge = AssemblyEdgeRef(
+            "top-instance",
+            EdgeRef("feature", "generated", "circle"),
+            ("subassembly-instance", "part-instance"),
+        )
+
+        self.assertEqual(
+            parse_assembly_face_descriptor(assembly_face_descriptor(face)),
+            face,
+        )
+        self.assertEqual(
+            parse_assembly_edge_descriptor(assembly_edge_descriptor(edge)),
+            edge,
+        )
+        sibling = AssemblyFaceRef(
+            "top-instance",
+            face.face,
+            ("subassembly-instance", "second-part-instance"),
+        )
+        self.assertNotEqual(
+            assembly_face_descriptor(face),
+            assembly_face_descriptor(sibling),
+        )
+
     def test_body_result_persists_cylindrical_face_axis(self) -> None:
         mesh = triangulate_shape(
             BRepPrimAPI_MakeCylinder(7.5, 24.0).Shape(),

@@ -41,6 +41,43 @@
   Apply may replace it with a transient preview; OK or Cancel restores normal
   full-history display, selection mode, and highlights.
 
+## Explicit dependency regeneration
+
+- Changes to a source Part or nested Assembly must not automatically regenerate
+  parent Assemblies, including during tab switching, saving, tree refresh or
+  ordinary viewer rebuilds. Automatic dependent calculation can interrupt
+  deliberate multi-document editing and destabilize unrelated work.
+- Parent Assemblies do not require dirty/stale badges merely because an open
+  dependency changed. The user explicitly chooses when to pull dependency
+  changes into a parent by invoking **Regenerate** on that parent document.
+- Explicit Regenerate treats currently open Part and Assembly documents as the
+  authoritative dependency sources, refreshes the complete nested dependency
+  chain, invalidates only the caches needed by that calculation, and then
+  recalculates the requested document. It must not require saving dependencies
+  first when their current in-memory documents are available.
+- Switching tabs displays the last calculated/persisted state and must not hide
+  an implicit OCCT calculation behind document activation.
+
+## Assembly editing ownership
+
+- Every component is positioned only by its immediate owning Assembly. A
+  parent Assembly treats an inserted subassembly as one component and must not
+  directly own mates that position the subassembly's internal components.
+- Activating a Part or Assembly changes the writable editing document to that
+  component's source document. A Part exposes Modeling tools; a subassembly
+  exposes Assembly tools and those tools operate only on its own immediate
+  components.
+- Activation never replaces the displayed top-level Assembly. The complete
+  top-level scene remains visible as passive context while tree editability,
+  hover, confirmed selection and commands follow the exact active occurrence,
+  even when that Part or Assembly is nested several levels deep.
+- Geometry outside the active document may be exposed only as an explicit,
+  read-only external reference. Such a reference does not transfer ownership
+  of the referenced object or permit a higher Assembly to drive internal
+  subassembly placement.
+- Dependency edges are one-way. Creating an insertion or external reference
+  that would introduce a direct or indirect dependency cycle must be rejected.
+
 ## File-format compatibility
 
 - Backward compatibility with legacy Part and Assembly files is not required.
@@ -69,17 +106,32 @@
 
 ## Viewer selection contracts
 
-- Hover, left-click confirmation, and right-click cycling must consume one
-  common ordered candidate list produced by the viewer. An active command may
-  filter that list through its selection contract, but must not run a parallel
-  picker, use different hit tolerances, or recompute a different candidate on
-  click. RMB changes only the active index in the same list.
+- Hover, left-click confirmation, and pre-confirmation right-click cycling must
+  consume one common ordered candidate list produced by the viewer. An active
+  command may filter that list through its selection contract, but must not run
+  a parallel picker, use different hit tolerances, or recompute a different
+  candidate on click. Before confirmation, RMB changes only the active index in
+  the same list.
 - Every active command owns an explicit viewer selection contract defining
   what is displayed, offered on hover, accepted on click, and persisted.
-- With no active command, Assembly selects complete components and Part
-  selects individual history containers. Hover uses the orange wire and a
-  confirmed selection uses the cyan wire; ordinary result-body topology is
-  not offered.
+- With no active command, selection is leaf-first and consistent in every
+  workspace. Assembly hover offers the lowest concrete Part occurrence under
+  the pointer, not an undifferentiated nested Assembly; Part offers individual
+  history containers. Hover uses the orange wire and LMB confirms the exact
+  candidate with the cyan wire; ordinary result-body topology is not offered.
+- RMB over an LMB-confirmed object opens its context menu instead of cycling.
+  The context menu exposes **Select Parent** whenever the selected object has a
+  selectable parent. Each invocation moves selection exactly one hierarchy
+  level upward, may be repeated through arbitrarily nested Assemblies, and
+  synchronizes the tree and view to the same selected instance path.
+- RMB cycling remains active before LMB confirmation and throughout an active
+  command such as Assembly mating. Active commands do not open the ordinary
+  object context menu until they finish or cancel.
+- Every occurrence in a nested hierarchy has its own stable instance path.
+  Hover, confirmation, context actions, Select Parent, activation, visibility,
+  persistence and highlighting must distinguish repeated occurrences of the
+  same source Part or Assembly. Names and source entity IDs alone are not
+  occurrence identity.
 - Stable feature, container, Sketcher, and Assembly-mate references use the
   persisted faces, edges, vertices/points, axes, and planes of original
   objects/solids. Result Part/Assembly body topology and transient previews

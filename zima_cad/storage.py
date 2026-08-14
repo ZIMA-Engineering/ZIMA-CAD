@@ -31,7 +31,7 @@ from zima_cad.sketch_model import SketchModel, SketchModelError
 from zima_cad.versioned_io import write_text_versioned
 
 
-ASSEMBLY_BODY_CACHE_REVISION = "4"
+ASSEMBLY_BODY_CACHE_REVISION = "5"
 
 
 class ContainerEntityLimitError(ValueError):

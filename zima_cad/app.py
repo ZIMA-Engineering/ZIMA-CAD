@@ -917,6 +917,7 @@ class HistoryTreeWidget(QTreeWidget):
     SKETCH_DIMENSION_ROLE = int(Qt.ItemDataRole.UserRole) + 9
     COMPONENT_INSTANCE_ROLE = int(Qt.ItemDataRole.UserRole) + 10
     COMPONENT_SOURCE_ENTITY_ROLE = int(Qt.ItemDataRole.UserRole) + 11
+    COMPONENT_INSTANCE_PATH_ROLE = int(Qt.ItemDataRole.UserRole) + 14
     DRAWING_SHEET_ROLE = int(Qt.ItemDataRole.UserRole) + 12
     RESULT_BODY_ROLE = int(Qt.ItemDataRole.UserRole) + 13
 
@@ -6097,6 +6098,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         ))
         self.reference_list.verticalHeader().hide()
         self.rows = []
+        self._derived_flip_row: int | None = None
+        self._updating_flip_contract = False
         # Stable mate descriptors point to original Part solids.  Keep the
         # current Assembly result indices separately for persistent viewport
         # highlighting; these transient indices are never serialized.
@@ -6190,7 +6193,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 lambda _value: self.matesSubmitted.emit(self.mate_rows())
             )
             flip.toggled.connect(
-                lambda _checked: self.matesSubmitted.emit(self.mate_rows())
+                lambda checked, index=row: self._flip_toggled(index, checked)
             )
             mate_type.currentIndexChanged.connect(
                 lambda _index, value=offset, combo=mate_type, flip_control=flip:
@@ -6244,6 +6247,93 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.setFixedHeight(content_height)
         self.resize(820, content_height)
 
+    def _independent_flip_rows(self) -> tuple[int, ...]:
+        """Return the three plane rows that form independent source/target frames."""
+        frames = getattr(self, "_reference_frames", {})
+        candidates = []
+        source_normals = []
+        target_normals = []
+        for index, (source, target, mate_type, _offset, _flip) in enumerate(self.rows):
+            source_key = source.property("reference")
+            target_key = target.property("reference")
+            if (
+                mate_type.currentData() != "plane"
+                or source_key not in frames
+                or target_key not in frames
+            ):
+                continue
+            candidates.append(index)
+            source_normals.append(np.asarray(frames[source_key][1], dtype=float))
+            target_normals.append(np.asarray(frames[target_key][1], dtype=float))
+        if len(candidates) != 3:
+            return ()
+        if not self._three_directions_are_independent(source_normals):
+            return ()
+        if not self._three_directions_are_independent(target_normals):
+            return ()
+        return tuple(candidates)
+
+    @staticmethod
+    def _three_directions_are_independent(normals) -> bool:
+        values = np.asarray(normals, dtype=float)
+        return values.shape == (3, 3) and np.linalg.matrix_rank(
+            values, tol=1.0e-9
+        ) == 3
+
+    @staticmethod
+    def _even_flip_value(values: dict[int, bool], derived_row: int) -> bool:
+        """Choose the derived value so an independent frame stays proper."""
+        return sum(
+            bool(value) for row, value in values.items() if row != derived_row
+        ) % 2 == 1
+
+    def _refresh_flip_contract(
+        self,
+        changed_row: int | None = None,
+        *,
+        emit: bool = False,
+    ) -> None:
+        if self._updating_flip_contract:
+            return
+        independent = self._independent_flip_rows()
+        if not independent:
+            self._derived_flip_row = None
+        else:
+            if self._derived_flip_row not in independent:
+                self._derived_flip_row = independent[-1]
+            elif changed_row == self._derived_flip_row:
+                # The value explicitly clicked by the user becomes a driver.
+                # Prefer the preceding plane as the new derived value.
+                alternatives = [row for row in independent if row != changed_row]
+                preceding = [row for row in alternatives if row < changed_row]
+                self._derived_flip_row = (preceding or alternatives)[-1]
+            values = {
+                row: self.rows[row][4].isChecked() for row in independent
+            }
+            derived = self._derived_flip_row
+            self._updating_flip_contract = True
+            try:
+                checkbox = self.rows[derived][4]
+                blocked = checkbox.blockSignals(True)
+                checkbox.setChecked(self._even_flip_value(values, derived))
+                checkbox.blockSignals(blocked)
+            finally:
+                self._updating_flip_contract = False
+        for index, (_source, _target, mate_type, _offset, checkbox) in enumerate(self.rows):
+            if mate_type.currentData() == "axis":
+                continue
+            if index == self._derived_flip_row:
+                checkbox.setToolTip(
+                    "Odvozený Flip – kliknutím jej změníte a odvození se přesune."
+                )
+            else:
+                checkbox.setToolTip("Flip směru vazby")
+        if emit:
+            self.matesSubmitted.emit(self.mate_rows())
+
+    def _flip_toggled(self, row: int, _checked: bool) -> None:
+        self._refresh_flip_contract(changed_row=row, emit=True)
+
     @staticmethod
     def _retained_mate_rows(value) -> list[dict[str, Any]]:
         if not isinstance(value, list):
@@ -6296,6 +6386,8 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 flip_control.setChecked(False)
             flip_control.setEnabled(not is_axis)
             flip_control.blockSignals(flip_signals_were_blocked)
+        if self.rows:
+            self._refresh_flip_contract()
         if emit:
             self.matesSubmitted.emit(self.mate_rows())
 
@@ -6512,6 +6604,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.selection_paused = True
         self._update_remove_buttons()
         self._update_pick_highlight()
+        self._refresh_flip_contract()
         return True
 
     def _activate_pick(self, row: int, side: str) -> None:
@@ -6605,6 +6698,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.selection_paused = False
         self._update_pick_highlight()
         self._update_remove_buttons()
+        self._refresh_flip_contract()
         self.matesSubmitted.emit(self.mate_rows())
 
     def keyPressEvent(self, event) -> None:
@@ -6654,6 +6748,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.selection_paused = False
         self._update_pick_highlight()
         self._update_remove_buttons()
+        self._refresh_flip_contract()
         self.matesSubmitted.emit(self.mate_rows())
 
     def _choose_reference(
@@ -6750,6 +6845,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
+            self._refresh_flip_contract()
             self.matesSubmitted.emit(self.mate_rows())
         return True
 
@@ -6781,6 +6877,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self._advance_pick(row, side)
         self._update_pick_highlight()
         if side == "target":
+            self._refresh_flip_contract()
             self.matesSubmitted.emit(self.mate_rows())
         return True
 
@@ -9283,7 +9380,9 @@ class MainWindow(QMainWindow):
         self.working_directory = self.startup_context.working_directory
         self._active_component_return_document: PartDocument | None = None
         self._active_component_document: PartDocument | None = None
+        self._active_component_root_document: PartDocument | None = None
         self._active_component_entity_id: str | None = None
+        self._active_component_instance_path: tuple[str, ...] = ()
         self._active_component_world_transform = None
         self._active_component_passive_meshes: dict[str, ViewerMesh] = {}
         self._viewer_document_context: ViewerDocumentContext | None = None
@@ -9376,6 +9475,8 @@ class MainWindow(QMainWindow):
         self._reference_cycle_preview_id: str | None = None
         self._view_candidate_cycle_ids: tuple[str, ...] = ()
         self._view_candidate_cycle_index = -1
+        self._assembly_occurrence_records: dict[str, dict[str, Any]] = {}
+        self._selected_assembly_occurrence_key: str | None = None
         self._point_constraint_cycle_keys: tuple[str, ...] = ()
         self._point_constraint_cycle_index = -1
         self._point_constraint_preview: tuple[str, Any] | None = None
@@ -9536,6 +9637,9 @@ class MainWindow(QMainWindow):
         )
         self.native_viewer.selectedObjectChanged.connect(
             self._on_native_object_selected
+        )
+        self.native_viewer.insertionOriginDragged.connect(
+            self._on_insertion_origin_dragged
         )
         self._view_hover_parts: dict[str, tuple[str, int]] = {}
         self._view_hover_label = QLabel()
@@ -10044,7 +10148,11 @@ class MainWindow(QMainWindow):
         if self.document is None:
             return False
         if self._active_component_return_document is not None:
-            return mode == ApplicationMode.MODELING
+            return mode == (
+                ApplicationMode.ASSEMBLY
+                if self.document.document_settings.get("type") == "assembly"
+                else ApplicationMode.MODELING
+            )
         if self.document.document_settings.get("type") == "drawing":
             return mode == ApplicationMode.DRAWING
         if self.document.document_settings.get("type") == "assembly":
@@ -10481,6 +10589,14 @@ class MainWindow(QMainWindow):
             )
             profile_action.setEnabled(False)
         elif self.active_application == ApplicationMode.ASSEMBLY:
+            if self._active_component_return_document is not None:
+                return_action = self.tools_toolbar.addAction(
+                    tr("assembly.command.return")
+                )
+                return_action.setIcon(resource_icon("assembly"))
+                self._mark_application_command(return_action)
+                return_action.triggered.connect(self._return_to_assembly)
+                self.tools_toolbar.addSeparator()
             insert_action = self.tools_toolbar.addAction(
                 tr("assembly.command.insert")
             )
@@ -16182,20 +16298,19 @@ class MainWindow(QMainWindow):
         if source_path is None:
             return None
         if (
-            self._active_component_document is not None
+            getattr(self, "_active_component_root_document", None) is not None
             and component.entity_id == self._active_component_entity_id
         ):
-            return self._active_component_document
-        # An open Part session is authoritative. This also makes unsaved
-        # in-memory changes visible while switching from the Part tab to its
-        # assembly instead of returning an older path-cache entry.
+            return self._active_component_root_document
+        # An open Part or Assembly session is authoritative. Dependency
+        # changes are pulled only by explicit regeneration; this resolver
+        # merely ensures that pull uses the current in-memory document.
         source_session = next(
             (
                 session
                 for session in self.document_sessions
                 if session.file_path is not None
                 and canonical_document_path(session.file_path) == source_path
-                and self._document_type(session.document) == "part"
             ),
             None,
         )
@@ -16226,47 +16341,9 @@ class MainWindow(QMainWindow):
         source_path: Path,
         source_document: PartDocument,
     ) -> None:
-        """Drop cached assembly scenes that reference a changed open Part."""
+        """Register an open dependency without recalculating its parents."""
         canonical_path = canonical_document_path(source_path)
         self._assembly_part_documents[canonical_path] = source_document
-        active_scene_invalidated = False
-        for session in self.document_sessions:
-            assembly = session.document
-            if self._document_type(assembly) != "assembly":
-                continue
-            uses_source = any(
-                component.container_type == ContainerType.COMPONENT
-                and (
-                    raw_path := str(
-                        component.parameters.get("source_path", "")
-                    ).strip()
-                )
-                and canonical_document_path(
-                    Path(raw_path)
-                    if Path(raw_path).is_absolute()
-                    else (
-                        assembly.source_file_path.parent / raw_path
-                        if assembly.source_file_path is not None
-                        else Path(raw_path)
-                    )
-                ) == canonical_path
-                for component in assembly.history_objects()
-            )
-            if not uses_source:
-                continue
-            assembly.__dict__.setdefault(
-                "_assembly_component_document_cache", {}
-            )[canonical_path] = source_document
-            assembly._shape_history_cache.clear()
-            assembly._body_result_cache.clear()
-            assembly.regeneration_required = True
-            session.viewer_scene = None
-            session.history_boundary = None
-            if session.document is self.document:
-                self._native_viewer_scene = None
-                active_scene_invalidated = True
-        if active_scene_invalidated:
-            self.rebuild_view(fit=False, rebuild_geometry=True)
 
     def _stable_component_face_descriptor(
         self,
@@ -16514,9 +16591,12 @@ class MainWindow(QMainWindow):
         component = self.document.find_entity(reference.instance_id)
         if component is None or component.container_type != ContainerType.COMPONENT:
             return None
-        source_document = self._component_source_document(component)
-        if source_document is None:
+        nested = self._nested_reference_document_and_transform(
+            component, reference.instance_path
+        )
+        if nested is None:
             return None
+        source_document, _transform = nested
         direct = self._direct_source_reference_resolution(
             source_document,
             reference.edge,
@@ -16542,9 +16622,12 @@ class MainWindow(QMainWindow):
         )
         if component is None or component.container_type != ContainerType.COMPONENT:
             return None
-        source_document = self._component_source_document(component)
-        if source_document is None:
+        nested = self._nested_reference_document_and_transform(
+            component, assembly_reference.instance_path
+        )
+        if nested is None:
             return None
+        source_document, _transform = nested
         direct = self._direct_source_reference_resolution(
             source_document,
             assembly_reference.face,
@@ -16561,12 +16644,15 @@ class MainWindow(QMainWindow):
             if self.document is None:
                 return TopologyResolutionState.MISSING.value
             component = self.document.find_entity(edge_reference.instance_id)
-            source_document = (
-                self._component_source_document(component)
+            nested = (
+                self._nested_reference_document_and_transform(
+                    component, edge_reference.instance_path
+                )
                 if component is not None else None
             )
-            if source_document is None:
+            if nested is None:
                 return TopologyResolutionState.MISSING.value
+            source_document, _transform = nested
             direct = self._direct_source_reference_resolution(
                 source_document,
                 edge_reference.edge,
@@ -16580,9 +16666,12 @@ class MainWindow(QMainWindow):
         component = self.document.find_entity(reference.instance_id)
         if component is None or component.container_type != ContainerType.COMPONENT:
             return TopologyResolutionState.MISSING.value
-        source_document = self._component_source_document(component)
-        if source_document is None:
+        nested = self._nested_reference_document_and_transform(
+            component, reference.instance_path
+        )
+        if nested is None:
             return TopologyResolutionState.MISSING.value
+        source_document, _transform = nested
         direct = self._direct_source_reference_resolution(
             source_document,
             reference.face,
@@ -16668,8 +16757,75 @@ class MainWindow(QMainWindow):
             source_path = assembly_path.parent / source_path
         return source_path.resolve()
 
-    def _open_assembly_component(self, component: ZimaEntity) -> None:
-        source_path = self._component_source_path(component)
+    @staticmethod
+    def _component_source_is_assembly(component: ZimaEntity) -> bool:
+        """Classify a component without loading or calculating its source."""
+        stored_type = str(
+            component.parameters.get("source_document_type", "")
+        ).lower()
+        if stored_type:
+            return stored_type == "assembly"
+        return Path(str(component.parameters.get("source_path", ""))).suffix.lower() in {
+            ".asm", ".asmz",
+        }
+
+    def _component_activation_translation_key(
+        self,
+        component: ZimaEntity,
+        *,
+        deactivate: bool = False,
+        instance_path: tuple[str, ...] = (),
+    ) -> str:
+        nested = (
+            self._nested_reference_document_and_transform(
+                component, instance_path
+            )
+            if instance_path else None
+        )
+        kind = (
+            "assembly"
+            if (
+                nested is not None
+                and nested[0].document_settings.get("type") == "assembly"
+            )
+            or (
+                not instance_path
+                and self._component_source_is_assembly(component)
+            )
+            else "component"
+        )
+        operation = "deactivate" if deactivate else "activate"
+        return f"menu.context.{operation}_{kind}"
+
+    def _open_assembly_component(
+        self,
+        component: ZimaEntity,
+        instance_path: tuple[str, ...] = (),
+    ) -> None:
+        source_component = component
+        source_document = self._active_component_return_document or self.document
+        if instance_path:
+            resolved = self._nested_reference_document_and_transform(
+                component, tuple(instance_path[:-1])
+            )
+            if resolved is None:
+                source_path = None
+            else:
+                source_document = resolved[0]
+                source_component = source_document.find_entity(
+                    str(instance_path[-1])
+                )
+                source_path = (
+                    self._component_source_path(
+                        source_component,
+                        assembly_document=source_document,
+                    )
+                    if source_component is not None else None
+                )
+        else:
+            source_path = self._component_source_path(
+                component, assembly_document=source_document
+            )
         if source_path is None:
             QMessageBox.critical(
                 self,
@@ -16679,7 +16835,11 @@ class MainWindow(QMainWindow):
             return
         self.open_document_path(source_path)
 
-    def _activate_assembly_component(self, component: ZimaEntity) -> None:
+    def _activate_assembly_component(
+        self,
+        component: ZimaEntity,
+        instance_path: tuple[str, ...] = (),
+    ) -> None:
         if self._active_component_return_document is not None:
             assembly = self._active_component_return_document
             target = assembly.find_entity(component.entity_id)
@@ -16688,7 +16848,10 @@ class MainWindow(QMainWindow):
                 or target.container_type != ContainerType.COMPONENT
             ):
                 return
-            if target.entity_id == self._active_component_entity_id:
+            if (
+                target.entity_id == self._active_component_entity_id
+                and tuple(instance_path) == self._active_component_instance_path
+            ):
                 return
             # Switching instances is one interaction: restore and rebuild the
             # Assembly document, then enter the requested component context.
@@ -16697,7 +16860,7 @@ class MainWindow(QMainWindow):
             # in its rollback/Sketcher presentation.
             self._leave_active_component_context(refresh=False)
             self.rebuild_view(fit=False, rebuild_geometry=True)
-            self._activate_assembly_component(target)
+            self._activate_assembly_component(target, tuple(instance_path))
             return
         if (
             self.document is None
@@ -16713,7 +16876,7 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            component_document = next(
+            root_document = next(
                 (
                     session.document
                     for session in self.document_sessions
@@ -16724,6 +16887,18 @@ class MainWindow(QMainWindow):
             ) or self._assembly_part_documents.get(
                 canonical_document_path(source_path)
             ) or load_part_document(source_path)
+            component_document = root_document
+            self._assembly_part_documents[source_path] = root_document
+            active_world_transform = coordinate_system_transform(
+                component.coordinate_system
+            )
+            if instance_path:
+                nested = self._nested_reference_document_and_transform(
+                    component, tuple(instance_path)
+                )
+                if nested is None:
+                    raise ValueError(tr("assembly.component.source_missing"))
+                component_document, active_world_transform = nested
         except Exception as exc:
             QMessageBox.critical(self, tr("message.open_failed"), str(exc))
             return
@@ -16768,15 +16943,15 @@ class MainWindow(QMainWindow):
         self._reset_viewer_interaction_context()
         self._active_component_return_document = self.document
         self._active_component_document = component_document
+        self._active_component_root_document = root_document
         self._active_component_entity_id = component.entity_id
+        self._active_component_instance_path = tuple(instance_path)
         # Freeze the solved world placement of this exact Assembly instance
         # before switching ``self.document`` to its source Part.  A chain of
         # Assembly mates may place several instances of the same source file;
         # Sketcher rollback must not subsequently derive the active frame from
         # the local Part or from another instance with the same name/path.
-        self._active_component_world_transform = (
-            coordinate_system_transform(component.coordinate_system)
-        )
+        self._active_component_world_transform = active_world_transform
         self._active_component_return_file_path = self.current_file_path
         # Context-menu activation does not guarantee that the clicked tree
         # row has already replaced the previous global selection.  Persist
@@ -16785,17 +16960,25 @@ class MainWindow(QMainWindow):
         # and the following edit appears to swap them.
         self._active_component_return_selection = component.entity_id
         self._active_component_return_application = self.active_application
-        self._assembly_part_documents[source_path] = component_document
+        self._assembly_part_documents[source_path] = root_document
         self.document = component_document
-        self.current_file_path = source_path
+        self.current_file_path = component_document.source_file_path or source_path
         self.selected_object_id = None
-        self.active_application = ApplicationMode.MODELING
+        self.active_application = (
+            ApplicationMode.ASSEMBLY
+            if component_document.document_settings.get("type") == "assembly"
+            else ApplicationMode.MODELING
+        )
         self._sync_application_actions()
         self._rebuild_application_toolbar()
         # Keep the Assembly tree visible while editing the source Part and
         # mark the exact activated instance.  The entity id is essential:
         # several Assembly rows may reference the same Part file and name.
         self._populate_tree()
+        # Keep the activated occurrence visibly selected in the parent tree.
+        # The source Part is the editing document, but the component row is
+        # the stable instance identity in the Assembly tree.
+        self._select_tree_object(component.entity_id)
         self.rebuild_view(fit=False)
 
     def _return_to_assembly(self) -> None:
@@ -16815,7 +16998,9 @@ class MainWindow(QMainWindow):
         )
         self._active_component_return_document = None
         self._active_component_document = None
+        self._active_component_root_document = None
         self._active_component_entity_id = None
+        self._active_component_instance_path = ()
         self._active_component_world_transform = None
         self._active_component_passive_meshes.clear()
         self._active_component_return_file_path = None
@@ -16840,6 +17025,8 @@ class MainWindow(QMainWindow):
         self._cycled_history_source_id = None
         self._view_candidate_cycle_ids = ()
         self._view_candidate_cycle_index = -1
+        self._assembly_occurrence_records.clear()
+        self._selected_assembly_occurrence_key = None
         if not hasattr(self, "_viewer_initialized"):
             return
         viewer = self.native_viewer
@@ -16861,6 +17048,7 @@ class MainWindow(QMainWindow):
             viewer.set_source_topology_selection(None)
             viewer.set_selected_reference_owner(None)
             viewer.set_selected_container_origin(None)
+            viewer.set_insertion_origin_marker(None)
             viewer.set_selected_container_contents(set())
             viewer.set_feature_hover_edges(set())
             viewer.set_feature_selected_edges(set())
@@ -16884,6 +17072,9 @@ class MainWindow(QMainWindow):
             source_item = self._create_referenced_part_tree_item(
                 source_object,
                 component.entity_id,
+                source_document=source_document,
+                visited_paths=set(),
+                instance_path=(),
             )
             if source_item is not None:
                 component_item.addChild(source_item)
@@ -16892,6 +17083,10 @@ class MainWindow(QMainWindow):
         self,
         obj: ZimaEntity,
         component_id: str,
+        *,
+        source_document: PartDocument | None = None,
+        visited_paths: set[Path] | None = None,
+        instance_path: tuple[str, ...] = (),
     ) -> QTreeWidgetItem | None:
         if obj.tree_exposure == TreeExposure.HIDDEN:
             return None
@@ -16925,6 +17120,35 @@ class MainWindow(QMainWindow):
             HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
             obj.entity_id,
         )
+        object_instance_path = (
+            (*instance_path, obj.entity_id)
+            if obj.container_type == ContainerType.COMPONENT
+            else instance_path
+        )
+        item.setData(
+            0,
+            HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE,
+            object_instance_path,
+        )
+        if (
+            obj.container_type == ContainerType.COMPONENT
+            and component_id == self._active_component_entity_id
+            and object_instance_path
+            and object_instance_path
+            == getattr(self, "_active_component_instance_path", ())
+        ):
+            # Nested component rows are source-document projections rather
+            # than Assembly entities, so the regular tree-item styling cannot
+            # identify them by entity id alone.  Match the complete instance
+            # path to keep identical sibling parts independent.
+            font = item.font(0)
+            font.setBold(True)
+            item.setFont(0, font)
+            active_instance_background = QBrush(QColor("#356E22"))
+            active_instance_text = QBrush(QColor("#FFFFFF"))
+            for column in range(item.columnCount()):
+                item.setBackground(column, active_instance_background)
+                item.setForeground(column, active_instance_text)
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         )
@@ -16932,9 +17156,37 @@ class MainWindow(QMainWindow):
             child_item = self._create_referenced_part_tree_item(
                 child,
                 component_id,
+                source_document=source_document,
+                visited_paths=visited_paths,
+                instance_path=object_instance_path,
             )
             if child_item is not None:
                 item.addChild(child_item)
+        if (
+            obj.container_type == ContainerType.COMPONENT
+            and source_document is not None
+        ):
+            nested_path = self._component_source_path(
+                obj, assembly_document=source_document
+            )
+            seen = visited_paths if visited_paths is not None else set()
+            if nested_path is not None and nested_path not in seen:
+                try:
+                    nested_document = load_part_document(nested_path)
+                except Exception:
+                    nested_document = None
+                if nested_document is not None:
+                    nested_seen = {*seen, nested_path}
+                    for nested_object in nested_document.root.children:
+                        nested_item = self._create_referenced_part_tree_item(
+                            nested_object,
+                            component_id,
+                            source_document=nested_document,
+                            visited_paths=nested_seen,
+                            instance_path=object_instance_path,
+                        )
+                        if nested_item is not None:
+                            item.addChild(nested_item)
         return item
 
     def _populate_sketch_tree(self, sketch: ZimaEntity) -> None:
@@ -17720,13 +17972,17 @@ class MainWindow(QMainWindow):
                 self._enter_template_sketch_if_active(expected, sketch_id),
             )
         elif not is_drawing and self.document.regeneration_required:
-            self._native_viewer_scene = None
-            self.native_viewer.clear_scene()
-            # A dirty document can be revisited through a tab switch without
-            # passing through open_document_path().  Clearing its stale scene
-            # without evaluating the pending model left the tab permanently
-            # blank until the user invoked Regenerate manually.
-            self.regenerate_model()
+            # Tab activation is never a body-calculation request. Preserve the
+            # last calculated scene until the user explicitly invokes
+            # Regenerate; if none exists, leave the view empty instead of
+            # hiding OCCT work behind a tab switch.
+            if self._native_viewer_scene is not None:
+                self.rebuild_view(
+                    fit=saved_camera is None,
+                    rebuild_geometry=False,
+                )
+            else:
+                self.native_viewer.clear_scene()
         elif (
             not is_drawing
             and self._native_viewer_scene is not None
@@ -19799,6 +20055,8 @@ class MainWindow(QMainWindow):
         )
         rows: list[dict[str, Any]] = []
         if document_type == "assembly":
+            # BOM is intentionally shallow: a nested Assembly is one direct
+            # component row here. Its children belong to that Assembly's BOM.
             grouped: dict[Path, tuple[PartDocument, int]] = {}
             assembly_path = source_document.source_file_path or source_path
             for component in source_document.history_objects_at(
@@ -20713,12 +20971,13 @@ class MainWindow(QMainWindow):
         if (
             obj.container_type == ContainerType.COMPONENT
             and obj.entity_id == self._active_component_entity_id
+            and not getattr(self, "_active_component_instance_path", ())
         ):
             font = item.font(0)
             font.setBold(True)
             item.setFont(0, font)
-            active_instance_background = QBrush(QColor("#00D1FF"))
-            active_instance_text = QBrush(QColor("#102027"))
+            active_instance_background = QBrush(QColor("#356E22"))
+            active_instance_text = QBrush(QColor("#FFFFFF"))
             for column in range(item.columnCount()):
                 item.setBackground(column, active_instance_background)
                 item.setForeground(column, active_instance_text)
@@ -20883,6 +21142,29 @@ class MainWindow(QMainWindow):
             return
         if self._accept_assembly_edge_reference(owner_id, edge_index):
             return
+        # When a Part is active inside an Assembly, the visible scene still
+        # contains the parent Assembly component overlay.  Resolve placement
+        # edges against the active Part's persisted source mesh first; the
+        # parent component owner is only a display owner and is not editable.
+        if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self._active_component_return_document is not None
+            and self.document.document_settings.get("type") != "assembly"
+        ):
+            source_edge = self._source_topology_reference_at_cursor("edge")
+            if source_edge is not None:
+                source_owner, source_index, source_mesh = source_edge
+                edge = next((
+                    item for item in source_mesh.edges
+                    if item.owner_id == source_owner
+                    and item.edge_index == source_index
+                ), None)
+                owner = self.document.find_entity(source_owner)
+                if owner is not None and edge is not None:
+                    self.native_viewer._set_selected_edge(None)
+                    self._add_mesh_edge_placement_reference(owner, edge)
+                return
         if (
             self._sketch_reference_mode
             and owner_id == self.document.root.entity_id
@@ -21090,6 +21372,15 @@ class MainWindow(QMainWindow):
                 label,
             )
             dialog.accept_axis(descriptor)
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_selected_edge(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self.native_viewer.set_source_topology_selection(
+                _mesh.edge_mesh(_mesh_owner, _edge_index),
+                "edge",
+            )
             return True
         component = (
             self.document.find_entity(owner_id)
@@ -21229,7 +21520,7 @@ class MainWindow(QMainWindow):
         )
         hits = []
         for owner_id in allowed_owner_ids:
-            for result, mesh, transform in original_results.get(owner_id, ()):
+            for result, mesh, transform, instance_path, label_path in original_results.get(owner_id, ()):
                 for depth, mesh_owner, face_index in self.native_viewer.faces_at_mesh(
                     mesh, QPointF(position)
                 ):
@@ -21250,7 +21541,7 @@ class MainWindow(QMainWindow):
                     if owner is None:
                         continue
                     descriptor = assembly_face_descriptor(AssemblyFaceRef(
-                        owner_id, face_reference
+                        owner_id, face_reference, instance_path
                     ))
                     origin = transform_point(transform, surface.origin)
                     normal = tuple(
@@ -21267,7 +21558,7 @@ class MainWindow(QMainWindow):
                         owner,
                         face_index,
                         descriptor,
-                        f"{owner.name} / {face_reference.role}",
+                        f"{label_path} / {face_reference.role}",
                         origin,
                         normal,
                         mesh,
@@ -21292,14 +21583,24 @@ class MainWindow(QMainWindow):
         ZimaEntity, str, str, tuple, tuple, ViewerMesh, str, int
     ] | None:
         """Resolve an axis-capable original edge from persisted viewer data."""
+        candidates = self._assembly_original_edge_candidates(dialog, position)
+        return candidates[0] if candidates else None
+
+    def _assembly_original_edge_candidates(
+        self,
+        dialog: AssemblyComponentPropertiesDialog,
+        position: QPointF | QPoint | None,
+    ) -> tuple[tuple[ZimaEntity, str, str, tuple, tuple, ViewerMesh, str, int], ...]:
+        """Return axis-capable original edges without merging instances."""
         if position is None or self.document is None:
-            return None
+            return ()
         allowed = self._assembly_reference_pick_owner_ids(
             dialog.component, dialog.active_pick[1]
         )
         results = getattr(dialog, "_original_component_results", {})
+        candidates = []
         for owner_id in allowed:
-            for result, mesh, transform in results.get(owner_id, ()):
+            for result, mesh, transform, instance_path, label_path in results.get(owner_id, ()):
                 picked = self.native_viewer.edge_at_mesh(mesh, QPointF(position))
                 if picked is None:
                     continue
@@ -21323,19 +21624,19 @@ class MainWindow(QMainWindow):
                 world_direction = self._normalized_vector(world_direction)
                 if not any(abs(value) > 1.0e-12 for value in world_direction):
                     continue
-                return (
+                candidates.append((
                     owner,
                     assembly_edge_descriptor(AssemblyEdgeRef(
-                        owner.entity_id, reference
+                        owner.entity_id, reference, instance_path
                     )),
-                    f"{owner.name} / {reference.role}",
+                    f"{label_path} / {reference.role}",
                     world_origin,
                     world_direction,
                     mesh,
                     mesh_owner,
                     edge_index,
-                )
-        return None
+                ))
+        return tuple(candidates)
 
     def _refresh_assembly_original_component_results(
         self,
@@ -21355,14 +21656,9 @@ class MainWindow(QMainWindow):
             transform = coordinate_system_transform(
                 component.coordinate_system
             )
-            original_results[component_id] = [
-                (
-                    source_result,
-                    transform_viewer_mesh(source_result.mesh, transform),
-                    transform,
-                )
-                for source_result, _old_mesh, _old_transform in entries
-            ]
+            original_results[component_id] = (
+                self._assembly_leaf_reference_results(component)
+            )
 
     def _invalidate_assembly_display_cache(
         self,
@@ -21378,6 +21674,8 @@ class MainWindow(QMainWindow):
         document._shape_history_cache.clear()
         document._body_result_cache.clear()
         self._native_viewer_scene = None
+        self._assembly_occurrence_records.clear()
+        self._selected_assembly_occurrence_key = None
 
     def _assembly_component_overlay_results(
         self,
@@ -21454,6 +21752,37 @@ class MainWindow(QMainWindow):
                 candidates.append((ViewerPickCandidate(
                     kind, owner_id, element_index, None
                 ), None))
+        # Origin axes are persisted datum references, but they are not part
+        # of the solid mesh topology. Add them to this same ordered candidate
+        # list so hover, LMB and RMB cycling see identical axis candidates.
+        origin = next((child for child in self.document.root.children
+                       if child.kind == EntityKind.ORIGIN), None)
+        if origin is not None:
+            origin_point = (0.0, 0.0, 0.0)
+            axis_data = (
+                ((1.0, 0.0, 0.0), 1),
+                ((0.0, 1.0, 0.0), 2),
+                ((0.0, 0.0, 1.0), 3),
+            )
+            length = max(float(self.native_viewer._scene_radius) * 0.35, 10.0)
+            for direction, axis_index in axis_data:
+                start = transform_point(
+                    np.eye(4), origin_point
+                )
+                end = tuple(direction[index] * length for index in range(3))
+                start_screen = self.native_viewer._screen_point(
+                    self.native_viewer._camera_point(start)
+                )
+                end_screen = self.native_viewer._screen_point(
+                    self.native_viewer._camera_point(end)
+                )
+                distance, _fraction = self.native_viewer._point_segment_distance(
+                    QPointF(position), start_screen, end_screen
+                )
+                if distance <= 9.0:
+                    candidates.append((ViewerPickCandidate(
+                        "edge", origin.entity_id, axis_index, None
+                    ), None))
         for original_face in self._assembly_original_face_candidates(
             dialog, QPointF(position)
         ):
@@ -21468,10 +21797,9 @@ class MainWindow(QMainWindow):
         # A sharp/circular original edge has a wider screen hit region than
         # the face it bounds. Keep it available for cycling, but do not let
         # it hide the face throughout most of the visible parent component.
-        original_edge = self._assembly_original_edge_candidate(
+        for original_edge in self._assembly_original_edge_candidates(
             dialog, QPointF(position)
-        )
-        if original_edge is not None:
+        ):
             owner, *_rest, mesh, mesh_owner, edge_index = original_edge
             candidates.append((ViewerPickCandidate(
                 "edge", owner.entity_id, edge_index,
@@ -21480,7 +21808,13 @@ class MainWindow(QMainWindow):
         distinct = []
         seen = set()
         for candidate, reference in candidates:
-            identity = (
+            stable_descriptor = None
+            if reference is not None:
+                kind, original = reference
+                stable_descriptor = (
+                    original[2] if kind == "face" else original[1]
+                )
+            identity = stable_descriptor or (
                 candidate.kind, candidate.owner_id, candidate.element_index
             )
             if identity in seen:
@@ -21819,50 +22153,187 @@ class MainWindow(QMainWindow):
             or self._active_cut_exception_dialog() is not None
         ):
             return ()
-        scene = self._native_viewer_scene
-        calculated = (
-            scene.calculated_body_result if scene is not None else None
-        )
-        if calculated is None:
-            return ()
-        history = self.document.history_objects_at(
-            self._definition_history_boundary()
-        )
+        records = self._build_assembly_occurrence_records()
         candidates: list[ViewerPickCandidate] = []
-        # A subtractive feature has no positive body in the displayed result.
-        # Its persisted tool packet is nevertheless its viewer identity. Cuts
-        # precede components so entering the removed region offers the feature
-        # directly; RMB can still cycle to every overlapping component.
-        ordered = (
-            *(
-                obj for obj in reversed(history)
-                if obj.container_type in (
-                    ContainerType.PROTRUSION,
-                    ContainerType.REVOLVE,
-                )
-            ),
-            *(
-                obj for obj in reversed(history)
-                if obj.container_type == ContainerType.COMPONENT
-            ),
-        )
-        for obj in ordered:
-            source_result = calculated.source_bodies.get(obj.entity_id)
-            if (
-                source_result is None
-                or not self.native_viewer.mesh_is_under_cursor(
-                    source_result.mesh, QPointF(position)
-                )
-            ):
+        for key, record in reversed(tuple(records.items())):
+            if not record["leaf"]:
+                continue
+            mesh = record["mesh"]
+            if not self.native_viewer.mesh_is_under_cursor(mesh, QPointF(position)):
                 continue
             candidates.append(ViewerPickCandidate(
                 "object",
-                obj.entity_id,
+                key,
                 0,
-                source_result.mesh,
-                self._native_object_origin(obj),
+                mesh,
+                tuple(record["transform"][axis][3] for axis in range(3)),
             ))
         return tuple(candidates)
+
+    @staticmethod
+    def _assembly_occurrence_key(
+        top_component_id: str,
+        instance_path: tuple[str, ...],
+    ) -> str:
+        return (
+            top_component_id
+            if not instance_path
+            else "assembly-occurrence:" + "/".join(
+                (top_component_id, *instance_path)
+            )
+        )
+
+    def _build_assembly_occurrence_records(self) -> dict[str, dict[str, Any]]:
+        """Build the persisted leaf-first Assembly object hierarchy."""
+        if self.document is None:
+            return {}
+        if self._assembly_occurrence_records:
+            return self._assembly_occurrence_records
+        records: dict[str, dict[str, Any]] = {}
+
+        def walk(
+            document: PartDocument,
+            top_component: ZimaEntity,
+            instance_path: tuple[str, ...],
+            transform: tuple,
+            parent_key: str | None,
+            component: ZimaEntity,
+            label_path: str,
+            active_paths: set[Path],
+        ) -> ViewerMesh | None:
+            key = self._assembly_occurrence_key(
+                top_component.entity_id, instance_path
+            )
+            document_type = document.document_settings.get("type", "part")
+            if document_type != "assembly":
+                result = document.cached_body_result_at(
+                    document.history_objects_at(document.history_cursor())
+                )
+                if result is None:
+                    return None
+                mesh = transform_viewer_mesh(result.mesh, transform)
+                records[key] = {
+                    "key": key,
+                    "top_component_id": top_component.entity_id,
+                    "instance_path": instance_path,
+                    "parent_key": parent_key,
+                    "component": component,
+                    "document": document,
+                    "mesh": mesh,
+                    "transform": transform,
+                    "leaf": True,
+                    "label": label_path,
+                }
+                return mesh
+            source_path = document.source_file_path
+            if source_path is None:
+                return None
+            canonical_path = canonical_document_path(source_path)
+            if canonical_path in active_paths:
+                return None
+            child_meshes: list[ViewerMesh] = []
+            active_paths.add(canonical_path)
+            try:
+                for child in document.history_objects_at(document.history_cursor()):
+                    if (
+                        child.container_type != ContainerType.COMPONENT
+                        or not document.is_effectively_visible(child.entity_id)
+                    ):
+                        continue
+                    child_path = self._component_source_path(
+                        child, assembly_document=document
+                    )
+                    if child_path is None:
+                        continue
+                    child_document = self._assembly_part_documents.get(child_path)
+                    if child_document is None:
+                        try:
+                            child_document = load_part_document(child_path)
+                        except Exception:
+                            continue
+                        self._assembly_part_documents[child_path] = child_document
+                    child_mesh = walk(
+                        child_document,
+                        top_component,
+                        (*instance_path, child.entity_id),
+                        multiply_transforms(
+                            transform,
+                            coordinate_system_transform(child.coordinate_system),
+                        ),
+                        key,
+                        child,
+                        f"{label_path} / {child.name}",
+                        active_paths,
+                    )
+                    if child_mesh is not None:
+                        child_meshes.append(child_mesh)
+            finally:
+                active_paths.remove(canonical_path)
+            if not child_meshes:
+                return None
+            mesh = combine_viewer_meshes(tuple(child_meshes))
+            records[key] = {
+                "key": key,
+                "top_component_id": top_component.entity_id,
+                "instance_path": instance_path,
+                "parent_key": parent_key,
+                "component": component,
+                "document": document,
+                "mesh": mesh,
+                "transform": transform,
+                "leaf": False,
+                "label": label_path,
+            }
+            return mesh
+
+        active_display_assembly = self._active_component_return_document
+        if (
+            active_display_assembly is not None
+            and self.document.document_settings.get("type") == "assembly"
+        ):
+            top_component = active_display_assembly.find_entity(
+                self._active_component_entity_id or ""
+            )
+            if top_component is not None:
+                walk(
+                    self.document,
+                    top_component,
+                    getattr(self, "_active_component_instance_path", ()),
+                    getattr(self, "_active_component_world_transform", None)
+                    or coordinate_system_transform(
+                        top_component.coordinate_system
+                    ),
+                    None,
+                    top_component,
+                    top_component.name,
+                    set(),
+                )
+            self._assembly_occurrence_records = records
+            return records
+
+        for component in self.document.history_objects_at(
+            self._definition_history_boundary()
+        ):
+            if (
+                component.container_type != ContainerType.COMPONENT
+                or not self.document.is_effectively_visible(component.entity_id)
+            ):
+                continue
+            source_document = self._component_source_document(component)
+            if source_document is None:
+                continue
+            walk(
+                source_document,
+                component,
+                (),
+                coordinate_system_transform(component.coordinate_system),
+                None,
+                component,
+                component.name,
+                set(),
+            )
+        self._assembly_occurrence_records = records
+        return records
 
     def _on_native_object_selected(self, owner_id: str) -> None:
         if self.document is None:
@@ -21931,6 +22402,29 @@ class MainWindow(QMainWindow):
                 pass
         if owner_id and self._current_definition_owns_reference(owner_id):
             return
+        # The active Part is rendered as one component inside the parent
+        # Assembly.  If the renderer reports that component owner, resolve
+        # the click back to the active Part's historical container before any
+        # generic Assembly/object command can consume it.
+        if (
+            self._active_component_return_document is not None
+            and self.document.document_settings.get("type") != "assembly"
+            and self.native_viewer._interaction_mode == "object"
+        ):
+            hit = self._part_history_container_at_position(
+                self.native_viewer._last_click_position
+            )
+            if hit is not None:
+                source, source_mesh = hit
+                self.selected_object_id = source.entity_id
+                self._view_selection_confirmed = True
+                self._select_native_tree_object(source.entity_id)
+                self.native_viewer.set_object_overlay(
+                    source_mesh,
+                    selected=True,
+                    anchor=self._native_object_origin(source),
+                )
+                return
         if owner_id and self._submit_command_selection(
             SelectionKind.OBJECT, owner_id
         ):
@@ -21978,6 +22472,7 @@ class MainWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.tree.blockSignals(False)
             self.selected_object_id = None
+            self._selected_assembly_occurrence_key = None
             self.selected_face = None
             self.selected_face_object_id = None
             self._view_selection_confirmed = False
@@ -21985,6 +22480,10 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
             self.native_viewer.set_feature_selected_edges(set())
             self.native_viewer.set_feature_hover_edges(set())
+            return
+        occurrence = self._assembly_occurrence_records.get(owner_id)
+        if occurrence is not None:
+            self._select_assembly_occurrence(owner_id)
             return
         if owner_id == self.document.root.entity_id:
             fillet = self._edge_treatment_at_last_view_click(owner_id)
@@ -22098,6 +22597,83 @@ class MainWindow(QMainWindow):
                 if assembly_dialog is not None and not assembly_dialog.isVisible():
                     assembly_dialog.reject()
                 self._clear_dimension_overlays()
+
+    def _select_assembly_occurrence(self, key: str) -> bool:
+        record = self._assembly_occurrence_records.get(key)
+        if record is None or self.document is None:
+            return False
+        top_component_id = str(record["top_component_id"])
+        instance_path = tuple(record["instance_path"])
+        item = self._find_component_instance_path_item(
+            self.tree.invisibleRootItem(),
+            top_component_id,
+            instance_path,
+        )
+        if item is None and not instance_path:
+            item = self._find_tree_item(
+                self.tree.invisibleRootItem(), top_component_id
+            )
+        signals_were_blocked = self.tree.blockSignals(True)
+        try:
+            if item is not None:
+                # Selecting a nested occurrence must not collapse the branch
+                # that identifies its parent Assembly.  Keep every ancestor
+                # expanded before setting the current row.
+                ancestor = item.parent()
+                while ancestor is not None:
+                    ancestor.setExpanded(True)
+                    ancestor = ancestor.parent()
+                self.tree.setCurrentItem(item)
+            else:
+                self.tree.clearSelection()
+                self.tree.setCurrentItem(None)
+        finally:
+            self.tree.blockSignals(signals_were_blocked)
+        self.selected_object_id = (
+            str(instance_path[0])
+            if (
+                top_component_id == self._active_component_entity_id
+                and instance_path
+                and self._active_component_document is self.document
+                and self.document.document_settings.get("type") == "assembly"
+            )
+            else top_component_id
+        )
+        self._selected_assembly_occurrence_key = key
+        self._view_selection_confirmed = True
+        self.native_viewer.set_object_overlay(
+            record["mesh"],
+            selected=True,
+            anchor=tuple(record["transform"][axis][3] for axis in range(3)),
+        )
+        self.statusBar().showMessage(str(record["label"]))
+        return True
+
+    def _find_component_instance_path_item(
+        self,
+        parent: QTreeWidgetItem,
+        top_component_id: str,
+        instance_path: tuple[str, ...],
+    ) -> QTreeWidgetItem | None:
+        for index in range(parent.childCount()):
+            item = parent.child(index)
+            component_id = item.data(
+                0, HistoryTreeWidget.COMPONENT_INSTANCE_ROLE
+            )
+            path = item.data(
+                0, HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE
+            )
+            if (
+                str(component_id or "") == top_component_id
+                and tuple(path or ()) == instance_path
+            ):
+                return item
+            found = self._find_component_instance_path_item(
+                item, top_component_id, instance_path
+            )
+            if found is not None:
+                return found
+        return None
 
     def _on_native_object_double_clicked(self, owner_id: str) -> None:
         # A left double-click inside Sketcher belongs to sketch interaction
@@ -22907,6 +23483,20 @@ class MainWindow(QMainWindow):
         if self._accept_assembly_face_reference(owner_id, face_index):
             return
         if (
+            self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self._active_component_return_document is not None
+            and self.document.document_settings.get("type") != "assembly"
+        ):
+            source_face = self._source_topology_reference_at_cursor("face")
+            if source_face is not None:
+                source_owner, source_index, _source_mesh = source_face
+                self.native_viewer._set_selected_face(None)
+                self._add_mesh_face_placement_reference(
+                    source_owner, source_index
+                )
+            return
+        if (
             owner_id != self.document.root.entity_id
             and self._current_definition_owns_reference(owner_id)
         ):
@@ -23059,6 +23649,22 @@ class MainWindow(QMainWindow):
         ):
             return False
         surface = scene.surface_reference(owner_id, face_index)
+        # In an active Part the displayed Assembly scene owns the outer
+        # component mesh, while the interaction result retains the active
+        # Part's historical source packets. Resolve placement surfaces from
+        # that interaction result before consulting the passive Assembly.
+        if surface is None:
+            interaction_result = getattr(
+                self, "_viewer_interaction_body_result", None
+            )
+            source_result = (
+                interaction_result.source_bodies.get(owner_id)
+                if interaction_result is not None else None
+            )
+            surface = (
+                source_result.surface(owner_id, face_index)
+                if source_result is not None else None
+            )
         if surface is None and scene.calculated_body_result is not None:
             source_result = scene.calculated_body_result.source_bodies.get(
                 owner_id
@@ -23233,6 +23839,15 @@ class MainWindow(QMainWindow):
                 owner.name,
                 descriptor,
                 label,
+            )
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_selected_face(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self.native_viewer.set_source_topology_selection(
+                _mesh.face_mesh(_mesh_owner, original_face_index),
+                "face",
             )
             return True
         # A visible face of the evaluated Assembly result is deliberately not
@@ -23573,6 +24188,28 @@ class MainWindow(QMainWindow):
                 owner_id,
                 element_index,
             )
+            return
+        if (
+            element_kind == "point"
+            and self.point_constraint_dialog is not None
+            and self.point_constraint_dialog.isVisible()
+            and self._active_component_return_document is not None
+            and self.document.document_settings.get("type") != "assembly"
+        ):
+            source_point = self._source_topology_reference_at_cursor("point")
+            if source_point is not None:
+                source_owner, source_index, source_mesh = source_point
+                marker = next((
+                    item for item in source_mesh.points
+                    if item.owner_id == source_owner
+                    and item.point_index == source_index
+                ), None)
+                owner = self.document.find_entity(source_owner)
+                if marker is not None and owner is not None:
+                    self.native_viewer._set_selected_point(None)
+                    self._add_mesh_point_placement_reference(
+                        owner, marker.position, source_index
+                    )
             return
         scene = self._native_viewer_scene
         persisted_source_result = (
@@ -24087,6 +24724,10 @@ class MainWindow(QMainWindow):
                 0,
                 HistoryTreeWidget.COMPONENT_SOURCE_ENTITY_ROLE,
             )
+            instance_path = tuple(selected[0].data(
+                0,
+                HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE,
+            ) or ())
             assembly_dialog = self.assembly_component_dialog
             if (
                 assembly_dialog is not None
@@ -24114,6 +24755,23 @@ class MainWindow(QMainWindow):
                     )
                 ):
                     self.rebuild_view(fit=False, rebuild_geometry=False)
+                    return
+            if (
+                component_id is not None
+                and (
+                    assembly_dialog is None
+                    or not assembly_dialog.isVisible()
+                )
+                and self.document is not None
+                and self.document.document_settings.get("type") == "assembly"
+                and self._active_component_return_document is None
+            ):
+                key = self._assembly_occurrence_key(
+                    str(component_id), instance_path
+                )
+                if key not in self._assembly_occurrence_records:
+                    self._build_assembly_occurrence_records()
+                if self._select_assembly_occurrence(key):
                     return
             if component_id is not None:
                 self.selected_object_id = (
@@ -24242,6 +24900,53 @@ class MainWindow(QMainWindow):
         obj = self._object_from_tree_item(item)
         if obj is None or obj.kind in SOLID_KINDS:
             return
+        component_id = item.data(
+            0, HistoryTreeWidget.COMPONENT_INSTANCE_ROLE
+        )
+        instance_path = tuple(item.data(
+            0, HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE
+        ) or ())
+        # A projected nested component belongs to the immediately enclosing
+        # Assembly, not to the root Assembly whose tree displays it.  Enter
+        # that enclosing Assembly first, then open the nested component's
+        # own placement dialog.  This keeps 10→11 editing local to Assembly
+        # 10 instead of accidentally editing 10 inside 00.
+        if component_id is not None and instance_path:
+            root_document = (
+                self._active_component_return_document or self.document
+            )
+            top_component = (
+                root_document.find_entity(str(component_id))
+                if root_document is not None else None
+            )
+            if (
+                top_component is not None
+                and top_component.container_type == ContainerType.COMPONENT
+                and not (
+                    self._active_component_return_document is not root_document
+                    and self._active_component_entity_id == top_component.entity_id
+                    and not getattr(self, "_active_component_instance_path", ())
+                )
+            ):
+                self._activate_assembly_component(top_component)
+            if self.document is not None:
+                nested_document = self.document
+                if len(instance_path) > 1:
+                    resolved = self._nested_reference_document_and_transform(
+                        top_component, instance_path[:-1]
+                    ) if top_component is not None else None
+                    nested_document = resolved[0] if resolved is not None else None
+                nested_obj = (
+                    nested_document.find_entity(str(instance_path[-1]))
+                    if nested_document is not None else None
+                )
+                if nested_obj is not None:
+                    obj = nested_obj
+        # Opening Properties is also a selection action.  Keep the same
+        # tree/view synchronization contract as the context-menu Properties
+        # command, including when the row belongs to an active Part nested in
+        # an Assembly.
+        obj = self._activate_object_for_editing(obj)
         if self._switch_tree_properties_dialog(obj):
             return
         if obj.kind == EntityKind.SKETCH:
@@ -24398,6 +25103,17 @@ class MainWindow(QMainWindow):
             and (provided.owner_id, provided.element_index)
             == (owner_id, face_index)
         ):
+            # The external hover mesh already identifies the exact nested
+            # occurrence. The main scene key cannot: repeated Parts share the
+            # top component owner and the same source face index.
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_face(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self.native_viewer.set_source_topology_hover(
+                provided.hover_mesh, "face"
+            )
             self._set_view_hover("face", owner_id, face_index)
             return
         if (
@@ -24526,6 +25242,14 @@ class MainWindow(QMainWindow):
             and (provided.owner_id, provided.element_index)
             == (owner_id, edge_index)
         ):
+            signals_were_blocked = self.native_viewer.blockSignals(True)
+            try:
+                self.native_viewer._set_hovered_edge(None)
+            finally:
+                self.native_viewer.blockSignals(signals_were_blocked)
+            self.native_viewer.set_source_topology_hover(
+                provided.hover_mesh, "edge"
+            )
             self._set_view_hover("edge", owner_id, edge_index)
             return
         assembly_dialog = self.assembly_component_dialog
@@ -26143,6 +26867,23 @@ class MainWindow(QMainWindow):
             return
 
         obj = self._object_from_tree_item(item)
+        activation_component = obj
+        activation_instance_path: tuple[str, ...] = ()
+        tree_component_id = (
+            item.data(0, HistoryTreeWidget.COMPONENT_INSTANCE_ROLE)
+            if item is not None else None
+        )
+        if tree_component_id is not None:
+            activation_document = (
+                self._active_component_return_document or self.document
+            )
+            activation_component = (
+                activation_document.find_entity(str(tree_component_id))
+                if activation_document is not None else None
+            )
+            activation_instance_path = tuple(item.data(
+                0, HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE
+            ) or ())
         menu = QMenu(self)
         attach_action = None
         create_action = None
@@ -26206,16 +26947,35 @@ class MainWindow(QMainWindow):
                 if obj.container_type == ContainerType.COMPONENT:
                     if (
                         self._active_component_return_document is not None
-                        and obj.entity_id == self._active_component_entity_id
+                        and activation_component is not None
+                        and activation_component.entity_id
+                        == self._active_component_entity_id
+                        and activation_instance_path
+                        == getattr(self, "_active_component_instance_path", ())
                     ):
                         deactivate_component_action = menu.addAction(
-                            resource_icon("part"),
-                            tr("menu.context.deactivate_component"),
+                            resource_icon(
+                                "assembly"
+                                if self._component_source_is_assembly(obj)
+                                else "part"
+                            ),
+                            tr(self._component_activation_translation_key(
+                                activation_component,
+                                deactivate=True,
+                                instance_path=activation_instance_path,
+                            )),
                         )
                     else:
                         activate_component_action = menu.addAction(
-                            resource_icon("part"),
-                            tr("menu.context.activate_component"),
+                            resource_icon(
+                                "assembly"
+                                if self._component_source_is_assembly(obj)
+                                else "part"
+                            ),
+                            tr(self._component_activation_translation_key(
+                                activation_component,
+                                instance_path=activation_instance_path,
+                            )),
                         )
                     open_component_action = menu.addAction(
                         resource_icon("open"),
@@ -26332,9 +27092,11 @@ class MainWindow(QMainWindow):
         elif (
             activate_component_action is not None
             and action == activate_component_action
-            and obj is not None
+            and activation_component is not None
         ):
-            self._activate_assembly_component(obj)
+            self._activate_assembly_component(
+                activation_component, activation_instance_path
+            )
         elif (
             deactivate_component_action is not None
             and action == deactivate_component_action
@@ -26345,7 +27107,10 @@ class MainWindow(QMainWindow):
             and action == open_component_action
             and obj is not None
         ):
-            self._open_assembly_component(obj)
+            self._open_assembly_component(
+                activation_component,
+                activation_instance_path,
+            )
         elif create_action is not None and action == create_action:
             self.create_new_container()
         elif (
@@ -27310,6 +28075,32 @@ class MainWindow(QMainWindow):
         ):
             obj = selected_edge_treatment
         menu = QMenu(self)
+        select_parent_action = None
+        occurrence = self._assembly_occurrence_records.get(
+            self._selected_assembly_occurrence_key or ""
+        )
+        activation_instance_path = tuple(
+            occurrence.get("instance_path", ())
+            if occurrence is not None else ()
+        )
+        activation_component = obj
+        if occurrence is not None:
+            activation_document = (
+                self._active_component_return_document or self.document
+            )
+            candidate = (
+                activation_document.find_entity(str(
+                    occurrence.get("top_component_id", "")
+                ))
+                if activation_document is not None else None
+            )
+            if candidate is not None:
+                activation_component = candidate
+        if occurrence is not None and occurrence.get("parent_key") is not None:
+            select_parent_action = menu.addAction(
+                tr("menu.context.select_parent")
+            )
+            menu.addSeparator()
         if (
             self.selected_face is not None
             and self.view_selection_mode == ViewSelectionMode.FACE
@@ -27345,16 +28136,34 @@ class MainWindow(QMainWindow):
                 if obj.container_type == ContainerType.COMPONENT:
                     if (
                         self._active_component_return_document is not None
-                        and obj.entity_id == self._active_component_entity_id
+                        and activation_component.entity_id
+                        == self._active_component_entity_id
+                        and activation_instance_path
+                        == getattr(self, "_active_component_instance_path", ())
                     ):
                         deactivate_component_action = menu.addAction(
-                            resource_icon("part"),
-                            tr("menu.context.deactivate_component"),
+                            resource_icon(
+                                "assembly"
+                                if self._component_source_is_assembly(obj)
+                                else "part"
+                            ),
+                            tr(self._component_activation_translation_key(
+                                activation_component,
+                                deactivate=True,
+                                instance_path=activation_instance_path,
+                            )),
                         )
                     else:
                         activate_component_action = menu.addAction(
-                            resource_icon("part"),
-                            tr("menu.context.activate_component"),
+                            resource_icon(
+                                "assembly"
+                                if self._component_source_is_assembly(obj)
+                                else "part"
+                            ),
+                            tr(self._component_activation_translation_key(
+                                activation_component,
+                                instance_path=activation_instance_path,
+                            )),
                         )
                     open_component_action = menu.addAction(
                         resource_icon("open"),
@@ -27439,10 +28248,17 @@ class MainWindow(QMainWindow):
             return
         action = menu.exec(global_position)
         if (
+            select_parent_action is not None
+            and action == select_parent_action
+        ):
+            self._select_assembly_occurrence(str(occurrence["parent_key"]))
+        elif (
             activate_component_action is not None
             and action == activate_component_action
         ):
-            self._activate_assembly_component(obj)
+            self._activate_assembly_component(
+                activation_component, activation_instance_path
+            )
         elif (
             deactivate_component_action is not None
             and action == deactivate_component_action
@@ -27452,7 +28268,10 @@ class MainWindow(QMainWindow):
             open_component_action is not None
             and action == open_component_action
         ):
-            self._open_assembly_component(obj)
+            self._open_assembly_component(
+                activation_component,
+                activation_instance_path,
+            )
         elif attach_action is not None and action == attach_action:
             self._begin_plane_attachment(obj.entity_id)
         elif normal_view_action is not None and action == normal_view_action:
@@ -28084,6 +28903,43 @@ class MainWindow(QMainWindow):
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
 
+    def _on_insertion_origin_dragged(
+        self,
+        delta_x: float,
+        delta_y: float,
+        finished: bool,
+    ) -> None:
+        dialog = self.assembly_component_dialog
+        if dialog is None or not dialog.isVisible() or self.document is None:
+            return
+        component = dialog.component
+        scale = (
+            float(self.native_viewer.height())
+            * 0.5
+            / max(float(self.native_viewer._scene_radius), 1.0e-9)
+            * self.native_viewer.camera.zoom
+        )
+        camera_delta = (delta_x / scale, -delta_y / scale, 0.0)
+        world_delta = self.native_viewer._inverse_rotate(camera_delta)
+        component.coordinate_system.origin = tuple(
+            float(component.coordinate_system.origin[index] + world_delta[index])
+            for index in range(3)
+        )
+        for edit, value in zip(
+            dialog.coordinate_edits,
+            component.coordinate_system.origin,
+        ):
+            edit.blockSignals(True)
+            edit.setValue(value)
+            edit.blockSignals(False)
+        if finished:
+            # Re-apply the mate solver at the end of the gesture.  It removes
+            # any component of the provisional drag that violates a locked
+            # plane/axis constraint and persists only the solved transform.
+            dialog.matesSubmitted.emit(dialog.mate_rows())
+        else:
+            dialog.definitionChanged.emit()
+
     def _insert_assembly_component(self) -> None:
         if (
             self.document is None
@@ -28094,15 +28950,32 @@ class MainWindow(QMainWindow):
             self,
             tr("assembly.insert.title"),
             str(self.working_directory),
-            tr("file.filter.part"),
+            tr("file.filter.component"),
         )
         if not file_name:
             return
         source_path = Path(file_name).resolve()
         try:
             source_document = load_part_document(source_path)
-            if source_document.document_settings.get("type", "part") != "part":
-                raise ValueError(tr("assembly.insert.not_part"))
+            if source_document.document_settings.get("type", "part") not in {
+                "part", "assembly",
+            }:
+                raise ValueError(tr("assembly.insert.not_component"))
+            if (
+                self.document.source_file_path is not None
+                and canonical_document_path(self.document.source_file_path)
+                == canonical_document_path(source_path)
+            ):
+                raise ValueError(tr("assembly.insert.recursive"))
+            if (
+                self.document.source_file_path is not None
+                and self._assembly_document_references_path(
+                    source_document,
+                    source_path,
+                    canonical_document_path(self.document.source_file_path),
+                )
+            ):
+                raise ValueError(tr("assembly.insert.recursive"))
         except Exception as exc:
             QMessageBox.critical(self, tr("assembly.insert.failed"), str(exc))
             return
@@ -28140,6 +29013,9 @@ class MainWindow(QMainWindow):
             {
                 "source_path": stored_path,
                 "source_name": source_document.root.name,
+                "source_document_type": str(
+                    source_document.document_settings.get("type", "part")
+                ),
                 "fixed": str(len(self.document.history_objects()) == 1).lower(),
                 "experimental_container": "true",
                 "body_color": str(
@@ -28159,6 +29035,12 @@ class MainWindow(QMainWindow):
         self.selected_object_id = component.entity_id
         self._populate_tree()
         self._select_tree_object(component.entity_id)
+        self.native_viewer.set_insertion_origin_marker(
+            transform_point(
+                coordinate_system_transform(component.coordinate_system),
+                (0.0, 0.0, 0.0),
+            )
+        )
         self.workspace.documentChanged.emit(self, self.document)
         # Opening component properties rebuilds the scene once with its
         # selectable reference geometry.  Rebuilding here first used to
@@ -28167,6 +29049,45 @@ class MainWindow(QMainWindow):
             component,
             fit_view=fit_inserted_component,
         )
+
+    @staticmethod
+    def _assembly_document_references_path(
+        document: PartDocument,
+        document_path: Path,
+        target_path: Path,
+        visited: set[Path] | None = None,
+    ) -> bool:
+        """Return whether an Assembly dependency graph reaches target_path."""
+        if document.document_settings.get("type", "part") != "assembly":
+            return False
+        seen = set() if visited is None else visited
+        current_path = canonical_document_path(document_path)
+        if current_path in seen:
+            return False
+        seen.add(current_path)
+        for component in document.history_objects():
+            if component.container_type != ContainerType.COMPONENT:
+                continue
+            raw_path = str(component.parameters.get("source_path", "")).strip()
+            if not raw_path:
+                continue
+            child_path = Path(raw_path)
+            if not child_path.is_absolute():
+                child_path = current_path.parent / child_path
+            child_path = canonical_document_path(child_path)
+            if child_path == target_path:
+                return True
+            if child_path in seen:
+                continue
+            try:
+                child_document = load_part_document(child_path)
+            except Exception:
+                continue
+            if MainWindow._assembly_document_references_path(
+                child_document, child_path, target_path, seen
+            ):
+                return True
+        return False
 
     @staticmethod
     def _shape_bounds(shape) -> tuple[float, float, float, float, float, float] | None:
@@ -28306,7 +29227,10 @@ class MainWindow(QMainWindow):
             objects.append(obj)
 
         selected_ids = {obj.entity_id for obj in objects}
-        document = self._active_component_return_document or self.document
+        # The active source document owns edits.  The return Assembly is only
+        # the passive display/context document and must never receive a tree
+        # deletion or parent-chain edit.
+        document = self.document
         result: list[ZimaEntity] = []
         for obj in objects:
             parent = document.find_parent(obj.entity_id)
@@ -28321,7 +29245,7 @@ class MainWindow(QMainWindow):
         return result
 
     def _delete_tree_objects(self, objects: list[ZimaEntity]) -> None:
-        document = self._active_component_return_document or self.document
+        document = self.document
         if document is None:
             return
         deleted = False
@@ -28506,9 +29430,17 @@ class MainWindow(QMainWindow):
         )
         if component is None or component.container_type != ContainerType.COMPONENT:
             return None
-        source_document = self._component_source_document(component)
-        if source_document is None:
+        instance_path = (
+            assembly_reference.instance_path
+            if assembly_reference is not None
+            else edge_reference.instance_path
+        )
+        nested = self._nested_reference_document_and_transform(
+            component, instance_path
+        )
+        if nested is None:
             return None
+        source_document, component_transform = nested
         topology_reference = (
             assembly_reference.face
             if assembly_reference is not None
@@ -28537,7 +29469,7 @@ class MainWindow(QMainWindow):
             return None
         shape = transform_shape(
             resolution.shape,
-            coordinate_system_transform(component.coordinate_system),
+            component_transform,
         )
         if assembly_reference is not None:
             adaptor = BRepAdaptor_Surface(shape)
@@ -28651,6 +29583,123 @@ class MainWindow(QMainWindow):
                     ))
         return choices
 
+    def _assembly_leaf_reference_results(
+        self,
+        component: ZimaEntity,
+        *,
+        root_transform: tuple | None = None,
+    ) -> list[tuple[BodyResult, ViewerMesh, tuple, tuple[str, ...], str]]:
+        """Flatten persisted original Part bodies below one component.
+
+        This is viewer-data traversal only: opening Component Properties must
+        not invoke OCCT. Each returned path distinguishes repeated instances
+        of the same Part inside a nested Assembly.
+        """
+        source_document = self._component_source_document(component)
+        if source_document is None:
+            return []
+        root_transform = (
+            coordinate_system_transform(component.coordinate_system)
+            if root_transform is None
+            else root_transform
+        )
+        results: list[tuple[BodyResult, ViewerMesh, tuple, tuple[str, ...], str]] = []
+        visited: set[Path] = set()
+
+        def walk(
+            document: PartDocument,
+            transform: tuple,
+            instance_path: tuple[str, ...],
+            label_path: str,
+        ) -> None:
+            if document.document_settings.get("type", "part") != "assembly":
+                calculated = document.cached_body_result_at(
+                    document.history_objects_at(document.history_cursor())
+                )
+                if calculated is None:
+                    return
+                bodies = list(calculated.source_bodies.values())
+                if not bodies:
+                    bodies = [calculated]
+                for body in bodies:
+                    results.append((
+                        body,
+                        transform_viewer_mesh(body.mesh, transform),
+                        transform,
+                        instance_path,
+                        label_path,
+                    ))
+                return
+            document_path = document.source_file_path
+            if document_path is None:
+                return
+            canonical_path = canonical_document_path(document_path)
+            if canonical_path in visited:
+                return
+            visited.add(canonical_path)
+            try:
+                for child in document.history_objects_at(document.history_cursor()):
+                    if child.container_type != ContainerType.COMPONENT:
+                        continue
+                    child_path = self._component_source_path(
+                        child, assembly_document=document
+                    )
+                    if child_path is None:
+                        continue
+                    child_document = self._assembly_part_documents.get(child_path)
+                    if child_document is None:
+                        try:
+                            child_document = load_part_document(child_path)
+                        except Exception:
+                            continue
+                        self._assembly_part_documents[child_path] = child_document
+                    walk(
+                        child_document,
+                        multiply_transforms(
+                            transform,
+                            coordinate_system_transform(child.coordinate_system),
+                        ),
+                        (*instance_path, child.entity_id),
+                        f"{label_path} / {child.name}",
+                    )
+            finally:
+                visited.remove(canonical_path)
+
+        walk(source_document, root_transform, (), component.name)
+        return results
+
+    def _nested_reference_document_and_transform(
+        self,
+        component: ZimaEntity,
+        instance_path: tuple[str, ...],
+    ) -> tuple[PartDocument, tuple] | None:
+        document = self._component_source_document(component)
+        if document is None:
+            return None
+        transform = coordinate_system_transform(component.coordinate_system)
+        for child_id in instance_path:
+            child = document.find_entity(child_id)
+            if child is None or child.container_type != ContainerType.COMPONENT:
+                return None
+            child_path = self._component_source_path(
+                child, assembly_document=document
+            )
+            if child_path is None:
+                return None
+            child_document = self._assembly_part_documents.get(child_path)
+            if child_document is None:
+                try:
+                    child_document = load_part_document(child_path)
+                except Exception:
+                    return None
+                self._assembly_part_documents[child_path] = child_document
+            transform = multiply_transforms(
+                transform,
+                coordinate_system_transform(child.coordinate_system),
+            )
+            document = child_document
+        return document, transform
+
     def _edit_assembly_component(
         self,
         component: ZimaEntity,
@@ -28731,6 +29780,7 @@ class MainWindow(QMainWindow):
         }
         dialog._reference_frames = frames
         dialog._source_frame_keys = source_frame_keys
+        dialog._refresh_flip_contract()
         original_component_results: dict[str, list[tuple]] = {}
         incomplete_original_components: set[str] = set()
         assembly_history = self.document.history_objects()
@@ -28740,31 +29790,17 @@ class MainWindow(QMainWindow):
             source_document = self._component_source_document(original_component)
             if source_document is None:
                 continue
-            calculated = source_document.cached_body_result_at(
-                source_document.history_objects_at(
-                    source_document.history_cursor()
-                )
-            )
-            if calculated is None:
-                continue
-            transform = coordinate_system_transform(
-                original_component.coordinate_system
+            leaf_results = self._assembly_leaf_reference_results(
+                original_component
             )
             original_component_results[original_component.entity_id] = [
-                (
-                    source_body,
-                    transform_viewer_mesh(source_body.mesh, transform),
-                    transform,
-                )
-                for source_body in calculated.source_bodies.values()
+                (body, mesh, transform, path, label)
+                for body, mesh, transform, path, label in leaf_results
             ]
             source_history = source_document.history_objects_at(
                 source_document.history_cursor()
             )
-            if (
-                not original_component_results[original_component.entity_id]
-                and len(source_history) > 1
-            ):
+            if not original_component_results[original_component.entity_id]:
                 # This cache predates persisted source-body topology. Do not
                 # silently fall back to the final Part Body: that is exactly
                 # the result geometry Assembly mates must never reference.
@@ -28773,15 +29809,6 @@ class MainWindow(QMainWindow):
                 )
                 source_document.regeneration_required = True
                 continue
-            # A one-container imported Part has no separate history result;
-            # its calculated body is itself the original solid.
-            if not original_component_results[original_component.entity_id]:
-                rebound = calculated.with_owner(original_component.entity_id)
-                original_component_results[original_component.entity_id] = [(
-                    rebound,
-                    transform_viewer_mesh(rebound.mesh, transform),
-                    transform,
-                )]
         dialog._original_component_results = original_component_results
         dialog._incomplete_original_components = incomplete_original_components
 
@@ -28946,7 +29973,10 @@ class MainWindow(QMainWindow):
                         picked_face = dialog._picked_face_indices.get(
                             descriptor_text
                         )
-                        if picked_face is not None:
+                        if (
+                            picked_face is not None
+                            and not assembly_face.instance_path
+                        ):
                             faces.add(picked_face)
                         else:
                             face_index = self._component_face_runtime_index(
@@ -29094,11 +30124,13 @@ class MainWindow(QMainWindow):
                     descriptor
                 )
                 if assembly_face is not None:
-                    for result, mesh, _transform in (
+                    for result, mesh, _transform, instance_path, _label in (
                         dialog._original_component_results.get(
                             assembly_face.instance_id, ()
                         )
                     ):
+                        if instance_path != assembly_face.instance_path:
+                            continue
                         face_keys = dict.fromkeys(zip(
                             mesh.triangle_owner_ids,
                             mesh.triangle_face_indices,
@@ -29420,6 +30452,13 @@ class MainWindow(QMainWindow):
                 self._canonical_transform_value(math.degrees(value))
                 for value in (rx, ry, rz)
             )
+            if getattr(self.native_viewer, "_insertion_origin_marker", None) is not None:
+                self.native_viewer.set_insertion_origin_marker(
+                    transform_point(
+                        coordinate_system_transform(component.coordinate_system),
+                        (0.0, 0.0, 0.0),
+                    )
+                )
             component.parameters["assembly_mates"] = json.dumps(rows, ensure_ascii=False)
             self._propagate_assembly_component_transform(
                 component,
@@ -29486,6 +30525,13 @@ class MainWindow(QMainWindow):
             component.coordinate_system.rotation = tuple(
                 edit.value() for edit in dialog.rotation_edits
             )
+            if getattr(self.native_viewer, "_insertion_origin_marker", None) is not None:
+                self.native_viewer.set_insertion_origin_marker(
+                    transform_point(
+                        coordinate_system_transform(component.coordinate_system),
+                        (0.0, 0.0, 0.0),
+                    )
+                )
             self._propagate_assembly_component_transform(
                 component,
                 previous_component_transform,
@@ -29503,6 +30549,13 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(preview_component_placement)
         dialog.activeReferenceChanged.connect(highlight_active_reference)
         self.assembly_component_dialog = dialog
+        if show_dialog and hasattr(self, "native_viewer"):
+            self.native_viewer.set_insertion_origin_marker(
+                transform_point(
+                    coordinate_system_transform(component.coordinate_system),
+                    (0.0, 0.0, 0.0),
+                )
+            )
         previous_filter_index = self.selection_filter_combo.currentIndex()
         previous_selection_enabled = self.view_selection_enabled
         previous_origins_visible = self.show_origins_action.isChecked()
@@ -29543,6 +30596,7 @@ class MainWindow(QMainWindow):
                     candidate.coordinate_system.rotation = tuple(transform[1])
             if self.assembly_component_dialog is dialog:
                 self.assembly_component_dialog = None
+            self.native_viewer.set_insertion_origin_marker(None)
             if headless:
                 return
             self.native_viewer.set_assembly_reference_highlights(
@@ -45717,8 +46771,38 @@ class MainWindow(QMainWindow):
                 component_id == self._active_component_entity_id
                 and self._active_component_document is not None
             ):
-                return self._active_component_document.find_entity(
+                direct = self._active_component_document.find_entity(
                     str(source_entity_id)
+                )
+                if direct is not None:
+                    return direct
+                top_component = (
+                    self._active_component_return_document.find_entity(
+                        str(component_id)
+                    )
+                    if self._active_component_return_document is not None
+                    else None
+                )
+                instance_path = tuple(item.data(
+                    0, HistoryTreeWidget.COMPONENT_INSTANCE_PATH_ROLE
+                ) or ())
+                if (
+                    not instance_path
+                    or str(instance_path[-1]) != str(source_entity_id)
+                ):
+                    return None
+                lookup_path = (
+                    instance_path[:-1]
+                )
+                nested = (
+                    self._nested_reference_document_and_transform(
+                        top_component, lookup_path
+                    )
+                    if top_component is not None else None
+                )
+                return (
+                    nested[0].find_entity(str(source_entity_id))
+                    if nested is not None else None
                 )
             assembly_document = (
                 self._active_component_return_document or self.document
@@ -48295,6 +49379,80 @@ class MainWindow(QMainWindow):
             return None
         return obj
 
+    def _open_dependency_document(self, source_path: Path) -> PartDocument | None:
+        """Return the authoritative open document for one dependency path."""
+        canonical_path = canonical_document_path(source_path)
+        for window in self.workspace.windows:
+            for session in window.document_sessions:
+                if (
+                    session.file_path is not None
+                    and canonical_document_path(session.file_path)
+                    == canonical_path
+                ):
+                    return session.document
+            active_document = getattr(window, "document", None)
+            active_path = getattr(window, "current_file_path", None)
+            if (
+                active_document is not None
+                and active_path is not None
+                and canonical_document_path(active_path) == canonical_path
+            ):
+                return active_document
+        return None
+
+    def _prepare_explicit_assembly_regeneration(
+        self,
+        assembly: PartDocument,
+        active_paths: set[Path] | None = None,
+    ) -> None:
+        """Pull the current nested dependency graph for explicit Regenerate."""
+        if assembly.document_settings.get("type", "part") != "assembly":
+            return
+        active = set() if active_paths is None else active_paths
+        assembly_path = assembly.source_file_path
+        canonical_assembly_path = (
+            canonical_document_path(assembly_path)
+            if assembly_path is not None else None
+        )
+        if canonical_assembly_path is not None:
+            if canonical_assembly_path in active:
+                return
+            active.add(canonical_assembly_path)
+        try:
+            dependency_cache = assembly.__dict__.setdefault(
+                "_assembly_component_document_cache", {}
+            )
+            for component in assembly.history_objects_at(
+                assembly.history_cursor()
+            ):
+                if component.container_type != ContainerType.COMPONENT:
+                    continue
+                source_path = self._component_source_path(
+                    component, assembly_document=assembly
+                )
+                if source_path is None:
+                    continue
+                source_document = self._open_dependency_document(source_path)
+                if source_document is None:
+                    try:
+                        source_document = load_part_document(source_path)
+                    except Exception:
+                        continue
+                dependency_cache[source_path] = source_document
+                self._assembly_part_documents[source_path] = source_document
+                if source_document.document_settings.get("type") == "assembly":
+                    self._prepare_explicit_assembly_regeneration(
+                        source_document, active
+                    )
+            # These are derived Assembly results. Definitions and persisted
+            # Part viewer data remain intact; the following build performs
+            # the one user-requested pull calculation.
+            assembly._shape_history_cache.clear()
+            assembly._body_result_cache.clear()
+        finally:
+            if canonical_assembly_path is not None:
+                active.discard(canonical_assembly_path)
+
     def regenerate_model(self) -> None:
         if self.document is None:
             return
@@ -48306,6 +49464,9 @@ class MainWindow(QMainWindow):
         QApplication.processEvents(
             QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
         )
+
+        if self.document.document_settings.get("type") == "assembly":
+            self._prepare_explicit_assembly_regeneration(self.document)
 
         regenerated_entities = 0
         unresolved_entities = 0
@@ -48670,6 +49831,11 @@ class MainWindow(QMainWindow):
             and not self.assembly_component_dialog.selection_paused
         ):
             scope = ViewerInteractionScope.ASSEMBLY_MATE_REFERENCES
+        elif (
+            active_instance_id is not None
+            and editing_document.document_settings.get("type") == "assembly"
+        ):
+            scope = ViewerInteractionScope.ASSEMBLY_INSTANCES
         elif active_instance_id is not None:
             scope = (
                 ViewerInteractionScope.ACTIVE_PART_REFERENCES
@@ -48702,6 +49868,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if rebuild_geometry:
             self._reference_topology_registry_cache.clear()
+            self._assembly_occurrence_records.clear()
         if self.document is not None and self._document_type(self.document) == "drawing":
             self.native_viewer.hide()
             self.drawing_workspace.show()
@@ -48896,8 +50063,31 @@ class MainWindow(QMainWindow):
             and instance_transform is not None
             else None
         )
+        active_top_component = (
+            context.display_document.find_entity(context.active_instance_id)
+            if context.active_instance_id is not None
+            else None
+        )
+        active_branch_meshes = (
+            tuple(
+                mesh
+                for _body, mesh, _transform, _path, _label
+                in self._assembly_leaf_reference_results(
+                    active_top_component,
+                    root_transform=identity_transform(),
+                )
+            )
+            if active_top_component is not None
+            and getattr(self, "_active_component_root_document", None) is not None
+            and self._active_component_root_document.document_settings.get(
+                "type"
+            ) == "assembly"
+            else ()
+        )
         active_instance_mesh = (
-            active_instance_result.mesh
+            combine_viewer_meshes(active_branch_meshes)
+            if active_branch_meshes
+            else active_instance_result.mesh
             if active_instance_result is not None
             else ViewerMesh(
                 triangle_positions=(),
@@ -49602,6 +50792,31 @@ class MainWindow(QMainWindow):
                     if obj.kind == EntityKind.CONTAINER
                     else self.document.find_parent(obj.entity_id)
                 )
+                if (
+                    self._active_component_return_document is not None
+                    and self.document.document_settings.get("type") != "assembly"
+                    and container is not None
+                ):
+                    # The active Part is rendered in the parent Assembly
+                    # scene, so its source packet is held by the interaction
+                    # result rather than by the displayed Assembly result.
+                    interaction_result = getattr(
+                        self, "_viewer_interaction_body_result", None
+                    )
+                    source_result = (
+                        interaction_result.source_bodies.get(
+                            container.entity_id
+                        )
+                        if interaction_result is not None
+                        else None
+                    )
+                    if source_result is not None:
+                        self.native_viewer.set_object_overlay(
+                            source_result.mesh,
+                            selected=True,
+                            anchor=self._native_object_origin(container),
+                        )
+                    return
                 if obj.kind == EntityKind.CONTAINER:
                     if obj.container_type == ContainerType.IMPORTED_STEP:
                         # Large imported topology is intentionally not walked

@@ -16,6 +16,7 @@ from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
 
 from zima_cad.app import (
+    ApplicationMode,
     AssemblyComponentPropertiesDialog,
     AxisConstraintDialog,
     ContainerSummaryDialog,
@@ -1315,6 +1316,31 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertNotIn(first.entity_id, allowed)
         self.assertEqual(excluded, {first.entity_id})
 
+    def test_component_activation_distinguishes_part_and_subassembly(self):
+        part = create_empty_assembly().create_container(
+            "Part", ContainerType.COMPONENT
+        )
+        part.parameters["source_document_type"] = "part"
+        subassembly = create_empty_assembly().create_container(
+            "Subassembly", ContainerType.COMPONENT
+        )
+        subassembly.parameters["source_document_type"] = "assembly"
+
+        self.assertFalse(MainWindow._component_source_is_assembly(part))
+        self.assertTrue(MainWindow._component_source_is_assembly(subassembly))
+
+    def test_active_subassembly_exposes_only_assembly_application(self):
+        window = MainWindow.__new__(MainWindow)
+        window.document = create_empty_assembly()
+        window._active_component_return_document = create_empty_assembly()
+
+        self.assertTrue(
+            window._application_mode_available(ApplicationMode.ASSEMBLY)
+        )
+        self.assertFalse(
+            window._application_mode_available(ApplicationMode.MODELING)
+        )
+
     def test_feature_overlay_matches_only_the_activated_instance(self):
         coincident_edge = ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0))
         main = ViewerMesh(
@@ -1416,6 +1442,26 @@ class DrawingViewConventionTests(unittest.TestCase):
             AssemblyComponentPropertiesDialog._signed_mate_angle(11.0, True),
             radians(-11.0),
         )
+
+    def test_three_independent_mate_planes_enable_flip_parity(self):
+        self.assertTrue(
+            AssemblyComponentPropertiesDialog._three_directions_are_independent(
+                ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+            )
+        )
+        self.assertFalse(
+            AssemblyComponentPropertiesDialog._three_directions_are_independent(
+                ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (2.0, 0.0, 0.0))
+            )
+        )
+
+    def test_derived_flip_keeps_only_even_flip_combinations(self):
+        for first, second in ((False, False), (True, False), (False, True), (True, True)):
+            values = {0: first, 1: second, 2: False}
+            values[2] = AssemblyComponentPropertiesDialog._even_flip_value(
+                values, 2
+            )
+            self.assertEqual(sum(values.values()) % 2, 0)
 
     def test_assembly_object_hover_uses_complete_persisted_component_mesh(self):
         assembly = create_empty_assembly()

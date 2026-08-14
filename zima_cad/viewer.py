@@ -525,6 +525,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchTrimPreviewRequested = Signal(object)
     sketchTrimGestureRequested = Signal(object)
     extentHandleDragged = Signal(str, float, bool)
+    insertionOriginDragged = Signal(float, float, bool)
     rotation_degrees_per_pixel = 0.18
 
     def __init__(self, parent=None) -> None:
@@ -667,6 +668,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._constraint_reference_planes: frozenset[TopologyKey] = frozenset()
         self._constraint_reference_positions: tuple[Point3, ...] = ()
         self._selected_container_origin_id: str | None = None
+        self._insertion_origin_marker: Point3 | None = None
+        self._insertion_origin_dragging = False
+        self._insertion_origin_drag_position: QPoint | None = None
         self._selected_container_content_ids: frozenset[str] = frozenset()
         self._datum_container_owner_ids: dict[str, str] = {}
         self._cycled_topology_candidate: tuple[str, str, int] | None = None
@@ -1896,6 +1900,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_container_origin_id = origin_id
         self.update()
 
+    def set_insertion_origin_marker(self, point: Point3 | None) -> None:
+        """Show the purple Origin point of the component being inserted."""
+        self._insertion_origin_marker = point
+        self.update()
+
     def set_selected_container_contents(
         self,
         owner_ids: set[str] | frozenset[str],
@@ -2413,6 +2422,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._paint_sketch_trim_overlay()
         if self._object_overlay_persistent:
             self._paint_object_overlay()
+        self._paint_insertion_origin_marker()
         self._paint_passive_sketch_overlay()
         self._paint_source_topology_hover()
         self._paint_edge_labels(screen_constant_only=True)
@@ -2437,6 +2447,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_sketch_trim_overlay()
         self._paint_sketch_selection_box()
         self._paint_object_overlay()
+        self._paint_insertion_origin_marker()
         self._paint_passive_sketch_overlay()
         self._paint_source_topology_hover()
         self._paint_edge_labels()
@@ -2607,6 +2618,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._insertion_origin_marker is not None
+        ):
+            marker = self._screen_point(
+                self._camera_point(self._insertion_origin_marker)
+            )
+            if math.hypot(
+                event.position().x() - marker.x(),
+                event.position().y() - marker.y(),
+            ) <= 12.0:
+                self._insertion_origin_dragging = True
+                self._insertion_origin_drag_position = event.position().toPoint()
+                event.accept()
+                return
         if event.button() == Qt.MouseButton.LeftButton:
             extent_handle = self._extent_handle_at(event.position())
             if extent_handle is not None:
@@ -3060,6 +3086,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._insertion_origin_dragging:
+            current = event.position().toPoint()
+            previous = self._insertion_origin_drag_position or current
+            self.insertionOriginDragged.emit(
+                float(current.x() - previous.x()),
+                float(current.y() - previous.y()),
+                False,
+            )
+            self._insertion_origin_drag_position = current
+            event.accept()
+            return
         if (
             self._dragged_extent_handle_key is not None
             and event.buttons() & Qt.MouseButton.LeftButton
@@ -3769,6 +3806,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._insertion_origin_dragging
+        ):
+            self._insertion_origin_dragging = False
+            self._insertion_origin_drag_position = None
+            self.insertionOriginDragged.emit(0.0, 0.0, True)
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._dragged_extent_handle_key is not None
@@ -5020,6 +5066,19 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             painter.setPen(QPen(self._object_overlay_color, 1.0))
             painter.setBrush(QBrush(self._object_overlay_color))
             painter.drawEllipse(screen, 6.0, 6.0)
+        painter.end()
+
+    def _paint_insertion_origin_marker(self) -> None:
+        point = self._insertion_origin_marker
+        if point is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        purple = QColor("#B44CFF")
+        screen = self._screen_point(self._camera_point(point))
+        painter.setPen(QPen(purple, 1.0))
+        painter.setBrush(QBrush(purple))
+        painter.drawEllipse(screen, 6.0, 6.0)
         painter.end()
 
     def _paint_passive_sketch_overlay(self) -> None:
