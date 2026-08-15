@@ -162,6 +162,32 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.
 
+## Běžný výběr ve 3D pohledu
+
+Bez aktivního příkazu nabízí pohled pouze objekty, se kterými lze běžně
+pracovat, nikoli topologii výsledného tělesa:
+
+- v Partu je kandidátem celý kontejner historie;
+- v sestavě je kandidátem nejnižší konkrétní výskyt Partu pod kurzorem, také
+  uvnitř libovolně vnořených sestav;
+- systémový Počátek, jeho osy a roviny nejsou samostatnou identitou komponenty.
+
+Oranžový hover, potvrzení levým tlačítkem a cyklování pravým tlačítkem používají
+jediný společný seřazený seznam kandidátů. Pravé tlačítko před potvrzením pouze
+přepne na dalšího kandidáta. Levé tlačítko potvrdí přesně nabízený objekt
+azurovým obrysem a současně označí tutéž položku ve stromu.
+
+Po potvrzení již pravé tlačítko necykluje, ale otevře kontextové menu vybraného
+objektu. U vnořené komponenty obsahuje příkaz **Vybrat rodiče**. Každé jeho
+použití posune výběr právě o jednu úroveň výše; opakováním lze projít od Partu
+přes všechny vnořené sestavy až k nejvyšší vložené komponentě. Strom a pohled
+zůstávají synchronizované a každé opakované vložení stejného zdrojového souboru
+se rozlišuje vlastní cestou instance.
+
+Při aktivním výběrovém příkazu platí jeho užší filtr. Pravé tlačítko nadále
+cykluje kandidáty tohoto příkazu a běžné kontextové menu se otevře až po jeho
+dokončení nebo zrušení.
+
 ## Živé úpravy ve Vlastnostech
 
 - Při vytváření nového kontejneru se ve 3D pohledu ihned zobrazí jeho
@@ -433,13 +459,14 @@ Nastavení je součástí dokumentu.
 
 Nový dokument typu **Sestava** používá příponu `.asmz` a automaticky otevře
 aplikaci **Sestava**. Tlačítko **Vložit** v pravém panelu vloží existující díl
-`.prtz`. První díl se vloží do počátku a další díly se podle skutečných rozměrů
-automaticky rozloží vedle dosavadní sestavy.
+`.prtz` nebo vnořenou sestavu `.asmz`. První komponenta se vloží do počátku a
+další se podle skutečných rozměrů automaticky rozloží vedle dosavadní sestavy.
 
 Každý vložený soubor je ve stromu samostatná instance pojmenovaná podle
-zdrojového souboru. Po rozbalení ukazuje strom zdrojového dílu a
-lokální počátek instance. Poloha instance patří pouze sestavě; změna polohy
-nemění zdrojový `.prtz`.
+zdrojového souboru. Po rozbalení ukazuje strom obsah zdrojového Partu nebo
+Assembly a lokální počátek instance. Poloha každé komponenty patří výhradně její
+bezprostředně nadřazené Assembly; nadřazená sestava polohuje vnořenou Assembly
+jako jeden celek a nepřebírá vlastnictví vazeb jejích vnitřních komponent.
 
 Změny polohy ve Vlastnostech se zobrazují živě přímo ve view. Strom sestavy
 zůstává sestavový i při práci s obsahem vložených dílů. Dvojklik na instanci
@@ -513,10 +540,12 @@ aktuální dokumentový stav. Externí reference vytvořená v sestavě uchováv
 identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
 označí jako ztracená reference místo použití nesprávné geometrie.
 
-Po změně otevřeného Partu se zneplatní geometrická cache všech otevřených
-sestav, které tento soubor používají; podpis závislosti zahrnuje i dosud
-neuložený aktuální stav. Právě zobrazená sestava se obnoví ihned, ostatní při
-aktivaci svého tabu. Nezměněné komponenty zůstávají cacheované.
+Po změně otevřeného Partu nebo vnořené Assembly zůstávají nadřazené sestavy v
+posledním vypočteném stavu. Přepnutí tabu, uložení, obnova stromu ani běžné
+překreslení view závislosti automaticky nepřepočítávají. Nový stav převezmete
+výslovným příkazem **Regenerovat** v cílové Assembly. Regenerace použije právě
+otevřené dokumenty jako autoritativní zdroj, takže zahrne i jejich dosud
+neuložené změny, obnoví celý vnořený řetězec a přepočítá požadovanou sestavu.
 
 Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
 ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí

@@ -42,6 +42,22 @@
 - Retain bounded caches for triangulation, silhouettes and GPU-ready buffers at
   multiple recently used history boundaries so entering and leaving Sketcher
   remains fast on fully filleted bodies.
+- Profile large nested Assemblies separately and then implement true GPU mesh
+  instancing: upload one immutable vertex/index buffer for each distinct source
+  Part mesh and draw every occurrence with its own instance transform, stable
+  occurrence ID and appearance data. Moving or mating a component should update
+  only its transform/instance record, without copying or CPU-transforming the
+  complete mesh and without re-uploading unchanged geometry.
+- Preserve the viewer-selection contract while introducing GPU instancing.
+  Hover, LMB confirmation and RMB cycling must still consume one ordered
+  candidate list and identify the exact nested occurrence. Add an occurrence-ID
+  picking buffer or a measured spatial-index alternative; do not fall back to
+  whole-body highlighting or result-body topology references.
+- Treat GPU instancing as a measured Assembly scaling project, not as a CAD
+  kernel replacement. Keep OCCT B-Rep calculations on CPU, benchmark CPU mesh
+  preparation, buffer upload, frame time, picking latency and component-move
+  latency before and after the change, and retain the new path only where those
+  measurements demonstrate a material improvement.
 - Show optional developer performance diagnostics with per-stage timings and
   entity/face/edge/triangle counts, making new quadratic or repeated work
   visible before it becomes a user-facing regression.

@@ -15,6 +15,7 @@ Current documentation:
 - [User manual](doc/UZIVATELSKY_MANUAL.md)
 - [Drawings, title blocks and BOM regions](doc/DRAWINGS.md)
 - [Assembly references and mates](doc/ASSEMBLY_REFERENCES.md)
+- [Viewer selection and Assembly Tree identity](doc/VIEWER_SELECTION.md)
 - [Sketcher interaction](doc/SKETCHER.md)
 - [Stable topology naming](doc/STABLE_TOPOLOGY_NAMING.md)
 
@@ -56,7 +57,8 @@ The application opens one main window with multiple document tabs:
 - native OpenGL 3D viewer or 2D drawing workspace in the centre
 - empty startup with no open document
 - part files with the `.prtz` extension
-- assembly files with the `.asmz` extension and inserted `.prtz` instances
+- assembly files with the `.asmz` extension and inserted `.prtz` or nested
+  `.asmz` instances
 - drawing files with the `.drwz` extension, multiple sheets and linked model
   views
 - container tree with Origin, entities, sketches and first test solids
@@ -105,7 +107,8 @@ its centreline and a following planar reference to place its origin at the
 line-plane intersection. The same reference contract applies in Part and to
 an active component instance in Assembly.
 
-The Assembly workflow supports inserted part instances, live placement,
+The Assembly workflow supports inserted Part and nested Assembly instances,
+live placement,
 planar/offset, concentric-axis and angular mates, degree-of-freedom-aware mate
 types, editable in-view mate dimensions, expanded source-part trees,
 in-context part editing and assembly-only extruded or revolved cuts applied to
@@ -147,14 +150,17 @@ feature suppression.
 
 Assembly components are rendered as separate shapes in an OCCT compound rather
 than being fused into one result. Loaded source Parts, evaluated shapes and
-document scenes are reused. Changing an open source Part invalidates every
-dependent assembly scene; the dependency signature also covers its current
-unsaved geometry, so switching back to an assembly cannot display a stale
-component. Signature-validated compressed BREP caches are persisted for
-imported STEP Parts as well; an older imported Part gains this fast-load cache
-after it is opened and saved once. Interactive File/Open loads `.prtz` documents
-and prepares large embedded-STEP display meshes outside the Qt GUI thread, so
-the main window remains responsive during the expensive restore.
+document scenes are reused. A parent Assembly deliberately keeps its last
+calculated state when an open Part or nested Assembly changes. **Regenerate**
+on that parent explicitly reads the current in-memory dependency documents,
+including unsaved changes, refreshes the complete nested dependency chain and
+recalculates the requested Assembly. Merely switching tabs, saving or rebuilding
+the viewer never performs that calculation. Signature-validated compressed BREP
+caches are persisted for imported STEP Parts as well; an imported Part gains
+this fast-load cache after it is calculated and saved. Interactive File/Open
+loads `.prtz` documents and prepares large embedded-STEP display meshes outside
+the Qt GUI thread, so the main window remains responsive during the expensive
+restore.
 
 Part and Assembly documents can export their current evaluated result through
 **File → Export model to STEP…**. Part export writes the active solid body;
