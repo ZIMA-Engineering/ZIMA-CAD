@@ -56,6 +56,7 @@ _CONSTRAINT_POINT_COUNTS = {
     "point_on_reference": 1,
     "point_on_line": 3,
     "midpoint": 3,
+    "midpoint_on_line": None,
     # Two mirrored points, optionally followed by sketch-axis endpoints.
     "symmetric": None,
     # Line start/end, circle centre and the explicit contact point.
@@ -534,6 +535,27 @@ class SketchModel:
                     )
                 owner_id = points[0]
                 raw["point_ids"] = list(points[1:])
+            elif constraint.constraint_type == "midpoint_on_line":
+                if len(points) not in (2, 4):
+                    raise SketchModelError(
+                        f"midpoint-on-line constraint "
+                        f"{constraint.constraint_id!r} requires 2 or 4 points"
+                    )
+                owner_geometry = geometry_for_points(points[0], points[1])
+                if owner_geometry is None:
+                    raise SketchModelError(
+                        f"midpoint-on-line constraint "
+                        f"{constraint.constraint_id!r} has no owner segment"
+                    )
+                owner_id = owner_geometry.geometry_id
+                if len(points) == 4:
+                    reference = geometry_for_points(points[2], points[3])
+                    if reference is None:
+                        raise SketchModelError(
+                            f"midpoint-on-line constraint "
+                            f"{constraint.constraint_id!r} has no reference line"
+                        )
+                    raw["geometry_id"] = reference.geometry_id
             elif constraint.constraint_type == "symmetric":
                 if len(points) not in (2, 4):
                     raise SketchModelError(
@@ -689,6 +711,36 @@ class SketchModel:
                 point[0] - (first[0] + second[0]) * 0.5,
                 point[1] - (first[1] + second[1]) * 0.5,
             )
+        if constraint.constraint_type == "midpoint_on_line":
+            first, second = positions[:2]
+            if len(positions) == 4:
+                axis_first, axis_second = positions[2:]
+                axis_x = axis_second[0] - axis_first[0]
+                axis_y = axis_second[1] - axis_first[1]
+            else:
+                origin = constraint.attributes.get("reference_origin", ())
+                direction = constraint.attributes.get("reference_direction", ())
+                if not (
+                    isinstance(origin, (list, tuple))
+                    and isinstance(direction, (list, tuple))
+                    and len(origin) >= 2
+                    and len(direction) >= 2
+                ):
+                    raise SketchModelError(
+                        "external midpoint-on-line constraint has no reference line"
+                    )
+                axis_first = (float(origin[0]), float(origin[1]))
+                axis_x, axis_y = float(direction[0]), float(direction[1])
+            axis_length = math.hypot(axis_x, axis_y)
+            if axis_length <= 1.0e-12:
+                raise SketchModelError(
+                    f"midpoint-on-line constraint {constraint_id!r} has "
+                    "a degenerate line"
+                )
+            midpoint_x = (first[0] + second[0]) * 0.5
+            midpoint_y = (first[1] + second[1]) * 0.5
+            return (((midpoint_x - axis_first[0]) * axis_y
+                     - (midpoint_y - axis_first[1]) * axis_x) / axis_length,)
         if constraint.constraint_type == "symmetric":
             first, second = positions[:2]
             if len(positions) == 2:
@@ -1205,6 +1257,7 @@ class SketchModel:
                 "concentric",
                 "point_on_line",
                 "midpoint",
+                "midpoint_on_line",
                 "symmetric",
             }:
                 errors = self.constraint_residuals(constraint_id)
@@ -1727,6 +1780,7 @@ class SketchModel:
                 "equal_length",
                 "point_on_line",
                 "midpoint",
+                "midpoint_on_line",
                 "symmetric",
                 "tangent",
             }:
@@ -2042,6 +2096,14 @@ class SketchModel:
                 f"requires 2 or 4 points, got {len(constraint.point_ids)}"
             )
         if (
+            constraint.constraint_type == "midpoint_on_line"
+            and len(constraint.point_ids) not in (2, 4)
+        ):
+            raise SketchModelError(
+                f"midpoint-on-line constraint {constraint.constraint_id!r} "
+                f"requires 2 or 4 points, got {len(constraint.point_ids)}"
+            )
+        if (
             constraint.constraint_type == "tangent"
             and len(constraint.point_ids) not in (3, 4, 5, 6, 7)
         ):
@@ -2215,7 +2277,29 @@ class SketchModel:
                 else:
                     owner_geometry = model.geometry[owner_id]
                     owner_points = list(owner_geometry.point_ids)
-                    if constraint_type in {"horizontal", "vertical"}:
+                    if constraint_type == "midpoint_on_line":
+                        if target_geometry is not None:
+                            reference = model.geometry.get(str(target_geometry))
+                            if reference is None or len(reference.point_ids) != 2:
+                                raise SketchModelError(
+                                    "a midpoint-on-line constraint requires "
+                                    "a linear reference"
+                                )
+                            point_ids = [*owner_points, *reference.point_ids]
+                        elif target_reference == "sketch_axis:x":
+                            point_ids = owner_points
+                            constraint["reference_origin"] = [0.0, 0.0]
+                            constraint["reference_direction"] = [1.0, 0.0]
+                        elif target_reference == "sketch_axis:y":
+                            point_ids = owner_points
+                            constraint["reference_origin"] = [0.0, 0.0]
+                            constraint["reference_direction"] = [0.0, 1.0]
+                        else:
+                            raise SketchModelError(
+                                "a midpoint-on-line constraint requires "
+                                "a construction line or sketch axis"
+                            )
+                    elif constraint_type in {"horizontal", "vertical"}:
                         if owner_geometry.geometry_type in {
                             GeometryType.ELLIPSE,
                             GeometryType.ELLIPTICAL_ARC,

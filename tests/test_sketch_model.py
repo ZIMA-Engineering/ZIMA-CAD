@@ -1730,6 +1730,94 @@ class SketchModelTests(unittest.TestCase):
             ["p1", "p2"],
         )
 
+    def test_segment_midpoint_on_axis_round_trips_and_solves(self):
+        entities = [
+            {"id": "p1", "type": "point", "x": -4.0, "y": 3.0,
+             "dimension_locks": ["x", "y"]},
+            {"id": "p2", "type": "point", "x": 6.0, "y": 5.0},
+            {"id": "g1", "type": "segment", "point_ids": ["p1", "p2"],
+             "constraints": [{"type": "midpoint_on_line",
+                              "reference_id": "sketch_axis:x"}]},
+        ]
+        sketch = SketchModel.from_editor_data(entities)
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(
+            (sketch.points["p1"].y + sketch.points["p2"].y) * 0.5,
+            0.0,
+            places=7,
+        )
+        restored, _dimensions = sketch.to_editor_data()
+        segment = next(item for item in restored if item["id"] == "g1")
+        self.assertEqual(
+            segment["constraints"][0]["reference_id"],
+            "sketch_axis:x",
+        )
+
+    def test_segment_midpoint_on_construction_round_trips_and_solves(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": -10.0,
+             "dimension_locks": ["x", "y"]},
+            {"id": "b", "type": "point", "x": 0.0, "y": 10.0,
+             "dimension_locks": ["x", "y"]},
+            {"id": "p1", "type": "point", "x": -4.0, "y": 3.0,
+             "dimension_locks": ["x", "y"]},
+            {"id": "p2", "type": "point", "x": 6.0, "y": 5.0},
+            {"id": "axis", "type": "construction", "point_ids": ["a", "b"]},
+            {"id": "g1", "type": "segment", "point_ids": ["p1", "p2"],
+             "constraints": [{"type": "midpoint_on_line",
+                              "geometry_id": "axis"}]},
+        ]
+        sketch = SketchModel.from_editor_data(entities)
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(
+            (sketch.points["p1"].x + sketch.points["p2"].x) * 0.5,
+            0.0,
+            places=7,
+        )
+        restored, _dimensions = sketch.to_editor_data()
+        segment = next(item for item in restored if item["id"] == "g1")
+        self.assertEqual(segment["constraints"][0]["geometry_id"], "axis")
+
+    def test_rectangle_can_use_two_midpoint_axis_constraints(self):
+        entities = [
+            {"id": "p1", "type": "point", "x": 4.0, "y": 3.0,
+             "dimension_locks": ["x", "y"]},
+            {"id": "p2", "type": "point", "x": -2.0, "y": 3.0},
+            {"id": "p3", "type": "point", "x": -2.0, "y": -1.0},
+            {"id": "p4", "type": "point", "x": 4.0, "y": -1.0},
+            {"id": "top", "type": "segment", "point_ids": ["p1", "p2"],
+             "constraints": [
+                 {"type": "horizontal"},
+                 {"type": "midpoint_on_line",
+                  "reference_id": "sketch_axis:y"},
+             ]},
+            {"id": "right", "type": "segment", "point_ids": ["p2", "p3"],
+             "constraints": [
+                 {"type": "vertical"},
+                 {"type": "midpoint_on_line",
+                  "reference_id": "sketch_axis:x"},
+             ]},
+            {"id": "bottom", "type": "segment", "point_ids": ["p3", "p4"],
+             "constraints": [{"type": "horizontal"}]},
+            {"id": "left", "type": "segment", "point_ids": ["p4", "p1"],
+             "constraints": [{"type": "vertical"}]},
+        ]
+        sketch = SketchModel.from_editor_data(entities)
+
+        self.assertTrue(sketch.solve())
+        self.assertAlmostEqual(
+            (sketch.points["p1"].x + sketch.points["p2"].x) * 0.5,
+            0.0,
+            places=7,
+        )
+        self.assertAlmostEqual(
+            (sketch.points["p2"].y + sketch.points["p3"].y) * 0.5,
+            0.0,
+            places=7,
+        )
+
     def test_geometry_role_round_trips_without_changing_type(self):
         sketch = SketchModel.from_editor_data([
             {"id": "p1", "type": "point", "x": 0.0, "y": 0.0},

@@ -7024,6 +7024,8 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     # discoverable through selection, but does not own a
                     # duplicate equality marker.
                     add_marker(geometry_id, "=", constraint_index)
+                elif constraint_type == "midpoint_on_line":
+                    add_marker(geometry_id, "M", constraint_index)
                 elif constraint_type == "tangent":
                     contact_id = str(
                         constraint.get("contact_point_id", "")
@@ -7467,9 +7469,23 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             label = (
                 "C C"
                 if self._sketch_preview_constraint == "intersection"
+                else "M H"
+                if self._sketch_preview_constraint is not None
+                and self._sketch_preview_constraint.startswith(
+                    "midpoint_on_line:"
+                )
+                and self._sketch_preview_constraint.endswith(":horizontal")
+                else "M V"
+                if self._sketch_preview_constraint is not None
+                and self._sketch_preview_constraint.startswith(
+                    "midpoint_on_line:"
+                )
+                and self._sketch_preview_constraint.endswith(":vertical")
                 else "M"
                 if self._sketch_preview_constraint is not None
-                and self._sketch_preview_constraint.startswith("midpoint:")
+                and self._sketch_preview_constraint.startswith(
+                    ("midpoint:", "midpoint_on_line:")
+                )
                 else "K"
                 if self._sketch_preview_is_keypoint
                 else "X"
@@ -7865,6 +7881,16 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             QPointF(rectangle[3].x() + 8.0, rectangle[3].y() - 8.0),
                             "S  ∥",
                         )
+                    elif compound.startswith("rectangle_centered:"):
+                        center = QPointF(
+                            (rectangle[0].x() + rectangle[2].x()) * 0.5,
+                            (rectangle[0].y() + rectangle[2].y()) * 0.5,
+                        )
+                        painter.setPen(QPen(QColor("#FF7A00"), 1.5))
+                        painter.drawText(
+                            QPointF(center.x() + 8.0, center.y() - 8.0),
+                            "M  M",
+                        )
                 elif self._sketch_tool == "hexagon":
                     center = self._sketch_pending_points[0]
                     radius = hypot(
@@ -7975,9 +8001,15 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     preview_labels.append("K")
                 elif (
                     self._sketch_preview_constraint is not None
-                    and self._sketch_preview_constraint.startswith("midpoint:")
+                    and self._sketch_preview_constraint.startswith(
+                        ("midpoint:", "midpoint_on_line:")
+                    )
                 ):
                     preview_labels.append("M")
+                    if self._sketch_preview_constraint.endswith(":horizontal"):
+                        preview_labels.append("H")
+                    elif self._sketch_preview_constraint.endswith(":vertical"):
+                        preview_labels.append("V")
                 elif (
                     self._sketch_preview_constraint is not None
                     and self._sketch_preview_constraint.startswith(
@@ -8030,6 +8062,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                             and self._sketch_preview_constraint.startswith(
                                 (
                                     "midpoint:",
+                                    "midpoint_on_line:",
                                     "circle_tangent:",
                                     "circle_curve_tangent:",
                                 )
@@ -9295,6 +9328,114 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # own placement candidate so RMB can cycle their reference IDs.
         local_cursor = self._sketch_local_position(position)
         if local_cursor is not None:
+            construction_ids = {
+                f"sketch_geometry:{item.get('id', '')}"
+                for item in self._sketch_entities
+                if item.get("type") == "construction"
+            }
+            if self._sketch_tool == "rectangle" and self._sketch_pending_points:
+                start = self._sketch_pending_points[0]
+                center_lines = [
+                    item for item in line_references
+                    if item[0] in ("sketch_axis:x", "sketch_axis:y")
+                    or item[0] in construction_ids
+                ]
+                horizontal = [
+                    item for item in center_lines
+                    if abs(item[2][1]) <= abs(item[2][0]) * 1.0e-6
+                ]
+                vertical = [
+                    item for item in center_lines
+                    if abs(item[2][0]) <= abs(item[2][1]) * 1.0e-6
+                ]
+                for horizontal_line in horizontal:
+                    for vertical_line in vertical:
+                        center = (
+                            vertical_line[1][0],
+                            horizontal_line[1][1],
+                        )
+                        opposite = (
+                            2.0 * center[0] - start[0],
+                            2.0 * center[1] - start[1],
+                        )
+                        offer(
+                            opposite,
+                            "",
+                            "rectangle_centered:"
+                            f"{vertical_line[0]}|{horizontal_line[0]}",
+                            -4,
+                        )
+            if (
+                self._sketch_tool in ("segment", "construction", "polyline")
+                and self._sketch_pending_points
+            ):
+                start = self._sketch_pending_points[-1]
+                for reference_id, origin, direction, _bounded in line_references:
+                    if not (
+                        reference_id in ("sketch_axis:x", "sketch_axis:y")
+                        or reference_id in construction_ids
+                    ):
+                        continue
+                    length_squared = direction[0] ** 2 + direction[1] ** 2
+                    if length_squared <= 1.0e-18:
+                        continue
+                    cursor_midpoint = (
+                        (start[0] + local_cursor[0]) * 0.5,
+                        (start[1] + local_cursor[1]) * 0.5,
+                    )
+                    factor = (
+                        (cursor_midpoint[0] - origin[0]) * direction[0]
+                        + (cursor_midpoint[1] - origin[1]) * direction[1]
+                    ) / length_squared
+                    midpoint = (
+                        origin[0] + factor * direction[0],
+                        origin[1] + factor * direction[1],
+                    )
+                    endpoint = (
+                        2.0 * midpoint[0] - start[0],
+                        2.0 * midpoint[1] - start[1],
+                    )
+                    direction_constraint = (
+                        self._sketch_inferred_direction_constraint(endpoint)
+                    )
+                    # When M is combined with H/V, preview the exact common
+                    # solution instead of merely displaying both labels and
+                    # letting the solver move the line after confirmation.
+                    # The required midpoint is the intersection of the
+                    # reference with the horizontal/vertical line through
+                    # the fixed first endpoint.
+                    if direction_constraint in ("horizontal", "vertical"):
+                        if direction_constraint == "horizontal":
+                            denominator = direction[1]
+                            numerator = start[1] - origin[1]
+                        else:
+                            denominator = direction[0]
+                            numerator = start[0] - origin[0]
+                        if abs(denominator) > 1.0e-12:
+                            factor = numerator / denominator
+                            midpoint = (
+                                origin[0] + factor * direction[0],
+                                origin[1] + factor * direction[1],
+                            )
+                            endpoint = (
+                                2.0 * midpoint[0] - start[0],
+                                2.0 * midpoint[1] - start[1],
+                            )
+                        else:
+                            # Parallel lines either cannot satisfy both
+                            # constraints or make H/V redundant with M.
+                            direction_constraint = None
+                    suffix = (
+                        f":{direction_constraint}"
+                        if direction_constraint in ("horizontal", "vertical")
+                        else ""
+                    )
+                    offer(
+                        endpoint,
+                        "",
+                        f"midpoint_on_line:{reference_id}{suffix}",
+                        -3,
+                    )
             for (
                 reference_id,
                 line_origin,

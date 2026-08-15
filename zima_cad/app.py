@@ -793,7 +793,7 @@ class DocumentSubWindowDialog(QDialog):
         close_button.setToolTip(tr("button.cancel"))
         close_button.setStyleSheet(
             "QPushButton { border: none; border-radius: 4px;"
-            " font-size: 18px; font-weight: 700; }"
+            " font-size: 10px; font-weight: 700; }"
             "QPushButton:hover { background: #b83232; color: white; }"
         )
         close_button.clicked.connect(self.reject)
@@ -1253,6 +1253,9 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         operation: ContainerType = ContainerType.FILLET,
     ) -> None:
         super().__init__(parent)
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         if isinstance(parent, QWidget):
             self.setWindowFlags(
                 Qt.WindowType.SubWindow
@@ -1308,7 +1311,7 @@ class EdgeTreatmentPropertiesDialog(QDialog):
         close_button.setToolTip(tr("button.cancel"))
         close_button.setStyleSheet(
             "QPushButton { border: none; border-radius: 4px;"
-            " font-size: 18px; font-weight: 700; }"
+            " font-size: 10px; font-weight: 700; }"
             "QPushButton:hover { background: #b83232; color: white; }"
         )
         close_button.clicked.connect(self.reject)
@@ -1764,6 +1767,9 @@ class PrimitivePropertiesDialog(QDialog):
 
     def __init__(self, primitive: ZimaEntity, parent=None) -> None:
         super().__init__(parent)
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         self.primitive = primitive
         self.decimal_places = display_decimal_places(parent)
         self.setWindowTitle(
@@ -1842,6 +1848,9 @@ class PointConstraintDialog(QDialog):
         reference_kind_callback: Callable[[str], EntityKind | None] | None = None,
     ) -> None:
         super().__init__(parent)
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         self._handles_middle_confirmation = True
         if isinstance(parent, QWidget):
             self.setWindowFlags(
@@ -1927,7 +1936,7 @@ class PointConstraintDialog(QDialog):
             close_button.setToolTip(tr("button.cancel"))
             close_button.setStyleSheet(
                 "QPushButton { border: none; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; }"
+                " font-size: 10px; font-weight: 700; }"
                 "QPushButton:hover { background: #b83232; color: white; }"
             )
             close_button.clicked.connect(self.reject)
@@ -2345,7 +2354,7 @@ class PointConstraintDialog(QDialog):
         remove_button.setStyleSheet(
             "QPushButton { color: #ffffff; background: #8b2424;"
             " border: 1px solid #b94a4a; border-radius: 4px;"
-            " font-size: 18px; font-weight: 700; padding: 0; }"
+            " font-size: 10px; font-weight: 700; padding: 0; }"
             "QPushButton:hover { background: #b83232;"
             " border-color: #ed7777; }"
             "QPushButton:pressed { background: #6f1d1d; }"
@@ -3480,7 +3489,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             remove_button.setStyleSheet(
                 "QPushButton { color: #ffffff; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; padding: 0; }"
+                " font-size: 10px; font-weight: 700; padding: 0; }"
                 "QPushButton:hover { background: #b83232;"
                 " border-color: #ed7777; }"
                 "QPushButton:pressed { background: #6f1d1d; }"
@@ -4983,7 +4992,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             remove.setStyleSheet(
                 "QPushButton { color: #ffffff; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; padding: 0; }"
+                " font-size: 10px; font-weight: 700; padding: 0; }"
                 "QPushButton:hover { background: #b83232;"
                 " border-color: #ed7777; }"
                 "QPushButton:pressed { background: #6f1d1d; }"
@@ -5480,6 +5489,9 @@ class DrawingViewPropertiesDialog(QDialog):
 
     def __init__(self, view: dict, orientation_choices: list[tuple[str, object]], parent=None) -> None:
         super().__init__(parent)
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         self._baseline = copy.deepcopy(view)
         self._derived_orientation = str(view.get("view_type", "general")) != "general"
         self._middle_click_origin: QPointF | None = None
@@ -5525,7 +5537,7 @@ class DrawingViewPropertiesDialog(QDialog):
             close_button.setToolTip(tr("button.cancel"))
             close_button.setStyleSheet(
                 "QPushButton { border: none; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; }"
+                " font-size: 10px; font-weight: 700; }"
                 "QPushButton:hover { background: #b83232; color: white; }"
             )
             close_button.clicked.connect(self.reject)
@@ -5844,7 +5856,7 @@ class OrientationDialog(QDialog):
             remove.setStyleSheet(
                 "QPushButton { color: #ffffff; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; padding: 0; }"
+                " font-size: 10px; font-weight: 700; padding: 0; }"
                 "QPushButton:hover { background: #b83232; border-color: #ed7777; }"
                 "QPushButton:pressed { background: #6f1d1d; }"
             )
@@ -6130,7 +6142,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             remove_button.setStyleSheet(
                 "QPushButton { color: white; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; padding: 0; }"
+                " font-size: 10px; font-weight: 700; padding: 0; }"
                 "QPushButton:hover { background: #b83232;"
                 " border-color: #ed7777; }"
                 "QPushButton:pressed { background: #6f1d1d; }"
@@ -8687,6 +8699,9 @@ class DimensionPropertiesDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         self._handles_middle_confirmation = True
         self.setWindowTitle(tr("dialog.dimension_properties.title"))
         self._title_drag_origin: QPointF | None = None
@@ -8738,7 +8753,7 @@ class DimensionPropertiesDialog(QDialog):
             close_button.setToolTip(tr("button.cancel"))
             close_button.setStyleSheet(
                 "QPushButton { border: none; border-radius: 4px;"
-                " font-size: 18px; font-weight: 700; }"
+                " font-size: 10px; font-weight: 700; }"
                 "QPushButton:hover { background: #b83232; color: white; }"
             )
             close_button.clicked.connect(self.reject)
@@ -9025,6 +9040,9 @@ class SketchTextPropertiesDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._handles_middle_confirmation = False
+        compact_font = QFont(self.font())
+        compact_font.setPixelSize(10)
+        self.setFont(compact_font)
         self.setWindowTitle(tr("sketch.text.dialog.title"))
         self.setModal(False)
         if isinstance(parent, QWidget):
@@ -9070,7 +9088,7 @@ class SketchTextPropertiesDialog(QDialog):
         close_button.setToolTip(tr("button.cancel"))
         close_button.setStyleSheet(
             "QPushButton { border: none; border-radius: 4px;"
-            " font-size: 18px; font-weight: 700; }"
+            " font-size: 10px; font-weight: 700; }"
             "QPushButton:hover { background: #b83232; color: white; }"
         )
         close_button.clicked.connect(self.reject)
@@ -36373,6 +36391,30 @@ class MainWindow(QMainWindow):
             self._sketch_pending_constraint = automatic_constraint
         elif (
             automatic_constraint is not None
+            and automatic_constraint.startswith("midpoint_on_line:")
+            and self._sketch_tool in ("segment", "construction", "polyline")
+            and len(self._sketch_pending_points) >= 2
+        ):
+            reference_id = automatic_constraint.split(":", 1)[1]
+            direction = ""
+            if reference_id.endswith((":horizontal", ":vertical")):
+                reference_id, direction = reference_id.rsplit(":", 1)
+            pending_constraints: list[dict[str, str]] = [{
+                "type": "midpoint_on_line",
+                **(
+                    {"geometry_id": reference_id.split(":", 1)[1]}
+                    if reference_id.startswith("sketch_geometry:")
+                    else {"reference_id": reference_id}
+                ),
+            }]
+            if direction:
+                pending_constraints.append({
+                    "type": "point_direction",
+                    "direction": direction,
+                })
+            self._sketch_pending_constraint = pending_constraints
+        elif (
+            automatic_constraint is not None
             and automatic_constraint.startswith("symmetric_point:")
             and self._sketch_tool in ("segment", "construction", "polyline")
             and len(self._sketch_pending_points) >= 2
@@ -45010,18 +45052,50 @@ class MainWindow(QMainWindow):
         )
         repeat_step = abs(opposite[1] - first[1])
         created_geometry_ids: set[str] = set()
-        for start_id, end_id in (
+        centered_references: tuple[str, str] | None = None
+        if automatic_constraint and automatic_constraint.startswith(
+            "rectangle_centered:"
+        ):
+            references = automatic_constraint.split(":", 1)[1].split("|")
+            if len(references) == 2 and all(references):
+                centered_references = (references[0], references[1])
+
+        def midpoint_reference_constraint(reference_id: str) -> dict[str, str]:
+            if reference_id.startswith("sketch_geometry:"):
+                return {
+                    "type": "midpoint_on_line",
+                    "geometry_id": reference_id.split(":", 1)[1],
+                }
+            return {
+                "type": "midpoint_on_line",
+                "reference_id": reference_id,
+            }
+
+        rectangle_edges = (
             (point_ids[0], point_ids[1]),
             (point_ids[1], point_ids[2]),
             (point_ids[2], point_ids[3]),
             (point_ids[3], point_ids[0]),
-        ):
+        )
+        for edge_index, (start_id, end_id) in enumerate(rectangle_edges):
             geometry_id = self._next_sketch_geometry_id(entities)
             created_geometry_ids.add(geometry_id)
+            edge_constraints: list[dict[str, str]] = []
+            if centered_references is not None:
+                vertical_reference, horizontal_reference = centered_references
+                if edge_index == 0:
+                    edge_constraints.append(
+                        midpoint_reference_constraint(vertical_reference)
+                    )
+                elif edge_index == 1:
+                    edge_constraints.append(
+                        midpoint_reference_constraint(horizontal_reference)
+                    )
             entities.append({
                 "id": geometry_id,
                 "type": "segment",
                 "point_ids": [start_id, end_id],
+                **({"constraints": edge_constraints} if edge_constraints else {}),
                 **({
                     "repeat_region_id": repeat_region_id,
                     "repeat_region_kind": "bom",
