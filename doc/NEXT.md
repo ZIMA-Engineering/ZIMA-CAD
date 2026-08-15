@@ -354,6 +354,11 @@
 ## Assembly Stabilization
 
 - Exercise the new `.asmz` workflow on real two- and three-component examples.
+- Profile large real Assemblies before the next performance changes. During
+  component dragging, update only the moved component and its dependent mate
+  chain instead of rebuilding the complete scene, tree or highlight state.
+  Measure Assembly opening, tab switching and memory use for deeply nested
+  Assemblies and keep representative regression timings.
 - Add regression timings for insertion of cached and uncached imported Parts.
   Preserve the current single scene rebuild, lazy topology enumeration,
   per-source document cache and compound-based component result.
@@ -372,9 +377,13 @@
   confirmed faces now retain a transient cyan viewport overlay without storing
   a result-body runtime index. Extend equivalent direct overlays to every
   supported persisted edge/axis reference and after document reload.
-- Rigid parent motion now propagates through dependent mate chains. Extend this
-  to a central assembly dependency solver for multi-parent constraint graphs,
-  cycle diagnostics and deterministic recomputation after file reload.
+- Rigid parent motion now propagates through dependent mate chains. Purple
+  origin-handle translation is projected directly into the free subspace of
+  plane and axis mates before coordinates change; continuous pointer motion
+  does not call the solver, which runs only after release for final validation.
+  Extend dependency handling to a central assembly solver for multi-parent
+  constraint graphs, cycle diagnostics and deterministic recomputation after
+  file reload.
 - Continue the central stable-topology implementation described in
   `doc/STABLE_TOPOLOGY_NAMING.md`. Box/Wedge faces and Extrusion faces, edges
   and vertices now have semantic identities; Revolve faces, edges and vertices

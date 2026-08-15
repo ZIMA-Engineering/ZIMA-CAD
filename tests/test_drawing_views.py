@@ -3455,6 +3455,39 @@ class DrawingViewConventionTests(unittest.TestCase):
             (25.0, 3.0, 0.0),
         )
 
+    def test_plane_mate_drag_removes_normal_translation(self) -> None:
+        delta = MainWindow._project_assembly_drag_delta(
+            (3.0, 4.0, 5.0),
+            [(0.0, 0.0, 1.0)],
+        )
+
+        self.assertAlmostEqual(delta[0], 3.0)
+        self.assertAlmostEqual(delta[1], 4.0)
+        self.assertAlmostEqual(delta[2], 0.0)
+
+    def test_axis_mate_drag_allows_only_axis_translation(self) -> None:
+        delta = MainWindow._project_assembly_drag_delta(
+            (3.0, 4.0, 5.0),
+            [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+        )
+
+        self.assertAlmostEqual(delta[0], 0.0)
+        self.assertAlmostEqual(delta[1], 0.0)
+        self.assertAlmostEqual(delta[2], 5.0)
+
+    def test_fully_constrained_mate_drag_blocks_translation(self) -> None:
+        delta = MainWindow._project_assembly_drag_delta(
+            (3.0, 4.0, 5.0),
+            [
+                (1.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ],
+        )
+
+        for value in delta:
+            self.assertAlmostEqual(value, 0.0)
+
     def test_standalone_sketch_edit_uses_its_own_history_boundary(self) -> None:
         document = create_empty_part()
         before = document.create_container("Before", ContainerType.BOX)

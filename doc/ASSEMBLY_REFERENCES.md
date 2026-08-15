@@ -79,3 +79,22 @@ znovu se sestaví z persistovaných zdrojových dat.
 
 Podrobnosti jsou v dokumentu
 [Stable Topology Naming](STABLE_TOPOLOGY_NAMING.md).
+
+## Ruční přesun komponenty
+
+Fialový bod počátku ve vlastnostech komponenty slouží k interaktivnímu
+přesunu. Návrh posunu se ještě před změnou souřadnic promítne do volných
+translačních stupňů volnosti určených platnými vazbami:
+
+- rovinná vazba odebere složku pohybu ve směru normály cílové roviny;
+- souosá vazba odebere obě složky kolmé k cílové ose, takže dovolí pouze pohyb
+  podél osy;
+- několik vazeb vytvoří průnik povolených směrů; pokud nezůstane žádný
+  translační stupeň volnosti, komponenta se tažením neposune;
+- úhlová vazba sama o sobě translační pohyb neomezuje.
+
+Během pohybu se nespouští sestavový solver. Přesouvá se komponenta a její
+závislý řetězec, přičemž překreslení view je sloučeno do krátkých intervalů.
+Po uvolnění tlačítka solver pouze ověří a uloží výsledný stav. Referenční rámce
+zdrojové komponenty se během tažení posouvají společně s ní, aby následné
+ověření neinterpretovalo povolený pohyb jako změnu lokální reference.

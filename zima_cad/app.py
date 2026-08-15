@@ -9502,6 +9502,7 @@ class MainWindow(QMainWindow):
         self._sketch_previous_camera = None
         self._sketch_previous_body_shape = None
         self._sketch_reference_body_result: BodyResult | None = None
+        self._assembly_origin_drag_preview_pending = False
         self._sketch_baseline_parameters: dict[str, str] | None = None
         self._sketch_tool: str | None = None
         self._sketch_pending_points: list[tuple[float, float]] = []
@@ -22056,6 +22057,31 @@ class MainWindow(QMainWindow):
         )
         return result
 
+    @staticmethod
+    def _project_assembly_drag_delta(
+        delta,
+        forbidden_directions,
+    ) -> tuple[float, float, float]:
+        """Remove translation components locked by Assembly mates."""
+        proposal = np.array(delta, dtype=float)
+        if not forbidden_directions:
+            return tuple(float(value) for value in proposal)
+        constraints = np.array(forbidden_directions, dtype=float)
+        _left, singular_values, right = np.linalg.svd(
+            constraints, full_matrices=True
+        )
+        tolerance = max(constraints.shape) * max(
+            singular_values, default=0.0
+        ) * np.finfo(float).eps
+        rank = int(np.sum(singular_values > tolerance))
+        null_basis = right[rank:].T
+        allowed = (
+            null_basis @ (null_basis.T @ proposal)
+            if null_basis.size
+            else np.zeros(3, dtype=float)
+        )
+        return tuple(float(value) for value in allowed)
+
     def _propagate_assembly_component_transform(
         self,
         parent: ZimaEntity,
@@ -29576,6 +29602,9 @@ class MainWindow(QMainWindow):
         if dialog is None or not dialog.isVisible() or self.document is None:
             return
         component = dialog.component
+        previous_component_transform = self._homogeneous_transform(
+            component.coordinate_system
+        )
         scale = (
             float(self.native_viewer.height())
             * 0.5
@@ -29584,9 +29613,25 @@ class MainWindow(QMainWindow):
         )
         camera_delta = (delta_x / scale, -delta_y / scale, 0.0)
         world_delta = self.native_viewer._inverse_rotate(camera_delta)
+        constrain_drag_delta = getattr(
+            dialog, "_constrain_mate_drag_delta", None
+        )
+        if callable(constrain_drag_delta):
+            world_delta = constrain_drag_delta(
+                world_delta, dialog.mate_rows()
+            )
         component.coordinate_system.origin = tuple(
             float(component.coordinate_system.origin[index] + world_delta[index])
             for index in range(3)
+        )
+        translate_source_frames = getattr(
+            dialog, "_translate_mate_source_frames", None
+        )
+        if callable(translate_source_frames):
+            translate_source_frames(world_delta)
+        self._propagate_assembly_component_transform(
+            component,
+            previous_component_transform,
         )
         for edit, value in zip(
             dialog.coordinate_edits,
@@ -29596,12 +29641,31 @@ class MainWindow(QMainWindow):
             edit.setValue(value)
             edit.blockSignals(False)
         if finished:
+            self._assembly_origin_drag_preview_pending = False
             # Re-apply the mate solver at the end of the gesture.  It removes
             # any component of the provisional drag that violates a locked
             # plane/axis constraint and persists only the solved transform.
             dialog.matesSubmitted.emit(dialog.mate_rows())
         else:
-            dialog.definitionChanged.emit()
+            # Pointer devices can deliver hundreds of moves per second. A
+            # definitionChanged rebuild invalidates/recombines the Assembly
+            # scene, so coalesce moves while still updating the component and
+            # its dependent mate chain immediately in the data model.
+            if not self._assembly_origin_drag_preview_pending:
+                self._assembly_origin_drag_preview_pending = True
+
+                def refresh_drag_preview() -> None:
+                    if not self._assembly_origin_drag_preview_pending:
+                        return
+                    self._assembly_origin_drag_preview_pending = False
+                    active_dialog = self.assembly_component_dialog
+                    if (
+                        active_dialog is dialog
+                        and dialog.isVisible()
+                    ):
+                        dialog.definitionChanged.emit()
+
+                QTimer.singleShot(25, refresh_drag_preview)
 
     def _insert_assembly_component(self) -> None:
         if (
@@ -30473,6 +30537,61 @@ class MainWindow(QMainWindow):
         }
         dialog._reference_frames = frames
         dialog._source_frame_keys = source_frame_keys
+
+        def constrain_mate_drag_delta(delta, rows):
+            """Project a pointer translation into the mate-free subspace."""
+            forbidden_directions: list[np.ndarray] = []
+            valid_rows = dialog._with_orientation_roles([
+                row for row in rows
+                if row.get("source") in frames
+                and row.get("target") in frames
+            ])
+            for row in valid_rows:
+                mate_type = str(row.get("type", "plane"))
+                if mate_type == "angle":
+                    continue
+                target = np.array(
+                    frames[row["target"]][1], dtype=float
+                )
+                length = np.linalg.norm(target)
+                if length <= 1.0e-12:
+                    continue
+                target /= length
+                if mate_type == "axis":
+                    trial = np.array((1.0, 0.0, 0.0))
+                    if abs(target @ trial) > 0.9:
+                        trial = np.array((0.0, 1.0, 0.0))
+                    first = np.cross(target, trial)
+                    first /= np.linalg.norm(first)
+                    forbidden_directions.extend((
+                        first,
+                        np.cross(target, first),
+                    ))
+                else:
+                    forbidden_directions.append(target)
+            return self._project_assembly_drag_delta(
+                delta,
+                forbidden_directions,
+            )
+
+        dialog._constrain_mate_drag_delta = constrain_mate_drag_delta
+
+        def translate_mate_source_frames(delta) -> None:
+            translation = np.array(delta, dtype=float)
+            for descriptor in source_frame_keys:
+                frame = frames.get(descriptor)
+                if frame is None:
+                    continue
+                point, normal = frame
+                frames[descriptor] = (
+                    tuple(
+                        float(value)
+                        for value in (np.array(point, dtype=float) + translation)
+                    ),
+                    normal,
+                )
+
+        dialog._translate_mate_source_frames = translate_mate_source_frames
         dialog._refresh_flip_contract()
         original_component_results: dict[str, list[tuple]] = {}
         incomplete_original_components: set[str] = set()

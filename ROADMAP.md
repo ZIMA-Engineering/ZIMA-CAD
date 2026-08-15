@@ -270,6 +270,11 @@ as the document model, geometric kernel integration and user workflows evolve.
   Assembly as ordinary components; general reflection-matrix Assembly Mirror
   is deliberately deferred
 - remaining work:
+  - profile and optimize large-Assembly interaction: update only transforms of
+    the dragged component and its dependent mate chain during manipulation,
+    avoid full scene/tree/highlight rebuilds, improve Assembly opening and tab
+    switching, and measure memory use with deeply nested Assemblies on a
+    representative production model
   - DXF import from the Part and Assembly applications, with explicit creation
     and placement of a Sketch instead of treating DXF as a solid body
   - add diagnostics and recovery for invalid, conflicting and redundant mates

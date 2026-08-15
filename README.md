@@ -114,7 +114,10 @@ types, editable in-view mate dimensions, expanded source-part trees,
 in-context part editing and assembly-only extruded or revolved cuts applied to
 selected components. Confirmed mate faces remain cyan in both the viewport and
 Properties rows; origin datum planes retain their standard brown color. Moving
-a parent component propagates its rigid transform through dependent mate chains.
+a component by its purple origin handle is restricted directly to the
+translational degrees of freedom left by its plane and axis mates; the mate
+solver is not run continuously during dragging. Moving a parent component
+propagates its rigid transform through dependent mate chains.
 Part geometry remains unchanged by assembly cuts. Stable
 semantic topology naming is implemented for Box/Wedge faces, primitive
 boundary edges/vertices and for Extrusion
