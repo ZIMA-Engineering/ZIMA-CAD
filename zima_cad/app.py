@@ -9412,6 +9412,9 @@ class MainWindow(QMainWindow):
         self._document_open_path: Path | None = None
 
         self.tree = HistoryTreeWidget()
+        common_ui_font = QFont(self.tree.font())
+        common_ui_font.setPixelSize(11)
+        self.tree.setFont(common_ui_font)
         self.tree.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
@@ -9795,6 +9798,7 @@ class MainWindow(QMainWindow):
 
         self.view_toolbar = QToolBar(tr("toolbar.view"))
         self.view_toolbar.setMovable(False)
+        self.view_toolbar.setFont(common_ui_font)
         self.view_toolbar.setStyleSheet(
             """
             QToolButton:hover:enabled {
@@ -9962,11 +9966,16 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
-        self.tools_toolbar.setMinimumWidth(170)
+        self.tools_toolbar.setMinimumWidth(158)
+        self.tools_toolbar.setIconSize(QSize(16, 16))
+        # Keep command labels aligned with the Tree and the view toolbar.  Do
+        # not use a separate pixel size here: platform/UI scaling should be
+        # inherited from the application's normal widget font.
+        self.tools_toolbar.setFont(self.tree.font())
         self.tools_toolbar.setStyleSheet(
             """
             QToolButton {
-                padding: 6px 10px;
+                padding: 3px 6px;
                 text-align: left;
             }
             QToolButton:checked {
@@ -10232,7 +10241,8 @@ class MainWindow(QMainWindow):
             else tr(f"application.{self.active_application.value}")
         )
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heading.setStyleSheet("font-weight: 600; padding: 6px;")
+        heading.setFont(self.tree.font())
+        heading.setStyleSheet("font-weight: 600; padding: 3px;")
         self.tools_toolbar.addWidget(heading)
         self._add_green_toolbar_separator()
         heading_spacing = QWidget(self.tools_toolbar)
