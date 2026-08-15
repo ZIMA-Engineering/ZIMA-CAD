@@ -95,25 +95,49 @@ class DocumentViewerScene:
         return resolved
 
     def surface_reference(self, owner_id: str, face_index: int):
-        return (
-            self.body_result.surface(owner_id, face_index)
-            if self.body_result is not None
-            else None
-        )
+        result = self._body_result_for_owner(owner_id)
+        return result.surface(owner_id, face_index) if result is not None else None
 
     def curve_reference(self, owner_id: str, edge_index: int):
-        return (
-            self.body_result.curve(owner_id, edge_index)
-            if self.body_result is not None
-            else None
-        )
+        result = self._body_result_for_owner(owner_id)
+        return result.curve(owner_id, edge_index) if result is not None else None
 
     def vertex_reference(self, owner_id: str, point_index: int):
-        return (
-            self.body_result.vertex(owner_id, point_index)
-            if self.body_result is not None
-            else None
-        )
+        result = self._body_result_for_owner(owner_id)
+        return result.vertex(owner_id, point_index) if result is not None else None
+
+    def _body_result_for_owner(self, owner_id: str) -> BodyResult | None:
+        """Find the persisted packet that owns source topology data."""
+        checked: set[int] = set()
+        for result in (self.body_result, self.calculated_body_result):
+            if result is None or id(result) in checked:
+                continue
+            checked.add(id(result))
+            if any(
+                key.startswith(f"{owner_id}:face:")
+                for key in result.faces
+            ) or any(
+                key.startswith(f"{owner_id}:edge:")
+                for key in result.edges
+            ) or any(
+                key.startswith(f"{owner_id}:point:")
+                for key in result.vertices
+            ):
+                return result
+            source = result.source_bodies.get(owner_id)
+            if source is not None:
+                return source
+        return None
+
+    def source_body_result(self, owner_id: str) -> BodyResult | None:
+        """Expose the persisted source packet for reference projection."""
+        for result in (self.body_result, self.calculated_body_result):
+            if result is None:
+                continue
+            source = result.source_bodies.get(owner_id)
+            if source is not None:
+                return source
+        return None
 
 
 def build_document_viewer_scene(

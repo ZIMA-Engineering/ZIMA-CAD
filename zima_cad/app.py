@@ -10526,13 +10526,6 @@ class MainWindow(QMainWindow):
                     "color: white; font-weight: 700;"
                 )
         elif self.active_application == ApplicationMode.MODELING:
-            new_container_action = self.tools_toolbar.addAction(
-                tr("menu.context.create_container")
-            )
-            new_container_action.setIcon(resource_icon("part"))
-            self._mark_application_command(new_container_action)
-            new_container_action.triggered.connect(self.create_new_container)
-            self.tools_toolbar.addSeparator()
             point_action = self.tools_toolbar.addAction(tr("primitive.point"))
             point_action.setIcon(resource_icon("point"))
             self._mark_application_command(point_action)
@@ -18046,12 +18039,10 @@ class MainWindow(QMainWindow):
         # Drawing geometry was registered above.  Rebuilding it again here
         # doubles the tab-switch cost and clears the freshly prepared shaded
         # image caches.  Model/assembly tabs still need their normal rebuild.
-        # A freshly loaded model is regenerated immediately by
-        # ``open_document_path``.  Building its complete OCCT history here
-        # would do the same expensive work once for this initial view and
-        # then again during regeneration (fillet histories make that pause
-        # particularly noticeable).  Leave the previous scene cleared and
-        # let regeneration perform the single authoritative rebuild.
+        # A freshly loaded model is left pending when it has no persisted
+        # cache. Building its complete OCCT history here would hide the
+        # calculation behind document activation; the explicit Regenerate
+        # command remains the single authoritative rebuild.
         if is_template:
             # A drawing template is edited exclusively as a 2D sketch.  Do
             # not briefly (or, on an existing tab, permanently) rebuild its
@@ -18091,10 +18082,27 @@ class MainWindow(QMainWindow):
             ].history_boundary
             self.rebuild_view(fit=saved_camera is None, rebuild_geometry=False)
         else:
-            self.rebuild_view(
-                fit=saved_camera is None,
-                rebuild_geometry=not is_drawing,
-            )
+            # A document without a persisted result has no displayable body
+            # yet. Do not let tab activation fall through to a scene build,
+            # because that would evaluate OCCT implicitly. The user must
+            # request Regenerate explicitly.
+            if is_drawing:
+                self.rebuild_view(
+                    fit=saved_camera is None,
+                    rebuild_geometry=False,
+                )
+            elif self.document.cached_body_result_at(
+                self.document.history_objects_at(
+                    self.document.history_cursor()
+                )
+            ) is not None:
+                self.rebuild_view(
+                    fit=saved_camera is None,
+                    rebuild_geometry=False,
+                )
+            else:
+                self._native_viewer_scene = None
+                self.native_viewer.clear_scene()
         if not is_drawing and saved_camera is not None:
             self.native_viewer.set_camera_state(saved_camera)
         self._update_window_title()
@@ -18634,19 +18642,11 @@ class MainWindow(QMainWindow):
         # Validated CachedBodies contain the persisted OCCT-independent
         # history packets. Keep them for display/edit rollback; replaying a
         # long fillet history merely to open the document is unnecessary.
-        if (
-            self._document_type(document) == "assembly"
-            and not self._assembly_source_signatures_match(
-                document, canonical_path
-            )
-        ):
-            # Assembly cache keys describe the assembly entities themselves;
-            # an external Part can change while its source_path stays equal.
-            # Never admit geometry or solved placement cached against another
-            # revision of a linked Part.
-            document._shape_history_cache.clear()
-            document._body_result_cache.clear()
-            document.regeneration_required = True
+        # Opening an Assembly must show its last calculated/persisted state.
+        # Linked Parts may have changed since that calculation, but loading a
+        # dependency is not an implicit parent regeneration request.  The
+        # explicit Regenerate command is the boundary that refreshes source
+        # signatures and recalculates the complete dependency chain.
         history_objects = document.history_objects_at(
             document.history_cursor()
         )
@@ -18685,14 +18685,11 @@ class MainWindow(QMainWindow):
         self._add_document_session(document, canonical_path)
         if document_type in ("drawing_format", "title_block"):
             return
-        # If no validated cache was persisted, perform the authoritative
-        # regeneration now. Cached documents are rebuilt lazily only when a
-        # later edit actually invalidates their geometry.
-        if (
-            document_type not in ("drawing", "drawing_format", "title_block")
-            and not cached_body_available
-        ):
-            self.regenerate_model()
+        # Opening a document is never a body-calculation request. If no
+        # validated cache was persisted, leave the document marked for
+        # regeneration and let the explicit Regenerate command perform OCCT
+        # work. This keeps loading, tab switching and dependency inspection
+        # free of hidden kernel calculations.
 
     @staticmethod
     def _cached_source_history_complete(
@@ -21273,13 +21270,41 @@ class MainWindow(QMainWindow):
             and owner_id == self.document.root.entity_id
             and self._viewer_selection_policy().uses_original_topology
         ):
-            source_edge = self._source_topology_reference_at_cursor("edge")
-            if source_edge is None:
-                self.native_viewer._set_selected_edge(None)
-                return
+            provided = getattr(
+                self.native_viewer, "_provided_hover_candidate", None
+            )
+            if (
+                provided is not None
+                and provided.kind == "edge"
+                and provided.owner_id != self.document.root.entity_id
+                and provided.element_index > 0
+            ):
+                owner_id = provided.owner_id
+                edge_index = provided.element_index
+            else:
+                source_edge = self._source_topology_reference_at_cursor("edge")
+                if source_edge is None:
+                    self.native_viewer._set_selected_edge(None)
+                    return
+                owner_id, edge_index, _source_mesh = source_edge
             self.native_viewer._set_selected_edge(None)
-            owner_id, edge_index, _source_mesh = source_edge
         if self._sketch_reference_mode:
+            provided = getattr(
+                self.native_viewer, "_provided_hover_candidate", None
+            )
+            if (
+                provided is not None
+                and provided.kind == "edge"
+                and provided.owner_id
+                and provided.element_index > 0
+            ):
+                # Confirm exactly the candidate offered by the common
+                # viewer picker.  Re-running a cursor ray-pick here could
+                # turn a solid hit back into the result Body and lose the
+                # historical source edge.
+                owner_id = provided.owner_id
+                edge_index = provided.element_index
+                self.native_viewer._set_selected_edge(None)
             # The displayed ZIMA curve already contains the bounded geometry
             # needed by Sketcher. Do not rebuild a historical OCCT edge just
             # to project the same points again.
@@ -23746,14 +23771,30 @@ class MainWindow(QMainWindow):
             owner_id == self.document.root.entity_id
             and self._viewer_selection_policy().uses_original_topology
         )
+        provided = getattr(
+            self.native_viewer, "_provided_hover_candidate", None
+        )
+        provided_source = (
+            provided is not None
+            and provided.kind == "face"
+            and provided.owner_id != self.document.root.entity_id
+            and provided.element_index > 0
+        )
         source_face = (
-            self._source_face_reference_for_pick(face_index)
+            None
+            if provided_source
+            else self._source_face_reference_for_pick(face_index)
             if source_reference_required
             else None
         )
         if source_reference_required and source_face is None:
-            self.native_viewer._set_selected_face(None)
-            return
+            if provided_source:
+                owner_id = provided.owner_id
+                face_index = provided.element_index
+                self.native_viewer._set_selected_face(None)
+            else:
+                self.native_viewer._set_selected_face(None)
+                return
         if source_face is not None:
             # The result face was only the ray hit used to resolve the real
             # historical source. Do not present it as the accepted reference.
@@ -23769,6 +23810,20 @@ class MainWindow(QMainWindow):
                 if scene is not None else None
             )
         if self._sketch_reference_mode:
+            provided = getattr(
+                self.native_viewer, "_provided_hover_candidate", None
+            )
+            if (
+                provided is not None
+                and provided.kind == "face"
+                and provided.owner_id
+                and provided.element_index > 0
+            ):
+                # Keep face confirmation on the same ordered candidate list
+                # used for hover/cycling; never ray-pick a second geometry.
+                owner_id = provided.owner_id
+                face_index = provided.element_index
+                self.native_viewer._set_selected_face(None)
             self._add_sketch_external_reference(
                 "face", owner_id, face_index
             )
@@ -25381,8 +25436,13 @@ class MainWindow(QMainWindow):
         if (
             provided is not None
             and provided.kind == "face"
-            and (provided.owner_id, provided.element_index)
-            == (owner_id, face_index)
+            and provided.element_index > 0
+            and (
+                (provided.owner_id, provided.element_index)
+                == (owner_id, face_index)
+                or self._sketch_reference_mode
+                or self._external_segment_command_active()
+            )
         ):
             # The external hover mesh already identifies the exact nested
             # occurrence. The main scene key cannot: repeated Parts share the
@@ -25520,8 +25580,13 @@ class MainWindow(QMainWindow):
         if (
             provided is not None
             and provided.kind == "edge"
-            and (provided.owner_id, provided.element_index)
-            == (owner_id, edge_index)
+            and provided.element_index > 0
+            and (
+                (provided.owner_id, provided.element_index)
+                == (owner_id, edge_index)
+                or self._sketch_reference_mode
+                or self._external_segment_command_active()
+            )
         ):
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
@@ -31577,6 +31642,18 @@ class MainWindow(QMainWindow):
         *,
         create_profile_segment: bool = False,
     ) -> None:
+        def reject_reference() -> None:
+            # A failed projection must not leave the candidate face/edge as a
+            # persistent orange source overlay in the viewport.
+            self.native_viewer._clear_topology_hover()
+            self.native_viewer._clear_topology_selection()
+            self.native_viewer.set_source_topology_hover(None)
+            self.native_viewer._provided_hover_candidate = None
+            self.native_viewer._cycled_topology_candidate = None
+            self.statusBar().showMessage(
+                tr("sketch.status.reference_unsupported")
+            )
+
         if self.document is None or self._sketch_edit_entity_id is None:
             return
         sketch = self.document.find_entity(self._sketch_edit_entity_id)
@@ -31625,9 +31702,7 @@ class MainWindow(QMainWindow):
                     )
                 )
                 if reference is None:
-                    self.statusBar().showMessage(
-                        tr("sketch.status.reference_unsupported")
-                    )
+                    reject_reference()
                     return
                 reference_key = f"{source_kind}_ref"
                 descriptor[reference_key] = reference.to_dict()
@@ -31649,9 +31724,7 @@ class MainWindow(QMainWindow):
         )
         geometry = self._deduplicate_external_reference_geometry(geometry)
         if geometry is None:
-            self.statusBar().showMessage(
-                tr("sketch.status.reference_unsupported")
-            )
+            reject_reference()
             return
         references = self._stored_sketch_external_references(sketch)
         descriptor_key = self._external_reference_key(descriptor)
@@ -31662,11 +31735,14 @@ class MainWindow(QMainWindow):
         ), None)
         if existing_reference is not None:
             if create_profile_segment and source_kind == "edge":
-                self._create_external_profile_segment(
+                created = self._create_external_profile_segment(
                     sketch,
                     str(existing_reference.get("id", descriptor["id"])),
                     geometry,
                 )
+                if not created:
+                    reject_reference()
+                    return
                 self._mark_model_for_regeneration()
                 self._refresh_sketch_overlay()
             return
@@ -31677,11 +31753,19 @@ class MainWindow(QMainWindow):
             ensure_ascii=False,
         )
         if create_profile_segment and source_kind == "edge":
-            self._create_external_profile_segment(
+            created = self._create_external_profile_segment(
                 sketch,
                 str(descriptor["id"]),
                 geometry,
             )
+            if not created:
+                references.pop()
+                sketch.parameters["external_references"] = json.dumps(
+                    references,
+                    ensure_ascii=False,
+                )
+                reject_reference()
+                return
         self._sketch_selected_external_reference_id = str(
             descriptor["id"]
         )
@@ -32282,6 +32366,13 @@ class MainWindow(QMainWindow):
         scene = self._native_viewer_scene
         if scene is not None and source_kind == "point":
             point = scene.vertex_reference(owner_id, element_index)
+            if point is None:
+                source_result = scene.source_body_result(owner_id)
+                point = (
+                    source_result.vertex(owner_id, element_index)
+                    if source_result is not None
+                    else None
+                )
             if point is not None:
                 return {
                     "type": "point",
@@ -32289,11 +32380,82 @@ class MainWindow(QMainWindow):
                 }
         if scene is not None and source_kind == "edge":
             curve = scene.curve_reference(owner_id, element_index)
-            if curve is not None and len(curve.points) >= 2:
+            if curve is None:
+                source_result = scene.source_body_result(owner_id)
+                curve = (
+                    source_result.curve(owner_id, element_index)
+                    if source_result is not None
+                    else None
+                )
+                if curve is None and source_result is not None:
+                    mesh_edge = next(
+                        (
+                            edge for edge in source_result.mesh.edges
+                            if edge.owner_id == owner_id
+                            and edge.edge_index == element_index
+                        ),
+                        None,
+                    )
+                    if mesh_edge is not None and len(mesh_edge.points) >= 2:
+                        return {
+                            "type": "polyline",
+                            "points": [
+                                list(local_point(point))
+                                for point in mesh_edge.points
+                            ],
+                            "source_curve_type": (
+                                mesh_edge.curve_kind
+                                if mesh_edge.curve_kind != "other"
+                                else "spline"
+                            ),
+                        }
+            if curve is None and self._original_topology_reference_pick_active():
+                picked = self._source_topology_reference_at_cursor("edge")
+                if picked is not None:
+                    picked_owner, picked_index, picked_mesh = picked
+                    if picked_owner == owner_id and picked_index == element_index:
+                        mesh_edge = next(
+                            (
+                                edge for edge in picked_mesh.edges
+                                if edge.owner_id == owner_id
+                                and edge.edge_index == element_index
+                            ),
+                            None,
+                        )
+                        if mesh_edge is not None and len(mesh_edge.points) >= 2:
+                            return {
+                                "type": "polyline",
+                                "points": [
+                                    list(local_point(point))
+                                    for point in mesh_edge.points
+                                ],
+                                "source_curve_type": (
+                                    mesh_edge.curve_kind
+                                    if mesh_edge.curve_kind != "other"
+                                    else "spline"
+                                ),
+                            }
+            if curve is not None and len(curve.points) < 2:
+                if curve.origin is not None and curve.direction is not None:
+                    curve_points = (
+                        tuple(
+                            curve.origin[index] - curve.direction[index]
+                            for index in range(3)
+                        ),
+                        tuple(
+                            curve.origin[index] + curve.direction[index]
+                            for index in range(3)
+                        ),
+                    )
+                else:
+                    curve_points = ()
+            else:
+                curve_points = curve.points if curve is not None else ()
+            if curve is not None and len(curve_points) >= 2:
                 return {
                     "type": "polyline",
                     "points": [
-                        list(local_point(point)) for point in curve.points
+                        list(local_point(point)) for point in curve_points
                     ],
                     "source_curve_type": (
                         curve.kind if curve.kind != "other" else "spline"
@@ -32301,6 +32463,13 @@ class MainWindow(QMainWindow):
                 }
         if scene is not None and source_kind == "face":
             surface = scene.surface_reference(owner_id, element_index)
+            if surface is None:
+                source_result = scene.source_body_result(owner_id)
+                surface = (
+                    source_result.surface(owner_id, element_index)
+                    if source_result is not None
+                    else None
+                )
             if (
                 surface is not None
                 and surface.kind == "plane"
@@ -32315,92 +32484,60 @@ class MainWindow(QMainWindow):
                     local_point,
                     projected_line,
                 )
+            if surface is None:
+                source_result = scene.source_body_result(owner_id)
+                if source_result is not None:
+                    # Recover a planar source face directly from its
+                    # persisted tessellation when an older packet lacks the
+                    # analytic descriptor. This remains OCCT-free.
+                    positions = source_result.mesh.triangle_positions
+                    owners = source_result.mesh.triangle_owner_ids
+                    indices = source_result.mesh.triangle_face_indices
+                    face_points: list[tuple[float, float, float]] = []
+                    for triangle_index, (triangle_owner, triangle_face) in enumerate(
+                        zip(owners, indices)
+                    ):
+                        if triangle_owner != owner_id or triangle_face != element_index:
+                            continue
+                        offset = triangle_index * 9
+                        face_points.extend(
+                            tuple(
+                                float(positions[offset + vertex * 3 + axis])
+                                for axis in range(3)
+                            )
+                            for vertex in range(3)
+                        )
+                    if len(face_points) >= 3:
+                        origin = face_points[0]
+                        normal = None
+                        for point in face_points[1:]:
+                            candidate = self._cross_product(
+                                tuple(point[index] - origin[index] for index in range(3)),
+                                tuple(face_points[2][index] - origin[index] for index in range(3)),
+                            )
+                            if sum(value * value for value in candidate) > 1.0e-14:
+                                normal = self._normalized_vector(candidate)
+                                break
+                        if normal is not None:
+                            return self._project_plane_intersection(
+                                sketch_origin,
+                                sketch_normal,
+                                origin,
+                                normal,
+                                local_point,
+                                projected_line,
+                            )
 
-        stable_face = parse_face_reference(descriptor.get("face_ref"))
-        stable_edge = parse_edge_reference(descriptor.get("edge_ref"))
-        stable_vertex = parse_vertex_reference(descriptor.get("point_ref"))
-        stable_shape = None
-        if stable_face is not None and source_kind == "face":
-            sketch_owner = self.document.find_owning_object(sketch.entity_id)
-            history_index = (
-                self.document.history_index(sketch_owner.entity_id)
-                if sketch_owner is not None
-                else None
-            )
-            if history_index is not None:
-                stable_shape = face_registry_at(
-                    self.document,
-                    history_index,
-                ).resolve(stable_face).shape
-            if stable_shape is None:
-                return None
-        elif stable_vertex is not None and source_kind == "point":
-            sketch_owner = self.document.find_owning_object(sketch.entity_id)
-            history_index = (
-                self.document.history_index(sketch_owner.entity_id)
-                if sketch_owner is not None
-                else None
-            )
-            if history_index is not None:
-                stable_shape = face_registry_at(
-                    self.document,
-                    history_index,
-                ).resolve_vertex(stable_vertex).shape
-            if stable_shape is None:
-                return None
-        elif stable_edge is not None and source_kind == "edge":
-            sketch_owner = self.document.find_owning_object(sketch.entity_id)
-            history_index = (
-                self.document.history_index(sketch_owner.entity_id)
-                if sketch_owner is not None
-                else None
-            )
-            if history_index is not None:
-                stable_shape = face_registry_at(
-                    self.document,
-                    history_index,
-                ).resolve_edge(stable_edge).shape
-            if stable_shape is None:
-                return None
-        # Reference picking maps hits on the displayed Boolean result back to
-        # the original history solid.  That solid is intentionally absent
-        # from the viewer scene, so every supported topology kind must be
-        # resolved directly from its standalone historical feature.
-        if (
-            stable_shape is None
-            and source_kind in ("face", "edge", "point")
-            and descriptor.get("reference_scope") != "assembly_component"
-            and owner is not None
-            and owner.kind == EntityKind.CONTAINER
-            and owner.entity_id != self.document.root.entity_id
-        ):
-            try:
-                source_shape = self.document.build_standalone_shape(owner)
-            except (RuntimeError, ValueError):
-                source_shape = None
-            if source_shape is not None:
-                shape_type = {
-                    "face": TopAbs_FACE,
-                    "edge": TopAbs_EDGE,
-                    "point": TopAbs_VERTEX,
-                }[source_kind]
-                stable_shape = self._subshape_from_shape(
-                    source_shape,
-                    shape_type,
-                    element_index,
-                )
+        # Stable topology references must already be present in the persisted
+        # viewer packet.  Never reconstruct a historical Shape here: doing so
+        # invokes OCCT from a Sketcher click and makes reference entry appear
+        # to hang on larger Parts.  A missing packet is an explicit
+        # regeneration condition, not a reason to calculate implicitly.
         scene = self._native_viewer_scene
-        if (
-            stable_shape is None
-            and (scene is None or source_kind not in ("face", "edge", "point"))
-        ):
+        if scene is None or source_kind not in ("face", "edge", "point"):
             return None
-        topology_kind = (
-            "vertex" if source_kind == "point" else source_kind
-        )
-        shape = stable_shape or scene.resolve_topology(
-            owner_id, topology_kind, element_index
-        )
+        topology_kind = "vertex" if source_kind == "point" else source_kind
+        shape = scene.resolve_topology(owner_id, topology_kind, element_index)
         if shape is None:
             return None
         if source_kind == "point":
@@ -50542,6 +50679,30 @@ class MainWindow(QMainWindow):
             if context.active_instance_id is not None
             else None
         )
+        # In an activated Part the parent Assembly remains the display root,
+        # while the Part may be rolled back to a history-container boundary.
+        # Do not fall back to the Part's final cached instance in that case:
+        # it makes the edited input solids disappear while later Assembly
+        # components remain visible.  A properties/Sketch edit is an
+        # explicit rollback boundary, so calculate that source snapshot once
+        # when no persisted boundary packet exists.
+        if (
+            active_instance_result is None
+            and context.active_instance_id is not None
+            and editing_document is not display_document
+            and context.editing_history_boundary
+            < editing_document.history_cursor()
+            and (
+                self._definition_dialog_depth > 0
+                or self._sketch_edit_entity_id is not None
+            )
+        ):
+            rollback_scene = build_document_viewer_scene_data(
+                editing_document,
+                history_boundary=context.editing_history_boundary,
+                show_sketches=False,
+            )
+            active_instance_result = rollback_scene.calculated_body_result
         instance_transform = self._active_component_instance_transform()
         self._viewer_interaction_body_result = (
             replace(
@@ -50998,15 +51159,26 @@ class MainWindow(QMainWindow):
                 "topology",
                 "edge",
             )
-        if command_id == "sketch_external_segment" or getattr(
-            self, "_sketch_reference_mode", False
-        ):
+        if command_id == "sketch_external_segment":
             return ViewerSelectionPolicy(
                 SelectionPurpose.SKETCH_REFERENCE,
                 TopologySource.ORIGINAL_SOLIDS,
-                frozenset({SelectionKind.EDGE, SelectionKind.AXIS}),
+                frozenset({SelectionKind.EDGE}),
                 "topology",
                 "edge",
+            )
+        if getattr(self, "_sketch_reference_mode", False):
+            return ViewerSelectionPolicy(
+                SelectionPurpose.SKETCH_REFERENCE,
+                TopologySource.ORIGINAL_SOLIDS,
+                frozenset({
+                    SelectionKind.FACE,
+                    SelectionKind.EDGE,
+                    SelectionKind.POINT,
+                    SelectionKind.AXIS,
+                }),
+                "topology",
+                "all",
             )
         if (
             (assembly_dialog := getattr(
