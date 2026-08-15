@@ -9501,6 +9501,7 @@ class MainWindow(QMainWindow):
         self._sketch_return_properties_id: str | None = None
         self._sketch_previous_camera = None
         self._sketch_previous_body_shape = None
+        self._sketch_reference_body_result: BodyResult | None = None
         self._sketch_baseline_parameters: dict[str, str] | None = None
         self._sketch_tool: str | None = None
         self._sketch_pending_points: list[tuple[float, float]] = []
@@ -18663,21 +18664,15 @@ class MainWindow(QMainWindow):
                 cached_result,
             )
         )
-        if (
-            self._document_type(document) == "assembly"
-            and cached_result is not None
-            and not source_selection_available
-        ):
-            # An incomplete Assembly packet may contain a plausible final
-            # mesh while missing the component/cut packets that prove which
-            # history boundary produced it.  Never let that stale mesh become
-            # the first viewer scene before the authoritative regeneration.
-            document._shape_history_cache.clear()
-            document._body_result_cache.clear()
-            cached_result = None
+        # A legacy/incomplete Assembly packet can lack source packets needed
+        # for component-level picking while still containing the authoritative
+        # last calculated final mesh. Opening a document is display-only: keep
+        # that mesh visible and let explicit Regenerate replace it with a
+        # complete current packet. Missing pick metadata must never turn a
+        # successfully loaded Assembly into an empty viewport.
         cached_body_available = bool(
             (document._body_result_cache or document._shape_history_cache)
-            and source_selection_available
+            and cached_result is not None
         )
         document_type = self._document_type(document)
         if document_type not in ("drawing", "drawing_format", "title_block"):
@@ -22259,6 +22254,20 @@ class MainWindow(QMainWindow):
                     "edge": source_mesh.edge_mesh,
                     "face": source_mesh.face_mesh,
                 }[kind](source_id, source_index)
+                if kind == "point" and not hover_mesh.points:
+                    source_result = self._persisted_source_body_result(
+                        source_id
+                    )
+                    vertex = (
+                        source_result.vertex(source_id, source_index)
+                        if source_result is not None
+                        else None
+                    )
+                    if vertex is not None:
+                        hover_mesh = point_marker_mesh(
+                            owner_id=source_id,
+                            position=vertex.position,
+                        )
                 return ViewerPickCandidate(
                     kind,
                     source_id,
@@ -24140,10 +24149,21 @@ class MainWindow(QMainWindow):
         position: QPointF,
     ) -> tuple[str, int, ViewerMesh] | None:
         """Ray-pick persisted historical viewer data without OCCT."""
+        candidates = self._source_topology_candidates_at_position(
+            topology_kind, position
+        )
+        return candidates[0] if candidates else None
+
+    def _source_topology_candidates_at_position(
+        self,
+        topology_kind: str,
+        position: QPointF,
+    ) -> tuple[tuple[str, int, ViewerMesh], ...]:
+        """Return the ordered original-topology hits used by hover/LMB/RMB."""
         if topology_kind not in {"face", "edge", "point"}:
             raise ValueError(f"Unsupported topology kind: {topology_kind}")
         if self.document is None:
-            return None
+            return ()
         scene = self._native_viewer_scene
         context = getattr(self, "_viewer_document_context", None)
         interaction_result = (
@@ -24161,37 +24181,178 @@ class MainWindow(QMainWindow):
         history_objects = self.document.history_objects_at(
             self._definition_history_boundary()
         )
+        if context is not None and context.active_instance_id is None:
+            # A standalone Part is displayed at the rollback boundary before
+            # the sketch owner.  Boundary BodyResults created before source
+            # packets were attached can therefore have the correct input
+            # mesh but an incomplete ``source_bodies`` map.  The fully
+            # calculated Part result persists those original-container packets;
+            # reuse only packets belonging to the rollback input instead of
+            # invoking OCCT from hover/picking.  Activated Assembly instances
+            # deliberately keep their existing transformed-result path.
+            frozen_result = getattr(
+                self, "_sketch_reference_body_result", None
+            )
+            cached_result_at = getattr(
+                self.document, "cached_body_result_at", None
+            )
+            final_result = (
+                frozen_result
+                or (
+                    cached_result_at(self.document.history_objects())
+                    if callable(cached_result_at)
+                    else None
+                )
+            )
+            if final_result is not None:
+                allowed_owner_ids = {
+                    source.entity_id for source in history_objects
+                }
+                source_bodies = {
+                    owner_id: result
+                    for owner_id, result in final_result.source_bodies.items()
+                    if owner_id in allowed_owner_ids
+                    and owner_id not in source_bodies
+                } | {
+                    owner_id: result
+                    for owner_id, result in source_bodies.items()
+                    if owner_id in allowed_owner_ids
+                }
+        candidates: list[tuple[str, int, ViewerMesh]] = []
         for source in reversed(history_objects):
             result = source_bodies.get(source.entity_id)
             if result is None:
                 continue
             mesh = result.mesh
+            if topology_kind == "face":
+                candidates.extend(
+                    (source.entity_id, picked_index, mesh)
+                    for _depth, _picked_owner, picked_index
+                    in self.native_viewer.faces_at_mesh(mesh, position)
+                )
+                continue
+            if topology_kind == "point":
+                point_hits: list[tuple[float, int]] = []
+                threshold = 9.0 * float(
+                    self.native_viewer.devicePixelRatioF()
+                )
+                for key, descriptor in getattr(result, "vertices", {}).items():
+                    raw_key = str(key)
+                    _prefix, separator, raw_index = raw_key.rpartition(
+                        ":vertex:"
+                    )
+                    if not separator:
+                        _prefix, separator, raw_index = raw_key.rpartition(
+                            ":point:"
+                        )
+                    if not separator or not raw_index.isdigit():
+                        continue
+                    screen = self.native_viewer.world_to_screen(
+                        descriptor.position
+                    )
+                    distance = math.hypot(
+                        float(position.x()) - float(screen.x()),
+                        float(position.y()) - float(screen.y()),
+                    )
+                    if distance <= threshold:
+                        point_hits.append((distance, int(raw_index)))
+                candidates.extend(
+                    (source.entity_id, point_index, mesh)
+                    for _distance, point_index in sorted(point_hits)
+                )
             picker = {
-                "face": self.native_viewer.face_at_mesh,
                 "edge": self.native_viewer.edge_at_mesh,
                 "point": self.native_viewer.point_at_mesh,
             }[topology_kind]
             picked = picker(mesh, position)
             if picked is not None:
                 _picked_owner, picked_index = picked
-                return source.entity_id, picked_index, mesh
+                candidates.append((source.entity_id, picked_index, mesh))
         if (
             len(history_objects) == 1
             and interaction_result is not None
+            and not candidates
         ):
             source = history_objects[0]
             mesh = interaction_result.mesh.with_owner(
                 source.entity_id
             )
+            if topology_kind == "face":
+                candidates.extend(
+                    (source.entity_id, picked_index, mesh)
+                    for _depth, _picked_owner, picked_index
+                    in self.native_viewer.faces_at_mesh(mesh, position)
+                )
+                distinct: list[tuple[str, int, ViewerMesh]] = []
+                seen: set[tuple[str, int]] = set()
+                for candidate in candidates:
+                    identity = candidate[0], candidate[1]
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    distinct.append(candidate)
+                return tuple(distinct)
             picker = {
-                "face": self.native_viewer.face_at_mesh,
                 "edge": self.native_viewer.edge_at_mesh,
                 "point": self.native_viewer.point_at_mesh,
             }[topology_kind]
             picked = picker(mesh, position)
             if picked is not None:
-                return source.entity_id, picked[1], mesh
-        return None
+                candidates.append((source.entity_id, picked[1], mesh))
+        distinct: list[tuple[str, int, ViewerMesh]] = []
+        seen: set[tuple[str, int]] = set()
+        for candidate in candidates:
+            identity = candidate[0], candidate[1]
+            if identity in seen:
+                continue
+            seen.add(identity)
+            distinct.append(candidate)
+        return tuple(distinct)
+
+    def _persisted_source_body_result(
+        self,
+        owner_id: str,
+    ) -> BodyResult | None:
+        """Read one original-solid packet from the active persisted results."""
+        context = getattr(self, "_viewer_document_context", None)
+        interaction_result = getattr(
+            self, "_viewer_interaction_body_result", None
+        )
+        if (
+            context is not None
+            and context.active_instance_id is not None
+            and interaction_result is not None
+        ):
+            result = interaction_result.source_bodies.get(owner_id)
+            if result is not None:
+                return result
+        scene = getattr(self, "_native_viewer_scene", None)
+        source_body_result = getattr(scene, "source_body_result", None)
+        if callable(source_body_result):
+            result = source_body_result(owner_id)
+            if result is not None:
+                return result
+        frozen_result = getattr(self, "_sketch_reference_body_result", None)
+        if frozen_result is not None:
+            result = frozen_result.source_bodies.get(owner_id)
+            if result is not None:
+                return result
+        if (
+            self.document is None
+            or (context is not None and context.active_instance_id is not None)
+        ):
+            return None
+        cached_result_at = getattr(self.document, "cached_body_result_at", None)
+        final_result = (
+            cached_result_at(self.document.history_objects())
+            if callable(cached_result_at)
+            else None
+        )
+        return (
+            final_result.source_bodies.get(owner_id)
+            if final_result is not None
+            else None
+        )
 
     def _original_topology_reference_pick_active(self) -> bool:
         controller = getattr(self, "_selection_controller", None)
@@ -27559,9 +27720,70 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not self._original_topology_reference_pick_active():
             return
-        candidates = self.native_viewer.topology_candidates_at(
-            QPointF(position)
-        )
+        policy = self._viewer_selection_policy()
+        source_candidates: list[ViewerPickCandidate] = []
+        # Persisted datum objects live in the displayed viewer mesh rather
+        # than in a source solid packet. Keep them in the same list, while
+        # deliberately excluding ordinary result-body topology.
+        for kind, owner_id, element_index in (
+            self.native_viewer.topology_candidates_at(QPointF(position))
+        ):
+            owner = self.document.find_entity(owner_id) if self.document else None
+            if owner is None or owner.kind not in {
+                EntityKind.ORIGIN,
+                EntityKind.POINT,
+                EntityKind.AXIS,
+                EntityKind.PLANE,
+            }:
+                continue
+            source_candidates.append(ViewerPickCandidate(
+                kind, owner_id, element_index, None
+            ))
+        for kind, selection_kind in (
+            ("point", SelectionKind.POINT),
+            ("edge", SelectionKind.EDGE),
+            ("face", SelectionKind.FACE),
+        ):
+            if selection_kind not in policy.allowed_kinds:
+                continue
+            for owner_id, element_index, mesh in (
+                self._source_topology_candidates_at_position(
+                    kind, QPointF(position)
+                )
+            ):
+                hover_mesh = {
+                    "point": mesh.point_mesh,
+                    "edge": mesh.edge_mesh,
+                    "face": mesh.face_mesh,
+                }[kind](owner_id, element_index)
+                if kind == "point" and not hover_mesh.points:
+                    source_result = self._persisted_source_body_result(owner_id)
+                    vertex = (
+                        source_result.vertex(owner_id, element_index)
+                        if source_result is not None
+                        else None
+                    )
+                    if vertex is not None:
+                        hover_mesh = point_marker_mesh(
+                            owner_id=owner_id,
+                            position=vertex.position,
+                        )
+                source_candidates.append(ViewerPickCandidate(
+                    kind, owner_id, element_index, hover_mesh
+                ))
+        distinct_candidates: list[ViewerPickCandidate] = []
+        seen_candidates: set[tuple[str, str, int]] = set()
+        for candidate in source_candidates:
+            identity = (
+                candidate.kind,
+                candidate.owner_id,
+                candidate.element_index,
+            )
+            if identity in seen_candidates:
+                continue
+            seen_candidates.add(identity)
+            distinct_candidates.append(candidate)
+        candidates = tuple(distinct_candidates)
         request = getattr(self._selection_controller, "request", None)
         if (
             request is not None
@@ -27569,7 +27791,7 @@ class MainWindow(QMainWindow):
         ):
             candidates = tuple(
                 candidate for candidate in candidates
-                if candidate[0] == "edge"
+                if candidate.kind == "edge"
             )
         if not candidates:
             self._view_candidate_cycle_ids = ()
@@ -27579,8 +27801,8 @@ class MainWindow(QMainWindow):
             self.native_viewer._clear_topology_hover()
             return
         cycle_ids = tuple(
-            f"{kind}:{owner_id}:{element_index}"
-            for kind, owner_id, element_index in candidates
+            f"{candidate.kind}:{candidate.owner_id}:{candidate.element_index}"
+            for candidate in candidates
         )
         if cycle_ids != self._view_candidate_cycle_ids:
             self._view_candidate_cycle_index = 0
@@ -27590,7 +27812,7 @@ class MainWindow(QMainWindow):
             ) % len(candidates)
         self._view_candidate_cycle_ids = cycle_ids
         self._history_source_cycle_active = True
-        self.native_viewer.preview_topology_candidate(
+        self.native_viewer.preview_provided_candidate(
             candidates[self._view_candidate_cycle_index]
         )
         self.statusBar().showMessage(
@@ -32316,30 +32538,75 @@ class MainWindow(QMainWindow):
             )
 
         if coordinate_entity is not None:
+            coordinate_transform = entity_world_transform(
+                self.document, coordinate_entity.entity_id
+            )
+            instance_transform = self._active_component_instance_transform()
+            if coordinate_transform is not None and instance_transform is not None:
+                coordinate_transform = multiply_transforms(
+                    instance_transform, coordinate_transform
+                )
+
+            def coordinate_origin() -> tuple[float, float, float]:
+                local_origin = (0.0, 0.0, 0.0)
+                if coordinate_entity.parameters.get("generated_axis") == "true":
+                    try:
+                        local_origin = tuple(
+                            float(coordinate_entity.parameters.get(
+                                f"origin_{axis}", 0.0
+                            ))
+                            for axis in ("x", "y", "z")
+                        )
+                    except (TypeError, ValueError):
+                        local_origin = (0.0, 0.0, 0.0)
+                return (
+                    transform_point(coordinate_transform, local_origin)
+                    if coordinate_transform is not None
+                    else self._reference_origin(coordinate_entity)
+                )
+
+            def coordinate_direction(local_direction):
+                if coordinate_transform is None:
+                    return self._reference_direction(
+                        coordinate_entity, local_direction
+                    )
+                return self._normalized_vector(tuple(
+                    sum(
+                        coordinate_transform[row][column]
+                        * local_direction[column]
+                        for column in range(3)
+                    )
+                    for row in range(3)
+                ))
+
             if coordinate_entity.kind == EntityKind.POINT:
                 return {
                     "type": "point",
-                    "point": list(
-                        local_point(
-                            self._reference_origin(coordinate_entity)
-                        )
-                    ),
+                    "point": list(local_point(coordinate_origin())),
                 }
             if coordinate_entity.kind == EntityKind.AXIS:
-                direction = {
-                    "x": (1.0, 0.0, 0.0),
-                    "y": (0.0, 1.0, 0.0),
-                    "z": (0.0, 0.0, 1.0),
-                }.get(
-                    str(coordinate_entity.parameters.get("axis", "z")),
-                    (0.0, 0.0, 1.0),
+                axis_name = str(
+                    coordinate_entity.parameters.get("axis", "z")
                 )
+                if axis_name == "custom":
+                    try:
+                        direction = tuple(
+                            float(coordinate_entity.parameters.get(
+                                f"direction_{axis}", 0.0
+                            ))
+                            for axis in ("x", "y", "z")
+                        )
+                    except (TypeError, ValueError):
+                        direction = (0.0, 0.0, 1.0)
+                else:
+                    direction = {
+                        "x": (1.0, 0.0, 0.0),
+                        "y": (0.0, 1.0, 0.0),
+                        "z": (0.0, 0.0, 1.0),
+                    }.get(axis_name, (0.0, 0.0, 1.0))
                 return projected_axis(
-                    self._reference_origin(coordinate_entity),
-                    self._reference_direction(
-                        coordinate_entity,
-                        direction,
-                    ),
+                    coordinate_origin(),
+                    coordinate_direction(direction),
                 )
             if coordinate_entity.kind == EntityKind.PLANE:
                 normal = {
@@ -32353,8 +32620,8 @@ class MainWindow(QMainWindow):
                 return self._project_plane_intersection(
                     sketch_origin,
                     sketch_normal,
-                    self._reference_origin(coordinate_entity),
-                    self._reference_direction(coordinate_entity, normal),
+                    coordinate_origin(),
+                    coordinate_direction(normal),
                     local_point,
                     projected_line,
                 )
@@ -32364,10 +32631,14 @@ class MainWindow(QMainWindow):
         # and edge references; resolving TopoDS topology here only repeats the
         # body calculation on the first click.
         scene = self._native_viewer_scene
-        if scene is not None and source_kind == "point":
-            point = scene.vertex_reference(owner_id, element_index)
+        if source_kind == "point":
+            point = (
+                scene.vertex_reference(owner_id, element_index)
+                if scene is not None
+                else None
+            )
             if point is None:
-                source_result = scene.source_body_result(owner_id)
+                source_result = self._persisted_source_body_result(owner_id)
                 point = (
                     source_result.vertex(owner_id, element_index)
                     if source_result is not None
@@ -32378,10 +32649,14 @@ class MainWindow(QMainWindow):
                     "type": "point",
                     "point": list(local_point(point.position)),
                 }
-        if scene is not None and source_kind == "edge":
-            curve = scene.curve_reference(owner_id, element_index)
+        if source_kind == "edge":
+            curve = (
+                scene.curve_reference(owner_id, element_index)
+                if scene is not None
+                else None
+            )
             if curve is None:
-                source_result = scene.source_body_result(owner_id)
+                source_result = self._persisted_source_body_result(owner_id)
                 curve = (
                     source_result.curve(owner_id, element_index)
                     if source_result is not None
@@ -32461,10 +32736,14 @@ class MainWindow(QMainWindow):
                         curve.kind if curve.kind != "other" else "spline"
                     ),
                 }
-        if scene is not None and source_kind == "face":
-            surface = scene.surface_reference(owner_id, element_index)
-            if surface is None:
-                source_result = scene.source_body_result(owner_id)
+        if source_kind == "face":
+            surface = (
+                scene.surface_reference(owner_id, element_index)
+                if scene is not None
+                else None
+            )
+            if surface is None or surface.kind != "plane":
+                source_result = self._persisted_source_body_result(owner_id)
                 surface = (
                     source_result.surface(owner_id, element_index)
                     if source_result is not None
@@ -32476,7 +32755,7 @@ class MainWindow(QMainWindow):
                 and surface.origin is not None
                 and surface.normal is not None
             ):
-                return self._project_plane_intersection(
+                intersection = self._project_plane_intersection(
                     sketch_origin,
                     sketch_normal,
                     surface.origin,
@@ -32484,8 +32763,33 @@ class MainWindow(QMainWindow):
                     local_point,
                     projected_line,
                 )
-            if surface is None:
-                source_result = scene.source_body_result(owner_id)
+                if intersection is not None:
+                    return intersection
+                source_result = self._persisted_source_body_result(owner_id)
+                curves_by_reference = {
+                    curve.reference_id: curve
+                    for curve in (
+                        source_result.edges.values()
+                        if source_result is not None
+                        else ()
+                    )
+                }
+                boundary_polylines = [
+                    [list(local_point(point)) for point in curve.points]
+                    for reference_id in surface.boundary_edge_ids
+                    if (
+                        (curve := curves_by_reference.get(reference_id))
+                        is not None
+                        and len(curve.points) >= 2
+                    )
+                ]
+                if boundary_polylines:
+                    return {
+                        "type": "polylines",
+                        "polylines": boundary_polylines,
+                    }
+            if surface is None or surface.kind != "plane":
+                source_result = self._persisted_source_body_result(owner_id)
                 if source_result is not None:
                     # Recover a planar source face directly from its
                     # persisted tessellation when an older packet lacks the
@@ -34509,6 +34813,13 @@ class MainWindow(QMainWindow):
                 self.document.root.entity_id
             )
             if previous_scene is not None
+            else None
+        )
+        self._sketch_reference_body_result = (
+            self.document.cached_body_result_at(
+                self.document.history_objects()
+            )
+            if self._active_component_return_document is None
             else None
         )
         # Capture navigation before switching the viewer to the history
@@ -46711,6 +47022,7 @@ class MainWindow(QMainWindow):
         self._sketch_edit_entity_id = None
         self._sketch_previous_camera = None
         self._sketch_previous_body_shape = None
+        self._sketch_reference_body_result = None
         self._sketch_baseline_parameters = None
         self._sketch_tool = None
         self._sketch_pending_points.clear()

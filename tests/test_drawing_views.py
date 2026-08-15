@@ -1902,8 +1902,8 @@ class DrawingViewConventionTests(unittest.TestCase):
             )
         )
         window.native_viewer = SimpleNamespace(
-            face_at_mesh=lambda candidate, _position:
-                (source.entity_id, 7) if candidate is mesh else None,
+            faces_at_mesh=lambda candidate, _position:
+                ((1.0, source.entity_id, 7),) if candidate is mesh else (),
             edge_at_mesh=lambda _candidate, _position: None,
             point_at_mesh=lambda _candidate, _position: None,
         )
@@ -1913,6 +1913,149 @@ class DrawingViewConventionTests(unittest.TestCase):
                 "face", QPointF(10.0, 20.0)
             ),
             (source.entity_id, 7, mesh),
+        )
+
+    def test_standalone_sketch_reference_reuses_final_source_packets(self):
+        window = MainWindow.__new__(MainWindow)
+        source = SimpleNamespace(entity_id="source-1")
+        downstream = SimpleNamespace(entity_id="downstream")
+        source_mesh = SimpleNamespace(marker="persisted-source")
+        final_result = SimpleNamespace(source_bodies={
+            source.entity_id: SimpleNamespace(mesh=source_mesh),
+            downstream.entity_id: SimpleNamespace(mesh=SimpleNamespace()),
+        })
+        window.document = SimpleNamespace(
+            history_objects_at=lambda _boundary: [source],
+            history_objects=lambda: [source, downstream],
+            cached_body_result_at=lambda _objects: final_result,
+        )
+        window._definition_history_boundary = lambda: 1
+        window._viewer_document_context = SimpleNamespace(
+            active_instance_id=None,
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(source_bodies={})
+        )
+        window.native_viewer = SimpleNamespace(
+            faces_at_mesh=lambda candidate, _position:
+                ((1.0, source.entity_id, 5),)
+                if candidate is source_mesh else (),
+            edge_at_mesh=lambda _candidate, _position: None,
+            point_at_mesh=lambda _candidate, _position: None,
+        )
+
+        self.assertEqual(
+            window._source_topology_reference_at_position(
+                "face", QPointF(12.0, 24.0)
+            ),
+            (source.entity_id, 5, source_mesh),
+        )
+
+    def test_standalone_sketch_reference_lists_occluded_source_faces(self):
+        window = MainWindow.__new__(MainWindow)
+        source = SimpleNamespace(entity_id="source-1")
+        source_mesh = SimpleNamespace(marker="persisted-source")
+        final_result = SimpleNamespace(source_bodies={
+            source.entity_id: SimpleNamespace(mesh=source_mesh),
+        })
+        window.document = SimpleNamespace(
+            history_objects_at=lambda _boundary: [source],
+            history_objects=lambda: [source],
+            cached_body_result_at=lambda _objects: final_result,
+        )
+        window._definition_history_boundary = lambda: 1
+        window._viewer_document_context = SimpleNamespace(
+            active_instance_id=None,
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(source_bodies={})
+        )
+        window.native_viewer = SimpleNamespace(
+            faces_at_mesh=lambda candidate, _position: (
+                (2.0, source.entity_id, 5),
+                (1.0, source.entity_id, 2),
+            ) if candidate is source_mesh else (),
+            edge_at_mesh=lambda _candidate, _position: None,
+            point_at_mesh=lambda _candidate, _position: None,
+        )
+
+        self.assertEqual(
+            window._source_topology_candidates_at_position(
+                "face", QPointF(12.0, 24.0)
+            ),
+            (
+                (source.entity_id, 5, source_mesh),
+                (source.entity_id, 2, source_mesh),
+            ),
+        )
+
+    def test_standalone_sketch_projection_reads_final_source_packet(self):
+        window = MainWindow.__new__(MainWindow)
+        source = SimpleNamespace(entity_id="source-1")
+        source_result = SimpleNamespace(marker="persisted-source")
+        final_result = SimpleNamespace(source_bodies={
+            source.entity_id: source_result,
+        })
+        window.document = SimpleNamespace(
+            history_objects=lambda: [source],
+            # The first accepted reference marks the document dirty, after
+            # which the normal validated-cache accessor intentionally refuses
+            # the old final packet for calculation purposes.
+            cached_body_result_at=lambda _objects: None,
+        )
+        window._viewer_document_context = SimpleNamespace(
+            active_instance_id=None,
+        )
+        window._viewer_interaction_body_result = None
+        window._sketch_reference_body_result = final_result
+        window._native_viewer_scene = SimpleNamespace(
+            source_body_result=lambda _owner_id: None,
+        )
+
+        self.assertIs(
+            window._persisted_source_body_result(source.entity_id),
+            source_result,
+        )
+
+    def test_standalone_sketch_offers_persisted_vertex_without_marker(self):
+        window = MainWindow.__new__(MainWindow)
+        source = SimpleNamespace(entity_id="source-1")
+        source_mesh = SimpleNamespace(points=())
+        source_result = SimpleNamespace(
+            mesh=source_mesh,
+            vertices={
+                "source-1:point:7": SimpleNamespace(
+                    position=(1.0, 2.0, 3.0)
+                ),
+            },
+        )
+        final_result = SimpleNamespace(source_bodies={
+            source.entity_id: source_result,
+        })
+        window.document = SimpleNamespace(
+            history_objects_at=lambda _boundary: [source],
+            history_objects=lambda: [source],
+            cached_body_result_at=lambda _objects: final_result,
+        )
+        window._definition_history_boundary = lambda: 1
+        window._viewer_document_context = SimpleNamespace(
+            active_instance_id=None,
+        )
+        window._native_viewer_scene = SimpleNamespace(
+            calculated_body_result=SimpleNamespace(source_bodies={})
+        )
+        window.native_viewer = SimpleNamespace(
+            devicePixelRatioF=lambda: 1.0,
+            world_to_screen=lambda _point: QPointF(10.0, 20.0),
+            edge_at_mesh=lambda _mesh, _position: None,
+            point_at_mesh=lambda _mesh, _position: None,
+        )
+
+        self.assertEqual(
+            window._source_topology_candidates_at_position(
+                "point", QPointF(12.0, 22.0)
+            ),
+            ((source.entity_id, 7, source_mesh),),
         )
 
     def test_viewer_mesh_extracts_persisted_edge_and_point(self):

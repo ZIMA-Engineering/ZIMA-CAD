@@ -392,7 +392,10 @@ class BodyResult:
     def vertex(
         self, owner_id: str, point_index: int
     ) -> VertexDescriptor | None:
-        return self.vertices.get(_reference_id(owner_id, "point", point_index))
+        return (
+            self.vertices.get(_reference_id(owner_id, "vertex", point_index))
+            or self.vertices.get(_reference_id(owner_id, "point", point_index))
+        )
 
     def with_owner(self, owner_id: str) -> "BodyResult":
         """Bind a persisted Part result to its newly created runtime root."""
