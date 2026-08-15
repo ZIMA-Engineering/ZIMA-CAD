@@ -527,7 +527,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     sketchTrimGestureRequested = Signal(object)
     extentHandleDragged = Signal(str, float, bool)
     insertionOriginDragged = Signal(float, float, bool)
-    rotation_degrees_per_pixel = 0.18
+    rotation_degrees_per_pixel = 0.22
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

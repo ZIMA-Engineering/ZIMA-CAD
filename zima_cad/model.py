@@ -1158,6 +1158,120 @@ class PartDocument:
                             "source_geometry_id": geometry_id,
                         }
 
+        revolve = next(
+            (
+                child for child in obj.children
+                if child.kind == EntityKind.REVOLVE and not child.locked
+            ),
+            None,
+        )
+        if revolve is not None:
+            sketch = self.find_entity(
+                str(revolve.parameters.get("sketch_id", ""))
+            )
+            if sketch is not None and sketch.kind == EntityKind.SKETCH:
+                try:
+                    sketch_model = SketchModel.from_dict(json.loads(
+                        str(sketch.parameters.get("sketch_data", "{}"))
+                    ))
+                except (
+                    SketchModelError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ):
+                    sketch_model = None
+                axis_geometry = next(
+                    (
+                        geometry
+                        for geometry in sketch_model.geometry.values()
+                        if geometry.geometry_type == GeometryType.CONSTRUCTION
+                        and len(geometry.point_ids) == 2
+                    ),
+                    None,
+                ) if sketch_model is not None else None
+                if axis_geometry is not None:
+                    first = sketch_model.points.get(axis_geometry.point_ids[0])
+                    second = sketch_model.points.get(axis_geometry.point_ids[1])
+                    if first is not None and second is not None:
+                        plane = str(sketch.parameters.get("plane", "xz"))
+                        profile_offset = float(
+                            revolve.parameters.get("profile_offset", 0.0)
+                        )
+                        plane_transform = multiply_transforms(
+                            sketch_plane_offset_transform(
+                                plane, profile_offset
+                            ),
+                            sketch_plane_transform(plane),
+                        )
+                        axis_start = transform_point(
+                            plane_transform,
+                            (first.x, first.y, 0.0),
+                        )
+                        axis_end = transform_point(
+                            plane_transform,
+                            (second.x, second.y, 0.0),
+                        )
+                        direction = tuple(
+                            axis_end[index] - axis_start[index]
+                            for index in range(3)
+                        )
+                        direction_length = math.sqrt(sum(
+                            value * value for value in direction
+                        ))
+                        if direction_length > 1.0e-9:
+                            unit_direction = tuple(
+                                value / direction_length
+                                for value in direction
+                            )
+                            profile_projections = []
+                            for point in sketch_model.points.values():
+                                point_world = transform_point(
+                                    plane_transform,
+                                    (point.x, point.y, 0.0),
+                                )
+                                profile_projections.append(sum(
+                                    (
+                                        point_world[index]
+                                        - axis_start[index]
+                                    ) * unit_direction[index]
+                                    for index in range(3)
+                                ))
+                            minimum_projection = min(
+                                profile_projections,
+                                default=0.0,
+                            )
+                            maximum_projection = max(
+                                profile_projections,
+                                default=direction_length,
+                            )
+                            profile_span = max(
+                                maximum_projection - minimum_projection,
+                                direction_length,
+                                1.0,
+                            )
+                            margin = max(profile_span * 0.12, 5.0)
+                            axis_center = tuple(
+                                axis_start[index]
+                                + unit_direction[index]
+                                * (
+                                    (minimum_projection + maximum_projection)
+                                    / 2.0
+                                )
+                                for index in range(3)
+                            )
+                            axis_id = f"{revolve.entity_id}:axis:revolve"
+                            desired[axis_id] = {
+                                "owner": revolve,
+                                "name": "Revolve Axis",
+                                "axis": direction,
+                                "origin": axis_center,
+                                "length": profile_span + 2.0 * margin,
+                                "source_geometry_id": (
+                                    axis_geometry.geometry_id
+                                ),
+                            }
+
         for primitive in (
             child for child in obj.children
             if not child.locked and child.kind in (
@@ -1204,7 +1318,11 @@ class PartDocument:
             axis.parameters.update({
                 "generated_axis": "true",
                 "display_style": "centerline",
-                "axis": definition["axis"],
+                "axis": (
+                    definition["axis"]
+                    if isinstance(definition["axis"], str)
+                    else "custom"
+                ),
                 "origin_x": f"{origin[0]:.12g}",
                 "origin_y": f"{origin[1]:.12g}",
                 "origin_z": f"{origin[2]:.12g}",
@@ -1212,6 +1330,16 @@ class PartDocument:
                 "source_geometry_id": definition["source_geometry_id"],
                 "unit": "mm",
             })
+            axis_vector = definition["axis"]
+            if not isinstance(axis_vector, str):
+                axis.parameters.update({
+                    "direction_x": f"{axis_vector[0]:.12g}",
+                    "direction_y": f"{axis_vector[1]:.12g}",
+                    "direction_z": f"{axis_vector[2]:.12g}",
+                })
+            else:
+                for coordinate in ("x", "y", "z"):
+                    axis.parameters.pop(f"direction_{coordinate}", None)
         for stale in generated.values():
             parent = self.find_parent(stale.entity_id)
             if parent is not None:
@@ -6498,7 +6626,18 @@ def make_datum_axis_shape(
         "x": (1.0, 0.0, 0.0),
         "y": (0.0, 1.0, 0.0),
         "z": (0.0, 0.0, 1.0),
-    }.get(str(axis.parameters.get("axis", "z")), (0.0, 0.0, 1.0))
+    }.get(str(axis.parameters.get("axis", "z")))
+    if direction is None:
+        direction = tuple(
+            float(axis.parameters.get(f"direction_{coordinate}", 0.0))
+            for coordinate in ("x", "y", "z")
+        )
+        direction_length = math.sqrt(sum(value * value for value in direction))
+        direction = (
+            tuple(value / direction_length for value in direction)
+            if direction_length > 1.0e-12
+            else (0.0, 0.0, 1.0)
+        )
     half = length / 2.0
     origin = tuple(
         float(axis.parameters.get(f"origin_{coordinate}", 0.0))

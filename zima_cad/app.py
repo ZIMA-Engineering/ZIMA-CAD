@@ -9432,8 +9432,7 @@ class MainWindow(QMainWindow):
                 color: #FFFFFF;
             }
             QTreeWidget::item:hover {
-                background-color: #356E22;
-                color: #FFFFFF;
+                background-color: transparent;
             }
             QTreeWidget[historyDragActive="true"]::item:hover,
             QTreeWidget[historyDragActive="true"]::item:selected,
@@ -17091,7 +17090,13 @@ class MainWindow(QMainWindow):
         if obj.tree_exposure == TreeExposure.HIDDEN:
             return None
         if obj.kind == EntityKind.ORIGIN:
-            label = tr("tree.origin.part")
+            label = tr(
+                "tree.origin.assembly"
+                if source_document is not None
+                and source_document.document_settings.get("type")
+                == "assembly"
+                else "tree.origin.part"
+            )
         else:
             label = obj.name
         item = QTreeWidgetItem([label])
@@ -22404,6 +22409,21 @@ class MainWindow(QMainWindow):
                 self.native_viewer.blockSignals(signals_were_blocked)
             self._configure_assembly_reference_picking()
             return
+        if (
+            self.document.document_settings.get("type") == "assembly"
+            and not (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            and not self._sketch_reference_mode
+            and not self._selection_controller.active
+        ):
+            candidate = self.document.find_entity(owner_id)
+            while candidate is not None:
+                if candidate.container_type == ContainerType.COMPONENT:
+                    owner_id = candidate.entity_id
+                    break
+                candidate = self.document.find_parent(candidate.entity_id)
         selected_source_mesh = None
         provided_candidate = getattr(
             self.native_viewer, "_provided_hover_candidate", None
@@ -22697,6 +22717,11 @@ class MainWindow(QMainWindow):
             if (
                 str(component_id or "") == top_component_id
                 and tuple(path or ()) == instance_path
+                and (
+                    bool(instance_path)
+                    or str(item.data(0, Qt.ItemDataRole.UserRole))
+                    == top_component_id
+                )
             ):
                 return item
             found = self._find_component_instance_path_item(
@@ -24439,6 +24464,29 @@ class MainWindow(QMainWindow):
             if accepted:
                 self._select_native_tree_object(selected_id)
                 return
+        # In ordinary Assembly selection, Origin geometry belongs to the
+        # component that owns it.  It is displayed for orientation, but it
+        # must not become the Tree selection unless an explicit reference
+        # command is active.
+        if (
+            self.document.document_settings.get("type") == "assembly"
+            and not (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            and not (
+                self.orientation_dialog is not None
+                and self.orientation_dialog.isVisible()
+            )
+            and not self._sketch_reference_mode
+            and not self._selection_controller.active
+        ):
+            candidate = selected_reference
+            while candidate is not None:
+                if candidate.container_type == ContainerType.COMPONENT:
+                    self._on_native_object_selected(candidate.entity_id)
+                    return
+                candidate = self.document.find_parent(candidate.entity_id)
         if (
             selected_reference is not None
             and selected_reference.kind in (
@@ -24552,6 +24600,31 @@ class MainWindow(QMainWindow):
         self._view_selection_confirmed = body_item is not None
 
     def _select_native_tree_object(self, entity_id: str) -> None:
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") == "assembly"
+            and not (
+                self.assembly_component_dialog is not None
+                and self.assembly_component_dialog.isVisible()
+            )
+            and not (
+                self.point_constraint_dialog is not None
+                and self.point_constraint_dialog.isVisible()
+            )
+            and not self._sketch_reference_mode
+            and not self._selection_controller.active
+        ):
+            source_component_id = self._find_component_for_source_tree_entity(
+                self.tree.invisibleRootItem(), entity_id
+            )
+            if source_component_id is not None:
+                entity_id = source_component_id
+            candidate = self.document.find_entity(entity_id)
+            while candidate is not None:
+                if candidate.container_type == ContainerType.COMPONENT:
+                    entity_id = candidate.entity_id
+                    break
+                candidate = self.document.find_parent(candidate.entity_id)
         root = self.tree.invisibleRootItem()
         item = self._find_tree_item(root, entity_id)
         self.tree.blockSignals(True)
@@ -24563,6 +24636,30 @@ class MainWindow(QMainWindow):
         self.tree.blockSignals(False)
         self.selected_object_id = entity_id
         self._view_selection_confirmed = True
+
+    def _find_component_for_source_tree_entity(
+        self,
+        parent: QTreeWidgetItem,
+        entity_id: str,
+    ) -> str | None:
+        """Resolve a projected source entity to its Assembly component."""
+        for index in range(parent.childCount()):
+            item = parent.child(index)
+            component_id = item.data(
+                0, HistoryTreeWidget.COMPONENT_INSTANCE_ROLE
+            )
+            if (
+                component_id is not None
+                and str(item.data(0, Qt.ItemDataRole.UserRole))
+                == str(entity_id)
+            ):
+                return str(component_id)
+            nested = self._find_component_for_source_tree_entity(
+                item, entity_id
+            )
+            if nested is not None:
+                return nested
+        return None
 
     def _on_tree_selection_changed(self) -> None:
         # Tree highlighting may mirror the same object into the viewport, but
@@ -50182,6 +50279,41 @@ class MainWindow(QMainWindow):
             if context.active_instance_id is not None
             else None
         )
+        viewer_component_documents: dict[str, PartDocument] = {}
+        collected_viewer_documents: set[int] = set()
+
+        def collect_viewer_component_documents(
+            source_document: PartDocument,
+        ) -> None:
+            document_key = id(source_document)
+            if document_key in collected_viewer_documents:
+                return
+            collected_viewer_documents.add(document_key)
+            for source_component in source_document.history_objects_at(
+                source_document.history_cursor()
+            ):
+                if source_component.container_type != ContainerType.COMPONENT:
+                    continue
+                source_component_document = self._component_source_document(
+                    source_component,
+                    assembly_document=source_document,
+                )
+                if source_component_document is None:
+                    continue
+                viewer_component_documents[source_component.entity_id] = (
+                    source_component_document
+                )
+                if (
+                    source_component_document.document_settings.get("type")
+                    == "assembly"
+                ):
+                    collect_viewer_component_documents(
+                        source_component_document
+                    )
+
+        collect_viewer_component_documents(display_document)
+        if editing_document is not display_document:
+            collect_viewer_component_documents(editing_document)
         self._native_viewer_scene = build_document_viewer_scene_data(
             display_document,
             history_boundary=history_boundary,
@@ -50250,18 +50382,23 @@ class MainWindow(QMainWindow):
                 else None
             ),
             component_documents={
-                component.entity_id: source_document
-                for component in display_document.history_objects_at(
-                    history_boundary
-                )
-                if component.container_type == ContainerType.COMPONENT
-                and (source_document := self._component_source_document(
-                    component,
-                    assembly_document=display_document,
-                )) is not None
+                **viewer_component_documents
             }
-            if display_document.document_settings.get("type") == "assembly"
-            else None,
+            if viewer_component_documents else None,
+            active_reference_document=(
+                editing_document
+                if context.active_instance_id is not None
+                and editing_document.document_settings.get("type")
+                == "assembly"
+                else None
+            ),
+            active_reference_transform=(
+                instance_transform
+                if context.active_instance_id is not None
+                and editing_document.document_settings.get("type")
+                == "assembly"
+                else None
+            ),
             cached_body_shape=cached_body_shape,
             cached_body_mesh=(
                 cached_body_mesh
@@ -50838,18 +50975,22 @@ class MainWindow(QMainWindow):
                     EntityKind.PLANE,
                 )
                 and not obj.locked
-                else next(
-                    (
-                        child
-                        for child in obj.children
-                        if child.kind in (
-                            EntityKind.POINT,
-                            EntityKind.AXIS,
-                            EntityKind.PLANE,
-                        )
-                        and not child.locked
-                    ),
-                    None,
+                else (
+                    next(
+                        (
+                            child
+                            for child in obj.children
+                            if child.kind in (
+                                EntityKind.POINT,
+                                EntityKind.AXIS,
+                                EntityKind.PLANE,
+                            )
+                            and not child.locked
+                        ),
+                        None,
+                    )
+                    if obj.container_type != ContainerType.COMPONENT
+                    else None
                 )
             )
             if user_reference is not None:
@@ -50912,6 +51053,23 @@ class MainWindow(QMainWindow):
                         and scene.calculated_body_result is not None
                         else None
                     )
+                    if (
+                        source_result is None
+                        and obj.container_type == ContainerType.COMPONENT
+                        and self.document.document_settings.get("type")
+                        == "assembly"
+                    ):
+                        # A cached/evaluated Assembly may not expose one
+                        # source_bodies packet per component.  Tree
+                        # selection must nevertheless highlight the exact
+                        # persisted instance mesh used by the Assembly
+                        # scene, rather than silently doing nothing.
+                        source_result = (
+                            self._assembly_component_overlay_results(
+                                self._definition_history_boundary(),
+                                assembly_document=self.document,
+                            ).get(obj.entity_id)
+                        )
                     if source_result is not None:
                         self.native_viewer.set_object_overlay(
                             source_result.mesh,

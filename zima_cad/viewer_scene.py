@@ -156,6 +156,8 @@ def build_document_viewer_scene_data(
     uncut_component_mesh: ViewerMesh | None = None,
     component_mesh_overrides: dict[str, ViewerMesh] | None = None,
     component_documents: dict[str, PartDocument] | None = None,
+    active_reference_document: PartDocument | None = None,
+    active_reference_transform: Any | None = None,
     cached_body_shape: Any | None = None,
     cached_body_mesh: ViewerMesh | None = None,
     cached_body_result: BodyResult | None = None,
@@ -723,6 +725,29 @@ def build_document_viewer_scene_data(
             # its own datum geometry remains the active edit/preview. Other
             # downstream containers must not leak through the boundary.
             display_objects = [*display_objects, editing_owner]
+    def append_origin_context(
+        source_document: PartDocument,
+        source_objects,
+        parent_transform,
+        *,
+        component_origins: bool,
+        object_planes: bool,
+        object_origins: bool,
+    ) -> None:
+        for source_object in source_objects:
+            _append_object_origins(
+                source_document,
+                source_object,
+                parent_transform,
+                layers,
+                object_planes,
+                object_origins,
+                component_origins,
+                show_user_points,
+                editing_object_id,
+                reference_scene_size,
+            )
+
     for obj in display_objects:
         _append_object_sketches(
             document,
@@ -737,17 +762,70 @@ def build_document_viewer_scene_data(
             editing_object_id,
             consumed_sketch_ids,
         )
-        _append_object_origins(
-            document,
-            obj,
-            identity_transform(),
-            layers,
-            show_object_planes,
-            show_object_origins,
-            show_component_origins,
-            show_user_points,
-            editing_object_id,
-            reference_scene_size,
+    append_origin_context(
+        document,
+        display_objects,
+        identity_transform(),
+        component_origins=show_component_origins,
+        object_planes=show_object_planes,
+        object_origins=show_object_origins,
+    )
+
+    # An activated Assembly keeps the parent document as the display root so
+    # the surrounding components remain visible.  Its source Assembly is a
+    # second document context, however, and its children must enter the same
+    # scene traversal with the active instance transform.  Keep this in the
+    # scene builder (rather than adding a viewer overlay) so Origin, datum
+    # planes and axes use the same ownership and transform rules everywhere.
+    if (
+        active_reference_document is not None
+        and active_reference_document.document_settings.get("type")
+        == "assembly"
+        and active_reference_transform is not None
+    ):
+        def append_active_references(
+            source_document: PartDocument,
+            parent_transform,
+        ) -> None:
+            for source_object in source_document.history_objects_at(
+                source_document.history_cursor()
+            ):
+                if (
+                    source_object.container_type != ContainerType.COMPONENT
+                    or not source_document.is_effectively_visible(
+                        source_object.entity_id
+                    )
+                ):
+                    continue
+                append_origin_context(
+                    source_document,
+                    (source_object,),
+                    parent_transform,
+                    component_origins=True,
+                    object_planes=True,
+                    object_origins=True,
+                )
+                child_document = (component_documents or {}).get(
+                    source_object.entity_id
+                )
+                if (
+                    child_document is not None
+                    and child_document.document_settings.get("type")
+                    == "assembly"
+                ):
+                    append_active_references(
+                        child_document,
+                        multiply_transforms(
+                            parent_transform,
+                            coordinate_system_transform(
+                                source_object.coordinate_system
+                            ),
+                        ),
+                    )
+
+        append_active_references(
+            active_reference_document,
+            active_reference_transform,
         )
 
     if preview_coordinate_system is not None:
