@@ -6,7 +6,6 @@ import gzip
 import hashlib
 import io
 import json
-import math
 from pathlib import Path
 
 from zima_cad.body_result import BodyResult
@@ -151,24 +150,6 @@ def load_part_document(file_path: Path) -> PartDocument:
     document.source_file_path = file_path.resolve()
     if config.has_section("Document"):
         document.document_settings.update(dict(config["Document"]))
-        legacy_unit_names = {
-            "units": "Length",
-            "angle_units": "Angle",
-        }
-        for legacy_name, unit_name in legacy_unit_names.items():
-            if legacy_name in document.document_settings:
-                document.document_units[unit_name] = document.document_settings.pop(
-                    legacy_name
-                )
-        for precision_name in (
-            "linear_tolerance",
-            "angular_tolerance",
-            "mesh_deflection",
-        ):
-            if precision_name in document.document_settings:
-                document.document_precision[precision_name] = (
-                    document.document_settings.pop(precision_name)
-                )
     if config.has_section("DocumentUnits"):
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
@@ -180,24 +161,12 @@ def load_part_document(file_path: Path) -> PartDocument:
         }
         if config.has_section("MaterialProperties"):
             material_parameters.update(dict(config["MaterialProperties"]))
-        document.physical_parameters = normalize_physical_parameters(
-            material_parameters
-        )
-    elif config.has_section("Physical"):
-        document.physical_parameters = normalize_physical_parameters(
-            dict(config["Physical"])
-        )
+        document.physical_parameters = material_parameters
     if config.has_section("MaterialUnits"):
-        document.physical_parameter_units = normalize_material_units(
-            dict(config["MaterialUnits"])
-        )
-    elif config.has_section("PhysicalUnits"):
-        document.physical_parameter_units = normalize_material_units(
-            dict(config["PhysicalUnits"])
-        )
+        document.physical_parameter_units = dict(config["MaterialUnits"])
     if config.has_section("MaterialDescriptions"):
-        document.material_parameter_descriptions = normalize_material_descriptions(
-            read_language_map(config["MaterialDescriptions"])
+        document.material_parameter_descriptions = read_language_map(
+            config["MaterialDescriptions"]
         )
     if config.has_section("UserParameters"):
         load_user_parameters(config, document)
@@ -238,7 +207,6 @@ def load_part_document(file_path: Path) -> PartDocument:
         if obj.kind != EntityKind.BODY
     ]
     reconnect_history_result_references(document)
-    migrate_missing_system_references(document)
     validate_container_entities(document)
     validate_sketch_data(document)
     _load_cached_body(config, document)
@@ -375,21 +343,9 @@ def reconnect_history_result_references(document: PartDocument) -> None:
         for reference in external_references:
             if not isinstance(reference, dict):
                 continue
-            owner_id = str(reference.get("owner_id", ""))
             is_history_result = (
                 reference.get("reference_scope") == "history_result"
             )
-            # Early external-reference builds stored the transient Part result
-            # ID without a scope marker. It is the only referenced owner absent
-            # immediately after loading; retain compatibility with those files.
-            if (
-                not is_history_result
-                and owner_id
-                and document.find_entity(owner_id) is None
-                and reference.get("source_kind") in ("face", "edge", "point")
-            ):
-                reference["reference_scope"] = "history_result"
-                is_history_result = True
             if not is_history_result:
                 continue
             old_reference_id = str(reference.get("id", ""))
@@ -461,113 +417,6 @@ def reconnect_history_result_references(document: PartDocument) -> None:
                     sketch_data,
                     ensure_ascii=False,
                 )
-
-
-def migrate_missing_system_references(document: PartDocument) -> None:
-    """Reconnect legacy references to randomly identified system geometry."""
-    origin = next(
-        (
-            child
-            for child in document.root.children
-            if child.kind == EntityKind.ORIGIN
-        ),
-        None,
-    )
-    if origin is None:
-        return
-    system_entities = {child.name: child for child in origin.children}
-    for obj in walk_entities(document.root):
-        if obj.kind not in (EntityKind.POINT, EntityKind.AXIS):
-            continue
-        raw_references = obj.parameters.get("constraint_refs")
-        if raw_references is None:
-            continue
-        try:
-            references = json.loads(str(raw_references))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if not isinstance(references, list):
-            continue
-        changed = False
-        for reference in references:
-            if (
-                not isinstance(reference, dict)
-                or reference.get("type") != "entity"
-            ):
-                continue
-            entity_id = str(reference.get("entity_id", ""))
-            if entity_id and document.find_entity(entity_id) is not None:
-                continue
-            replacement = system_entities.get(str(reference.get("label", "")))
-            if replacement is None:
-                continue
-            reference["entity_id"] = replacement.entity_id
-            reference["key"] = f"entity:{replacement.entity_id}"
-            changed = True
-        if changed:
-            obj.parameters["constraint_refs"] = json.dumps(
-                references,
-                ensure_ascii=False,
-            )
-
-
-def normalize_physical_parameters(parameters: dict[str, str]) -> dict[str, str]:
-    legacy_names = {
-        "material_name": "MATERIAL_NAME",
-        "density": "MASS_DENSITY",
-        "poisson_ratio": "POISSON_RATIO",
-        "youngs_modulus": "YOUNG_MODULUS",
-        "thermal_expansion": "THERMAL_EXPANSION_COEFFICIENT",
-        "specific_heat_capacity": "SPECIFIC_HEAT",
-        "thermal_conductivity": "THERMAL_CONDUCTIVITY",
-        "sheet_k_factor": "SHEETMETAL_K_FACTOR",
-    }
-    normalized = dict(parameters)
-    for legacy_name, canonical_name in legacy_names.items():
-        legacy_value = normalized.pop(legacy_name, "")
-        if legacy_value and not normalized.get(canonical_name):
-            normalized[canonical_name] = legacy_value
-    y_factor = normalized.pop("INITIAL_BEND_Y_FACTOR", "")
-    if y_factor and not normalized.get("SHEETMETAL_K_FACTOR"):
-        try:
-            normalized["SHEETMETAL_K_FACTOR"] = (
-                f"{float(y_factor) * 2.0 / math.pi:.12g}"
-            )
-        except ValueError:
-            pass
-    normalized.pop("BEND_TABLE", None)
-    normalized.pop("material_source", None)
-    return normalized
-
-
-def normalize_material_units(units: dict[str, str]) -> dict[str, str]:
-    normalized = dict(units)
-    if "INITIAL_BEND_Y_FACTOR" in normalized:
-        normalized.setdefault(
-            "SHEETMETAL_K_FACTOR",
-            normalized.pop("INITIAL_BEND_Y_FACTOR"),
-        )
-    normalized.pop("BEND_TABLE", None)
-    normalized.pop("material_source", None)
-    normalized.pop("MATERIAL_NAME", None)
-    normalized.pop("material_name", None)
-    return normalized
-
-
-def normalize_material_descriptions(
-    descriptions: dict[str, dict[str, str]],
-) -> dict[str, dict[str, str]]:
-    normalized = dict(descriptions)
-    if "material_name" in normalized:
-        normalized.setdefault("MATERIAL_NAME", normalized.pop("material_name"))
-    if "INITIAL_BEND_Y_FACTOR" in normalized:
-        normalized.setdefault(
-            "SHEETMETAL_K_FACTOR",
-            normalized.pop("INITIAL_BEND_Y_FACTOR"),
-        )
-    normalized.pop("BEND_TABLE", None)
-    normalized.pop("material_source", None)
-    return normalized
 
 
 def validate_container_entities(document: PartDocument) -> None:
@@ -808,13 +657,6 @@ def load_user_parameters(
         document.user_parameter_order = [
             item.strip() for item in order_text.split(",") if item.strip()
         ]
-    else:
-        legacy_values = dict(config["UserParameters"])
-        document.user_parameter_order = list(legacy_values.keys())
-        document.user_parameter_values = {
-            key: {"": value} for key, value in legacy_values.items()
-        }
-        document.user_parameters = legacy_values
 
     if config.has_section("UserParameterLabels"):
         document.user_parameter_labels = read_language_map(config["UserParameterLabels"])
