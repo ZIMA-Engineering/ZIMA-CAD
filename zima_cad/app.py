@@ -144,6 +144,7 @@ from zima_cad.model import (
     sketch_plane_transform,
     transform_shape,
     transform_point,
+    transform_vector,
 )
 from zima_cad.numeric_expression import (
     NumericExpressionError,
@@ -1038,6 +1039,13 @@ class HistoryTreeWidget(QTreeWidget):
         if pending_history_object_id is not None:
             self._pending_history_object_id = pending_history_object_id
             self._drag_start = event.position().toPoint()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Tree double-click is intentionally disabled for all documents."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging_rollback:
@@ -10236,6 +10244,18 @@ class MainWindow(QMainWindow):
         self.tools_toolbar.addWidget(heading_spacing)
 
         if (
+            self._active_component_return_document is not None
+            and self._document_type(self.document) in {"part", "assembly"}
+        ):
+            return_action = self.tools_toolbar.addAction(
+                tr("assembly.command.return")
+            )
+            return_action.setIcon(resource_icon("assembly"))
+            self._mark_application_command(return_action)
+            return_action.triggered.connect(self._return_to_assembly)
+            self.tools_toolbar.addSeparator()
+
+        if (
             self._sketch_edit_entity_id is None
             and self._document_type(self.document) in {"part", "assembly"}
             and self.active_application
@@ -10496,14 +10516,6 @@ class MainWindow(QMainWindow):
                     "color: white; font-weight: 700;"
                 )
         elif self.active_application == ApplicationMode.MODELING:
-            if self._active_component_return_document is not None:
-                return_action = self.tools_toolbar.addAction(
-                    tr("assembly.command.return")
-                )
-                return_action.setIcon(resource_icon("assembly"))
-                self._mark_application_command(return_action)
-                return_action.triggered.connect(self._return_to_assembly)
-                self.tools_toolbar.addSeparator()
             new_container_action = self.tools_toolbar.addAction(
                 tr("menu.context.create_container")
             )
@@ -10588,14 +10600,6 @@ class MainWindow(QMainWindow):
             )
             profile_action.setEnabled(False)
         elif self.active_application == ApplicationMode.ASSEMBLY:
-            if self._active_component_return_document is not None:
-                return_action = self.tools_toolbar.addAction(
-                    tr("assembly.command.return")
-                )
-                return_action.setIcon(resource_icon("assembly"))
-                self._mark_application_command(return_action)
-                return_action.triggered.connect(self._return_to_assembly)
-                self.tools_toolbar.addSeparator()
             insert_action = self.tools_toolbar.addAction(
                 tr("assembly.command.insert")
             )
@@ -16116,11 +16120,10 @@ class MainWindow(QMainWindow):
 
     def _populate_tree(self) -> None:
         editing_document = self.document
-        tree_document = (
-            editing_document
-            if self._sketch_edit_entity_id is not None
-            else self._active_component_return_document or editing_document
-        )
+        # The tree follows the writable editing document.  The parent
+        # Assembly remains the passive display root in the 3D view, but its
+        # projected tree must not hide the active Part/subassembly hierarchy.
+        tree_document = editing_document
         self.document = tree_document
         signals_were_blocked = self.tree.blockSignals(True)
         try:
@@ -16979,6 +16982,81 @@ class MainWindow(QMainWindow):
         # the stable instance identity in the Assembly tree.
         self._select_tree_object(component.entity_id)
         self.rebuild_view(fit=False)
+
+    def _show_assembly_occurrence_properties(
+        self,
+        top_component: ZimaEntity,
+        instance_path: tuple[str, ...],
+    ) -> bool:
+        """Open Properties in the Assembly that immediately owns an occurrence."""
+        path = tuple(instance_path)
+        if not path:
+            self._activate_object_for_editing(top_component)
+            self._edit_assembly_component(top_component)
+            return True
+        owner_path = path[:-1]
+        self._activate_assembly_component(top_component, owner_path)
+        if self.document is None:
+            return False
+        target = (
+            self.document.find_entity(path[-1])
+            if path else top_component
+        )
+        if target is None or target.container_type != ContainerType.COMPONENT:
+            return False
+        self._activate_object_for_editing(target)
+        self._edit_assembly_component(target)
+        return True
+
+    def _activate_assembly_occurrence_for_view(
+        self,
+        top_component: ZimaEntity,
+        instance_path: tuple[str, ...],
+    ) -> ZimaEntity | None:
+        """Activate the immediate owner and return its selected component."""
+        path = tuple(instance_path)
+        if not path:
+            target = top_component
+        else:
+            self._activate_assembly_component(top_component, path[:-1])
+            if self.document is None:
+                return None
+            target = self.document.find_entity(path[-1])
+        if target is None or target.container_type != ContainerType.COMPONENT:
+            return None
+        return self._activate_object_for_editing(target)
+
+    def _show_nested_component_dimensions(
+        self,
+        top_component: ZimaEntity,
+        instance_path: tuple[str, ...],
+    ) -> bool:
+        """Show child mate dimensions without changing the active context."""
+        path = tuple(instance_path)
+        if not path:
+            return False
+        resolved = self._nested_reference_document_and_transform(
+            top_component, path[:-1]
+        )
+        if resolved is None:
+            return False
+        owner_document, transform = resolved
+        child = owner_document.find_entity(path[-1])
+        if child is None or child.container_type != ContainerType.COMPONENT:
+            return False
+        displayed_document = self.document
+        try:
+            self.document = owner_document
+            self._edit_assembly_component(
+                child,
+                show_dialog=False,
+                dimension_transform=transform,
+            )
+        finally:
+            self.document = displayed_document
+        if displayed_document is not None:
+            self.rebuild_view(fit=False, rebuild_geometry=False)
+        return True
 
     def _return_to_assembly(self) -> None:
         self._leave_active_component_context(refresh=True)
@@ -19525,7 +19603,17 @@ class MainWindow(QMainWindow):
             if source_path is not None
             else document.root.name
         )
-        return f"{tr(f'tree.document.{document_type}')}-{document_name}"
+        header = f"{tr(f'tree.document.{document_type}')}-{document_name}"
+        if (
+            document is self.document
+            and self._active_component_return_document is not None
+        ):
+            # The tree follows the writable source document while the parent
+            # Assembly remains visible in the 3D view. Make that ownership
+            # switch explicit so the user cannot confuse passive context
+            # with the currently editable Part/Assembly.
+            header = f"{header}  [ACTIVE]"
+        return header
 
     def _file_label(
         self,
@@ -22737,6 +22825,27 @@ class MainWindow(QMainWindow):
         # container.  Do not let it reopen Protrusion/Revolve properties.
         if self._sketch_edit_entity_id is not None:
             return
+        if (
+            self.document is not None
+            and self.document.document_settings.get("type") == "assembly"
+            and owner_id
+        ):
+            if owner_id not in self._assembly_occurrence_records:
+                self._build_assembly_occurrence_records()
+            occurrence = self._assembly_occurrence_records.get(owner_id)
+            if occurrence is not None:
+                top_component = self.document.find_entity(str(
+                    occurrence.get("top_component_id", "")
+                ))
+                path = tuple(occurrence.get("instance_path", ()))
+                if top_component is not None and path:
+                    if self._show_nested_component_dimensions(
+                        top_component, path
+                    ):
+                        return
+        # A nested occurrence must open Properties in its immediate owning
+        # Assembly. Resolving only the top component would open the enclosing
+        # subassembly (for example 10 instead of the selected component 11).
         direct_treatment = (
             self.document.find_entity(owner_id)
             if self.document is not None and owner_id
@@ -22795,13 +22904,10 @@ class MainWindow(QMainWindow):
             and obj.kind == EntityKind.CONTAINER
             and obj.container_type == ContainerType.COMPONENT
         ):
-            existing = self.assembly_component_dialog
-            if existing is not None:
-                same_component = existing.component.entity_id == obj.entity_id
-                hidden_dimension_mode = not existing.isVisible()
-                existing.reject()
-                if same_component and hidden_dimension_mode:
-                    return
+            self._activate_object_for_editing(obj)
+            # Assembly components expose mate/placement dimensions through
+            # the dimension-only path. This does not open Properties or
+            # enter the history rollback because show_dialog is false.
             self._edit_assembly_component(obj, show_dialog=False)
             return
         target = obj
@@ -25058,42 +25164,60 @@ class MainWindow(QMainWindow):
         # that enclosing Assembly first, then open the nested component's
         # own placement dialog.  This keeps 10→11 editing local to Assembly
         # 10 instead of accidentally editing 10 inside 00.
+        # A projected Assembly-tree row is also an edit-overlay gesture. The
+        # explicit Properties command remains available from the context
+        # menu, but a double-click must never open that dialog or rollback.
         if component_id is not None and instance_path:
-            root_document = (
+            owner_document = (
                 self._active_component_return_document or self.document
             )
             top_component = (
-                root_document.find_entity(str(component_id))
-                if root_document is not None else None
+                owner_document.find_entity(str(component_id))
+                if owner_document is not None else None
             )
             if (
                 top_component is not None
-                and top_component.container_type == ContainerType.COMPONENT
-                and not (
-                    self._active_component_return_document is not root_document
-                    and self._active_component_entity_id == top_component.entity_id
-                    and not getattr(self, "_active_component_instance_path", ())
+                and self._show_nested_component_dimensions(
+                    top_component, instance_path
                 )
             ):
-                self._activate_assembly_component(top_component)
-            if self.document is not None:
-                nested_document = self.document
-                if len(instance_path) > 1:
-                    resolved = self._nested_reference_document_and_transform(
-                        top_component, instance_path[:-1]
-                    ) if top_component is not None else None
-                    nested_document = resolved[0] if resolved is not None else None
-                nested_obj = (
-                    nested_document.find_entity(str(instance_path[-1]))
-                    if nested_document is not None else None
-                )
-                if nested_obj is not None:
-                    obj = nested_obj
-        # Opening Properties is also a selection action.  Keep the same
-        # tree/view synchronization contract as the context-menu Properties
-        # command, including when the row belongs to an active Part nested in
-        # an Assembly.
+                return
         obj = self._activate_object_for_editing(obj)
+        if (
+            component_id is not None
+            or (
+                self.document is not None
+                and self.document.document_settings.get("type") == "assembly"
+                and obj.container_type == ContainerType.COMPONENT
+            )
+        ):
+            if component_id is not None and instance_path:
+                owner_document = (
+                    self._active_component_return_document or self.document
+                )
+                top_component = (
+                    owner_document.find_entity(str(component_id))
+                    if owner_document is not None else None
+                )
+                if top_component is not None and self._show_nested_component_dimensions(
+                    top_component, instance_path
+                ):
+                    return
+            if (
+                self.document is not None
+                and self.document.document_settings.get("type") == "assembly"
+                and obj.container_type == ContainerType.COMPONENT
+            ):
+                self._edit_assembly_component(obj, show_dialog=False)
+            else:
+                self._show_edit_overlays(
+                    obj,
+                    QPoint(
+                        self.native_viewer.width() // 2,
+                        self.native_viewer.height() // 2,
+                    ),
+                )
+            return
         if self._switch_tree_properties_dialog(obj):
             return
         if obj.kind == EntityKind.SKETCH:
@@ -27162,9 +27286,7 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(
-                        self._first_editable_solid(obj) is not None
-                    )
+                    edit_values_action.setEnabled(True)
                     properties_action = menu.addAction(
                         tr("menu.context.properties")
                     )
@@ -27176,9 +27298,7 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(
-                        self._first_editable_solid(obj) is not None
-                    )
+                    edit_values_action.setEnabled(True)
                     properties_action = menu.addAction(
                         tr("menu.context.properties")
                     )
@@ -27193,9 +27313,7 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(
-                        self._first_editable_solid(obj) is not None
-                    )
+                    edit_values_action.setEnabled(True)
                     properties_action = menu.addAction(
                         tr("menu.context.properties")
                     )
@@ -27307,13 +27425,20 @@ class MainWindow(QMainWindow):
             and action == edit_values_action
             and obj is not None
         ):
-            self._show_edit_overlays(
-                obj,
-                QPoint(
-                    self.native_viewer.width() // 2,
-                    self.native_viewer.height() // 2,
-                ),
-            )
+            if (
+                self.document is not None
+                and self.document.document_settings.get("type") == "assembly"
+                and obj.container_type == ContainerType.COMPONENT
+            ):
+                self._edit_assembly_component(obj, show_dialog=False)
+            else:
+                self._show_edit_overlays(
+                    obj,
+                    QPoint(
+                        self.native_viewer.width() // 2,
+                        self.native_viewer.height() // 2,
+                    ),
+                )
         elif (
             properties_action is not None
             and action == properties_action
@@ -28243,6 +28368,11 @@ class MainWindow(QMainWindow):
             )
             if candidate is not None:
                 activation_component = candidate
+                if not activation_instance_path:
+                    # Select Parent promotes the occurrence to its top-level
+                    # owner; subsequent Edit must use that promoted owner,
+                    # not the previously selected child object.
+                    obj = candidate
         if occurrence is not None and occurrence.get("parent_key") is not None:
             select_parent_action = menu.addAction(
                 tr("menu.context.select_parent")
@@ -28256,6 +28386,16 @@ class MainWindow(QMainWindow):
             empty_action.setEnabled(False)
             menu.exec(global_position)
             return
+
+        # A solid selected below an Assembly occurrence is display geometry
+        # from the source Part.  It is not owned by this Assembly and must
+        # not expose Part editing commands until that occurrence is active.
+        source_occurrence = bool(
+            occurrence is not None
+            and self.document is not None
+            and self.document.document_settings.get("type") == "assembly"
+            and obj.container_type != ContainerType.COMPONENT
+        )
 
         attach_action = None
         create_axis_action = None
@@ -28272,7 +28412,43 @@ class MainWindow(QMainWindow):
         activate_component_action = None
         deactivate_component_action = None
 
-        if self._is_system_reference_plane(obj):
+        if source_occurrence:
+            if (
+                self._active_component_return_document is not None
+                and activation_component.entity_id
+                == self._active_component_entity_id
+                and activation_instance_path
+                == getattr(self, "_active_component_instance_path", ())
+            ):
+                deactivate_component_action = menu.addAction(
+                    resource_icon(
+                        "assembly"
+                        if self._component_source_is_assembly(activation_component)
+                        else "part"
+                    ),
+                    tr(self._component_activation_translation_key(
+                        activation_component,
+                        deactivate=True,
+                        instance_path=activation_instance_path,
+                    )),
+                )
+            else:
+                activate_component_action = menu.addAction(
+                    resource_icon(
+                        "assembly"
+                        if self._component_source_is_assembly(activation_component)
+                        else "part"
+                    ),
+                    tr(self._component_activation_translation_key(
+                        activation_component,
+                        instance_path=activation_instance_path,
+                    )),
+                )
+            open_component_action = menu.addAction(
+                resource_icon("open"),
+                tr("menu.context.open_component"),
+            )
+        elif self._is_system_reference_plane(obj):
             normal_view_action = menu.addAction(tr("menu.context.view_normal"))
             if self._is_object_reference_plane(obj):
                 menu.addSeparator()
@@ -28317,7 +28493,13 @@ class MainWindow(QMainWindow):
                         tr("menu.context.open_component"),
                     )
                     menu.addSeparator()
-                if obj.parameters.get("experimental_container") == "true":
+                # A Component is owned by the Assembly.  Its view menu must
+                # not expose Part-history creation commands (Sketch, datum
+                # geometry, etc.); those belong to the activated source Part.
+                if (
+                    obj.container_type != ContainerType.COMPONENT
+                    and obj.parameters.get("experimental_container") == "true"
+                ):
                     create_axis_action = menu.addAction(
                         tr("menu.context.create_axis")
                     )
@@ -28337,16 +28519,15 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(
-                        self._first_editable_solid(obj) is not None
-                    )
+                    edit_values_action.setEnabled(True)
                     properties_action = menu.addAction(
                         tr("menu.context.properties")
                     )
-                delete_action = menu.addAction(
-                    self._delete_container_label(obj)
-                )
-            elif not obj.locked:
+                if obj.container_type != ContainerType.COMPONENT:
+                    delete_action = menu.addAction(
+                        self._delete_container_label(obj)
+                    )
+            elif not obj.locked and not source_occurrence:
                 if obj.kind == EntityKind.SKETCH:
                     edit_sketch_action = menu.addAction(
                         resource_icon("sketch"),
@@ -28370,9 +28551,7 @@ class MainWindow(QMainWindow):
                     edit_values_action = menu.addAction(
                         tr("menu.context.edit_values")
                     )
-                    edit_values_action.setEnabled(
-                        self._first_editable_solid(obj) is not None
-                    )
+                    edit_values_action.setEnabled(True)
                     properties_action = menu.addAction(
                         tr("menu.context.properties")
                     )
@@ -28450,8 +28629,48 @@ class MainWindow(QMainWindow):
             self._transform_view_sketch(ContainerType.REVOLVE)
         elif edit_values_action is not None and action == edit_values_action:
             local_position = self.native_viewer.mapFromGlobal(global_position)
-            self._show_edit_overlays(obj, local_position)
+            if occurrence is not None:
+                owner_document = (
+                    self._active_component_return_document or self.document
+                )
+                top_component = (
+                    owner_document.find_entity(str(
+                        occurrence.get("top_component_id", "")
+                    ))
+                    if owner_document is not None else None
+                )
+                path = tuple(occurrence.get("instance_path", ()))
+                if top_component is not None and path:
+                    if self._show_nested_component_dimensions(
+                        top_component, path
+                    ):
+                        return
+            if (
+                self.document is not None
+                and self.document.document_settings.get("type") == "assembly"
+                and obj.container_type == ContainerType.COMPONENT
+            ):
+                self._edit_assembly_component(obj, show_dialog=False)
+            else:
+                target = self._view_dimension_target(obj)
+                self._show_edit_overlays(target, local_position)
         elif properties_action is not None and action == properties_action:
+            if occurrence is not None:
+                owner_document = (
+                    self._active_component_return_document or self.document
+                )
+                top_component = (
+                    owner_document.find_entity(str(
+                        occurrence.get("top_component_id", "")
+                    ))
+                    if owner_document is not None else None
+                )
+                path = tuple(occurrence.get("instance_path", ()))
+                if top_component is not None and path:
+                    if self._show_assembly_occurrence_properties(
+                        top_component, path
+                    ):
+                        return
             target = self._activate_object_for_editing(obj)
             self.show_properties(target)
         elif delete_action is not None and action == delete_action:
@@ -29883,6 +30102,7 @@ class MainWindow(QMainWindow):
         show_dialog: bool = True,
         fit_view: bool = False,
         headless: bool = False,
+        dimension_transform=None,
     ) -> None:
         existing_dialog = self.assembly_component_dialog
         if existing_dialog is not None:
@@ -30110,6 +30330,53 @@ class MainWindow(QMainWindow):
                 )
                 dimensions.append(dimension)
                 dimension_bindings.append((dimension, index, mate_type))
+            if dimension_transform is not None:
+                transformed_dimensions = []
+                for dimension in dimensions:
+                    if isinstance(dimension, LinearDimension):
+                        transformed_dimensions.append(replace(
+                            dimension,
+                            first_point=transform_point(
+                                dimension_transform, dimension.first_point
+                            ),
+                            second_point=transform_point(
+                                dimension_transform, dimension.second_point
+                            ),
+                            first_dimension_point=transform_point(
+                                dimension_transform,
+                                dimension.first_dimension_point,
+                            ),
+                            second_dimension_point=transform_point(
+                                dimension_transform,
+                                dimension.second_dimension_point,
+                            ),
+                            direction=transform_vector(
+                                dimension_transform, dimension.direction
+                            ),
+                        ))
+                    else:
+                        transformed_dimensions.append(replace(
+                            dimension,
+                            vertex=transform_point(
+                                dimension_transform, dimension.vertex
+                            ),
+                            first_direction_point=transform_point(
+                                dimension_transform,
+                                dimension.first_direction_point,
+                            ),
+                            second_direction_point=transform_point(
+                                dimension_transform,
+                                dimension.second_direction_point,
+                            ),
+                            arc_point=transform_point(
+                                dimension_transform, dimension.arc_point
+                            ),
+                            plane_normal=transform_vector(
+                                dimension_transform,
+                                dimension.plane_normal,
+                            ) if dimension.plane_normal is not None else None,
+                        ))
+                dimensions = tuple(transformed_dimensions)
             self.native_viewer.set_dimensions(tuple(dimensions))
             for dimension, row_index, mate_type in dimension_bindings:
                 overlay = ParameterEditOverlay(self.native_viewer)
@@ -30725,6 +30992,12 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(preview_component_placement)
         dialog.activeReferenceChanged.connect(highlight_active_reference)
         self.assembly_component_dialog = dialog
+        definition_edit_started = bool(show_dialog and not headless)
+        if definition_edit_started:
+            # Assembly component Properties obey the same history rollback
+            # contract as Part feature Properties: show the owning Assembly
+            # immediately before this component while it is being edited.
+            self._begin_definition_edit(component)
         if show_dialog and hasattr(self, "native_viewer"):
             self.native_viewer.set_insertion_origin_marker(
                 transform_point(
@@ -30772,6 +31045,8 @@ class MainWindow(QMainWindow):
                     candidate.coordinate_system.rotation = tuple(transform[1])
             if self.assembly_component_dialog is dialog:
                 self.assembly_component_dialog = None
+            if definition_edit_started:
+                self._end_definition_edit()
             self.native_viewer.set_insertion_origin_marker(None)
             if headless:
                 return
@@ -47169,6 +47444,48 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    def _view_dimension_target(self, obj: ZimaEntity) -> ZimaEntity:
+        """Resolve display-only result geometry to its editable history owner.
+
+        The shaded solid/Body drawn by the viewer is not an editable feature.
+        Keep the viewer as a display layer and translate its selection to the
+        persisted source container before creating dimension overlays.
+        """
+        if self.document is None:
+            return obj
+        if obj.kind == EntityKind.CONTAINER:
+            return obj
+        owner = self.document.find_owning_object(obj.entity_id)
+        if owner is not None:
+            return owner
+        source_holder = obj if obj.kind == EntityKind.BODY else None
+        if source_holder is None and obj.kind in SOLID_KINDS:
+            parent = self.document.find_parent(obj.entity_id)
+            while parent is not None:
+                if parent.kind == EntityKind.BODY:
+                    source_holder = parent
+                    break
+                parent = self.document.find_parent(parent.entity_id)
+        if source_holder is not None:
+            source_ids = tuple(
+                value.strip()
+                for value in str(
+                    source_holder.parameters.get("source_ids", "")
+                ).split(",")
+                if value.strip()
+            )
+            sources = [
+                self.document.find_entity(source_id)
+                for source_id in source_ids
+            ]
+            sources = [
+                source for source in sources
+                if source is not None and source.kind == EntityKind.CONTAINER
+            ]
+            if sources:
+                return sources[-1]
+        return obj
+
     def _begin_dimension_inspection(self) -> None:
         """Suspend model picking until transient dimensions are dismissed."""
         self._dimension_selection_suspended = True
@@ -50246,8 +50563,13 @@ class MainWindow(QMainWindow):
         )
         active_branch_meshes = (
             tuple(
-                mesh
-                for _body, mesh, _transform, _path, _label
+                mesh.with_owner(
+                    "assembly-occurrence:" + "/".join((
+                        str(context.active_instance_id),
+                        *path,
+                    ))
+                )
+                for _body, mesh, _transform, path, _label
                 in self._assembly_leaf_reference_results(
                     active_top_component,
                     root_transform=identity_transform(),
@@ -50357,6 +50679,13 @@ class MainWindow(QMainWindow):
                 editing_object.entity_id
                 if editing_object is not None
                 and display_document is editing_document
+                else self._active_component_entity_id
+                if (
+                    self._active_component_return_document is not None
+                    and display_document is self._active_component_return_document
+                    and self.assembly_component_dialog is not None
+                    and self.assembly_component_dialog.isVisible()
+                )
                 else None
             ),
             preview_coordinate_system=(
@@ -50455,9 +50784,23 @@ class MainWindow(QMainWindow):
                     ),
                     calculated_body_result=calculated,
                 )
-        self.native_viewer.set_surface_colors(
+        # Activating a nested Assembly replaces its branch mesh with the
+        # persisted leaf packets.  Reuse the already calculated occurrence
+        # colours for matching owners so activation cannot turn that branch
+        # into the viewer's white fallback.
+        surface_colors = dict(
             self._native_viewer_scene.surface_colors_by_owner_id
         )
+        if previous_scene is not None and active_instance_mesh is not None:
+            active_owner_ids = set(active_instance_mesh.triangle_owner_ids)
+            for owner_id in active_owner_ids:
+                if owner_id not in surface_colors:
+                    previous_color = (
+                        previous_scene.surface_colors_by_owner_id.get(owner_id)
+                    )
+                    if previous_color is not None:
+                        surface_colors[owner_id] = previous_color
+        self.native_viewer.set_surface_colors(surface_colors)
         datum_container_owners: dict[str, str] = {}
 
         def register_datum_descendants(

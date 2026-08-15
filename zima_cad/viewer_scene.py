@@ -191,18 +191,50 @@ def build_document_viewer_scene_data(
     is_assembly = document.document_settings.get("type") == "assembly"
     if is_assembly:
         assembly_objects = document.history_objects_at(boundary)
+        if editing_object_id is not None:
+            editing_entity = document.find_entity(editing_object_id)
+            if (
+                editing_entity is not None
+                and editing_entity.container_type == ContainerType.COMPONENT
+                and all(
+                    obj.entity_id != editing_entity.entity_id
+                    for obj in assembly_objects
+                )
+            ):
+                # The rollback body stops before the edited component, but
+                # the active component remains visible as its transient
+                # Properties preview.
+                assembly_objects = [*assembly_objects, editing_entity]
         assembly_keys = document._shape_history_cache_keys(assembly_objects)
         assembly_cached_result = (
             cached_body_result
             if cached_body_result is not None
             and uncut_component_shape is None
-            and uncut_component_mesh is None
+            and (
+                uncut_component_mesh is None
+                or uncut_component_mesh.is_empty
+            )
             else document.cached_body_result_at(assembly_objects)
             if assembly_keys
             and uncut_component_shape is None
-            and uncut_component_mesh is None
+            and (
+                uncut_component_mesh is None
+                or uncut_component_mesh.is_empty
+            )
             else None
         )
+        # A cached parent packet may contain a single owner for an entire
+        # nested Assembly. Rebuild its viewer layers from leaf packets so
+        # their persisted colors remain addressable.
+        if assembly_cached_result is not None and any(
+            obj.container_type == ContainerType.COMPONENT
+            and (component_documents or {}).get(obj.entity_id) is not None
+            and (component_documents or {})[obj.entity_id].document_settings.get(
+                "type"
+            ) == "assembly"
+            for obj in assembly_objects
+        ):
+            assembly_cached_result = None
         component_body_layers: list[ViewerMesh] = []
 
         def component_display_color(component: ZimaEntity) -> str:
@@ -252,6 +284,85 @@ def build_document_viewer_scene_data(
                     return True
             return False
 
+        def nested_component_layers(
+            component: ZimaEntity,
+            source_document: PartDocument,
+            transform: Any,
+            inherited_color: str | None = None,
+            instance_path: tuple[str, ...] = (),
+            occurrence_root: str | None = None,
+        ) -> tuple[list[ViewerMesh], dict[str, str]]:
+            """Flatten nested Assembly viewer packets while retaining colors.
+
+            A nested Assembly is a display container, not a single painted
+            body.  Its source mesh has already been rebound to the nested
+            component owner by the time it reaches this scene, so rebinding
+            it again to the parent would erase the leaf ownership/color
+            information.  Walk the persisted viewer packets instead.
+            """
+            override = str(component.parameters.get(
+                "body_color_override", "false"
+            )).lower() == "true"
+            local_color = component_display_color(component)
+            subtree_color = local_color if override else inherited_color
+            occurrence_root = occurrence_root or component.entity_id
+            meshes: list[ViewerMesh] = []
+            colors: dict[str, str] = {}
+            children = source_document.history_objects_at(
+                source_document.history_cursor()
+            )
+            for child in children:
+                if child.container_type != ContainerType.COMPONENT:
+                    continue
+                child_document = (component_documents or {}).get(
+                    child.entity_id
+                )
+                if child_document is None:
+                    continue
+                child_world = coordinate_system_transform(
+                    child.coordinate_system
+                )
+                # Compose transforms through the existing mesh transform
+                # helper by first transforming the child packet locally.
+                # The parent transform is applied below to preserve the
+                # established assembly coordinate convention.
+                if child_document.document_settings.get("type") == "assembly":
+                    nested_meshes, nested_colors = nested_component_layers(
+                        child,
+                        child_document,
+                        child_world,
+                        subtree_color,
+                        (*instance_path, child.entity_id),
+                        occurrence_root,
+                    )
+                    meshes.extend(
+                        transform_viewer_mesh(mesh, transform)
+                        for mesh in nested_meshes
+                    )
+                    colors.update(nested_colors)
+                    continue
+                child_result = child_document.cached_body_result_at(
+                    child_document.history_objects()
+                )
+                if child_result is None:
+                    continue
+                # Match the occurrence keys used by Assembly picking.  A
+                # local child ID is not unique when the same Part appears
+                # more than once through a nested Assembly.
+                owner_id = "assembly-occurrence:" + "/".join((
+                    occurrence_root,
+                    *instance_path,
+                    child.entity_id,
+                ))
+                mesh = transform_viewer_mesh(
+                    child_result.mesh.with_owner(owner_id), child_world
+                )
+                meshes.append(transform_viewer_mesh(mesh, transform))
+                colors[owner_id] = subtree_color or component_display_color(
+                    child
+                )
+            return meshes, colors
+
         if assembly_cached_result is not None:
             cached_body_result = assembly_cached_result
             cached_body_mesh = assembly_cached_result.mesh
@@ -288,6 +399,7 @@ def build_document_viewer_scene_data(
             elif (
                 obj.entity_id == uncut_component_id
                 and uncut_component_mesh is not None
+                and not uncut_component_mesh.is_empty
             ):
                 shape = None
                 component_mesh = transform_viewer_mesh(
@@ -302,8 +414,23 @@ def build_document_viewer_scene_data(
                     uncut_component_shape,
                     coordinate_system_transform(obj.coordinate_system),
                 )
-            elif source_result is not None and not has_later_assembly_cut(obj):
+            elif not has_later_assembly_cut(obj):
                 shape = None
+                if source_document is not None and source_document.document_settings.get(
+                    "type"
+                ) == "assembly":
+                    nested_meshes, nested_colors = nested_component_layers(
+                        obj,
+                        source_document,
+                        coordinate_system_transform(obj.coordinate_system),
+                    )
+                    if nested_meshes:
+                        layers.extend(nested_meshes)
+                        component_body_layers.extend(nested_meshes)
+                        surface_colors_by_owner_id.update(nested_colors)
+                        continue
+                if source_result is None:
+                    continue
                 component_mesh = transform_viewer_mesh(
                     source_result.mesh.with_owner(obj.entity_id),
                     coordinate_system_transform(obj.coordinate_system),

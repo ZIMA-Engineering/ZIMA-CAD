@@ -488,6 +488,16 @@ typy: rovinnou vazbu s posunutím, **Souosost** nebo **Úhel**. Hodnota použív
 osy zdrojového dílu lze vybírat ve view i ve stromu. Zakřivené plochy jako
 rovinné reference podporované nejsou.
 
+Kontextové menu má v sestavě dvě odlišné vlastnické úrovně. Nad komponentou ve
+view nebo ve stromu jsou dostupné pouze příkazy sestavy: **Upravit** a
+**Vlastnosti** mění vazby, polohu a vlastnosti komponenty v bezprostředně
+vlastnící Assembly. Nad solidem nebo interní geometrií neaktivního zdrojového
+Partu se Partové příkazy nenabízejí. Akce jako **Skica**, datumová geometrie,
+úprava historie nebo mazání jsou dostupné až po příkazu **Aktivovat díl**; ten
+přepne editovatelný dokument na konkrétní zdrojový Part. U vnořené Assembly se
+stejné pravidlo aplikuje rekurzivně a každá komponenta je upravována pouze ve
+své bezprostředně vlastnící sestavě.
+
 Skutečná plocha pod kurzorem se zvýrazní oranžově. Po potvrzení zůstane plocha
 ve view azurová a azurové zůstane také příslušné pole reference ve
 Vlastnostech. Toto zobrazení používá dočasný index aktuálního sestavového

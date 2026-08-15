@@ -22,6 +22,27 @@ valid candidates.
 - An active command may filter the viewer list through its explicit selection
   contract. It must not replace the list with a parallel picker.
 
+## Context-menu ownership
+
+In an Assembly, a confirmed component occurrence is an Assembly-owned object.
+Its context menu may expose **Edit** and **Properties** for the component's
+placement, mates and Assembly-level metadata. It must not expose source-Part
+history commands such as creating or editing a Sketch, datum geometry, or
+deleting a Part feature.
+
+When the viewer hit is a solid or other internal geometry below an inactive
+Part occurrence, the menu offers only occurrence actions such as **Activate
+Part**, **Open component** and **Select Parent**. Part-history actions become
+available only after activation changes the editable document to that exact
+source Part. A nested occurrence resolves these actions against its immediate
+owning Assembly; a parent Assembly never edits the internal history of a child
+Part or nested Assembly.
+
+The Tree and viewport use this same ownership rule. A displayed solid may be
+mapped to its occurrence for selection, but that mapping must not be treated as
+permission to edit the source document. The occurrence path remains the stable
+identity for activation, properties, selection and parent traversal.
+
 ## Assembly occurrence identities
 
 An occurrence record contains:
