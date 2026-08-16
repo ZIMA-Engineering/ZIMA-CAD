@@ -294,8 +294,21 @@
 
 ## Feature Extent Targets
 
-- Extend solid Protrusion sides from numeric length to stable target conditions:
-  face, datum plane, point and through-all, with an independent target offset.
+- **Implemented:** planar face/datum-plane Up-to and subtractive Through-all.
+  An inclined supporting plane produces an inclined terminal face; calculation
+  clips with a clean infinite plane derived from persisted origin/normal,
+  never with the bounded trimming wires of the selected face.
+- **Next:** support cylindrical Up-to targets. Intersect every persisted
+  profile-sample ray analytically with the cylinder for the ViewerMesh preview;
+  at Apply/OK/regeneration use OCCT to clip the solid with the corresponding
+  cylindrical volume.
+- **Then:** support spherical targets by the same contract, followed where
+  useful by cones. General NURBS/B-spline targets remain a later stage.
+- For cylinders and spheres choose the first positive intersection in the
+  requested direction and persist the selected inside/outside side. Reject the
+  operation if any required profile ray misses the target or is ambiguous.
+- General curved Up-to must not use one maximum scalar length: every profile
+  ray owns its terminal point on the target surface.
 - A target point defines the plane through that point perpendicular to the
   extrusion direction. Do not offer an axis as a target until its geometric
   meaning is unambiguous for the selected direction.

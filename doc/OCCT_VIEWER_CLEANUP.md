@@ -32,6 +32,13 @@ track camera navigation and viewport resizing. Symmetric Protrusion dimensions
 share one stored value regardless of which side is edited. Standard and reset
 views use native camera animations.
 
+Protrusion Properties no longer constructs or triangulates an OCCT sketch or
+standalone body merely to show its cyan wire. Profile points, segments and
+sampled curves are transformed directly into `ViewerMesh`; extrusion wires,
+including planar Up-to and Through-all, are derived from persisted viewer and
+reference data. Existing calculated wires are read from persisted `BodyResult`
+packets. OCCT is entered only at Apply, OK or explicit model regeneration.
+
 ## Removal sequence
 
 ### 1. Detach the hidden legacy widget — complete

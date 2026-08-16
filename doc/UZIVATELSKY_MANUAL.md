@@ -250,6 +250,27 @@ Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostup
 také v kontextovém menu objektu v tree. Obě místa pracují se společným
 nastavením solidu.
 
+### Rozsah vysunutí Až k ploše
+
+Protrusion podporuje číselnou délku, **Až k ploše** a pro odečítání také
+**Skrz vše**. Současná implementace **Až k ploše** přijímá rovinnou plochu nebo
+datumovou rovinu. Směr vysunutí zůstává kolmý ke skicové rovině; cílová rovina
+mění délku jednotlivých přímek profilu, takže při šikmém zásahu vznikne šikmá
+koncová plocha.
+
+Azurový drátový náhled se počítá pouze z persistovaných bodů a vzorkovaných
+křivek skici a z uložené rovnice cílové roviny. Otevření Vlastností, změna
+parametru ani výběr reference proto nespouští OCCT. Při **Použít**, **OK** nebo
+explicitní regeneraci vytvoří OCCT dlouhé vysunutí a ořízne je čistou
+nekonečnou podpůrnou rovinou odvozenou z vybrané plochy. Hranice konečné
+vybrané plochy se jako hranice ořezu nepoužívají.
+
+Zakřivené cíle zatím podporované nejsou. Plánované pořadí rozšíření je
+válcová plocha, kulová plocha, případně kuželová plocha a teprve potom obecné
+NURBS/B-spline plochy. Pokud jediná přímka vedená bodem profilu ve směru
+vysunutí cíl neprotne, operace musí být odmítnuta; nesmí část profilu libovolně
+prodloužit nebo použít jiný průsečík bez jednoznačného pravidla.
+
 Po dvojkliku na Protrusion nebo Revolve se jejich prostorové kóty zobrazují na
 skutečné profilové rovině. Je-li zadané odsazení pracovní roviny, počátek
 lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
@@ -278,6 +299,12 @@ používá také při pozdější editaci. Ve 3D pohledu zvolte jednu nebo více
 podporovaných hran. `Ctrl` přidává a odebírá hrany ze společného výběru; hranu
 lze odebrat také ze seznamu v okně. Všechny uvedené hrany používají jeden
 společný poloměr.
+
+Souvislá tečná trasa může být po předchozích booleovských operacích tvořena
+několika samostatnými OCCT hranami. V seznamu je zobrazena jako nadřazená trasa
+s jednotlivými hranami pod ní. Označení dítěte a odebrání smaže pouze tuto
+hranu; označení nadřazené trasy odstraní celou trasu. **Obnovit kontinuální
+trasu** znovu dopočítá její aktuální členy.
 
 **Použít** spočítá dočasný náhled a nechá okno otevřené. Náhled nevytváří další
 kontejner a každé další použití se znovu počítá z původního ostrého tělesa.

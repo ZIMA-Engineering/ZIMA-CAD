@@ -12,6 +12,13 @@ operation selector and an existing feature cannot be converted to the other
 type. Both operations accept one or more edges, selected with Ctrl+click or
 removed from the list.
 
+A visually continuous route may contain several OCCT edges after Boolean
+splits. The properties tree stores both the route and its individual members.
+Removing a child removes only that edge and preserves the remaining route;
+removing the parent removes the complete route. Restore Route recomputes the
+continuous route from its surviving seed, or from the first remaining member
+when the old seed was removed.
+
 Creation and editing of each operation use the same shared dialog
 implementation and selection workflow, configured with a fixed operation type.
 

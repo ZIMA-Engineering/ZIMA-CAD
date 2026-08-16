@@ -102,6 +102,11 @@ container keeps its own local frame. Plane, Sketch, Protrusion and Revolve
 also have an independent work-plane/profile offset; this offset does not move
 the container origin. Solid dimensions opened by double-clicking a feature are
 anchored on that actual offset profile plane.
+Planar Up-to extrusion uses an OCCT-free `ViewerMesh` wire preview and clips
+the calculated solid against the selected face's infinite supporting plane at
+Apply/OK/regeneration. Cylindrical and spherical Up-to targets are planned as
+the next analytic-preview extent modes; general curved surfaces remain later
+work.
 An Axis container can use a persisted circular edge or cylindrical surface as
 its centreline and a following planar reference to place its origin at the
 line-plane intersection. The same reference contract applies in Part and to
