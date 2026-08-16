@@ -6,7 +6,7 @@ from math import cos, radians, sin
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem, QWidget
 from OCC.Core.Bnd import Bnd_Box
@@ -915,6 +915,116 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
         dialog.close()
         self.assertIsNotNone(application)
+
+    def test_protrusion_end_condition_row_tracks_operation_without_replacing_length(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        through_index = dialog.forward_end_condition_combo.findData(
+            "through_all"
+        )
+
+        self.assertEqual(
+            dialog.forward_end_condition_combo.currentData(), "length"
+        )
+        self.assertFalse(
+            dialog.forward_end_condition_combo.model().item(
+                through_index
+            ).isEnabled()
+        )
+        dialog.forward_length_spin.setValue(37.0)
+        dialog.subtract_operation_button.click()
+
+        self.assertEqual(
+            dialog.forward_end_condition_combo.currentData(), "length"
+        )
+        self.assertEqual(dialog.forward_length_spin.value(), 37.0)
+        self.assertTrue(
+            dialog.forward_end_condition_combo.model().item(
+                through_index
+            ).isEnabled()
+        )
+        dialog.forward_end_condition_combo.setCurrentIndex(through_index)
+        self.assertTrue(dialog.forward_length_spin.isHidden())
+        dialog.add_operation_button.click()
+
+        self.assertEqual(
+            dialog.forward_end_condition_combo.currentData(), "length"
+        )
+        self.assertEqual(dialog.forward_length_spin.value(), 37.0)
+        dialog.forward_end_condition_combo.setCurrentIndex(
+            dialog.forward_end_condition_combo.findData("up_to")
+        )
+        self.assertFalse(dialog.forward_end_reference_edit.isHidden())
+        dialog.eventFilter(
+            dialog.forward_end_reference_edit,
+            QEvent(QEvent.Type.FocusIn),
+        )
+        self.assertFalse(dialog.end_reference_pick_active())
+        dialog.eventFilter(
+            dialog.forward_end_reference_edit,
+            QEvent(QEvent.Type.MouseButtonPress),
+        )
+        self.assertTrue(dialog.end_reference_pick_active())
+        self.assertTrue(dialog.select_end_reference({
+            "kind": "face", "label": "Face 1",
+        }))
+        self.assertFalse(dialog.end_reference_pick_active())
+        dialog.eventFilter(
+            dialog.forward_end_reference_edit,
+            QEvent(QEvent.Type.MouseButtonPress),
+        )
+        self.assertTrue(dialog.end_reference_pick_active())
+        self.assertTrue(dialog.select_end_reference({
+            "kind": "face", "label": "Face 2",
+        }))
+        self.assertEqual(dialog.forward_end_reference_edit.text(), "Face 2")
+        dialog.clear_end_reference("forward")
+        self.assertEqual(dialog.forward_end_reference_edit.text(), "")
+        self.assertTrue(dialog.end_reference_pick_active())
+        self.assertTrue(dialog.select_end_reference({
+            "kind": "face", "label": "Face 3",
+        }))
+        dialog.clear_end_reference("forward")
+        self.assertEqual(dialog.forward_end_reference_edit.text(), "")
+        self.assertTrue(dialog.end_reference_pick_active())
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_protrusion_property_pick_modes_are_mutually_exclusive(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+
+        dialog.profile_pick_button.setChecked(True)
+        self.assertTrue(dialog.profile_pick_active())
+        dialog._set_end_reference_pick_active("forward", True)
+        self.assertTrue(dialog.end_reference_pick_active())
+        self.assertFalse(dialog.profile_pick_active())
+
+        dialog._activate_position_reference_selection()
+        self.assertFalse(dialog.end_reference_pick_active())
+        self.assertFalse(dialog.profile_pick_active())
+
+        dialog._set_end_reference_pick_active("forward", True)
+        dialog._set_cut_exception_pick_active(True)
+        self.assertTrue(dialog.cut_exception_pick_active())
+        self.assertFalse(dialog.end_reference_pick_active())
+
+        dialog._activate_container_orientation_row(0)
+        application.processEvents()
+        self.assertTrue(dialog.container_orientation_selection_active())
+        self.assertFalse(dialog.cut_exception_pick_active())
+        self.assertFalse(dialog.end_reference_pick_active())
+        dialog.close()
 
     def test_extent_handle_drag_snaps_to_whole_millimetres(self):
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
@@ -3376,6 +3486,98 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertIn(SelectionKind.FACE, policy.allowed_kinds)
         self.assertIn(SelectionKind.EDGE, policy.allowed_kinds)
         self.assertIn(SelectionKind.POINT, policy.allowed_kinds)
+
+    def test_up_to_filters_the_existing_reference_contract_only_while_active(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        dialog.show()
+        application.processEvents()
+        window = MainWindow.__new__(MainWindow)
+        window._selection_controller = SelectionController()
+        window._sketch_reference_mode = False
+        window.assembly_component_dialog = None
+        window.orientation_dialog = None
+        window.document = create_empty_part()
+        window.point_constraint_dialog = dialog
+        window._container_orientation_selection_is_active = lambda: False
+
+        placement_policy = window._viewer_selection_policy()
+        self.assertIn(SelectionKind.EDGE, placement_policy.allowed_kinds)
+        self.assertIn(SelectionKind.AXIS, placement_policy.allowed_kinds)
+
+        dialog._set_end_reference_pick_active("forward", True)
+        up_to_policy = window._viewer_selection_policy()
+        self.assertEqual(
+            up_to_policy.allowed_kinds,
+            {SelectionKind.FACE, SelectionKind.POINT, SelectionKind.PLANE},
+        )
+
+        dialog._set_end_reference_pick_active("forward", False)
+        restored_policy = window._viewer_selection_policy()
+        self.assertEqual(
+            restored_policy.allowed_kinds, placement_policy.allowed_kinds
+        )
+        dialog.close()
+
+    def test_up_to_contract_change_discards_candidates_from_placement(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        dialog.show()
+        application.processEvents()
+        viewer = SimpleNamespace(
+            invalidated=False,
+            blockSignals=lambda _blocked: False,
+            invalidate_pick_candidates=lambda: setattr(
+                viewer, "invalidated", True
+            ),
+            set_selection_filter=lambda value: setattr(
+                viewer, "selection_filter", value
+            ),
+            set_interaction_mode=lambda value: setattr(
+                viewer, "interaction_mode", value
+            ),
+            set_reference_picking_active=lambda value: setattr(
+                viewer, "reference_picking", value
+            ),
+            set_selection_enabled=lambda value: setattr(
+                viewer, "selection_enabled", value
+            ),
+            update=lambda: None,
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.native_viewer = viewer
+        window._selection_controller = SelectionController()
+        window._sketch_reference_mode = False
+        window.assembly_component_dialog = None
+        window.orientation_dialog = None
+        window.document = create_empty_part()
+        window.point_constraint_dialog = dialog
+        window._container_orientation_selection_is_active = lambda: False
+        window._view_candidate_cycle_ids = ("edge:old:1",)
+        window._view_candidate_cycle_index = 0
+        window._history_source_cycle_ids = ("edge:old:1",)
+        window._history_source_cycle_index = 0
+        window._history_source_cycle_active = True
+
+        dialog._set_end_reference_pick_active("forward", True)
+        window._protrusion_end_reference_contract_changed(dialog)
+
+        self.assertTrue(viewer.invalidated)
+        self.assertEqual(window._view_candidate_cycle_ids, ())
+        self.assertEqual(window._history_source_cycle_ids, ())
+        self.assertEqual(viewer.interaction_mode, "topology")
+        self.assertTrue(viewer.reference_picking)
+        dialog.close()
 
     def test_assembly_choices_sync_generated_solid_axes_before_picking(self) -> None:
         source_document = create_empty_part()

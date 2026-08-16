@@ -51,6 +51,7 @@ from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeSphere,
     BRepPrimAPI_MakeWedge,
     BRepPrimAPI_MakePrism,
+    BRepPrimAPI_MakeHalfSpace,
 )
 from OCC.Core.gp import (
     gp_Ax1,
@@ -59,6 +60,7 @@ from OCC.Core.gp import (
     gp_Dir,
     gp_Elips,
     gp_Pnt,
+    gp_Pln,
     gp_Trsf,
     gp_Vec,
 )
@@ -1799,10 +1801,43 @@ def apply_object_to_shape(
         if not accept_first_shape:
             feature.parameters.pop("build_status", None)
         return result_shape
+    protrusion_input_registry = None
+    protrusion_feature = (
+        next((
+            child for child in obj.children
+            if child.kind == EntityKind.PROTRUSION and not child.locked
+        ), None)
+        if is_protrusion else None
+    )
+    needs_protrusion_reference = bool(
+        protrusion_feature is not None
+        and any(
+            str(protrusion_feature.parameters.get(
+                f"end_condition_{side}", "length"
+            )) == "up_to"
+            for side in ("forward", "reverse")
+        )
+    )
+    if (
+        needs_protrusion_reference
+        and result_shape is not None
+        and document is not None
+    ):
+        history_index = document.history_index(obj.entity_id)
+        if history_index is not None:
+            protrusion_input_registry = _rebind_registry_to_shape(
+                boolean_topology_registry_at(document, history_index),
+                result_shape,
+            )
     shape = (
         make_component_shape(document, obj)
         if is_component
-        else make_protrusion_shape(document, obj)
+        else make_protrusion_shape(
+            document,
+            obj,
+            input_shape=result_shape,
+            input_registry=protrusion_input_registry,
+        )
         if is_protrusion
         else make_revolve_shape(document, obj)
         if is_revolve
@@ -2892,7 +2927,13 @@ def _compound_shapes(shapes: list[Any]):
     return compound
 
 
-def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
+def make_protrusion_shape(
+    document: PartDocument | None,
+    obj: ZimaEntity,
+    *,
+    input_shape=None,
+    input_registry: TopologyRegistry | None = None,
+):
     """Build a solid extrusion from a closed or supported Thin profile."""
     if document is None:
         return None
@@ -2948,6 +2989,284 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
     if str(parameters.get("direction", "forward")) == "reverse":
         extrusion_direction = tuple(-value for value in extrusion_direction)
     profile_transform = coordinate_system_transform(obj.coordinate_system)
+    world_direction = transform_vector(profile_transform, extrusion_direction)
+    direction_length = math.sqrt(sum(value * value for value in world_direction))
+    if direction_length <= 1.0e-12:
+        return None
+    world_direction = tuple(value / direction_length for value in world_direction)
+    profile_origin = transform_point(
+        multiply_transforms(profile_transform, plane_transform),
+        (0.0, 0.0, 0.0),
+    )
+
+    def through_all_distance(sign: float) -> float | None:
+        if input_shape is None:
+            side = "forward" if sign > 0.0 else "reverse"
+            try:
+                stored = float(parameters.get(
+                    f"evaluated_length_{side}", "nan"
+                ))
+            except (TypeError, ValueError):
+                return None
+            return stored if math.isfinite(stored) and stored > 1.0e-9 else None
+        try:
+            bounds_box = Bnd_Box()
+            brepbndlib.Add(input_shape, bounds_box)
+            bounds = bounds_box.Get()
+        except (RuntimeError, TypeError, ValueError):
+            return None
+        corners = tuple(
+            (
+                bounds[3] if mask & 1 else bounds[0],
+                bounds[4] if mask & 2 else bounds[1],
+                bounds[5] if mask & 4 else bounds[2],
+            )
+            for mask in range(8)
+        )
+        projections = tuple(
+            sign * sum(
+                (corner[index] - profile_origin[index])
+                * world_direction[index]
+                for index in range(3)
+            )
+            for corner in corners
+        )
+        span = math.sqrt(sum(
+            (bounds[index + 3] - bounds[index]) ** 2
+            for index in range(3)
+        ))
+        margin = max(1.0, span * 1.0e-4)
+        return max(max(projections, default=0.0) + margin, margin)
+
+    forward_condition = str(parameters.get("end_condition_forward", "length"))
+    reverse_condition = str(parameters.get("end_condition_reverse", "length"))
+    if (
+        "through_all" in {forward_condition, reverse_condition}
+        and str(parameters.get("operation", CombineMode.ADD.value))
+        != CombineMode.SUBTRACT.value
+    ):
+        parameters["build_status"] = "through_all_requires_subtract"
+        return None
+    if extent_mode == "symmetric":
+        reverse_condition = forward_condition
+    elif extent_mode == "one_side":
+        reverse_condition = "length"
+    if forward_condition == "through_all":
+        evaluated = through_all_distance(1.0)
+        if evaluated is None:
+            parameters["build_status"] = "through_all_missing_input"
+            return None
+        forward = evaluated
+        parameters["evaluated_length_forward"] = f"{forward:.12g}"
+    if reverse_condition == "through_all":
+        evaluated = through_all_distance(-1.0)
+        if evaluated is None:
+            parameters["build_status"] = "through_all_missing_input"
+            return None
+        reverse = evaluated
+        parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
+    clipping_halfspaces = []
+
+    def stored_end_reference(side: str) -> dict[str, Any] | None:
+        try:
+            value = json.loads(str(parameters.get(
+                f"end_reference_{side}", "null"
+            )))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def profile_projection_points() -> tuple[tuple[float, float, float], ...]:
+        points = []
+        full_transform = multiply_transforms(profile_transform, plane_transform)
+        for profile in profiles:
+            try:
+                world_profile = transform_shape(profile, full_transform)
+                box = Bnd_Box()
+                brepbndlib.Add(world_profile, box)
+                bounds = box.Get()
+            except (RuntimeError, TypeError, ValueError):
+                continue
+            points.extend(
+                (
+                    bounds[3] if mask & 1 else bounds[0],
+                    bounds[4] if mask & 2 else bounds[1],
+                    bounds[5] if mask & 4 else bounds[2],
+                )
+                for mask in range(8)
+            )
+        return tuple(points)
+
+    def evaluate_up_to(
+        side: str,
+        sign: float,
+        *,
+        definition_side: str | None = None,
+        absolute: bool = False,
+    ) -> float | None:
+        reference_data = stored_end_reference(definition_side or side)
+        if reference_data is None:
+            return None
+        kind = str(reference_data.get("kind", ""))
+        if kind == "point":
+            position = reference_data.get("fallback_position")
+            entity_id = str(reference_data.get("entity_id", ""))
+            entity_transform = (
+                entity_world_transform(document, entity_id)
+                if entity_id else None
+            )
+            if entity_transform is not None:
+                position = transform_point(
+                    entity_transform, (0.0, 0.0, 0.0)
+                )
+            raw_reference = reference_data.get("reference")
+            if isinstance(raw_reference, dict) and input_registry is not None:
+                try:
+                    resolution = input_registry.resolve_vertex(
+                        VertexRef.from_dict(raw_reference)
+                    )
+                    if resolution.shape is not None:
+                        point = BRep_Tool.Pnt(resolution.shape)
+                        position = (point.X(), point.Y(), point.Z())
+                except (RuntimeError, TypeError, ValueError):
+                    pass
+            if not isinstance(position, (list, tuple)) or len(position) != 3:
+                return None
+            distance = sign * sum(
+                (float(position[index]) - profile_origin[index])
+                * world_direction[index]
+                for index in range(3)
+            )
+            if absolute:
+                distance = abs(distance)
+            if distance <= 1.0e-7:
+                return None
+            parameters[f"evaluated_length_{side}"] = f"{distance:.12g}"
+            return distance
+        if kind not in {"face", "plane"}:
+            return None
+        origin = reference_data.get("fallback_origin")
+        normal = reference_data.get("fallback_normal")
+        entity_id = str(reference_data.get("entity_id", ""))
+        target_entity = document.find_entity(entity_id) if entity_id else None
+        entity_transform = (
+            entity_world_transform(document, entity_id)
+            if target_entity is not None else None
+        )
+        if entity_transform is not None:
+            local_normal = {
+                "xy": (0.0, 0.0, 1.0),
+                "xz": (0.0, 1.0, 0.0),
+                "yz": (1.0, 0.0, 0.0),
+            }.get(
+                str(target_entity.parameters.get("plane", "xy")),
+                (0.0, 0.0, 1.0),
+            )
+            origin = transform_point(
+                entity_transform, (0.0, 0.0, 0.0)
+            )
+            normal = transform_vector(entity_transform, local_normal)
+        target_face = None
+        raw_reference = reference_data.get("reference")
+        if isinstance(raw_reference, dict) and input_registry is not None:
+            try:
+                resolution = input_registry.resolve(FaceRef.from_dict(raw_reference))
+                target_face = resolution.shape
+                if target_face is not None:
+                    adaptor = BRepAdaptor_Surface(target_face)
+                    if adaptor.GetType() != GeomAbs_Plane:
+                        return None
+                    plane = adaptor.Plane()
+                    location = plane.Location()
+                    direction = plane.Axis().Direction()
+                    origin = (location.X(), location.Y(), location.Z())
+                    normal = (direction.X(), direction.Y(), direction.Z())
+            except (RuntimeError, TypeError, ValueError):
+                target_face = None
+        if (
+            not isinstance(origin, (list, tuple))
+            or not isinstance(normal, (list, tuple))
+            or len(origin) != 3
+            or len(normal) != 3
+        ):
+            return None
+        normal = tuple(float(value) for value in normal)
+        reference_data["fallback_origin"] = [
+            float(value) for value in origin
+        ]
+        reference_data["fallback_normal"] = list(normal)
+        parameters[f"end_reference_{side}"] = json.dumps(
+            reference_data, ensure_ascii=False, sort_keys=True
+        )
+        denominator = sign * sum(
+            normal[index] * world_direction[index] for index in range(3)
+        )
+        if abs(denominator) <= 1.0e-9:
+            return None
+        distances = tuple(
+            sum(
+                normal[index] * (float(origin[index]) - point[index])
+                for index in range(3)
+            ) / denominator
+            for point in profile_projection_points()
+        )
+        if absolute:
+            distances = tuple(abs(distance) for distance in distances)
+        if not distances or min(distances) <= 1.0e-7:
+            return None
+        evaluated = max(distances)
+        parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+        # A plane parallel to the profile gives every profile point the same
+        # extrusion distance. In that common case the exact prism already
+        # ends on the requested plane; a half-space Common only adds a
+        # numerically fragile Boolean (especially when the target is also a
+        # face of the body being cut).
+        if max(distances) - min(distances) <= 1.0e-6:
+            return evaluated
+        if target_face is None:
+            try:
+                target_face = BRepBuilderAPI_MakeFace(gp_Pln(
+                    gp_Pnt(*(float(value) for value in origin)),
+                    gp_Dir(*normal),
+                )).Face()
+            except (RuntimeError, TypeError, ValueError):
+                target_face = None
+        if target_face is not None:
+            try:
+                halfspace = BRepPrimAPI_MakeHalfSpace(
+                    target_face, gp_Pnt(*profile_origin)
+                ).Solid()
+                if not halfspace.IsNull():
+                    clipping_halfspaces.append(halfspace)
+                    evaluated += max(1.0, evaluated * 1.0e-4)
+            except (RuntimeError, TypeError, ValueError):
+                return None
+        else:
+            return None
+        return evaluated
+
+    if forward_condition == "up_to":
+        evaluated = evaluate_up_to(
+            "forward", 1.0, absolute=extent_mode == "symmetric"
+        )
+        if evaluated is None:
+            parameters["build_status"] = "up_to_reference_unresolved"
+            return None
+        forward = evaluated
+    if reverse_condition == "up_to":
+        evaluated = (
+            forward
+            if extent_mode == "symmetric"
+            else evaluate_up_to("reverse", -1.0)
+        )
+        if evaluated is None:
+            parameters["build_status"] = "up_to_reference_unresolved"
+            return None
+        reverse = evaluated
+    length = forward + reverse
+    if length <= 1.0e-9:
+        return None
+    start = -reverse
     translated = multiply_transforms(
         profile_transform,
         (
@@ -2964,7 +3283,15 @@ def make_protrusion_shape(document: PartDocument | None, obj: ZimaEntity):
             embedded_face,
             gp_Vec(*(value * length for value in extrusion_direction)),
         ).Shape()
-        generated.append(transform_shape(local, translated))
+        world_shape = transform_shape(local, translated)
+        for halfspace in clipping_halfspaces:
+            operation = BRepAlgoAPI_Common(world_shape, halfspace)
+            world_shape = operation.Shape() if operation.IsDone() else None
+            if world_shape is None or world_shape.IsNull():
+                parameters["build_status"] = "up_to_boolean_failed"
+                return None
+            world_shape = _unify_same_domain(world_shape)
+        generated.append(world_shape)
     # Hole nesting has already been resolved while constructing profile
     # faces.  Comparing every extruded solid with every other solid repeated
     # O(N²) expensive OCCT booleans and did no additional useful work.
@@ -4008,11 +4335,27 @@ def protrusion_face_registry(
         )),
     )
     reverse = max(0.0, float(feature.parameters.get("length_reverse", 0.0)))
+    forward_condition = str(
+        feature.parameters.get("end_condition_forward", "length")
+    )
+    reverse_condition = str(
+        feature.parameters.get("end_condition_reverse", "length")
+    )
+    if forward_condition != "length":
+        forward = max(0.0, float(feature.parameters.get(
+            "evaluated_length_forward", forward
+        )))
+    if reverse_condition != "length":
+        reverse = max(0.0, float(feature.parameters.get(
+            "evaluated_length_reverse", reverse
+        )))
     extent_mode = str(feature.parameters.get("extent_mode", "one_side"))
     if extent_mode == "symmetric":
         reverse = forward
+        reverse_condition = forward_condition
     elif extent_mode == "one_side":
         reverse = 0.0
+        reverse_condition = "length"
     start = -reverse
     end = forward
     point_positions: dict[str, dict[str, tuple[float, float, float]]] = {}
@@ -4020,6 +4363,63 @@ def protrusion_face_registry(
         world_transform,
         transform_point(plane_transform, (0.0, 0.0, 0.0)),
     )
+
+    def up_to_plane(side: str) -> tuple[tuple, tuple] | None:
+        if str(feature.parameters.get(
+            f"end_condition_{side}", "length"
+        )) != "up_to":
+            return None
+        try:
+            value = json.loads(str(feature.parameters.get(
+                f"end_reference_{side}", "null"
+            )))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        origin = value.get("fallback_origin") if isinstance(value, dict) else None
+        normal = value.get("fallback_normal") if isinstance(value, dict) else None
+        if (
+            not isinstance(origin, (list, tuple))
+            or not isinstance(normal, (list, tuple))
+            or len(origin) != 3
+            or len(normal) != 3
+        ):
+            return None
+        return (
+            tuple(float(item) for item in origin),
+            tuple(float(item) for item in normal),
+        )
+
+    end_planes = {
+        "start": up_to_plane("reverse"),
+        "end": up_to_plane("forward"),
+    }
+
+    def axial_limit(
+        base: tuple[float, float, float], role: str
+    ) -> float:
+        fallback = start if role == "start" else end
+        target = end_planes.get(role)
+        if target is None:
+            return fallback
+        target_origin, target_normal = target
+        denominator = vector_dot(target_normal, extrusion_direction)
+        if abs(denominator) <= 1.0e-12:
+            return fallback
+        return vector_dot(
+            target_normal,
+            tuple(
+                target_origin[index] - base[index] for index in range(3)
+            ),
+        ) / denominator
+
+    def limited_point(
+        base: tuple[float, float, float], role: str
+    ) -> tuple[float, float, float]:
+        distance = axial_limit(base, role)
+        return tuple(
+            base[index] + extrusion_direction[index] * distance
+            for index in range(3)
+        )
     if str(feature.parameters.get("result_type", "solid")) == "thin":
         return _thin_protrusion_topology_registry(
             feature,
@@ -4036,11 +4436,8 @@ def protrusion_face_registry(
             transform_point(plane_transform, (*point_2d, 0.0)),
         )
         point_positions[point_id] = {
-            role: tuple(
-                base[index] + extrusion_direction[index] * distance
-                for index in range(3)
-            )
-            for role, distance in (("start", start), ("end", end))
+            role: limited_point(base, role)
+            for role in ("start", "end")
         }
     curve_sources: list[tuple[str, tuple[float, float, float]]] = []
     curve_point_ids: dict[str, tuple[str, str]] = {}
@@ -4138,9 +4535,12 @@ def protrusion_face_registry(
             transform_point(plane_transform, (*midpoint_2d, 0.0)),
         )
         curve_midpoints[source_id] = midpoint
+        midpoint_distance = (
+            axial_limit(midpoint, "start")
+            + axial_limit(midpoint, "end")
+        ) * 0.5
         generated_midpoint = tuple(
-            midpoint[index]
-            + extrusion_direction[index] * ((start + end) * 0.5)
+            midpoint[index] + extrusion_direction[index] * midpoint_distance
             for index in range(3)
         )
         curve_sources.append((source_id, generated_midpoint))
@@ -4243,6 +4643,29 @@ def protrusion_face_registry(
             if agreement < -1.0 + 1.0e-7
             else None
         )
+        if role is None:
+            plane_location = adaptor.Plane().Location()
+            plane_point = (
+                plane_location.X(), plane_location.Y(), plane_location.Z()
+            )
+            for candidate_role in ("start", "end"):
+                target = end_planes.get(candidate_role)
+                if target is None:
+                    continue
+                target_origin, target_normal = target
+                if (
+                    abs(vector_dot(normal, target_normal))
+                    > 1.0 - 1.0e-7
+                    and abs(vector_dot(
+                        target_normal,
+                        tuple(
+                            plane_point[index] - target_origin[index]
+                            for index in range(3)
+                        ),
+                    )) <= 1.0e-6
+                ):
+                    role = candidate_role
+                    break
         if role is not None:
             cap_faces[role].append((face, runtime_index))
         else:
@@ -4302,12 +4725,7 @@ def protrusion_face_registry(
                     point_positions[point_id][role]
                     for point_id in source_points
                 )
-                sample = tuple(
-                    midpoint[index]
-                    + extrusion_direction[index]
-                    * (start if role == "start" else end)
-                    for index in range(3)
-                )
+                sample = limited_point(midpoint, role)
                 vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*sample)).Vertex()
                 touches_boundary = False
                 for edge in edges:
@@ -4429,12 +4847,8 @@ def protrusion_face_registry(
                 if rim_midpoint is None:
                     continue
                 expected = tuple(
-                    tuple(
-                        rim_midpoint[axis]
-                        + extrusion_direction[axis] * distance
-                        for axis in range(3)
-                    )
-                    for distance in (start, end)
+                    limited_point(rim_midpoint, role)
+                    for role in ("start", "end")
                 )
                 if (
                     points_match(endpoints[0], expected[0])
@@ -4486,11 +4900,8 @@ def protrusion_face_registry(
                     points_match(endpoints[0], expected[1])
                     and points_match(endpoints[1], expected[0])
                 ):
-                    sample = tuple(
-                        curve_midpoints[curve_id][index]
-                        + extrusion_direction[index]
-                        * (start if role == "start" else end)
-                        for index in range(3)
+                    sample = limited_point(
+                        curve_midpoints[curve_id], role
                     )
                     distance = BRepExtrema_DistShapeShape(
                         BRepBuilderAPI_MakeVertex(gp_Pnt(*sample)).Vertex(),

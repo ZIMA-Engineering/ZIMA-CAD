@@ -1679,6 +1679,26 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._pick_candidate_provider = provider
         self._provided_hover_candidate = None
 
+    def invalidate_pick_candidates(self) -> None:
+        """Discard every candidate produced by the previous contract.
+
+        A contract change must be atomic.  In particular, mousePressEvent
+        confirms ``_cycled_topology_candidate`` before asking the provider
+        for a fresh candidate, so retaining an edge cycled while placement
+        accepted all topology can steal the first click after Up-to narrows
+        the contract to faces/points/planes.
+        """
+        self._model_hover_timer.stop()
+        self._model_hover_clear_timer.stop()
+        self._pending_model_hover_position = None
+        self._last_model_hover_position = None
+        self._selection_preview_pending = False
+        self._cycled_topology_candidate = None
+        self._clear_provided_hover()
+        self._clear_topology_hover()
+        self._clear_topology_selection()
+        self.update()
+
     def _provided_candidate_at(
         self, position: QPointF
     ) -> ViewerPickCandidate | None:
@@ -2429,29 +2449,40 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._paint_edge_labels(screen_constant_only=True)
 
     def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        # Repeating every QPainter overlay for every mouse-move frame forces
-        # a GPU synchronization. Paint the spatial overlays that must track
-        # the camera, then restore the full overlay set when navigation ends.
-        if self._navigation_active:
-            self._paint_navigation_overlays()
+        # A definitionChanged/hover update can be delivered while Qt is still
+        # painting the previous OpenGL frame.  Starting another QPainter on
+        # this QOpenGLWidget then fails and, in particular, makes the Up-to
+        # face wire disappear while a symmetric extrusion is being staged.
+        # Coalesce that nested request; Qt already has another update queued.
+        if getattr(self, "_paint_event_active", False):
             return
-        self._paint_screen_constant_edges()
-        self._paint_centerlines()
-        self._paint_reference_highlights()
-        self._paint_face_highlight_outlines()
-        self._paint_planes()
-        self._paint_points()
-        self._paint_dimensions()
-        self._paint_extent_handles()
-        self._paint_sketch_overlay()
-        self._paint_sketch_trim_overlay()
-        self._paint_sketch_selection_box()
-        self._paint_object_overlay()
-        self._paint_insertion_origin_marker()
-        self._paint_passive_sketch_overlay()
-        self._paint_source_topology_hover()
-        self._paint_edge_labels()
+        self._paint_event_active = True
+        try:
+            super().paintEvent(event)
+            # Repeating every QPainter overlay for every mouse-move frame forces
+            # a GPU synchronization. Paint the spatial overlays that must track
+            # the camera, then restore the full overlay set when navigation ends.
+            if self._navigation_active:
+                self._paint_navigation_overlays()
+                return
+            self._paint_screen_constant_edges()
+            self._paint_centerlines()
+            self._paint_reference_highlights()
+            self._paint_face_highlight_outlines()
+            self._paint_planes()
+            self._paint_points()
+            self._paint_dimensions()
+            self._paint_extent_handles()
+            self._paint_sketch_overlay()
+            self._paint_sketch_trim_overlay()
+            self._paint_sketch_selection_box()
+            self._paint_object_overlay()
+            self._paint_insertion_origin_marker()
+            self._paint_passive_sketch_overlay()
+            self._paint_source_topology_hover()
+            self._paint_edge_labels()
+        finally:
+            self._paint_event_active = False
 
     def _paint_extent_handles(self) -> None:
         if not self._extent_handles:
@@ -2508,6 +2539,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     ),
                 ]))
             painter.drawEllipse(endpoint, 6.0, 6.0)
+        painter.end()
 
     def _paint_face_highlight_outlines(self) -> None:
         mesh = self._mesh

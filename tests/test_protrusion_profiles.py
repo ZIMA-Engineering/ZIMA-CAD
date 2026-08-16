@@ -7,9 +7,11 @@ from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 
 from zima_cad.app import MainWindow
 from zima_cad.model import (
+    CombineMode,
     CoordinateSystem,
     ContainerType,
     EntityKind,
@@ -30,6 +32,11 @@ class ProtrusionProfileTests(unittest.TestCase):
         profile_offset=0.0,
         result_type="solid",
         through_history=False,
+        end_condition="length",
+        extent_mode="one_side",
+        end_reference=None,
+        input_shape=None,
+        return_feature=False,
     ):
         document = create_empty_part()
         container = ZimaEntity(
@@ -54,19 +61,84 @@ class ProtrusionProfileTests(unittest.TestCase):
             parameters={
                 "sketch_id": sketch.entity_id,
                 "length_forward": "10",
-                "extent_mode": "one_side",
+                "extent_mode": extent_mode,
                 "direction": "forward",
                 "profile_offset": f"{profile_offset:.12g}",
                 "result_type": result_type,
+                "end_condition_forward": end_condition,
+                "end_reference_forward": json.dumps(end_reference),
+                "operation": (
+                    CombineMode.SUBTRACT.value
+                    if end_condition == "through_all"
+                    else CombineMode.ADD.value
+                ),
             },
         )
         container.add_child(sketch)
         container.add_child(feature)
         document.root.add_child(container)
-        return (
+        shape = (
             document.build_shape_for_objects([container])
             if through_history
-            else make_protrusion_shape(document, container)
+            else make_protrusion_shape(
+                document, container, input_shape=input_shape
+            )
+        )
+        return (shape, feature) if return_feature else shape
+
+    def test_symmetric_up_to_uses_one_face_as_an_absolute_half_length(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 1.0, "y": 1.0},
+            {"id": "b", "type": "point", "x": 9.0, "y": 1.0},
+            {"id": "c", "type": "point", "x": 9.0, "y": 9.0},
+            {"id": "d", "type": "point", "x": 1.0, "y": 9.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        shape, feature = self._build_profile(
+            entities,
+            end_condition="up_to",
+            extent_mode="symmetric",
+            end_reference={
+                "kind": "plane",
+                "fallback_origin": [0.0, -20.0, 0.0],
+                "fallback_normal": [0.0, 1.0, 0.0],
+            },
+            return_feature=True,
+        )
+
+        self.assertIsNotNone(shape)
+        self.assertAlmostEqual(
+            float(feature.parameters["evaluated_length_forward"]), 20.0
+        )
+        self.assertAlmostEqual(
+            float(feature.parameters["evaluated_length_reverse"]), 20.0
+        )
+
+    def test_through_all_uses_a_calculated_length_without_replacing_manual_length(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 1.0, "y": 1.0},
+            {"id": "b", "type": "point", "x": 9.0, "y": 1.0},
+            {"id": "c", "type": "point", "x": 9.0, "y": 9.0},
+            {"id": "d", "type": "point", "x": 1.0, "y": 9.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        shape, feature = self._build_profile(
+            entities,
+            end_condition="through_all",
+            input_shape=BRepPrimAPI_MakeBox(10.0, 20.0, 10.0).Shape(),
+            return_feature=True,
+        )
+
+        self.assertIsNotNone(shape)
+        self.assertEqual(feature.parameters["length_forward"], "10")
+        self.assertGreater(
+            float(feature.parameters["evaluated_length_forward"]), 20.0
         )
 
     def test_open_profile_is_surface_only(self):
