@@ -303,7 +303,12 @@ def edge_visible_in_display(edge: EdgePolyline, display_mode: str) -> bool:
         return True
     if display_mode == "shaded":
         return False
-    if edge.topology_role in {"seam", "periodic_tangent"}:
+    # A seam is still an explicit edge delivered by OCCT.  Boolean cuts can
+    # split it into finite edge pieces which are part of the persisted wire
+    # contract (and may terminate at ordinary sharp boundaries).  Do not
+    # silently discard those edges from edge-display modes.  Only synthetic
+    # periodic tangent helpers remain hidden.
+    if edge.topology_role == "periodic_tangent":
         return False
     if display_mode == "shaded_with_edges" and edge.topology_role == "tangent":
         return False

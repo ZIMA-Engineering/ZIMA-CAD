@@ -1893,57 +1893,6 @@ def apply_object_to_shape(
                 explorer.Next()
             return solids
 
-        def fuse_preserving_disconnected(first, second):
-            """Fuse touching solids without dropping disconnected members.
-
-            OCCT can discard the disconnected members when a compound is
-            passed directly to BRepAlgoAPI_Fuse.  Process individual solids
-            and rebuild the compound explicitly instead.
-            """
-            components = unique_solids(first)
-            for tool_solid in unique_solids(second):
-                merged = tool_solid
-                index = 0
-                while index < len(components):
-                    component_box = Bnd_Box()
-                    merged_box = Bnd_Box()
-                    brepbndlib.Add(components[index], component_box)
-                    brepbndlib.Add(merged, merged_box)
-                    component_bounds = component_box.Get()
-                    merged_bounds = merged_box.Get()
-                    tolerance = 1.0e-7
-                    if any(
-                        component_bounds[axis + 3]
-                        < merged_bounds[axis] - tolerance
-                        or merged_bounds[axis + 3]
-                        < component_bounds[axis] - tolerance
-                        for axis in range(3)
-                    ):
-                        index += 1
-                        continue
-                    distance = BRepExtrema_DistShapeShape(
-                        components[index], merged
-                    )
-                    # Do not trust Common/Fuse for disjoint inputs: some OCCT
-                    # builds return the first operand rather than an empty or
-                    # two-solid result.  The distance query reliably tells us
-                    # whether a boolean merge should be attempted.
-                    if not distance.IsDone() or distance.Value() > 1.0e-7:
-                        index += 1
-                        continue
-                    fused_candidate = BRepAlgoAPI_Fuse(
-                        components[index], merged
-                    ).Shape()
-                    fused_candidate = _unify_same_domain(fused_candidate)
-                    if solid_count(fused_candidate) == 1:
-                        merged = unique_solids(fused_candidate)[0]
-                        components.pop(index)
-                        index = 0
-                    else:
-                        index += 1
-                components.append(merged)
-            return _compound_shapes(components)
-
         shape_solids = solid_count(shape) if shape is not None else 0
         if (
             shape is not None
@@ -1972,7 +1921,7 @@ def apply_object_to_shape(
                 fused = (
                     _compound_shapes([*existing_solids, *added_solids])
                     if len(existing_solids) > 64
-                    else fuse_preserving_disconnected(result_shape, shape)
+                    else _fuse_preserving_disconnected(result_shape, shape)
                 )
                 if (
                     solid_count(fused) == 1
@@ -3222,26 +3171,35 @@ def make_protrusion_shape(
         # numerically fragile Boolean (especially when the target is also a
         # face of the body being cut).
         if max(distances) - min(distances) <= 1.0e-6:
+            evaluated = sum(
+                normal[index]
+                * (float(origin[index]) - profile_origin[index])
+                for index in range(3)
+            ) / denominator
+            if absolute:
+                evaluated = abs(evaluated)
+            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
             return evaluated
-        if target_face is None:
-            try:
-                target_face = BRepBuilderAPI_MakeFace(gp_Pln(
-                    gp_Pnt(*(float(value) for value in origin)),
-                    gp_Dir(*normal),
-                )).Face()
-            except (RuntimeError, TypeError, ValueError):
-                target_face = None
-        if target_face is not None:
-            try:
-                halfspace = BRepPrimAPI_MakeHalfSpace(
-                    target_face, gp_Pnt(*profile_origin)
-                ).Solid()
-                if not halfspace.IsNull():
-                    clipping_halfspaces.append(halfspace)
-                    evaluated += max(1.0, evaluated * 1.0e-4)
-            except (RuntimeError, TypeError, ValueError):
+        # The selected OCCT face is bounded and may contain trimming wires.
+        # Feeding it directly to MakeHalfSpace can retain those boundaries
+        # and produce a malformed clipped prism (Vysunutí017 in 11.prtz had
+        # twelve vertices instead of the expected eight).  "Up to face" uses
+        # the supporting surface, so construct a clean planar face solely
+        # from the resolved origin and normal.  This is also exactly the
+        # persisted plane equation consumed by the wire preview.
+        try:
+            clipping_face = BRepBuilderAPI_MakeFace(gp_Pln(
+                gp_Pnt(*(float(value) for value in origin)),
+                gp_Dir(*normal),
+            )).Face()
+            halfspace = BRepPrimAPI_MakeHalfSpace(
+                clipping_face, gp_Pnt(*profile_origin)
+            ).Solid()
+            if halfspace.IsNull():
                 return None
-        else:
+            clipping_halfspaces.append(halfspace)
+            evaluated += max(1.0, evaluated * 1.0e-4)
+        except (RuntimeError, TypeError, ValueError):
             return None
         return evaluated
 
@@ -3263,6 +3221,7 @@ def make_protrusion_shape(
             parameters["build_status"] = "up_to_reference_unresolved"
             return None
         reverse = evaluated
+        parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
     length = forward + reverse
     if length <= 1.0e-9:
         return None
@@ -5486,6 +5445,58 @@ def _unify_same_domain(shape):
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
     return shape
+
+
+def _fuse_preserving_disconnected(first, second):
+    """Fuse each tool with all touched solids in one OCCT operation.
+
+    Sequential pairwise Fuse is not associative for coincident/slanted faces:
+    a formally valid one-solid result can contain overlapping internal cells.
+    Collecting the complete touched set first avoids that invalid intermediate
+    while still keeping genuinely disconnected Part bodies intact.
+    """
+    components = _unique_subshapes(first, TopAbs_SOLID)
+    for tool_solid in _unique_subshapes(second, TopAbs_SOLID):
+        touched = []
+        untouched = []
+        tool_box = Bnd_Box()
+        brepbndlib.Add(tool_solid, tool_box)
+        tool_bounds = tool_box.Get()
+        for component in components:
+            component_box = Bnd_Box()
+            brepbndlib.Add(component, component_box)
+            component_bounds = component_box.Get()
+            tolerance = 1.0e-7
+            if any(
+                component_bounds[axis + 3] < tool_bounds[axis] - tolerance
+                or tool_bounds[axis + 3]
+                < component_bounds[axis] - tolerance
+                for axis in range(3)
+            ):
+                untouched.append(component)
+                continue
+            distance = BRepExtrema_DistShapeShape(component, tool_solid)
+            distance.Perform()
+            if distance.IsDone() and distance.Value() <= tolerance:
+                touched.append(component)
+            else:
+                untouched.append(component)
+        if not touched:
+            components = [*untouched, tool_solid]
+            continue
+        operation = BRepAlgoAPI_Fuse(
+            _compound_shapes(touched), tool_solid
+        )
+        candidate = operation.Shape() if operation.IsDone() else None
+        candidate = _unify_same_domain(candidate)
+        candidate_solids = _unique_subshapes(candidate, TopAbs_SOLID)
+        if len(candidate_solids) == 1:
+            components = [*untouched, candidate_solids[0]]
+        else:
+            # Preserve every valid input solid if OCCT cannot make one union;
+            # never replace them with a partial or internally corrupt result.
+            components = [*untouched, *touched, tool_solid]
+    return _compound_shapes(components)
 
 
 def _rebind_registry_to_shape(

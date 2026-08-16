@@ -74,6 +74,7 @@ from zima_cad.model import (
 )
 from zima_cad.sketch_model import SketchModel
 from zima_cad.selection import (
+    SelectionCandidate,
     SelectionController,
     SelectionKind,
     SelectionPurpose,
@@ -303,10 +304,47 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(route.childCount(), 2)
         self.assertEqual(route.child(0).text(1), "Line · edge 3")
         self.assertEqual(
-            route.child(1).data(0, Qt.ItemDataRole.UserRole), group
+            route.child(1).data(0, Qt.ItemDataRole.UserRole), (group[1],)
+        )
+        self.assertEqual(
+            route.child(1).data(0, Qt.ItemDataRole.UserRole + 1), group
         )
         dialog.close()
         parent.close()
+
+    def test_edge_treatment_removes_only_selected_route_member(self):
+        keys = tuple(("edge", "body", index) for index in (7, 9, 11, 13))
+        window = MainWindow.__new__(MainWindow)
+        window._selection_controller = SelectionController()
+        window._selection_controller.begin(SelectionRequest(
+            command_id="fillet",
+            allowed_kinds=frozenset({SelectionKind.EDGE}),
+            resolver=lambda candidate: SelectionResolution(value=EdgeRef(
+                "body", "runtime", str(candidate.element_index)
+            )),
+            on_complete=lambda _values: None,
+            maximum_count=100,
+        ))
+        for _kind, owner_id, edge_index in keys:
+            window._selection_controller.toggle(SelectionCandidate(
+                kind=SelectionKind.EDGE,
+                owner_id=owner_id,
+                element_index=edge_index,
+            ))
+        window._edge_treatment_groups = [keys]
+        window._edge_treatment_group_seeds = [keys[0]]
+        window._refresh_fillet_selection_ui = lambda: None
+
+        window._remove_fillet_edge((keys[1],))
+
+        self.assertEqual(
+            window._edge_treatment_groups,
+            [(keys[0], keys[2], keys[3])],
+        )
+        self.assertEqual(
+            window._selection_controller.candidate_keys,
+            (keys[0], keys[2], keys[3]),
+        )
 
     def test_material_dialog_is_internal_and_cancel_keeps_document(self):
         application = QApplication.instance() or QApplication([])
@@ -994,6 +1032,26 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertTrue(dialog.end_reference_pick_active())
         dialog.close()
         self.assertIsNotNone(application)
+
+    def test_operation_preview_is_restored_after_button_event(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.point_constraint_dialog = dialog
+        refreshed = []
+        window._preview_protrusion_dialog_frame = refreshed.append
+        dialog.show()
+
+        window._queue_protrusion_operation_preview(dialog)
+        application.processEvents()
+
+        self.assertEqual(refreshed, [dialog])
+        dialog.close()
 
     def test_protrusion_property_pick_modes_are_mutually_exclusive(self):
         application = QApplication.instance() or QApplication([])
@@ -4320,7 +4378,10 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertTrue(edge_visible_in_display(edge("boundary"), "wire"))
         self.assertTrue(edge_visible_in_display(edge("tangent"), "wire"))
-        self.assertFalse(edge_visible_in_display(edge("seam"), "wire"))
+        self.assertTrue(edge_visible_in_display(edge("seam"), "wire"))
+        self.assertTrue(
+            edge_visible_in_display(edge("seam"), "shaded_with_edges")
+        )
         self.assertFalse(
             edge_visible_in_display(edge("periodic_tangent"), "wire")
         )
@@ -5142,6 +5203,43 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertAlmostEqual(ymax, 0.0, places=6)
         self.assertAlmostEqual(zmin, 0.0, places=6)
         self.assertAlmostEqual(zmax, 20.0, places=6)
+
+    def test_persisted_sketch_profile_mesh_needs_no_occt_shape(self) -> None:
+        document = create_empty_part()
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id, plane="xz")
+        model = SketchModel.from_editor_data(
+            [
+                {"type": "point", "id": "p1", "x": 0.0, "y": 0.0},
+                {"type": "point", "id": "p2", "x": 10.0, "y": 20.0},
+                {
+                    "type": "segment",
+                    "id": "g1",
+                    "point_ids": ["p1", "p2"],
+                },
+            ],
+            [],
+        )
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        window = MainWindow.__new__(MainWindow)
+
+        with patch(
+            "zima_cad.model.make_sketch_shape",
+            side_effect=AssertionError("OCCT sketch construction is forbidden"),
+        ), patch(
+            "zima_cad.app.triangulate_shape",
+            side_effect=AssertionError("OCCT triangulation is forbidden"),
+        ):
+            mesh = window._persisted_sketch_profile_mesh(
+                sketch,
+                coordinate_system_transform(owner.coordinate_system),
+            )
+
+        self.assertIsNotNone(mesh)
+        self.assertEqual(len(mesh.edges), 1)
+        self.assertEqual(mesh.edges[0].points[0], (0.0, 0.0, 0.0))
+        self.assertEqual(mesh.edges[0].points[1], (10.0, 0.0, 20.0))
+        self.assertEqual(mesh.triangle_positions, ())
 
 
 if __name__ == "__main__":

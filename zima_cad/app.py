@@ -139,8 +139,8 @@ from zima_cad.model import (
     edge_feature_references,
     make_chamfer_shape,
     make_fillet_shape,
-    make_sketch_shape,
     sketch_profile_status,
+    sketch_plane_offset_transform,
     sketch_plane_transform,
     transform_shape,
     transform_point,
@@ -1498,7 +1498,10 @@ class EdgeTreatmentPropertiesDialog(QDialog):
                     ),
                 ])
                 child.setData(
-                    0, Qt.ItemDataRole.UserRole, tuple(group)
+                    0, Qt.ItemDataRole.UserRole, (tuple(key),)
+                )
+                child.setData(
+                    0, Qt.ItemDataRole.UserRole + 1, tuple(group)
                 )
                 route_item.addChild(child)
             route_item.setExpanded(True)
@@ -1517,9 +1520,12 @@ class EdgeTreatmentPropertiesDialog(QDialog):
     def _restore_selected_route(self) -> None:
         item = self.edge_list.currentItem()
         if item is not None:
+            route = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            if route is None:
+                route = item.data(0, Qt.ItemDataRole.UserRole)
             self.restoreRouteRequested.emit(tuple(
                 tuple(key)
-                for key in item.data(0, Qt.ItemDataRole.UserRole)
+                for key in route
             ))
 
 
@@ -11441,6 +11447,14 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(
             lambda: self._show_new_protrusion_extent_handles(dialog)
         )
+        for operation_button in (
+            dialog.add_operation_button,
+            dialog.subtract_operation_button,
+        ):
+            operation_button.clicked.connect(
+                lambda _checked=False, target=dialog:
+                self._queue_protrusion_operation_preview(target)
+            )
         dialog.endReferencePickingChanged.connect(
             lambda: self._protrusion_end_reference_contract_changed(dialog)
         )
@@ -11728,6 +11742,21 @@ class MainWindow(QMainWindow):
         dialog._frame_preview_coordinate_system = staged
         self._show_new_protrusion_extent_handles(dialog)
 
+    def _queue_protrusion_operation_preview(
+        self,
+        dialog: ProtrusionConstraintDialog,
+    ) -> None:
+        """Restore the wire after the operation buttons finish updating."""
+        QTimer.singleShot(
+            0,
+            lambda target=dialog: (
+                self._preview_protrusion_dialog_frame(target)
+                if target is self.point_constraint_dialog
+                and target.isVisible()
+                else None
+            ),
+        )
+
     def _new_protrusion_profile_mesh(
         self,
         dialog: ProtrusionConstraintDialog,
@@ -11740,42 +11769,104 @@ class MainWindow(QMainWindow):
         sketch = self.document.find_entity(sketch_id) if sketch_id else None
         if sketch is None or sketch.kind != EntityKind.SKETCH:
             return None
-        entities = self._stored_sketch_entities(sketch)
-        points = {
-            str(item.get("id", "")): self._sketch_point_position(item)
-            for item in entities if item.get("type") == "point"
-        }
-        plane = str(sketch.parameters.get("plane", "xz"))
-        transform = multiply_transforms(
+        return self._persisted_sketch_profile_mesh(
+            sketch,
             coordinate_system_transform(coordinate_system),
-            sketch_plane_transform(plane),
         )
-        edges = []
-        for item in entities:
-            if item.get("type") != "segment" or item.get("role") == "construction":
-                continue
-            point_ids = tuple(map(str, item.get("point_ids", ())))
-            if len(point_ids) != 2 or any(key not in points for key in point_ids):
-                continue
-            world_points = tuple(
-                transform_point(transform, (*points[key], 0.0))
-                for key in point_ids
+
+    def _persisted_sketch_profile_mesh(
+        self,
+        sketch: ZimaEntity,
+        parent_transform,
+    ) -> ViewerMesh | None:
+        """Build a sketch wire solely from persisted ZIMA viewer data."""
+        if sketch.kind != EntityKind.SKETCH:
+            return None
+        plane = str(sketch.parameters.get("plane", "xy"))
+        offset = float(sketch.parameters.get("profile_offset", 0.0))
+        transform = multiply_transforms(
+            parent_transform,
+            multiply_transforms(
+                sketch_plane_offset_transform(plane, offset),
+                sketch_plane_transform(plane),
+            ),
+        )
+
+        if sketch.parameters.get("profile") == "circle":
+            radius = float(sketch.parameters.get("diameter", 10.0)) / 2.0
+            if radius <= 1.0e-12:
+                return None
+            local_curves = ((
+                "circle",
+                tuple(
+                    (
+                        radius * math.cos(math.tau * index / 96),
+                        radius * math.sin(math.tau * index / 96),
+                    )
+                    for index in range(97)
+                ),
+            ),)
+        else:
+            entities = self._stored_sketch_entities(sketch)
+            entity_by_id = {
+                str(item.get("id", "")): item for item in entities
+                if isinstance(item, dict)
+            }
+            local_curves = tuple(
+                (curve.entity_type, curve.points)
+                for curve in sample_sketch_curves(entities)
+                if (
+                    curve.entity_type != "construction"
+                    and entity_by_id.get(curve.entity_id, {}).get("role")
+                    != "construction"
+                )
             )
-            edges.append(EdgePolyline(
-                edge_index=len(edges) + 1,
-                points=world_points,
+
+        edges = tuple(
+            EdgePolyline(
+                edge_index=index,
+                points=tuple(
+                    transform_point(transform, (point[0], point[1], 0.0))
+                    for point in sampled
+                ),
                 owner_id=sketch.entity_id,
                 element_kind="sketch",
-            ))
+                curve_kind=kind,
+            )
+            for index, (kind, sampled) in enumerate(local_curves, start=1)
+        )
         if not edges:
             return None
         positions = tuple(point for edge in edges for point in edge.points)
         return ViewerMesh(
             triangle_positions=(), triangle_normals=(),
             triangle_face_indices=(), triangle_owner_ids=(),
-            edges=tuple(edges), points=(), planes=(),
+            edges=edges, points=(), planes=(),
             bounds_min=tuple(min(point[axis] for point in positions) for axis in range(3)),
             bounds_max=tuple(max(point[axis] for point in positions) for axis in range(3)),
+        )
+
+    @staticmethod
+    def _cyan_viewer_wire(mesh: ViewerMesh | None) -> ViewerMesh | None:
+        """Strip faces from persisted viewer data without touching OCCT."""
+        if mesh is None or not mesh.edges:
+            return None
+        return replace(
+            mesh,
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=tuple(
+                replace(
+                    edge,
+                    element_kind="sketch",
+                    base_color=FEATURE_PREVIEW_RGB,
+                )
+                for edge in mesh.edges
+            ),
+            points=(),
+            planes=(),
         )
 
     def _protrusion_wire_preview(
@@ -12070,6 +12161,14 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(
             lambda: self._preview_protrusion_dialog_frame(dialog)
         )
+        for operation_button in (
+            dialog.add_operation_button,
+            dialog.subtract_operation_button,
+        ):
+            operation_button.clicked.connect(
+                lambda _checked=False, target=dialog:
+                self._queue_protrusion_operation_preview(target)
+            )
         dialog.endReferencePickingChanged.connect(
             lambda: self._protrusion_end_reference_contract_changed(dialog)
         )
@@ -13186,19 +13285,24 @@ class MainWindow(QMainWindow):
     def _remove_fillet_edge(
         self, keys: tuple[tuple[str, str, int], ...]
     ) -> None:
-        for key in keys:
-            self._selection_controller.remove_key(tuple(key))
-        groups = getattr(self, "_edge_treatment_groups", [])
-        seeds = getattr(self, "_edge_treatment_group_seeds", [])
-        kept_indices = [
-            index for index, group in enumerate(groups)
-            if not any(tuple(key) in group for key in keys)
-        ]
-        self._edge_treatment_groups = [groups[index] for index in kept_indices]
-        self._edge_treatment_group_seeds = [
-            seeds[index] if index < len(seeds) else groups[index][0]
-            for index in kept_indices
-        ]
+        removed = {tuple(key) for key in keys}
+        for key in removed:
+            self._selection_controller.remove_key(key)
+        groups = list(getattr(self, "_edge_treatment_groups", []))
+        seeds = list(getattr(self, "_edge_treatment_group_seeds", []))
+        remaining_groups = []
+        remaining_seeds = []
+        for index, group in enumerate(groups):
+            remaining = tuple(key for key in group if key not in removed)
+            if not remaining:
+                continue
+            seed = seeds[index] if index < len(seeds) else group[0]
+            remaining_groups.append(remaining)
+            remaining_seeds.append(
+                seed if seed in remaining else remaining[0]
+            )
+        self._edge_treatment_groups = remaining_groups
+        self._edge_treatment_group_seeds = remaining_seeds
         self._refresh_fillet_selection_ui()
 
     def _restore_edge_treatment_route(
@@ -23872,47 +23976,16 @@ class MainWindow(QMainWindow):
         # an editing control and therefore belongs only to the active feature
         # Properties dialog, never to passive double-click inspection.
         self._clear_dimension_overlays()
-        sketch_shape = make_sketch_shape(
-            obj,
+        profile_mesh = self._persisted_sketch_profile_mesh(
             sketch,
             self._world_transform_for_object(obj),
         )
         self.native_viewer.set_sketch_overlay(None)
-        self.native_viewer.set_passive_sketch_overlay(
-            triangulate_shape(
-                sketch_shape,
-                owner_id=sketch.entity_id,
-                edge_kind="sketch",
-            )
-            if sketch_shape is not None
-            else None
+        self.native_viewer.set_passive_sketch_overlay(profile_mesh)
+        persisted_result = self._persisted_source_body_result(obj.entity_id)
+        preview_mesh = self._cyan_viewer_wire(
+            persisted_result.mesh if persisted_result is not None else None
         )
-        shape = self.document.build_standalone_shape(obj)
-        preview_mesh = (
-            triangulate_shape(
-                shape,
-                owner_id=(
-                    f"{self._active_component_entity_id}:{obj.entity_id}"
-                    if self._active_component_instance_transform() is not None
-                    else obj.entity_id
-                ),
-                edge_kind="sketch",
-                edge_color=FEATURE_PREVIEW_RGB,
-            )
-            if shape is not None
-            else None
-        )
-        instance_transform = self._active_component_instance_transform()
-        if preview_mesh is not None and instance_transform is not None:
-            # The feature definition belongs to the source Part, but this
-            # overlay belongs to one concrete Assembly instance.  Keeping it
-            # in Part coordinates lets the viewer's geometric edge matching
-            # colour another occurrence of the same Part (usually the first
-            # one) instead of the activated occurrence.
-            preview_mesh = transform_viewer_mesh(
-                preview_mesh,
-                instance_transform,
-            )
         # Feature Properties use one deliberately simple visual contract:
         # the transient Protrusion/Revolve is always a cyan wire overlay.
         # It never inherits Shaded/Hidden-line presentation and never enters
@@ -24055,29 +24128,12 @@ class MainWindow(QMainWindow):
         if feature is None:
             return
         # Sketcher removes the result body at the edited feature's history
-        # boundary. Retain a display-only wire of the standalone feature so
-        # a two-sided protrusion still shows both terminal profiles.
-        shape = self.document.build_standalone_shape(owner)
-        preview_mesh = (
-            triangulate_shape(
-                shape,
-                owner_id=(
-                    f"{self._active_component_entity_id}:{owner.entity_id}"
-                    if self._active_component_instance_transform() is not None
-                    else owner.entity_id
-                ),
-                edge_kind="sketch",
-                edge_color=FEATURE_PREVIEW_RGB,
-            )
-            if shape is not None
-            else None
+        # boundary. Retain its already persisted viewer wire; opening the
+        # sketch must never rebuild or triangulate an OCCT body.
+        persisted_result = self._persisted_source_body_result(owner.entity_id)
+        preview_mesh = self._cyan_viewer_wire(
+            persisted_result.mesh if persisted_result is not None else None
         )
-        instance_transform = self._active_component_instance_transform()
-        if preview_mesh is not None and instance_transform is not None:
-            preview_mesh = transform_viewer_mesh(
-                preview_mesh,
-                instance_transform,
-            )
         self.native_viewer.set_feature_preview_owners(set())
         self.native_viewer.set_object_overlay(
             preview_mesh,
@@ -49059,33 +49115,22 @@ class MainWindow(QMainWindow):
             and sketch is not None
             and sketch.kind == EntityKind.SKETCH
         ):
-            sketch_shape = make_sketch_shape(
-                owner,
+            profile_mesh = self._persisted_sketch_profile_mesh(
                 sketch,
                 self._world_transform_for_object(owner),
             )
             self.native_viewer.set_sketch_overlay(None)
-            self.native_viewer.set_passive_sketch_overlay(
-                triangulate_shape(
-                    sketch_shape,
-                    owner_id=sketch.entity_id,
-                    edge_kind="sketch",
-                )
-                if sketch_shape is not None
-                else None
-            )
+            self.native_viewer.set_passive_sketch_overlay(profile_mesh)
         if owner is not None:
-            shape = self.document.build_standalone_shape(owner)
-            if shape is not None:
-                instance_transform = self._active_component_instance_transform()
-                if instance_transform is not None:
-                    shape = transform_shape(shape, instance_transform)
+            persisted_result = self._persisted_source_body_result(
+                owner.entity_id
+            )
+            preview_mesh = self._cyan_viewer_wire(
+                persisted_result.mesh if persisted_result is not None else None
+            )
+            if preview_mesh is not None:
                 self.native_viewer.set_object_overlay(
-                    triangulate_shape(
-                        shape,
-                        owner_id=owner.entity_id,
-                        edge_color=FEATURE_PREVIEW_RGB,
-                    ),
+                    preview_mesh,
                     selected=True,
                     anchor=self._native_object_origin(owner),
                     locks_interaction=False,

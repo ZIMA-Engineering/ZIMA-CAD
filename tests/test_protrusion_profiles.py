@@ -2,12 +2,15 @@ import json
 import unittest
 
 from OCC.Core.BRepGProp import brepgprop
+from OCC.Core.BRep import BRep_Tool
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.GProp import GProp_GProps
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt
 
 from zima_cad.app import MainWindow
 from zima_cad.model import (
@@ -23,6 +26,7 @@ from zima_cad.model import (
     sketch_profile_status,
 )
 from zima_cad.sketch_model import SketchModel
+from zima_cad.topology import FaceRef, TopologyRegistry
 
 
 class ProtrusionProfileTests(unittest.TestCase):
@@ -36,6 +40,7 @@ class ProtrusionProfileTests(unittest.TestCase):
         extent_mode="one_side",
         end_reference=None,
         input_shape=None,
+        input_registry=None,
         return_feature=False,
     ):
         document = create_empty_part()
@@ -81,7 +86,8 @@ class ProtrusionProfileTests(unittest.TestCase):
             document.build_shape_for_objects([container])
             if through_history
             else make_protrusion_shape(
-                document, container, input_shape=input_shape
+                document, container, input_shape=input_shape,
+                input_registry=input_registry,
             )
         )
         return (shape, feature) if return_feature else shape
@@ -115,6 +121,53 @@ class ProtrusionProfileTests(unittest.TestCase):
         )
         self.assertAlmostEqual(
             float(feature.parameters["evaluated_length_reverse"]), 20.0
+        )
+
+    def test_inclined_up_to_uses_supporting_plane_not_bounded_face(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 10.0, "y": 10.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        reference = FaceRef("target", "generated", "edge")
+        registry = TopologyRegistry()
+        bounded_face = BRepBuilderAPI_MakeFace(
+            gp_Pln(gp_Pnt(0.0, 20.0, 0.0), gp_Dir(1.0, -1.0, 0.0)),
+            -5.0, 5.0, -5.0, 5.0,
+        ).Face()
+        registry.register_face(reference, bounded_face)
+        shape = self._build_profile(
+            entities,
+            end_condition="up_to",
+            end_reference={
+                "kind": "face",
+                "fallback_origin": [0.0, 20.0, 0.0],
+                "fallback_normal": [1.0, -1.0, 0.0],
+                "reference": reference.to_dict(),
+            },
+            input_registry=registry,
+        )
+
+        vertices = []
+        explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+        while explorer.More():
+            point = BRep_Tool.Pnt(explorer.Current())
+            position = (point.X(), point.Y(), point.Z())
+            if not any(
+                sum((position[i] - old[i]) ** 2 for i in range(3)) < 1.0e-12
+                for old in vertices
+            ):
+                vertices.append(position)
+            explorer.Next()
+        self.assertEqual(len(vertices), 8)
+        self.assertEqual(
+            sum(abs(point[0] - point[1] + 20.0) < 1.0e-6 for point in vertices),
+            4,
         )
 
     def test_through_all_uses_a_calculated_length_without_replacing_manual_length(self):
