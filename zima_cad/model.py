@@ -2612,7 +2612,7 @@ def _make_simple_thin_profile_faces(
     unsupported = any(
         isinstance(item, dict)
         and item.get("role") != "construction"
-        and item.get("type") not in ("point", "segment")
+        and item.get("type") not in ("point", "segment", "construction")
         for item in entities
     )
     if unsupported or not segments or any(

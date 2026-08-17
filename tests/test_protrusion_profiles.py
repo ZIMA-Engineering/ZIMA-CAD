@@ -196,26 +196,26 @@ class ProtrusionProfileTests(unittest.TestCase):
             float(feature.parameters["evaluated_length_forward"]), 20.0
         )
 
-    def test_open_profile_is_surface_only(self):
+    def test_open_profile_requires_thin_and_creates_a_solid(self):
         entities = [
             {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
             {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
             {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
         ]
         self.assertIsNone(self._build_profile(entities))
-        surface = self._build_profile(entities, result_type="surface")
-        self.assertIsNotNone(surface)
-        self.assertTrue(TopExp_Explorer(surface, TopAbs_FACE).More())
-        history_surface = self._build_profile(
+        thin = self._build_profile(entities, result_type="thin")
+        self.assertIsNotNone(thin)
+        self.assertTrue(TopExp_Explorer(thin, TopAbs_SOLID).More())
+        history_thin = self._build_profile(
             entities,
-            result_type="surface",
+            result_type="thin",
             through_history=True,
         )
-        self.assertIsNotNone(history_surface)
-        self.assertTrue(TopExp_Explorer(history_surface, TopAbs_FACE).More())
+        self.assertIsNotNone(history_thin)
+        self.assertTrue(TopExp_Explorer(history_thin, TopAbs_SOLID).More())
         properties = GProp_GProps()
-        brepgprop.VolumeProperties(surface, properties)
-        self.assertAlmostEqual(float(properties.Mass()), 0.0, places=9)
+        brepgprop.VolumeProperties(thin, properties)
+        self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
 
     def test_profile_status_distinguishes_open_and_closed(self):
         def sketch(entities):
@@ -243,7 +243,7 @@ class ProtrusionProfileTests(unittest.TestCase):
         self.assertEqual(sketch_profile_status(sketch(open_entities)), "open")
         self.assertEqual(sketch_profile_status(sketch(closed_entities)), "closed")
 
-    def test_open_profile_can_create_revolved_surface(self):
+    def test_open_profile_can_create_revolved_thin_solid(self):
         entities = [
             {"id": "axis_a", "type": "point", "x": 0.0, "y": -10.0},
             {"id": "axis_b", "type": "point", "x": 0.0, "y": 10.0},
@@ -277,16 +277,20 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "angle": "180",
                 "extent_mode": "one_side",
                 "direction": "forward",
-                "result_type": "surface",
+                "result_type": "thin",
+                "thin_thickness": "1",
+                "thin_mode": "one_side",
             },
         )
         container.add_child(sketch)
         container.add_child(feature)
         document.root.add_child(container)
-        surface = make_revolve_shape(document, container)
-        self.assertIsNotNone(surface)
-        self.assertTrue(TopExp_Explorer(surface, TopAbs_FACE).More())
-        self.assertFalse(TopExp_Explorer(surface, TopAbs_SOLID).More())
+        thin = make_revolve_shape(document, container)
+        self.assertIsNotNone(thin)
+        self.assertTrue(TopExp_Explorer(thin, TopAbs_SOLID).More())
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(thin, properties)
+        self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
 
     def assertHasVolume(self, shape):
         self.assertIsNotNone(shape)

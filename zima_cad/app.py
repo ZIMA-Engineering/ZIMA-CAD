@@ -439,6 +439,16 @@ def localize_dialog_buttons(buttons: QDialogButtonBox) -> None:
         cancel_button.setText(tr("button.cancel"))
 
 
+def translated_build_status(status: str) -> str:
+    """Return a localized user message while preserving unknown diagnostics."""
+    status = str(status).strip()
+    if not status:
+        return ""
+    key = f"tree.state.build_{status}"
+    translated = tr(key)
+    return status if translated == key else translated
+
+
 class DialogMiddleButtonFilter(QObject):
     """Provide the shared middle-button double-click OK convention."""
 
@@ -4866,6 +4876,14 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             widget.setGraphicsEffect(effect)
             self._reverse_length_effects.append(effect)
 
+        self.build_status_label = QLabel()
+        self.build_status_label.setWordWrap(True)
+        self.build_status_label.setStyleSheet(
+            "QLabel { color: #ff8a80; font-weight: 600; }"
+        )
+        feature_form.addRow(self.build_status_label)
+        self.set_build_status(str(feature_parameters.get("build_status", "")))
+
         operation_widget = QWidget()
         operation_layout = QHBoxLayout(operation_widget)
         operation_layout.setContentsMargins(0, 0, 0, 0)
@@ -4993,6 +5011,11 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self._commit_deferred_feature = False
         self._provisional_apply_pending = False
         self._defer_feature_rebuild_for_sketch = False
+
+    def set_build_status(self, status: str) -> None:
+        message = translated_build_status(status)
+        self.build_status_label.setText(message)
+        self.build_status_label.setVisible(bool(message))
 
     @staticmethod
     def _stored_end_targets(
@@ -22177,7 +22200,7 @@ class MainWindow(QMainWindow):
                 item.setForeground(column, text_brush)
             item.setToolTip(
                 0,
-                tr(f"tree.state.build_{feature_status}"),
+                translated_build_status(feature_status),
             )
         self._style_active_component_tree_item(item, obj)
         for child in obj.children:
@@ -52173,6 +52196,18 @@ class MainWindow(QMainWindow):
             and child.parameters.get("build_status")
         ]
         unresolved_entities += len(invalid_features)
+        dialog = self.point_constraint_dialog
+        if isinstance(dialog, ProtrusionConstraintDialog):
+            dialog_owner = dialog.point_object
+            dialog_status = ""
+            if dialog_owner is not None:
+                dialog_status = next((
+                    str(child.parameters.get("build_status", ""))
+                    for child in dialog_owner.children
+                    if child.kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE)
+                    and child.parameters.get("build_status")
+                ), "")
+            dialog.set_build_status(dialog_status)
         selected_id = self.selected_object_id
         self._populate_tree()
         if selected_id is not None:
@@ -52244,16 +52279,24 @@ class MainWindow(QMainWindow):
             # source packet set (including Assembly cuts) has been installed
             # into the new scene.
             self._sync_native_tree_selection()
-        self.statusBar().showMessage(
-            tr(
+        if invalid_features:
+            status_message = tr(
+                "status.regeneration.incomplete_detail",
+                count=regenerated_entities,
+                unresolved=unresolved_entities,
+                error=translated_build_status(
+                    str(invalid_features[0].parameters.get("build_status", ""))
+                ),
+            )
+        else:
+            status_message = tr(
                 "status.regeneration.complete"
                 if unresolved_entities == 0
                 else "status.regeneration.incomplete",
                 count=regenerated_entities,
                 unresolved=unresolved_entities,
-            ),
-            5000,
-        )
+            )
+        self.statusBar().showMessage(status_message, 5000)
 
     def _resolve_viewer_document_context(
         self,
