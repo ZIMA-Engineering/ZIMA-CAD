@@ -286,8 +286,19 @@ lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
 
 Uzavřený profil vytváří běžný solid. Otevřený profil automaticky nabídne režim
 **Thin**, který vytvoří tenkostěnný solid s tloušťkou na první stranu, druhou
-stranu nebo symetricky. Běžný Part nevytváří samostatná plošná tělesa; ta budou
-patřit do budoucího plošného modeláře.
+stranu nebo symetricky. U uzavřené smyčky přímých úseček lze mezi **Těleso** a
+**Thin** zvolit ručně: například uzavřený obdélník vytvoří buď plný kvádr, nebo
+dutou obdélníkovou stěnu mezi dvěma odsazenými smyčkami. Běžný Part nevytváří
+samostatná plošná tělesa; ta budou patřit do budoucího plošného modeláře.
+
+Azurový Thin náhled zobrazuje jednotlivé hrany obou odsazených obrysů,
+podélné hrany v každém rohu a u otevřeného profilu také oba koncové uzávěry.
+Po změně tloušťky nebo volby **První strana / Druhá strana / Symetricky** se
+drát znovu sestaví a nahradí předchozí overlay; nesmí pouze probliknout, zmizet
+ani se nahradit šedým mesh výsledného tělesa. Současná implementace podporuje
+jeden souvislý nevětvený řetězec nebo jednu uzavřenou smyčku z přímých úseček.
+Oblouky, spline, větvení a několik oddělených řetězců se odmítnou s chybou
+profilu Thin.
 
 Protrusion zobrazuje po celou dobu aktivních Vlastností fialový manipulátor a
 žlutou editovatelnou kótu. Tažení je plynulé, zobrazená hodnota se přichytává po

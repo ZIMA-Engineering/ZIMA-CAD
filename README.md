@@ -71,8 +71,11 @@ direction in Part, Assembly and Drawing: forward zooms out and backward zooms
 in. Protrusion and Revolve use a staged workflow: Apply keeps the properties
 open and shows a cyan standalone feature preview without a Boolean operation;
 OK performs the final Fuse/Cut and closes the properties.
-Closed profiles create ordinary solids and open profiles create thin solids;
-the ordinary Part application does not implicitly create standalone surfaces.
+Closed straight-segment profiles can create either ordinary solids or hollow
+Thin solids; open straight-segment chains create Thin solids. Thin wall side
+and symmetric offset changes rebuild the complete persistent cyan wire without
+an OCCT calculation. The ordinary Part application does not implicitly create
+standalone surfaces.
 Their direction-defined Start/End identities, positive in-view dimensions and
 purple extent manipulators remain stable across one-sided, two-sided,
 symmetric and Flip changes. Profile-plane offset and RX/RY/RZ correction use

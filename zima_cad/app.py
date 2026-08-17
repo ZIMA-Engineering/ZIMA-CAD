@@ -4566,6 +4566,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
     cutExceptionsChanged = Signal(list)
     cutExceptionPickingChanged = Signal(bool)
     endReferencePickingChanged = Signal()
+    thinPreviewRefreshRequested = Signal()
 
     def __init__(
         self,
@@ -4733,6 +4734,16 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self.thin_mode_switch_button = QPushButton(tr("protrusion.switch"))
         self.thin_mode_switch_button.clicked.connect(
             lambda _checked=False: self._cycle_combo(self.thin_mode_combo)
+        )
+        # The synchronous combo signal rebuilds the wire while the button
+        # click is still being dispatched. Viewer interaction cleanup at the
+        # end of that click can then clear the freshly installed overlay.
+        # Repeat only the renderer-owned definition notification on the next
+        # event turn, matching the operation-button preview contract.
+        self.thin_mode_switch_button.clicked.connect(
+            lambda _checked=False: QTimer.singleShot(
+                0, self.thinPreviewRefreshRequested.emit
+            )
         )
         thin_mode_layout.addWidget(self.thin_mode_switch_button)
         feature_form.addRow(tr("protrusion.thin.side"), thin_mode_row)
@@ -11505,6 +11516,9 @@ class MainWindow(QMainWindow):
         dialog.definitionChanged.connect(
             lambda: self._preview_protrusion_dialog_frame(dialog)
         )
+        dialog.thinPreviewRefreshRequested.connect(
+            lambda: self._restore_thin_wire_preview(dialog)
+        )
         dialog.definitionChanged.connect(
             lambda: self._show_new_protrusion_extent_handles(dialog)
         )
@@ -11805,10 +11819,20 @@ class MainWindow(QMainWindow):
         wire_preview = self._protrusion_wire_preview(
             dialog, staged_sketch_mesh, staged
         )
+        # A calculated object mesh is a useful last-resort placement preview
+        # for ordinary solid features.  It is never a valid Thin preview: if
+        # construction of the offset boundary fails, showing the old shaded
+        # body makes a side switch look like an enormous filled surface (as
+        # captured in 01.png) and conceals the missing wire.
+        fallback_object_mesh = (
+            None
+            if dialog.result_type_combo.currentData() == "thin"
+            else staged_object_mesh
+        )
         self.native_viewer.set_object_overlay(
             wire_preview
             or self._cyan_viewer_wire(staged_sketch_mesh)
-            or staged_object_mesh,
+            or fallback_object_mesh,
             selected=True,
             locks_interaction=False,
             match_owner_id=self._active_component_entity_id,
@@ -11845,6 +11869,32 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def _restore_thin_wire_preview(
+        self, dialog: ProtrusionConstraintDialog
+    ) -> None:
+        """Reinstall a Thin overlay after a switch without rebuilding scene."""
+        if dialog is not self.point_constraint_dialog or not dialog.isVisible():
+            return
+        coordinate_system = getattr(
+            dialog, "_frame_preview_coordinate_system", None
+        ) or self._definition_preview_coordinate_system()
+        if coordinate_system is None:
+            self.native_viewer.set_object_overlay(None)
+            return
+        profile_mesh = self._new_protrusion_profile_mesh(
+            dialog, coordinate_system
+        )
+        wire_preview = self._protrusion_wire_preview(
+            dialog, profile_mesh, coordinate_system
+        )
+        self.native_viewer.set_object_overlay(
+            wire_preview or self._cyan_viewer_wire(profile_mesh),
+            selected=True,
+            locks_interaction=False,
+            match_owner_id=self._active_component_entity_id,
+        )
+        self.native_viewer.set_passive_sketch_overlay(profile_mesh)
+
     def _new_protrusion_profile_mesh(
         self,
         dialog: ProtrusionConstraintDialog,
@@ -11855,6 +11905,18 @@ class MainWindow(QMainWindow):
             return None
         sketch_id = str(getattr(dialog, "_profile_sketch_id", ""))
         sketch = self.document.find_entity(sketch_id) if sketch_id else None
+        if (
+            sketch is None
+            and str(getattr(dialog, "_profile_source", "internal")) == "internal"
+        ):
+            owner = getattr(dialog, "point_object", None)
+            if isinstance(owner, ZimaEntity):
+                sketch = next((
+                    child for child in owner.children
+                    if child.kind == EntityKind.SKETCH
+                    and child.sketch_role() == SketchRole.PROFILE
+                    and not child.locked
+                ), None)
         if sketch is None or sketch.kind != EntityKind.SKETCH:
             return None
         parent_transform = coordinate_system_transform(coordinate_system)
@@ -11906,6 +11968,112 @@ class MainWindow(QMainWindow):
             adjacency.setdefault(first, []).append(second)
             adjacency.setdefault(second, []).append(first)
         ends = [key for key, neighbours in adjacency.items() if len(neighbours) == 1]
+        closed = not ends and all(
+            len(neighbours) == 2 for neighbours in adjacency.values()
+        )
+        if closed:
+            start = min(adjacency)
+            ordered = [start]
+            previous = ""
+            while True:
+                candidates = sorted(
+                    key for key in adjacency[ordered[-1]] if key != previous
+                )
+                if not candidates:
+                    return None
+                next_key = candidates[0]
+                if next_key == start:
+                    break
+                if next_key in ordered:
+                    return None
+                previous = ordered[-1]
+                ordered.append(next_key)
+            if len(ordered) != len(adjacency):
+                return None
+            chain = [points[key] for key in ordered]
+
+            def offset_loop(distance: float):
+                lines = []
+                for index, first in enumerate(chain):
+                    second = chain[(index + 1) % len(chain)]
+                    dx, dy = second[0] - first[0], second[1] - first[1]
+                    length = math.hypot(dx, dy)
+                    if length <= 1.0e-9:
+                        return None
+                    lines.append((
+                        (first[0] - dy / length * distance,
+                         first[1] + dx / length * distance),
+                        (dx / length, dy / length),
+                    ))
+                result = []
+                for index, current_line in enumerate(lines):
+                    first_point, first_direction = lines[index - 1]
+                    second_point, second_direction = current_line
+                    denominator = (
+                        first_direction[0] * second_direction[1]
+                        - first_direction[1] * second_direction[0]
+                    )
+                    if abs(denominator) <= 1.0e-10:
+                        return None
+                    delta = (
+                        second_point[0] - first_point[0],
+                        second_point[1] - first_point[1],
+                    )
+                    factor = (
+                        delta[0] * second_direction[1]
+                        - delta[1] * second_direction[0]
+                    ) / denominator
+                    intersection = (
+                        first_point[0] + factor * first_direction[0],
+                        first_point[1] + factor * first_direction[1],
+                    )
+                    if math.dist(intersection, chain[index]) > thickness * 100.0:
+                        return None
+                    result.append(intersection)
+                return result
+
+            half = thickness * 0.5
+            distances = {
+                "one_side": (0.0, thickness),
+                "other_side": (-thickness, 0.0),
+                "symmetric": (-half, half),
+            }.get(mode, (0.0, thickness))
+            loops = tuple(offset_loop(distance) for distance in distances)
+            if any(loop is None for loop in loops):
+                return None
+            plane = str(sketch.parameters.get("plane", "xy"))
+            offset = float(sketch.parameters.get("profile_offset", 0.0))
+            transform = multiply_transforms(
+                parent_transform,
+                multiply_transforms(
+                    sketch_plane_offset_transform(plane, offset),
+                    sketch_plane_transform(plane),
+                ),
+            )
+            local_edges = [
+                (loop[index], loop[(index + 1) % len(loop)])
+                for loop in loops for index in range(len(loop))
+            ]
+            edges = tuple(
+                EdgePolyline(
+                    edge_index=index,
+                    points=tuple(transform_point(
+                        transform, (point[0], point[1], 0.0)
+                    ) for point in edge),
+                    owner_id=sketch.entity_id,
+                    element_kind="sketch",
+                    curve_kind="segment",
+                )
+                for index, edge in enumerate(local_edges, start=1)
+            )
+            positions = tuple(point for edge in edges for point in edge.points)
+            return ViewerMesh(
+                triangle_positions=(), triangle_normals=(),
+                triangle_face_indices=(), triangle_owner_ids=(),
+                edges=edges, points=(), planes=(),
+                bounds_min=tuple(min(point[axis] for point in positions) for axis in range(3)),
+                bounds_max=tuple(max(point[axis] for point in positions) for axis in range(3)),
+            )
         if len(ends) != 2 or any(len(value) > 2 for value in adjacency.values()):
             return None
         ordered = [ends[0]]
@@ -12439,6 +12607,9 @@ class MainWindow(QMainWindow):
         )
         dialog.definitionChanged.connect(
             lambda: self._preview_protrusion_dialog_frame(dialog)
+        )
+        dialog.thinPreviewRefreshRequested.connect(
+            lambda: self._restore_thin_wire_preview(dialog)
         )
         for operation_button in (
             dialog.add_operation_button,
@@ -27603,6 +27774,13 @@ class MainWindow(QMainWindow):
             curves,
             key=lambda curve: (
                 0 if getattr(curve, "kind", "") == "circle" else 1,
+                -sum(
+                    math.dist(first, second)
+                    for first, second in zip(
+                        getattr(curve, "points", ()),
+                        getattr(curve, "points", ())[1:],
+                    )
+                ),
                 str(getattr(curve, "reference_id", "")),
             ),
         )
@@ -27764,14 +27942,77 @@ class MainWindow(QMainWindow):
             for second in points[index + 1:]
             if float(np.linalg.norm(second - first)) > 1.0e-9
         ]
-        if not pairs:
-            return None
-        return min(
-            pairs,
-            key=lambda pair: abs(
-                float(np.linalg.norm(pair[1] - pair[0])) - expected_chord
-            ),
+        if pairs:
+            # Preserve the established cylindrical/circular convention.
+            return min(
+                pairs,
+                key=lambda pair: abs(
+                    float(np.linalg.norm(pair[1] - pair[0])) - expected_chord
+                ),
+            )
+        # A straight chamfer has no circular rims. Its two short boundary
+        # edges are the real section chords (distance * sqrt(2) at 45°),
+        # while the other two boundaries run along the treated edge. Use an
+        # actual persisted chord instead of inventing a second witness point.
+        line_pairs = [
+            (np.asarray(curve.points[0], dtype=float),
+             np.asarray(curve.points[-1], dtype=float))
+            for curve in curves
+            if getattr(curve, "kind", "") != "circle"
+            and len(getattr(curve, "points", ())) >= 2
+            and float(np.linalg.norm(
+                np.asarray(curve.points[-1], dtype=float)
+                - np.asarray(curve.points[0], dtype=float)
+            )) > 1.0e-9
+        ]
+        return (
+            min(
+                line_pairs,
+                key=lambda pair: abs(
+                    float(np.linalg.norm(pair[1] - pair[0])) - expected_chord
+                ),
+            )
+            if line_pairs else None
         )
+
+    def _straight_chamfer_dimension_directions(
+        self,
+        container: ZimaEntity,
+        rim_points: tuple[np.ndarray, np.ndarray],
+        edge_direction: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return chamfer-edge and adjacent-face directions in its section."""
+        first, second = (
+            np.asarray(rim_points[0], dtype=float),
+            np.asarray(rim_points[1], dtype=float),
+        )
+        chord = second - first
+        chord_length = float(np.linalg.norm(chord))
+        tangent_length = float(np.linalg.norm(edge_direction))
+        if chord_length <= 1.0e-9 or tangent_length <= 1.0e-9:
+            return None
+        tangent = np.asarray(edge_direction, dtype=float) / tangent_length
+        chord_direction = chord / chord_length
+        section_perpendicular = np.cross(tangent, chord_direction)
+        perpendicular_length = float(np.linalg.norm(section_perpendicular))
+        if perpendicular_length <= 1.0e-9:
+            return None
+        section_perpendicular /= perpendicular_length
+        transform = self._world_transform_for_object(container)
+        owner_origin = np.asarray(
+            transform_point(transform, (0.0, 0.0, 0.0)), dtype=float
+        )
+        # Rotating the 45° chamfer edge by 45° in its normal section yields
+        # either of the two mutually perpendicular adjacent face directions.
+        adjacent = chord_direction + section_perpendicular
+        adjacent_length = float(np.linalg.norm(adjacent))
+        if adjacent_length <= 1.0e-9:
+            return None
+        adjacent /= adjacent_length
+        midpoint = (first + second) * 0.5
+        if float(adjacent @ (midpoint - owner_origin)) < 0.0:
+            adjacent = -adjacent
+        return chord_direction, adjacent
 
     def _show_edge_treatment_dimension(
         self,
@@ -27844,6 +28085,20 @@ class MainWindow(QMainWindow):
                         frame_point + measurement_direction * distance,
                     )
                 first_witness, second_witness = rim_points
+                circular_rims = sum(
+                    getattr(curve, "kind", "") == "circle"
+                    for curve in selected_curves
+                ) >= 2
+                if not circular_rims:
+                    straight_directions = (
+                        self._straight_chamfer_dimension_directions(
+                            container, rim_points, edge_direction
+                        )
+                    )
+                    if straight_directions is not None:
+                        measurement_direction, section_direction = (
+                            straight_directions
+                        )
                 # Put both arrow points on one line parallel to the measured
                 # direction. Each extension therefore starts at its actual
                 # rim circle and runs only in the other section direction.

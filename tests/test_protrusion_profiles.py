@@ -217,6 +217,34 @@ class ProtrusionProfileTests(unittest.TestCase):
         brepgprop.VolumeProperties(thin, properties)
         self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
 
+    def test_closed_rectangle_can_create_either_solid_or_thin(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 10.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 10.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        solid = self._build_profile(entities, result_type="solid")
+        thin = self._build_profile(entities, result_type="thin")
+
+        self.assertIsNotNone(solid)
+        self.assertIsNotNone(thin)
+        self.assertTrue(TopExp_Explorer(solid, TopAbs_SOLID).More())
+        self.assertTrue(TopExp_Explorer(thin, TopAbs_SOLID).More())
+        solid_properties = GProp_GProps()
+        thin_properties = GProp_GProps()
+        brepgprop.VolumeProperties(solid, solid_properties)
+        brepgprop.VolumeProperties(thin, thin_properties)
+        self.assertGreater(float(solid_properties.Mass()), 0.0)
+        self.assertGreater(float(thin_properties.Mass()), 0.0)
+        self.assertLess(
+            float(thin_properties.Mass()), float(solid_properties.Mass())
+        )
+
     def test_profile_status_distinguishes_open_and_closed(self):
         def sketch(entities):
             return ZimaEntity(

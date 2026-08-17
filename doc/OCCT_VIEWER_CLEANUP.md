@@ -42,6 +42,13 @@ calculation paths. Existing calculated wires are read from persisted
 `BodyResult` packets. OCCT is entered only at Apply, OK or explicit model
 regeneration.
 
+Thin previews likewise remain viewer-data-only. Supported open chains and
+closed straight-segment loops are offset in the persisted sketch plane; both
+boundaries, corner-longitudinal edges and open end caps are emitted as cyan
+`EdgePolyline` data. Switching wall side or symmetric mode replaces this
+overlay after the button event without rebuilding the body or substituting a
+cached shaded mesh.
+
 ## Removal sequence
 
 ### 1. Detach the hidden legacy widget — complete

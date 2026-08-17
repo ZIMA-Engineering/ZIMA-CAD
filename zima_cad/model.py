@@ -2578,10 +2578,10 @@ def _make_simple_thin_profile_faces(
     mode: str,
     provenance_target: ZimaEntity | None = None,
 ):
-    """Create one planar band around one open chain of straight segments.
+    """Create one planar band around one straight segment chain or loop.
 
     This deliberately narrow first Thin implementation rejects curves,
-    branches, multiple chains, closed chains and degenerate mitres. Rejection
+    branches, multiple chains and degenerate mitres. Rejection
     is preferable to returning a plausible but topologically wrong solid.
     """
     try:
@@ -2626,6 +2626,138 @@ def _make_simple_thin_profile_faces(
         adjacency.setdefault(first, []).append((second, geometry_id))
         adjacency.setdefault(second, []).append((first, geometry_id))
     ends = [point_id for point_id, linked in adjacency.items() if len(linked) == 1]
+    closed = not ends and all(len(linked) == 2 for linked in adjacency.values())
+    if closed:
+        start = min(adjacency)
+        ordered_ids = [start]
+        ordered_geometry_ids: list[str] = []
+        previous = ""
+        while True:
+            candidates = sorted(
+                (point_id, geometry_id)
+                for point_id, geometry_id in adjacency[ordered_ids[-1]]
+                if point_id != previous
+            )
+            if not candidates:
+                return []
+            next_id, geometry_id = candidates[0]
+            if next_id == start:
+                ordered_geometry_ids.append(geometry_id)
+                break
+            if next_id in ordered_ids:
+                return []
+            previous = ordered_ids[-1]
+            ordered_ids.append(next_id)
+            ordered_geometry_ids.append(geometry_id)
+        if len(ordered_ids) != len(adjacency):
+            return []
+        chain = [points[point_id] for point_id in ordered_ids]
+
+        def offset_loop(distance: float):
+            lines = []
+            for index, first in enumerate(chain):
+                second = chain[(index + 1) % len(chain)]
+                dx, dy = second[0] - first[0], second[1] - first[1]
+                length = math.hypot(dx, dy)
+                if length <= 1.0e-9:
+                    return None
+                lines.append((
+                    (first[0] - dy / length * distance,
+                     first[1] + dx / length * distance),
+                    (dx / length, dy / length),
+                ))
+            result = []
+            for index, current_line in enumerate(lines):
+                previous_line = lines[index - 1]
+                first_point, first_direction = previous_line
+                second_point, second_direction = current_line
+                denominator = (
+                    first_direction[0] * second_direction[1]
+                    - first_direction[1] * second_direction[0]
+                )
+                if abs(denominator) <= 1.0e-10:
+                    return None
+                delta = (
+                    second_point[0] - first_point[0],
+                    second_point[1] - first_point[1],
+                )
+                factor = (
+                    delta[0] * second_direction[1]
+                    - delta[1] * second_direction[0]
+                ) / denominator
+                intersection = (
+                    first_point[0] + factor * first_direction[0],
+                    first_point[1] + factor * first_direction[1],
+                )
+                if math.dist(intersection, chain[index]) > thickness * 100.0:
+                    return None
+                result.append(intersection)
+            return result
+
+        half = thickness * 0.5
+        distances = {
+            "one_side": (0.0, thickness),
+            "other_side": (-thickness, 0.0),
+            "symmetric": (-half, half),
+        }.get(mode, (0.0, thickness))
+        loops = tuple(offset_loop(distance) for distance in distances)
+        if any(loop is None for loop in loops):
+            return []
+
+        def loop_face(loop):
+            builder = BRepBuilderAPI_MakePolygon()
+            for x, y in loop:
+                builder.Add(gp_Pnt(x, y, 0.0))
+            builder.Close()
+            if not builder.IsDone():
+                return None
+            try:
+                face = BRepBuilderAPI_MakeFace(builder.Wire()).Face()
+            except (RuntimeError, ValueError):
+                return None
+            return face if not face.IsNull() else None
+
+        loop_faces = tuple(loop_face(loop) for loop in loops)
+        if any(face is None for face in loop_faces):
+            return []
+        properties = []
+        for face in loop_faces:
+            props = GProp_GProps()
+            brepgprop.SurfaceProperties(face, props)
+            properties.append(abs(float(props.Mass())))
+        outer_index = 0 if properties[0] > properties[1] else 1
+        inner_index = 1 - outer_index
+        if properties[inner_index] <= 1.0e-9:
+            return []
+        band = BRepAlgoAPI_Cut(
+            loop_faces[outer_index], loop_faces[inner_index]
+        ).Shape()
+        if band.IsNull():
+            return []
+        if provenance_target is not None:
+            roles = (
+                ("outside", "inside")
+                if outer_index == 0 else ("inside", "outside")
+            )
+            boundaries = []
+            vertices = []
+            for loop, role in zip(loops, roles):
+                boundaries.extend({
+                    "role": role,
+                    "source_id": geometry_id,
+                    "first": list(loop[index]),
+                    "second": list(loop[(index + 1) % len(loop)]),
+                } for index, geometry_id in enumerate(ordered_geometry_ids))
+                vertices.extend({
+                    "role": role,
+                    "source_id": point_id,
+                    "position": list(loop[index]),
+                } for index, point_id in enumerate(ordered_ids))
+            provenance_target.parameters["thin_profile_provenance"] = json.dumps(
+                {"boundaries": boundaries, "vertices": vertices},
+                sort_keys=True, separators=(",", ":"),
+            )
+        return [band]
     if len(ends) != 2 or any(len(linked) > 2 for linked in adjacency.values()):
         return []
     ordered_ids = [ends[0]]

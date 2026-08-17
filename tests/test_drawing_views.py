@@ -6,6 +6,8 @@ from math import cos, radians, sin
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem, QWidget
@@ -40,7 +42,7 @@ from zima_cad.app import (
     tangent_edge_route,
 )
 from zima_cad.viewer import ExtentHandle
-from zima_cad.body_result import BodyResult, SurfaceDescriptor
+from zima_cad.body_result import BodyResult, CurveDescriptor, SurfaceDescriptor
 from zima_cad.topology import EdgeRef, FaceRef
 from zima_cad.drawing import (
     DrawingCanvas,
@@ -964,6 +966,21 @@ class DrawingViewConventionTests(unittest.TestCase):
         )
         dialog.result_type_flip_button.click()
         self.assertEqual(dialog.result_type_combo.currentData(), "thin")
+        thin_notifications = []
+        thin_refreshes = []
+        dialog.definitionChanged.connect(
+            lambda: thin_notifications.append(
+                str(dialog.thin_mode_combo.currentData())
+            )
+        )
+        dialog.thinPreviewRefreshRequested.connect(
+            lambda: thin_refreshes.append(True)
+        )
+        dialog.thin_mode_switch_button.click()
+        QApplication.processEvents()
+        self.assertEqual(dialog.thin_mode_combo.currentData(), "other_side")
+        self.assertGreaterEqual(len(thin_notifications), 1)
+        self.assertEqual(thin_refreshes, [True])
         dialog.extent_switch_button.click()
         self.assertEqual(dialog.extent_mode_combo.currentData(), "two_sides")
         dialog.forward_length_spin.setValue(10.0)
@@ -5439,6 +5456,99 @@ class DrawingViewConventionTests(unittest.TestCase):
                 (21.0, 0.0, -10.0),
             },
         )
+
+    def test_closed_thin_preview_contains_inner_and_outer_loops(self) -> None:
+        document = create_empty_part()
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id, plane="xz")
+        model = SketchModel.from_editor_data([
+            {"type": "point", "id": "a", "x": 0.0, "y": 0.0},
+            {"type": "point", "id": "b", "x": 20.0, "y": 0.0},
+            {"type": "point", "id": "c", "x": 20.0, "y": 10.0},
+            {"type": "point", "id": "d", "x": 0.0, "y": 10.0},
+            {"type": "segment", "id": "ab", "point_ids": ["a", "b"]},
+            {"type": "segment", "id": "bc", "point_ids": ["b", "c"]},
+            {"type": "segment", "id": "cd", "point_ids": ["c", "d"]},
+            {"type": "segment", "id": "da", "point_ids": ["d", "a"]},
+        ], [])
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        window = MainWindow.__new__(MainWindow)
+
+        mesh = window._persisted_thin_profile_mesh(
+            sketch,
+            coordinate_system_transform(owner.coordinate_system),
+            2.0,
+            "symmetric",
+        )
+
+        self.assertIsNotNone(mesh)
+        self.assertEqual(len(mesh.edges), 8)
+        self.assertEqual(len({point for edge in mesh.edges for point in edge.points}), 8)
+        window.document = document
+        for mode in ("one_side", "other_side", "symmetric"):
+            dialog = SimpleNamespace(
+                _profile_sketch_id="",
+                _profile_source="internal",
+                point_object=owner,
+                result_type_combo=SimpleNamespace(currentData=lambda: "thin"),
+                thin_thickness_spin=SimpleNamespace(value=lambda: 2.0),
+                thin_mode_combo=SimpleNamespace(
+                    currentData=lambda selected=mode: selected
+                ),
+            )
+            refreshed = window._new_protrusion_profile_mesh(
+                dialog, CoordinateSystem()
+            )
+            self.assertIsNotNone(refreshed, mode)
+            self.assertEqual(len(refreshed.edges), 8, mode)
+
+    def test_straight_chamfer_dimension_uses_the_real_short_chord(self) -> None:
+        curves = (
+            CurveDescriptor(
+                "long-a", "other", ((0.0, 0.0, 0.0), (0.0, 100.0, 0.0))
+            ),
+            CurveDescriptor(
+                "short", "other", ((0.0, 0.0, 0.0), (20.0, 0.0, 20.0))
+            ),
+            CurveDescriptor(
+                "long-b", "other", ((20.0, 0.0, 20.0), (20.0, 100.0, 20.0))
+            ),
+        )
+        window = MainWindow.__new__(MainWindow)
+
+        witnesses = window._edge_treatment_rim_points(
+            None, curves, 20.0 * 2.0 ** 0.5
+        )
+
+        self.assertIsNotNone(witnesses)
+        self.assertAlmostEqual(
+            float(((witnesses[1] - witnesses[0]) ** 2).sum()) ** 0.5,
+            20.0 * 2.0 ** 0.5,
+            places=7,
+        )
+
+    def test_straight_chamfer_extension_follows_an_adjacent_face(self) -> None:
+        window = MainWindow.__new__(MainWindow)
+        window._world_transform_for_object = lambda _container: (
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+
+        directions = window._straight_chamfer_dimension_directions(
+            SimpleNamespace(),
+            (
+                np.asarray((0.0, 0.0, 0.0)),
+                np.asarray((20.0, 0.0, 20.0)),
+            ),
+            np.asarray((0.0, 1.0, 0.0)),
+        )
+
+        self.assertIsNotNone(directions)
+        chamfer, extension = directions
+        self.assertAlmostEqual(abs(float(chamfer @ extension)), 2.0 ** -0.5)
+        self.assertAlmostEqual(abs(float(extension[0] * extension[2])), 0.0)
 
 
 if __name__ == "__main__":

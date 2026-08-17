@@ -203,11 +203,17 @@
 ## Surface Modeling
 
 - Keep the ordinary Part application solid-only. A closed profile creates an
-  ordinary solid and an open profile creates a thin solid; neither silently
-  creates a standalone surface body.
+  ordinary solid or, when explicitly selected, a hollow thin solid. An open
+  profile creates a thin solid; neither silently creates a standalone surface
+  body. Straight, unbranched open chains and closed loops are implemented.
+- **Implemented:** the Thin ViewerMesh preview contains both offset boundaries,
+  every corner-longitudinal edge and open-chain end caps. Thickness-side and
+  symmetric switches atomically replace the cyan overlay after button-event
+  cleanup and never fall back to displaying the old shaded result body.
 - Stabilize the current thin-solid foundation first: wall-side controls,
-  Inside/Outside and Start/End identities, self-intersection diagnostics and
-  reference recovery when switching between thin and ordinary solid results.
+  curved-chain offsets, Inside/Outside and Start/End identities,
+  self-intersection diagnostics and reference recovery when switching between
+  thin and ordinary solid results.
 - Add a solid-cut operation driven by a selected surface or surface body. The
   operation must define the retained side explicitly and store stable
   references to the cutting surface.
