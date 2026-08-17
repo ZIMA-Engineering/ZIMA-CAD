@@ -158,6 +158,10 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   FRONT. U roviny, skici, Protrusion a Revolve posune pouze pracovní nebo
   profilovou rovinu v lokálním směru její normály. Neposouvá počátek
   kontejneru ani jeho polohové reference.
+- Každá změna `X/Y/Z`, posunutí polohové reference, `RX/RY/RZ` nebo odsazení
+  pracovní roviny okamžitě znovu sestaví azurový drát náhledu. Jde pouze o
+  viewerový náhled z rozepsaných hodnot; definice kontejneru a historie se
+  uloží a přepočítají až tlačítkem **OK**.
 - Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.

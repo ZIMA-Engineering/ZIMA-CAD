@@ -86,6 +86,23 @@
 - When redesigning topology or serialization, remove obsolete compatibility
   code instead of preserving it behind conditionals.
 
+## Windows runtime and release packaging
+
+- Before changing or publishing a Windows runtime or portable build, read and
+  follow `doc/WINDOWS_RUNTIME_AND_BUILD.md`.
+- Windows numerical runtimes must use the OpenBLAS Conda provider and contain
+  `openblas.dll`, `libblas.dll`, and `libcblas.dll`. A package is not accepted
+  merely because `conda-pack` completed; the packaged runtime smoke test and
+  archive validator must pass.
+- Use the repository Windows packaging scripts. Do not use PowerShell
+  `Compress-Archive` or `Expand-Archive` for the runtime/build tree, and do not
+  bypass the enforced archive-member length budgets.
+- Do not run `conda-unpack` on a runtime before creating a distributable ZIP.
+  It runs once from `zima-cad.bat` after extraction at the final destination.
+- Build release ZIPs from committed Git data in a short staging directory.
+  Never allow untracked working files into a release and never replace a
+  known-good archive until OpenBLAS, path, CRC, SHA-256 and smoke checks pass.
+
 ## OCCT boundary
 
 - Use OCCT only as the solid-modeling kernel for calculating body geometry.

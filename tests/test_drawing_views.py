@@ -21,6 +21,7 @@ from zima_cad.app import (
     ApplicationMode,
     AssemblyComponentPropertiesDialog,
     AxisConstraintDialog,
+    ContainerPropertiesDialog,
     ContainerSummaryDialog,
     DocumentTextInputDialog,
     EdgeTreatmentPropertiesDialog,
@@ -30,9 +31,13 @@ from zima_cad.app import (
     MainWindow,
     MaterialDialog,
     PlaneAttachmentDialog,
+    PlaneConstraintDialog,
     PointConstraintDialog,
     ProtrusionConstraintDialog,
+    RevolveConstraintDialog,
     RelationsDialog,
+    SketchConstraintDialog,
+    SolidConstraintDialog,
     UserParametersDialog,
     SKETCH_CONSTRAINT_SELECTION_TOOLS,
     SKETCH_ENTITY_SELECTION_TOOLS,
@@ -997,6 +1002,76 @@ class DrawingViewConventionTests(unittest.TestCase):
         dialog.close()
         self.assertIsNotNone(application)
 
+    def test_every_container_placement_value_emits_a_preview_change(self):
+        application = QApplication.instance() or QApplication([])
+
+        def solve(_references, fallback):
+            return fallback, 3, "", (False, False, False)
+
+        factories = (
+            ("point", lambda: PointConstraintDialog(solve)),
+            ("axis", lambda: AxisConstraintDialog(solve)),
+            ("plane", lambda: PlaneConstraintDialog(solve)),
+            ("container", lambda: ContainerPropertiesDialog(solve)),
+            ("sketch", lambda: SketchConstraintDialog(solve)),
+            (
+                "solid",
+                lambda: SolidConstraintDialog(solve, EntityKind.BOX),
+            ),
+            ("protrusion", lambda: ProtrusionConstraintDialog(solve, [])),
+            ("revolve", lambda: RevolveConstraintDialog(solve, [])),
+        )
+        for name, factory in factories:
+            dialog = factory()
+            notifications = []
+            dialog.definitionChanged.connect(
+                lambda selected=name: notifications.append(selected)
+            )
+            rotation_edits = (
+                dialog.rotation_edits
+                if hasattr(dialog, "rotation_edits")
+                else dialog.point_rotation_edits
+            )
+            controls = [*dialog.coordinate_edits, *rotation_edits]
+            if hasattr(dialog, "container_plane_offset"):
+                controls.append(dialog.container_plane_offset)
+            for control in controls:
+                before = len(notifications)
+                control.setValue(control.value() + 1.0)
+                application.processEvents()
+                self.assertGreater(len(notifications), before, name)
+            before = len(notifications)
+            reference = {"type": "face", "offset": 0.0}
+            dialog._set_reference_offset(reference, 2.0)
+            application.processEvents()
+            self.assertGreater(len(notifications), before, name)
+            dialog.close()
+            dialog.deleteLater()
+
+        document = create_empty_part()
+        summary_object = document.create_container(
+            "Summary", ContainerType.EMPTY
+        )
+        summary = ContainerSummaryDialog(summary_object, document)
+        summary_notifications = []
+        summary.definitionChanged.connect(
+            lambda: summary_notifications.append(True)
+        )
+        for control in (
+            summary.x_spin,
+            summary.y_spin,
+            summary.z_spin,
+            summary.rx_spin,
+            summary.ry_spin,
+            summary.rz_spin,
+        ):
+            before = len(summary_notifications)
+            control.setValue(control.value() + 1.0)
+            self.assertGreater(len(summary_notifications), before)
+        summary.close()
+        summary.deleteLater()
+        application.processEvents()
+
     def test_protrusion_end_condition_row_tracks_operation_without_replacing_length(self):
         application = QApplication.instance() or QApplication([])
         dialog = ProtrusionConstraintDialog(
@@ -1144,6 +1219,117 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual(refreshed, [dialog])
         dialog.close()
+
+    def test_feature_value_change_redraws_without_submitting_document_state(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+            suggested_name="Preview",
+        )
+        created = []
+        refreshed = []
+        dialog.createProtrusionRequested.connect(
+            lambda *_arguments: created.append(True)
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = None
+        window.point_constraint_dialog = dialog
+        window.native_viewer = SimpleNamespace(
+            set_outline_face_highlights=lambda _active: None,
+        )
+        window._sync_constraint_reference_highlights = lambda: None
+        window._preview_protrusion_dialog_frame = refreshed.append
+        window._restore_container_properties_presentation = lambda _dialog: None
+
+        window._show_properties_dialog(dialog)
+        dialog.coordinate_edits[0].setValue(12.0)
+        application.processEvents()
+
+        self.assertGreaterEqual(len(refreshed), 1)
+        self.assertEqual(created, [])
+        dialog.close()
+
+    def test_generic_property_value_waits_for_ok_before_update_signal(self):
+        application = QApplication.instance() or QApplication([])
+        document = create_empty_part()
+        container = document.create_container("Point", ContainerType.POINT)
+        origin = next(
+            child for child in container.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        point = next(
+            child for child in origin.children
+            if child.kind == EntityKind.POINT
+        )
+        dialog = PointConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            point_object=container,
+            point_entity=point,
+        )
+        updates = []
+        dialog.updateRequested.connect(lambda *_arguments: updates.append(True))
+        window = MainWindow.__new__(MainWindow)
+        window.document = None
+        window.point_constraint_dialog = dialog
+        window.native_viewer = SimpleNamespace(
+            set_outline_face_highlights=lambda _active: None,
+        )
+        window._sync_constraint_reference_highlights = lambda: None
+        window._restore_container_properties_presentation = lambda _dialog: None
+
+        window._show_properties_dialog(dialog)
+        dialog.coordinate_edits[0].setValue(8.0)
+        application.processEvents()
+
+        self.assertEqual(updates, [])
+        dialog.close()
+
+    def test_properties_dimension_stages_work_plane_offset_until_ok(self):
+        application = QApplication.instance() or QApplication([])
+        document = create_empty_part()
+        container = document.create_container(
+            "Protrusion", ContainerType.PROTRUSION
+        )
+        stored_references = [{
+            "type": "container_orientation",
+            "work_plane_offset": 3.0,
+            "mappings": [],
+        }]
+        container.parameters["constraint_refs"] = json.dumps(
+            stored_references
+        )
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+            protrusion=container,
+        )
+        notifications = []
+        dialog.definitionChanged.connect(
+            lambda: notifications.append(True)
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window.point_constraint_dialog = dialog
+
+        window._commit_container_work_plane_offset(
+            container.entity_id, "12.5"
+        )
+
+        self.assertEqual(dialog.container_plane_offset.value(), 12.5)
+        self.assertGreaterEqual(len(notifications), 1)
+        self.assertEqual(
+            json.loads(container.parameters["constraint_refs"]),
+            stored_references,
+        )
+        dialog.close()
+        self.assertIsNotNone(application)
 
     def test_protrusion_property_pick_modes_are_mutually_exclusive(self):
         application = QApplication.instance() or QApplication([])
@@ -1985,6 +2171,48 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertIs(selected, hovered)
         self.assertEqual(repicks, [])
+
+    def test_selection_contract_change_repicks_first_click(self):
+        application = QApplication.instance() or QApplication([])
+        viewer = ZimaOpenGLViewer()
+        stale = ViewerPickCandidate("edge", "old-owner", 4)
+        fresh = ViewerPickCandidate("face", "new-owner", 7)
+        click = QPointF(100.0, 100.0)
+        viewer._provided_hover_candidate = stale
+        viewer._last_model_hover_position = QPointF(click)
+        viewer._cycled_topology_candidate = ("edge", "old-owner", 4)
+        viewer._selection_preview_pending = True
+        viewer._pick_candidate_provider = lambda _position: fresh
+
+        viewer.set_selection_filter("surface")
+        selected = viewer._provided_candidate_for_click(click)
+
+        self.assertIs(selected, fresh)
+        self.assertIsNone(viewer._cycled_topology_candidate)
+        self.assertFalse(viewer._selection_preview_pending)
+        viewer.close()
+        viewer.deleteLater()
+        application.processEvents()
+
+    def test_camera_change_discards_screen_position_candidate(self):
+        application = QApplication.instance() or QApplication([])
+        viewer = ZimaOpenGLViewer()
+        viewer._provided_hover_candidate = ViewerPickCandidate(
+            "face", "old-camera-owner", 3
+        )
+        viewer._last_model_hover_position = QPointF(25.0, 30.0)
+        viewer._cycled_topology_candidate = (
+            "face", "old-camera-owner", 3
+        )
+
+        viewer.set_standard_view("front")
+
+        self.assertIsNone(viewer._provided_hover_candidate)
+        self.assertIsNone(viewer._last_model_hover_position)
+        self.assertIsNone(viewer._cycled_topology_candidate)
+        viewer.close()
+        viewer.deleteLater()
+        application.processEvents()
 
     def test_late_object_hover_does_not_downgrade_cyan_selection(self):
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
@@ -3069,10 +3297,15 @@ class DrawingViewConventionTests(unittest.TestCase):
     def test_large_mesh_face_pick_can_be_enabled_for_assembly_mates(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         viewer._large_mesh_topology_enabled = False
+        invalidated = []
+        viewer._discard_transient_pick_candidates = (
+            lambda: invalidated.append(True)
+        )
 
         viewer.set_large_mesh_topology_enabled(True)
 
         self.assertTrue(viewer._large_mesh_topology_enabled)
+        self.assertEqual(invalidated, [True])
 
     def test_surface_candidate_cycle_ignores_points_and_edges(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
@@ -3654,6 +3887,7 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         window._configure_assembly_reference_picking()
 
+        self.assertIn(("invalidate_pick_candidates", None), calls)
         self.assertIn(("set_selection_enabled", True), calls)
         self.assertIn(("set_selection_filter", "reference"), calls)
         self.assertIn(("set_interaction_mode", "topology"), calls)
@@ -3809,6 +4043,39 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(viewer.interaction_mode, "topology")
         self.assertTrue(viewer.reference_picking)
         dialog.close()
+
+    def test_confirmed_reference_discards_candidate_for_the_next_pick(self):
+        calls = []
+        window = MainWindow.__new__(MainWindow)
+        window.tree = SimpleNamespace(
+            blockSignals=lambda blocked: calls.append(("tree", blocked)),
+            clearSelection=lambda: None,
+            setCurrentItem=lambda _item: None,
+        )
+        window.selected_object_id = "previous"
+        window.point_constraint_dialog = None
+        window.view_selection_filter = SimpleNamespace(value="all")
+        window._sync_constraint_reference_highlights = lambda: None
+        window.native_viewer = SimpleNamespace(
+            blockSignals=lambda _blocked: False,
+            invalidate_pick_candidates=lambda: calls.append(
+                ("invalidate", True)
+            ),
+            _clear_topology_selection=lambda: None,
+            set_selected_reference_owner=lambda _owner: None,
+            set_selected_container_origin=lambda _owner: None,
+            set_selected_container_contents=lambda _owners: None,
+            set_object_overlay=lambda _mesh: None,
+            set_source_topology_hover=lambda _mesh: None,
+            set_selection_filter=lambda value: calls.append(
+                ("filter", value)
+            ),
+        )
+
+        window._reference_selection_confirmed()
+
+        self.assertIn(("invalidate", True), calls)
+        self.assertIn(("filter", "all"), calls)
 
     def test_assembly_choices_sync_generated_solid_axes_before_picking(self) -> None:
         source_document = create_empty_part()
@@ -5413,6 +5680,235 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(mesh.edges[0].points[0], (0.0, 0.0, 0.0))
         self.assertEqual(mesh.edges[0].points[1], (10.0, 0.0, 20.0))
         self.assertEqual(mesh.triangle_positions, ())
+
+    def test_feature_profile_preview_uses_the_staged_work_plane_offset(self):
+        document = create_empty_part()
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id, plane="xz")
+        model = SketchModel.from_editor_data(
+            [
+                {"type": "point", "id": "p1", "x": 0.0, "y": 0.0},
+                {"type": "point", "id": "p2", "x": 10.0, "y": 20.0},
+                {
+                    "type": "segment",
+                    "id": "g1",
+                    "point_ids": ["p1", "p2"],
+                },
+            ],
+            [],
+        )
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        sketch.parameters["profile_offset"] = "99"
+        references = [{
+            "type": "container_orientation",
+            "work_plane_offset": 7.0,
+            "mappings": [],
+        }]
+        dialog = SimpleNamespace(
+            _profile_sketch_id=sketch.entity_id,
+            _profile_source="external",
+            point_object=None,
+            _solution_references=lambda: references,
+            result_type_combo=SimpleNamespace(currentData=lambda: "solid"),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+
+        with patch(
+            "zima_cad.model.make_sketch_shape",
+            side_effect=AssertionError("OCCT sketch construction is forbidden"),
+        ), patch(
+            "zima_cad.app.triangulate_shape",
+            side_effect=AssertionError("OCCT triangulation is forbidden"),
+        ):
+            mesh = window._new_protrusion_profile_mesh(
+                dialog,
+                CoordinateSystem(origin=(3.0, 4.0, 5.0)),
+            )
+
+        self.assertIsNotNone(mesh)
+        self.assertEqual(
+            {round(point[1], 7) for edge in mesh.edges for point in edge.points},
+            {11.0},
+        )
+        rotated = window._new_protrusion_profile_mesh(
+            dialog,
+            CoordinateSystem(
+                origin=(3.0, 4.0, 5.0),
+                rotation=(0.0, 0.0, 90.0),
+            ),
+        )
+        self.assertIsNotNone(rotated)
+        self.assertEqual(
+            tuple(round(value, 7) for value in rotated.edges[0].points[0]),
+            (-4.0, 4.0, 5.0),
+        )
+        self.assertEqual(
+            tuple(round(value, 7) for value in rotated.edges[0].points[1]),
+            (-4.0, 14.0, 25.0),
+        )
+
+    def test_revolve_wire_rebuilds_from_staged_position_and_offset(self):
+        document = create_empty_part()
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id, plane="xz")
+        model = SketchModel.from_editor_data(
+            [
+                {"type": "point", "id": "a", "x": 0.0, "y": -5.0},
+                {"type": "point", "id": "b", "x": 0.0, "y": 5.0},
+                {"type": "point", "id": "p1", "x": 10.0, "y": 0.0},
+                {"type": "point", "id": "p2", "x": 10.0, "y": 5.0},
+                {
+                    "type": "construction",
+                    "id": "axis",
+                    "point_ids": ["a", "b"],
+                },
+                {
+                    "type": "segment",
+                    "id": "profile",
+                    "point_ids": ["p1", "p2"],
+                },
+            ],
+            [],
+        )
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        frame = {
+            "type": "container_orientation",
+            "work_plane_offset": 7.0,
+            "mappings": [],
+        }
+        dialog = SimpleNamespace(
+            _feature_kind=EntityKind.REVOLVE,
+            _profile_sketch_id=sketch.entity_id,
+            _profile_source="external",
+            point_object=None,
+            _solution_references=lambda: [frame],
+            result_type_combo=SimpleNamespace(currentData=lambda: "solid"),
+            forward_length_spin=SimpleNamespace(value=lambda: 90.0),
+            reverse_length_spin=SimpleNamespace(value=lambda: 30.0),
+            extent_mode_combo=SimpleNamespace(currentData=lambda: "one_side"),
+            protrusion_direction_combo=SimpleNamespace(
+                currentData=lambda: "forward"
+            ),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        coordinate_system = CoordinateSystem(origin=(3.0, 4.0, 0.0))
+
+        profile = window._new_protrusion_profile_mesh(
+            dialog, coordinate_system
+        )
+        wire = window._feature_wire_preview(
+            dialog, profile, coordinate_system
+        )
+        self.assertIsNotNone(wire)
+        self.assertAlmostEqual(wire.bounds_min[1], 11.0, places=7)
+        self.assertAlmostEqual(wire.bounds_max[1], 21.0, places=7)
+
+        frame["work_plane_offset"] = -3.0
+        moved_profile = window._new_protrusion_profile_mesh(
+            dialog, coordinate_system
+        )
+        moved_wire = window._feature_wire_preview(
+            dialog, moved_profile, coordinate_system
+        )
+        self.assertIsNotNone(moved_wire)
+        self.assertAlmostEqual(moved_wire.bounds_min[1], 1.0, places=7)
+        self.assertAlmostEqual(moved_wire.bounds_max[1], 11.0, places=7)
+
+    def test_feature_preview_transform_keeps_its_original_baseline(self):
+        base_mesh = self._route_mesh((
+            EdgePolyline(
+                1,
+                ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                owner_id="feature",
+            ),
+        ))
+        owner = SimpleNamespace(
+            coordinate_system=CoordinateSystem(origin=(100.0, 0.0, 0.0)),
+            children=(),
+        )
+
+        class Edit:
+            def __init__(self, value):
+                self._value = value
+
+            def value(self):
+                return self._value
+
+        dialog = SimpleNamespace(
+            point_object=owner,
+            solution=(20.0, 0.0, 0.0),
+            coordinate_edits=(Edit(20.0), Edit(0.0), Edit(0.0)),
+            rotation_edits=(Edit(0.0), Edit(0.0), Edit(0.0)),
+            _solution_references=lambda: [],
+            _frame_preview_object_mesh=base_mesh,
+            _frame_preview_sketch_mesh=None,
+            _frame_preview_world_transform=coordinate_system_transform(
+                CoordinateSystem()
+            ),
+            _frame_preview_local_coordinate_system=CoordinateSystem(),
+            result_type_combo=SimpleNamespace(currentData=lambda: "solid"),
+            isVisible=lambda: False,
+        )
+        overlays = []
+        window = MainWindow.__new__(MainWindow)
+        window.point_constraint_dialog = dialog
+        window._active_component_entity_id = None
+        window._datum_plane_frame = lambda _references, fallback: (
+            fallback, (0.0, 0.0, 0.0)
+        )
+        window._rotation_with_local_offset = lambda base, _offset: base
+        window.rebuild_view = lambda **_kwargs: None
+        window._new_protrusion_profile_mesh = lambda *_args: None
+        window._feature_wire_preview = lambda *_args: None
+        window._cyan_viewer_wire = lambda _mesh: None
+        window._show_new_protrusion_extent_handles = lambda _dialog: None
+        window.native_viewer = SimpleNamespace(
+            set_object_overlay=lambda mesh, **_kwargs: overlays.append(mesh),
+            set_passive_sketch_overlay=lambda _mesh: None,
+        )
+
+        window._preview_protrusion_dialog_frame(dialog)
+
+        self.assertEqual(len(overlays), 1)
+        self.assertEqual(overlays[0].edges[0].points[0], (20.0, 0.0, 0.0))
+        self.assertEqual(overlays[0].edges[0].points[1], (21.0, 0.0, 0.0))
+
+    def test_container_summary_preview_moves_the_cached_cyan_wire(self):
+        base_mesh = self._route_mesh((
+            EdgePolyline(
+                1,
+                ((10.0, 0.0, 0.0), (11.0, 0.0, 0.0)),
+                owner_id="container",
+            ),
+        ))
+        dialog = SimpleNamespace(
+            _preview_object_mesh=base_mesh,
+            _preview_world_transform=coordinate_system_transform(
+                CoordinateSystem(origin=(10.0, 0.0, 0.0))
+            ),
+            _preview_local_coordinate_system=CoordinateSystem(
+                origin=(10.0, 0.0, 0.0)
+            ),
+            preview_coordinate_system=lambda: CoordinateSystem(
+                origin=(15.0, 0.0, 0.0)
+            ),
+            isVisible=lambda: True,
+        )
+        overlays = []
+        window = MainWindow.__new__(MainWindow)
+        window.container_summary_dialog = dialog
+        window._active_component_entity_id = None
+        window.native_viewer = SimpleNamespace(
+            set_object_overlay=lambda mesh, **_kwargs: overlays.append(mesh),
+        )
+
+        window._preview_container_summary_dialog(dialog)
+
+        self.assertEqual(len(overlays), 1)
+        self.assertEqual(overlays[0].edges[0].points[0], (15.0, 0.0, 0.0))
+        self.assertEqual(overlays[0].edges[0].points[1], (16.0, 0.0, 0.0))
 
     def test_thin_profile_preview_uses_offset_boundaries_and_end_caps(self) -> None:
         document = create_empty_part()

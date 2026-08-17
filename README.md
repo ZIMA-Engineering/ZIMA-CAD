@@ -379,7 +379,10 @@ A value without language, such as `norma=...`, is shared by all languages.
 
 ## Runtime Packaging
 
-Windows runtime is built from the current Conda environment:
+The complete Windows runtime/build procedure and the mandatory release checks
+are documented in [`doc/WINDOWS_RUNTIME_AND_BUILD.md`](doc/WINDOWS_RUNTIME_AND_BUILD.md).
+The Windows runtime must use the OpenBLAS Conda provider and is built from a
+Windows Conda environment:
 
 ```powershell
 .\tools\pack-windows-runtime.ps1
@@ -403,8 +406,23 @@ The unpacked runtime goes to:
 runtime/windows/python/
 ```
 
-The unpack script uses Windows `tar` instead of PowerShell `Expand-Archive`
-because it handles the large runtime ZIP much better.
+The scripts validate the OpenBLAS DLLs, reject development-only long paths,
+perform a complete ZIP/CRC check, and smoke-test NumPy, PySide6 and OCCT. The
+unpack script uses Windows `tar` instead of PowerShell `Expand-Archive`.
+`conda-unpack` is deliberately deferred until `zima-cad.bat` first runs from
+the final application directory; a finalized runtime must not be moved.
+
+A complete release ZIP is built only from committed source, the validated
+runtime and a short staging path:
+
+```powershell
+.\tools\pack-windows-build.ps1 -BuildDate 2026.08.17
+```
+
+The packer rejects runtime members longer than 140 characters and full-build
+members longer than 180 characters. It uses Windows `tar.exe`, never
+`Compress-Archive`, and does not replace the previous known-good ZIP unless all
+checks pass.
 
 Linux runtime must be built on Linux or WSL because it contains Linux native
 `.so` libraries. It cannot be created correctly from Windows.

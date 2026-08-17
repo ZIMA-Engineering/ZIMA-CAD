@@ -16,6 +16,8 @@ venv/
 # Packaged runtimes and build outputs
 runtime/windows/python/
 runtime/windows/*.zip
+runtime/windows/.python-candidate-*/
+runtime/windows/.python-previous-*/
 runtime/linux/python/
 runtime/linux/*.tar*
 build/

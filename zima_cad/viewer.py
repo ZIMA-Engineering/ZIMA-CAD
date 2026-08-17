@@ -692,6 +692,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._model_hover_clear_timer.timeout.connect(
             self._clear_delayed_model_hover
         )
+        # A hover/cycle candidate is valid only for the camera projection
+        # which produced it.  Without this reset, the first LMB after orbit,
+        # pan or zoom could confirm topology which had occupied the same
+        # screen pixel before navigation.
+        self.navigationChanged.connect(
+            lambda _camera: self._discard_transient_pick_candidates()
+        )
+        self.viewportResized.connect(
+            lambda _width, _height, _ratio:
+            self._discard_transient_pick_candidates()
+        )
         self._dimensions: tuple[
             LinearDimension | AngularDimension | RadialDimension, ...
         ] = ()
@@ -921,7 +932,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self.update()
 
     def set_sketch_reference_selection_mode(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        changed = enabled != self._sketch_reference_selection_mode
         self._sketch_reference_selection_mode = enabled
+        if changed:
+            self._discard_transient_pick_candidates()
         if enabled:
             self._preview_sketch_entity_id = None
             self._sketch_cycle_ids = ()
@@ -1677,7 +1692,21 @@ class ZimaOpenGLViewer(QOpenGLWidget):
     def set_pick_candidate_provider(self, provider) -> None:
         """Set the candidate source used by the common hover/click path."""
         self._pick_candidate_provider = provider
-        self._provided_hover_candidate = None
+        # The provider reads the current scene and command contract.  Even
+        # when the callable itself is unchanged, a viewer rebuild can make a
+        # candidate produced by its previous scene invalid.
+        self._discard_transient_pick_candidates()
+
+    def _discard_transient_pick_candidates(self) -> None:
+        """Drop unconfirmed candidates without clearing confirmed selection."""
+        self._model_hover_timer.stop()
+        self._model_hover_clear_timer.stop()
+        self._pending_model_hover_position = None
+        self._last_model_hover_position = None
+        self._selection_preview_pending = False
+        self._cycled_topology_candidate = None
+        self._clear_provided_hover()
+        self._clear_topology_hover()
 
     def invalidate_pick_candidates(self) -> None:
         """Discard every candidate produced by the previous contract.
@@ -1688,14 +1717,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         accepted all topology can steal the first click after Up-to narrows
         the contract to faces/points/planes.
         """
-        self._model_hover_timer.stop()
-        self._model_hover_clear_timer.stop()
-        self._pending_model_hover_position = None
-        self._last_model_hover_position = None
-        self._selection_preview_pending = False
-        self._cycled_topology_candidate = None
-        self._clear_provided_hover()
-        self._clear_topology_hover()
+        self._discard_transient_pick_candidates()
         self._clear_topology_selection()
         self.update()
 
@@ -2214,33 +2236,44 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if selection_filter == self._selection_filter:
             return
         self._selection_filter = selection_filter
-        self._set_hovered_edge(None)
-        self._set_hovered_face(None)
-        self._set_hovered_point(None)
+        self._discard_transient_pick_candidates()
         self._set_selected_edge(None)
         self._set_selected_face(None)
         self._set_selected_point(None)
-        self._set_hovered_plane(None)
         self._set_selected_plane(None)
         self.selectionFilterChanged.emit(selection_filter)
 
     def set_large_mesh_topology_enabled(self, enabled: bool) -> None:
         """Allow real face picking when a large-scene reference tool needs it."""
-        self._large_mesh_topology_enabled = bool(enabled)
+        enabled = bool(enabled)
+        if enabled == self._large_mesh_topology_enabled:
+            return
+        self._large_mesh_topology_enabled = enabled
+        self._discard_transient_pick_candidates()
 
     def set_reference_picking_active(self, enabled: bool) -> None:
         """Keep object hover while giving topology priority on click."""
-        self._reference_picking_active = bool(enabled)
+        enabled = bool(enabled)
+        if enabled == self._reference_picking_active:
+            return
+        self._reference_picking_active = enabled
+        self._discard_transient_pick_candidates()
 
     def set_topology_owner_filter(self, owner_ids: set[str] | None) -> None:
-        self._topology_owner_filter = (
+        owner_filter = (
             None if owner_ids is None else frozenset(owner_ids)
         )
-        self._clear_topology_hover()
+        if owner_filter == self._topology_owner_filter:
+            return
+        self._topology_owner_filter = owner_filter
+        self._discard_transient_pick_candidates()
 
     def set_excluded_topology_owners(self, owner_ids: set[str]) -> None:
-        self._excluded_topology_owner_ids = frozenset(owner_ids)
-        self._clear_topology_hover()
+        excluded = frozenset(owner_ids)
+        if excluded == self._excluded_topology_owner_ids:
+            return
+        self._excluded_topology_owner_ids = excluded
+        self._discard_transient_pick_candidates()
 
     def set_excluded_object_owners(self, owner_ids: set[str]) -> None:
         """Disable viewport object picks while retaining tree highlights."""
@@ -2248,6 +2281,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if excluded == self._excluded_object_owner_ids:
             return
         self._excluded_object_owner_ids = excluded
+        self._discard_transient_pick_candidates()
         if self._hovered_object_id in excluded:
             self._set_hovered_object(None)
         if self._selected_object_id in excluded:
@@ -2271,9 +2305,9 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         if interaction_mode == self._interaction_mode:
             return
         self._interaction_mode = interaction_mode
+        self._discard_transient_pick_candidates()
         self._set_hovered_object(None)
         self._set_selected_object(None)
-        self._clear_topology_hover()
         self._clear_topology_selection()
 
     @property
@@ -2281,12 +2315,11 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         return self._selection_filter
 
     def set_selection_enabled(self, enabled: bool) -> None:
-        self._selection_enabled = bool(enabled)
-        if not enabled:
-            self._set_hovered_edge(None)
-            self._set_hovered_face(None)
-            self._set_hovered_point(None)
-            self._set_hovered_plane(None)
+        enabled = bool(enabled)
+        if enabled == self._selection_enabled:
+            return
+        self._selection_enabled = enabled
+        self._discard_transient_pick_candidates()
 
     def set_outline_face_highlights(self, enabled: bool) -> None:
         self._outline_face_highlights = bool(enabled)

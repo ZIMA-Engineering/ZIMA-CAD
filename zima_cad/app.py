@@ -1542,6 +1542,8 @@ class EdgeTreatmentPropertiesDialog(QDialog):
 
 
 class ContainerSummaryDialog(DocumentSubWindowDialog):
+    definitionChanged = Signal()
+
     def __init__(self, obj: ZimaEntity, document: PartDocument, parent=None) -> None:
         super().__init__(tr("dialog.properties.title", name=obj.name), parent)
         self.object = obj
@@ -1570,6 +1572,17 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
         self.rx_spin.setValue(float(rx))
         self.ry_spin.setValue(float(ry))
         self.rz_spin.setValue(float(rz))
+        for spinbox in (
+            self.x_spin,
+            self.y_spin,
+            self.z_spin,
+            self.rx_spin,
+            self.ry_spin,
+            self.rz_spin,
+        ):
+            spinbox.valueChanged.connect(
+                lambda _value: self.definitionChanged.emit()
+            )
 
         layout.addRow(tr("dialog.properties.name"), self.name_edit)
         layout.addRow(
@@ -1729,6 +1742,20 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
             )
             self.object.attachment.flip_normal = self.flip_checkbox.isChecked()
         return True
+
+    def preview_coordinate_system(self) -> CoordinateSystem:
+        return CoordinateSystem(
+            origin=(
+                self.x_spin.value(),
+                self.y_spin.value(),
+                self.z_spin.value(),
+            ),
+            rotation=(
+                self.rx_spin.value(),
+                self.ry_spin.value(),
+                self.rz_spin.value(),
+            ),
+        )
 
 
 PRIMITIVE_PARAMETER_DEFINITIONS = {
@@ -2509,7 +2536,7 @@ class PointConstraintDialog(QDialog):
         point_object: ZimaEntity,
         point_entity: ZimaEntity,
     ) -> None:
-        """Continue a create dialog as an editor after its first Apply."""
+        """Continue after a workflow creates its provisional owner."""
         self.point_object = point_object
         self.point_entity = point_entity
         self.edit_mode = True
@@ -11513,14 +11540,8 @@ class MainWindow(QMainWindow):
                 dialog, direction
             )
         )
-        dialog.definitionChanged.connect(
-            lambda: self._preview_protrusion_dialog_frame(dialog)
-        )
         dialog.thinPreviewRefreshRequested.connect(
             lambda: self._restore_thin_wire_preview(dialog)
-        )
-        dialog.definitionChanged.connect(
-            lambda: self._show_new_protrusion_extent_handles(dialog)
         )
         for operation_button in (
             dialog.add_operation_button,
@@ -11631,11 +11652,23 @@ class MainWindow(QMainWindow):
                 sketch_id,
             )
         )
+        dialog.thinPreviewRefreshRequested.connect(
+            lambda: self._restore_thin_wire_preview(dialog)
+        )
+        for operation_button in (
+            dialog.add_operation_button,
+            dialog.subtract_operation_button,
+        ):
+            operation_button.clicked.connect(
+                lambda _checked=False, target=dialog:
+                self._queue_protrusion_operation_preview(target)
+            )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._preview_protrusion_dialog_frame(dialog)
 
     def _edit_revolve(
         self,
@@ -11703,6 +11736,17 @@ class MainWindow(QMainWindow):
                 sketch_id,
             )
         )
+        dialog.thinPreviewRefreshRequested.connect(
+            lambda: self._restore_thin_wire_preview(dialog)
+        )
+        for operation_button in (
+            dialog.add_operation_button,
+            dialog.subtract_operation_button,
+        ):
+            operation_button.clicked.connect(
+                lambda _checked=False, target=dialog:
+                self._queue_protrusion_operation_preview(target)
+            )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
@@ -11715,12 +11759,33 @@ class MainWindow(QMainWindow):
         if rebuild_rollback:
             self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
+        self._capture_feature_preview_frame(dialog, obj)
+        self._preview_protrusion_dialog_frame(dialog)
+
+    def _capture_feature_preview_frame(
+        self,
+        dialog: ProtrusionConstraintDialog,
+        owner: ZimaEntity,
+    ) -> None:
+        """Freeze one consistent persisted frame for repeated live edits."""
+        dialog._frame_preview_object_mesh = (
+            self.native_viewer._object_overlay_mesh
+        )
+        dialog._frame_preview_sketch_mesh = (
+            self.native_viewer._passive_sketch_overlay_mesh
+        )
+        dialog._frame_preview_world_transform = (
+            self._world_transform_for_object(owner)
+        )
+        dialog._frame_preview_local_coordinate_system = copy.deepcopy(
+            owner.coordinate_system
+        )
 
     def _preview_protrusion_dialog_frame(
         self,
         dialog: ProtrusionConstraintDialog,
     ) -> None:
-        """Transform the persisted wire with the dialog's staged RX/RY/RZ."""
+        """Redraw the feature wire from every staged placement value."""
         owner = dialog.point_object
         base_mesh = getattr(dialog, "_frame_preview_object_mesh", None)
         base_sketch = getattr(dialog, "_frame_preview_sketch_mesh", None)
@@ -11736,7 +11801,7 @@ class MainWindow(QMainWindow):
             profile_mesh = self._new_protrusion_profile_mesh(
                 dialog, coordinate_system
             )
-            wire_preview = self._protrusion_wire_preview(
+            wire_preview = self._feature_wire_preview(
                 dialog, profile_mesh, coordinate_system
             ) if coordinate_system is not None else None
             visible_wire = wire_preview or self._cyan_viewer_wire(profile_mesh)
@@ -11791,9 +11856,14 @@ class MainWindow(QMainWindow):
             matrix[:3, :4] = np.array(transform, dtype=float)[:3, :4]
             return matrix
 
-        current_local = homogeneous(
-            coordinate_system_transform(owner.coordinate_system)
+        baseline_coordinate_system = getattr(
+            dialog,
+            "_frame_preview_local_coordinate_system",
+            owner.coordinate_system,
         )
+        current_local = homogeneous(coordinate_system_transform(
+            baseline_coordinate_system
+        ))
         current_world = homogeneous(base_world)
         staged_local = homogeneous(
             coordinate_system_transform(staged)
@@ -11816,7 +11886,7 @@ class MainWindow(QMainWindow):
             and dialog.result_type_combo.currentData() != "thin"
         ):
             staged_sketch_mesh = transform_viewer_mesh(base_sketch, transform)
-        wire_preview = self._protrusion_wire_preview(
+        wire_preview = self._feature_wire_preview(
             dialog, staged_sketch_mesh, staged
         )
         # A calculated object mesh is a useful last-resort placement preview
@@ -11884,7 +11954,7 @@ class MainWindow(QMainWindow):
         profile_mesh = self._new_protrusion_profile_mesh(
             dialog, coordinate_system
         )
-        wire_preview = self._protrusion_wire_preview(
+        wire_preview = self._feature_wire_preview(
             dialog, profile_mesh, coordinate_system
         )
         self.native_viewer.set_object_overlay(
@@ -11903,11 +11973,54 @@ class MainWindow(QMainWindow):
         """Build a creation preview from persisted sketch entities only."""
         if self.document is None or coordinate_system is None:
             return None
+        sketch = self._feature_profile_sketch(dialog)
+        if sketch is None or sketch.kind != EntityKind.SKETCH:
+            return None
+        references_getter = getattr(dialog, "_solution_references", None)
+        references = references_getter() if callable(references_getter) else []
+        stored_plane = str(sketch.parameters.get("plane", "xy"))
+        plane = (
+            self._datum_plane_frame(references, stored_plane)[0]
+            if str(getattr(dialog, "_profile_source", "internal"))
+            == "internal"
+            and references
+            else stored_plane
+        )
+        # The feature container owns its work-plane offset.  Reading the
+        # sketch's persisted value here made the cyan wire lag one edit behind
+        # (and external sketches never moved at all) until a provisional model
+        # update happened to rewrite the stored parameters.
+        profile_offset = self._container_plane_offset(references)
+        parent_transform = coordinate_system_transform(coordinate_system)
+        if dialog.result_type_combo.currentData() == "thin":
+            return self._persisted_thin_profile_mesh(
+                sketch,
+                parent_transform,
+                dialog.thin_thickness_spin.value(),
+                str(dialog.thin_mode_combo.currentData()),
+                plane=plane,
+                profile_offset=profile_offset,
+            )
+        return self._persisted_sketch_profile_mesh(
+            sketch,
+            parent_transform,
+            plane=plane,
+            profile_offset=profile_offset,
+        )
+
+    def _feature_profile_sketch(
+        self,
+        dialog: ProtrusionConstraintDialog,
+    ) -> ZimaEntity | None:
+        """Return the persisted profile geometry borrowed by a feature."""
+        if self.document is None:
+            return None
         sketch_id = str(getattr(dialog, "_profile_sketch_id", ""))
         sketch = self.document.find_entity(sketch_id) if sketch_id else None
         if (
             sketch is None
-            and str(getattr(dialog, "_profile_source", "internal")) == "internal"
+            and str(getattr(dialog, "_profile_source", "internal"))
+            == "internal"
         ):
             owner = getattr(dialog, "point_object", None)
             if isinstance(owner, ZimaEntity):
@@ -11917,17 +12030,11 @@ class MainWindow(QMainWindow):
                     and child.sketch_role() == SketchRole.PROFILE
                     and not child.locked
                 ), None)
-        if sketch is None or sketch.kind != EntityKind.SKETCH:
-            return None
-        parent_transform = coordinate_system_transform(coordinate_system)
-        if dialog.result_type_combo.currentData() == "thin":
-            return self._persisted_thin_profile_mesh(
-                sketch,
-                parent_transform,
-                dialog.thin_thickness_spin.value(),
-                str(dialog.thin_mode_combo.currentData()),
-            )
-        return self._persisted_sketch_profile_mesh(sketch, parent_transform)
+        return (
+            sketch
+            if sketch is not None and sketch.kind == EntityKind.SKETCH
+            else None
+        )
 
     def _persisted_thin_profile_mesh(
         self,
@@ -11935,6 +12042,9 @@ class MainWindow(QMainWindow):
         parent_transform,
         thickness: float,
         mode: str,
+        *,
+        plane: str | None = None,
+        profile_offset: float | None = None,
     ) -> ViewerMesh | None:
         """Build the supported straight-chain Thin boundary without OCCT."""
         entities = self._stored_sketch_entities(sketch)
@@ -12041,13 +12151,19 @@ class MainWindow(QMainWindow):
             loops = tuple(offset_loop(distance) for distance in distances)
             if any(loop is None for loop in loops):
                 return None
-            plane = str(sketch.parameters.get("plane", "xy"))
-            offset = float(sketch.parameters.get("profile_offset", 0.0))
+            active_plane = plane or str(
+                sketch.parameters.get("plane", "xy")
+            )
+            offset = (
+                float(profile_offset)
+                if profile_offset is not None
+                else float(sketch.parameters.get("profile_offset", 0.0))
+            )
             transform = multiply_transforms(
                 parent_transform,
                 multiply_transforms(
-                    sketch_plane_offset_transform(plane, offset),
-                    sketch_plane_transform(plane),
+                    sketch_plane_offset_transform(active_plane, offset),
+                    sketch_plane_transform(active_plane),
                 ),
             )
             local_edges = [
@@ -12148,13 +12264,17 @@ class MainWindow(QMainWindow):
         )
         if any(side is None for side in sides):
             return None
-        plane = str(sketch.parameters.get("plane", "xy"))
-        offset = float(sketch.parameters.get("profile_offset", 0.0))
+        active_plane = plane or str(sketch.parameters.get("plane", "xy"))
+        offset = (
+            float(profile_offset)
+            if profile_offset is not None
+            else float(sketch.parameters.get("profile_offset", 0.0))
+        )
         transform = multiply_transforms(
             parent_transform,
             multiply_transforms(
-                sketch_plane_offset_transform(plane, offset),
-                sketch_plane_transform(plane),
+                sketch_plane_offset_transform(active_plane, offset),
+                sketch_plane_transform(active_plane),
             ),
         )
         # Keep each actual straight boundary as its own viewer edge.  The
@@ -12195,17 +12315,24 @@ class MainWindow(QMainWindow):
         self,
         sketch: ZimaEntity,
         parent_transform,
+        *,
+        plane: str | None = None,
+        profile_offset: float | None = None,
     ) -> ViewerMesh | None:
         """Build a sketch wire solely from persisted ZIMA viewer data."""
         if sketch.kind != EntityKind.SKETCH:
             return None
-        plane = str(sketch.parameters.get("plane", "xy"))
-        offset = float(sketch.parameters.get("profile_offset", 0.0))
+        active_plane = plane or str(sketch.parameters.get("plane", "xy"))
+        offset = (
+            float(profile_offset)
+            if profile_offset is not None
+            else float(sketch.parameters.get("profile_offset", 0.0))
+        )
         transform = multiply_transforms(
             parent_transform,
             multiply_transforms(
-                sketch_plane_offset_transform(plane, offset),
-                sketch_plane_transform(plane),
+                sketch_plane_offset_transform(active_plane, offset),
+                sketch_plane_transform(active_plane),
             ),
         )
 
@@ -12284,6 +12411,206 @@ class MainWindow(QMainWindow):
             ),
             points=(),
             planes=(),
+        )
+
+    def _feature_wire_preview(
+        self,
+        dialog: ProtrusionConstraintDialog,
+        sketch_mesh: ViewerMesh | None,
+        coordinate_system: CoordinateSystem,
+    ) -> ViewerMesh | None:
+        """Build the staged feature wire through its persisted-data path."""
+        if getattr(dialog, "_feature_kind", None) == EntityKind.REVOLVE:
+            return self._revolve_wire_preview(
+                dialog, sketch_mesh, coordinate_system
+            )
+        return self._protrusion_wire_preview(
+            dialog, sketch_mesh, coordinate_system
+        )
+
+    def _revolve_wire_preview(
+        self,
+        dialog: ProtrusionConstraintDialog,
+        sketch_mesh: ViewerMesh | None,
+        coordinate_system: CoordinateSystem,
+    ) -> ViewerMesh | None:
+        """Build a Revolve wire from persisted 2D geometry without OCCT."""
+        if sketch_mesh is None or not sketch_mesh.edges:
+            return None
+        sketch = self._feature_profile_sketch(dialog)
+        if sketch is None:
+            return None
+        references_getter = getattr(dialog, "_solution_references", None)
+        references = references_getter() if callable(references_getter) else []
+        entities = self._stored_sketch_entities(sketch)
+        points = {
+            str(item.get("id", "")): (
+                float(item.get("x", 0.0)),
+                float(item.get("y", 0.0)),
+            )
+            for item in entities
+            if isinstance(item, dict) and item.get("type") == "point"
+        }
+        axis_geometry = next((
+            item for item in entities
+            if isinstance(item, dict)
+            and item.get("type") == "construction"
+            and len(item.get("point_ids", ())) == 2
+        ), None)
+        if axis_geometry is None:
+            return None
+        axis_ids = tuple(map(str, axis_geometry.get("point_ids", ())))
+        if len(axis_ids) != 2 or any(key not in points for key in axis_ids):
+            return None
+
+        stored_plane = str(sketch.parameters.get("plane", "xz"))
+        plane = (
+            self._datum_plane_frame(references, stored_plane)[0]
+            if str(getattr(dialog, "_profile_source", "internal"))
+            == "internal"
+            and references
+            else stored_plane
+        )
+        profile_offset = self._container_plane_offset(references)
+        profile_transform = multiply_transforms(
+            coordinate_system_transform(coordinate_system),
+            multiply_transforms(
+                sketch_plane_offset_transform(plane, profile_offset),
+                sketch_plane_transform(plane),
+            ),
+        )
+        axis_start = transform_point(
+            profile_transform, (*points[axis_ids[0]], 0.0)
+        )
+        axis_end = transform_point(
+            profile_transform, (*points[axis_ids[1]], 0.0)
+        )
+        axis_direction = self._normalized_vector(tuple(
+            axis_end[index] - axis_start[index] for index in range(3)
+        ))
+        if axis_direction == (0.0, 0.0, 0.0):
+            return None
+
+        angle = min(360.0, max(0.001, dialog.forward_length_spin.value()))
+        reverse_angle = min(
+            360.0, max(0.001, dialog.reverse_length_spin.value())
+        )
+        extent_mode = str(dialog.extent_mode_combo.currentData())
+        if extent_mode == "symmetric":
+            half_angle = min(angle, 180.0)
+            start_angle, end_angle = -half_angle, half_angle
+        elif extent_mode == "two_sides":
+            start_angle = -min(reverse_angle, max(0.0, 360.0 - angle))
+            end_angle = angle
+        elif dialog.protrusion_direction_combo.currentData() == "reverse":
+            start_angle, end_angle = -angle, 0.0
+        else:
+            start_angle, end_angle = 0.0, angle
+
+        def rotate(
+            point: tuple[float, float, float], degrees: float
+        ) -> tuple[float, float, float]:
+            vector = tuple(
+                point[index] - axis_start[index] for index in range(3)
+            )
+            radians_value = math.radians(degrees)
+            cosine, sine = math.cos(radians_value), math.sin(radians_value)
+            cross = self._cross_product(axis_direction, vector)
+            projection = sum(
+                axis_direction[index] * vector[index]
+                for index in range(3)
+            )
+            return tuple(
+                axis_start[index]
+                + vector[index] * cosine
+                + cross[index] * sine
+                + axis_direction[index]
+                * projection
+                * (1.0 - cosine)
+                for index in range(3)
+            )
+
+        preview_edges: list[EdgePolyline] = []
+        edge_index = 1
+        full_revolution = (
+            end_angle - start_angle >= 360.0 - 1.0e-7
+        )
+        boundary_angles = (
+            (start_angle,)
+            if full_revolution
+            else (start_angle, end_angle)
+        )
+        sweep_points: dict[
+            tuple[float, float, float], tuple[float, float, float]
+        ] = {}
+        for edge in sketch_mesh.edges:
+            if len(edge.points) < 2:
+                continue
+            for boundary_angle in boundary_angles:
+                preview_edges.append(EdgePolyline(
+                    edge_index=edge_index,
+                    points=tuple(
+                        rotate(point, boundary_angle)
+                        for point in edge.points
+                    ),
+                    owner_id="revolve-preview",
+                    element_kind="sketch",
+                    curve_kind=edge.curve_kind,
+                    base_color=FEATURE_PREVIEW_RGB,
+                ))
+                edge_index += 1
+            closed_edge = (
+                edge.curve_kind == "circle"
+                or math.dist(edge.points[0], edge.points[-1]) <= 1.0e-7
+            )
+            candidates = (
+                (edge.points[0],)
+                if closed_edge
+                else (edge.points[0], edge.points[-1])
+            )
+            for point in candidates:
+                sweep_points.setdefault(
+                    tuple(round(value, 9) for value in point), point
+                )
+
+        sweep = end_angle - start_angle
+        sample_count = max(2, int(math.ceil(abs(sweep) / 15.0)) + 1)
+        for point in sweep_points.values():
+            preview_edges.append(EdgePolyline(
+                edge_index=edge_index,
+                points=tuple(
+                    rotate(
+                        point,
+                        start_angle
+                        + sweep * sample / (sample_count - 1),
+                    )
+                    for sample in range(sample_count)
+                ),
+                owner_id="revolve-preview",
+                element_kind="sketch",
+                curve_kind="arc",
+                base_color=FEATURE_PREVIEW_RGB,
+            ))
+            edge_index += 1
+        positions = tuple(
+            point for edge in preview_edges for point in edge.points
+        )
+        if not positions:
+            return None
+        return ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=tuple(preview_edges),
+            points=(),
+            planes=(),
+            bounds_min=tuple(
+                min(point[axis] for point in positions) for axis in range(3)
+            ),
+            bounds_max=tuple(
+                max(point[axis] for point in positions) for axis in range(3)
+            ),
         )
 
     def _protrusion_wire_preview(
@@ -12605,9 +12932,6 @@ class MainWindow(QMainWindow):
                 dialog, direction
             )
         )
-        dialog.definitionChanged.connect(
-            lambda: self._preview_protrusion_dialog_frame(dialog)
-        )
         dialog.thinPreviewRefreshRequested.connect(
             lambda: self._restore_thin_wire_preview(dialog)
         )
@@ -12629,15 +12953,7 @@ class MainWindow(QMainWindow):
         if rebuild_rollback:
             self.rebuild_view(fit=False, rebuild_geometry=True)
         self._show_protrusion_profile_overlay(obj)
-        dialog._frame_preview_object_mesh = (
-            self.native_viewer._object_overlay_mesh
-        )
-        dialog._frame_preview_sketch_mesh = (
-            self.native_viewer._passive_sketch_overlay_mesh
-        )
-        dialog._frame_preview_world_transform = (
-            self._world_transform_for_object(obj)
-        )
+        self._capture_feature_preview_frame(dialog, obj)
         self._preview_protrusion_dialog_frame(dialog)
 
     def _protrusion_end_reference_contract_changed(
@@ -12681,6 +12997,9 @@ class MainWindow(QMainWindow):
         open profile has no successful body preview yet, but its extrusion
         direction and requested lengths are already fully defined.
         """
+        if getattr(dialog, "_feature_kind", None) != EntityKind.PROTRUSION:
+            self.native_viewer.set_extent_handles(())
+            return
         coordinate_system = getattr(
             dialog, "_frame_preview_coordinate_system", None
         ) or self._definition_preview_coordinate_system()
@@ -12874,29 +13193,17 @@ class MainWindow(QMainWindow):
         self._show_new_protrusion_extent_handles(dialog)
 
     def _preview_protrusion_direction(
-        self, dialog: ProtrusionConstraintDialog, direction: str
+        self, dialog: ProtrusionConstraintDialog, _direction: str
     ) -> None:
-        owner = dialog.point_object
-        if owner is None or owner.container_type != ContainerType.PROTRUSION:
-            return
-        feature = next((
-            child for child in owner.children
-            if child.kind == EntityKind.PROTRUSION and not child.locked
-        ), None)
-        if feature is None:
-            return
-        feature.parameters["direction"] = direction
-        feature.parameters["length_forward"] = (
-            f"{dialog.forward_length_spin.value():.12g}"
-        )
-        feature.parameters["length_reverse"] = (
-            f"{dialog.reverse_length_spin.value():.12g}"
-        )
-        dialog._provisional_apply_pending = True
+        """Restore the staged wire after the direction control settles."""
         QTimer.singleShot(
             0,
-            lambda target=owner:
-            self._restore_returned_feature_wire_preview(target),
+            lambda target=dialog: (
+                self._preview_protrusion_dialog_frame(target)
+                if target is self.point_constraint_dialog
+                and target.isVisible()
+                else None
+            ),
         )
 
     def _apply_new_protrusion(
@@ -13386,7 +13693,7 @@ class MainWindow(QMainWindow):
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
-            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+            lambda: self._preview_sketch_dialog(dialog)
         )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
@@ -13394,6 +13701,7 @@ class MainWindow(QMainWindow):
             dialog.add_reference(initial_reference)
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._preview_sketch_dialog(dialog)
 
     def _create_primitive_object(self, kind: EntityKind) -> None:
         if self.document is None:
@@ -13602,6 +13910,39 @@ class MainWindow(QMainWindow):
             )
         self.native_viewer.set_object_overlay(
             mesh,
+            selected=True,
+            locks_interaction=False,
+            match_owner_id=self._active_component_entity_id,
+        )
+
+    def _preview_sketch_dialog(self, dialog: SketchConstraintDialog) -> None:
+        """Redraw a standalone Sketch from staged placement and offset."""
+        if dialog is not self.point_constraint_dialog or not dialog.isVisible():
+            return
+        coordinate_system = self._definition_preview_coordinate_system()
+        self.rebuild_view(fit=False, rebuild_geometry=False)
+        sketch = dialog.point_entity
+        if sketch is None and dialog.point_object is not None:
+            sketch = next((
+                child for child in dialog.point_object.children
+                if child.kind == EntityKind.SKETCH and not child.locked
+            ), None)
+        if (
+            coordinate_system is None
+            or sketch is None
+            or sketch.kind != EntityKind.SKETCH
+        ):
+            return
+        profile_mesh = self._persisted_sketch_profile_mesh(
+            sketch,
+            coordinate_system_transform(coordinate_system),
+            plane=str(sketch.parameters.get("plane", "xz")),
+            profile_offset=self._container_plane_offset(
+                dialog._solution_references()
+            ),
+        )
+        self.native_viewer.set_object_overlay(
+            self._cyan_viewer_wire(profile_mesh),
             selected=True,
             locks_interaction=False,
             match_owner_id=self._active_component_entity_id,
@@ -15188,17 +15529,11 @@ class MainWindow(QMainWindow):
                         or dialog.end_reference_pick_active()
                     ):
                         return
-                    # Property changes are a staged visual preview only.  The
-                    # connected create/update handler stores the new values
-                    # and rebuilds the standalone cyan wire, while the input
-                    # body and downstream history stay untouched until OK.
-                    dialog._defer_feature_rebuild = True
-                    dialog._provisional_apply_pending = True
-                    try:
-                        if not dialog._submit():
-                            dialog._provisional_apply_pending = False
-                    finally:
-                        dialog._defer_feature_rebuild = False
+                    # Rebuild solely from the dialog's staged values.  Do not
+                    # submit them into the document: OK is the one definition
+                    # and history commit boundary, while this path owns only
+                    # the cyan viewer wire.
+                    self._preview_protrusion_dialog_frame(dialog)
 
                 # A spin box may emit several related changes (notably the
                 # symmetric forward/reverse pair). Coalesce one event-loop
@@ -15207,39 +15542,7 @@ class MainWindow(QMainWindow):
 
             dialog.definitionChanged.connect(preview_changes)
 
-        def enable_live_preview() -> None:
-            if (
-                getattr(dialog, "_live_preview_connected", False)
-                # Feature dialogs own their staged Apply/OK contract.  The
-                # generic edit-dialog live submit turned the first placement
-                # reference into an implicit feature update and full STEP
-                # history rebuild before the user pressed Apply.
-                or isinstance(dialog, ProtrusionConstraintDialog)
-                or not dialog.edit_mode
-                or dialog.point_object is None
-            ):
-                return
-            dialog._live_preview_connected = True
-            target = dialog.point_object
-            baseline = [copy.deepcopy(target)]
-
-            def preview_changes() -> None:
-                if dialog.isVisible():
-                    dialog._submit()
-
-            def restore_baseline() -> None:
-                restored = copy.deepcopy(baseline[0].__dict__)
-                target.__dict__.clear()
-                target.__dict__.update(restored)
-                self._populate_tree()
-                self._refresh_object_properties(target)
-
-            dialog.definitionChanged.connect(preview_changes)
-            dialog.rejected.connect(restore_baseline)
-
         enable_feature_live_preview()
-        dialog.entityAdopted.connect(enable_live_preview)
-        enable_live_preview()
         dialog.show()
         position_dialog_top_right_after_show(dialog)
         QTimer.singleShot(
@@ -23090,6 +23393,7 @@ class MainWindow(QMainWindow):
         # the source row advances to its target row.
         signals_were_blocked = self.native_viewer.blockSignals(True)
         try:
+            self.native_viewer.invalidate_pick_candidates()
             self.native_viewer._set_selected_object(None)
             self.native_viewer._set_hovered_object(None)
             self.native_viewer.set_object_overlay(None)
@@ -23097,6 +23401,11 @@ class MainWindow(QMainWindow):
             self.native_viewer._object_overlay_persistent = False
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+        self._view_candidate_cycle_ids = ()
+        self._view_candidate_cycle_index = -1
+        self._history_source_cycle_ids = ()
+        self._history_source_cycle_index = -1
+        self._history_source_cycle_active = False
         self.native_viewer.set_selection_enabled(True)
         policy = self._viewer_selection_policy()
         self.native_viewer.set_selection_filter(
@@ -24856,6 +25165,26 @@ class MainWindow(QMainWindow):
             return
         if not math.isfinite(value):
             return
+        dialog = self.point_constraint_dialog
+        staged_preview = (
+            isinstance(dialog, ProtrusionConstraintDialog)
+            and dialog.point_object is container
+        )
+        if staged_preview:
+            # The 3D dimension and the Properties spin box are two editors of
+            # one pending value. Keep both in the dialog until OK, then redraw
+            # from that staged offset without touching the document feature.
+            signals_were_blocked = dialog.container_plane_offset.blockSignals(
+                True
+            )
+            try:
+                dialog.container_plane_offset.setValue(value)
+            finally:
+                dialog.container_plane_offset.blockSignals(
+                    signals_were_blocked
+                )
+            dialog.definitionChanged.emit()
+            return
         references = self._constraint_references(container)
         frame = next(
             (
@@ -24889,34 +25218,6 @@ class MainWindow(QMainWindow):
             # the feature at its previous plane.
             feature.parameters["profile_offset"] = f"{value:.12g}"
         self._mark_model_for_regeneration()
-        dialog = self.point_constraint_dialog
-        staged_preview = (
-            isinstance(dialog, ProtrusionConstraintDialog)
-            and dialog.point_object is container
-        )
-        if staged_preview:
-            # A dimension edit inside Properties is still only a staged
-            # feature preview.  Keep the accumulated body untouched; the
-            # dialog's final OK is the sole history/Boolean commit boundary.
-            dialog._provisional_apply_pending = True
-            for descriptor in dialog.references:
-                if descriptor.get("type") == "container_orientation":
-                    descriptor["work_plane_offset"] = value
-            signals_were_blocked = dialog.container_plane_offset.blockSignals(
-                True
-            )
-            try:
-                dialog.container_plane_offset.setValue(value)
-            finally:
-                dialog.container_plane_offset.blockSignals(
-                    signals_were_blocked
-                )
-            QTimer.singleShot(
-                0,
-                lambda target=container:
-                self._restore_returned_feature_wire_preview(target),
-            )
-            return
         # Outside a Properties edit session this is a committed container
         # change, so evaluate the complete history immediately.
         self.regenerate_model()
@@ -31884,8 +32185,24 @@ class MainWindow(QMainWindow):
             existing.activateWindow()
             return
         dialog = ContainerSummaryDialog(obj, self.document, self)
+        source_result = self._persisted_source_body_result(obj.entity_id)
+        source_mesh = self._cyan_viewer_wire(
+            source_result.mesh if source_result is not None else None
+        )
+        if source_mesh is None:
+            source_mesh = self._cyan_viewer_wire(
+                self.native_viewer._object_overlay_mesh
+            )
+        dialog._preview_object_mesh = source_mesh
+        dialog._preview_world_transform = self._world_transform_for_object(obj)
+        dialog._preview_local_coordinate_system = copy.deepcopy(
+            obj.coordinate_system
+        )
         self.container_summary_dialog = dialog
         self._begin_definition_edit(obj)
+        dialog.definitionChanged.connect(
+            lambda: self._preview_container_summary_dialog(dialog)
+        )
 
         def finished(result: int) -> None:
             try:
@@ -31902,6 +32219,53 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(finished)
         dialog.show()
         position_dialog_top_right_after_show(dialog)
+        self._preview_container_summary_dialog(dialog)
+
+    def _preview_container_summary_dialog(
+        self,
+        dialog: ContainerSummaryDialog,
+    ) -> None:
+        """Move a cached cyan container wire without recalculating its body."""
+        if (
+            dialog is not getattr(self, "container_summary_dialog", None)
+            or not dialog.isVisible()
+        ):
+            return
+        base_mesh = getattr(dialog, "_preview_object_mesh", None)
+        base_world = getattr(dialog, "_preview_world_transform", None)
+        base_local = getattr(
+            dialog, "_preview_local_coordinate_system", None
+        )
+        if base_mesh is None or base_world is None or base_local is None:
+            return
+
+        def homogeneous(transform) -> np.ndarray:
+            matrix = np.eye(4, dtype=float)
+            matrix[:3, :4] = np.asarray(transform, dtype=float)[:3, :4]
+            return matrix
+
+        original_world = homogeneous(base_world)
+        original_local = homogeneous(
+            coordinate_system_transform(base_local)
+        )
+        staged_local = homogeneous(coordinate_system_transform(
+            dialog.preview_coordinate_system()
+        ))
+        try:
+            parent_world = original_world @ np.linalg.inv(original_local)
+            staged_world = parent_world @ staged_local
+            delta = staged_world @ np.linalg.inv(original_world)
+        except np.linalg.LinAlgError:
+            return
+        transform = tuple(
+            tuple(float(value) for value in row) for row in delta
+        )
+        self.native_viewer.set_object_overlay(
+            transform_viewer_mesh(base_mesh, transform),
+            selected=True,
+            locks_interaction=False,
+            match_owner_id=self._active_component_entity_id,
+        )
 
     def _assembly_stored_topology_choice(
         self,
@@ -33523,12 +33887,13 @@ class MainWindow(QMainWindow):
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
-            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+            lambda: self._preview_sketch_dialog(dialog)
         )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._preview_sketch_dialog(dialog)
 
     def _queue_sketch_edit(self, dialog: SketchConstraintDialog) -> None:
         sketch = dialog.point_entity
@@ -49116,22 +49481,16 @@ class MainWindow(QMainWindow):
             and dialog.point_object is target
         ):
             self._show_protrusion_profile_overlay(target)
-            if target.container_type == ContainerType.PROTRUSION:
+            if target.container_type in (
+                ContainerType.PROTRUSION,
+                ContainerType.REVOLVE,
+            ):
                 # The queued selection cleanup above reinstalls the stored
                 # feature preview. Capture that fresh persisted viewer wire,
-                # then replace it with the current dialog's staged extent.
-                # This is essential for Up to: its selected reference lives
-                # in the dialog until Apply/OK and the stored feature still
-                # carries the previous length.
-                dialog._frame_preview_object_mesh = (
-                    self.native_viewer._object_overlay_mesh
-                )
-                dialog._frame_preview_sketch_mesh = (
-                    self.native_viewer._passive_sketch_overlay_mesh
-                )
-                dialog._frame_preview_world_transform = (
-                    self._world_transform_for_object(target)
-                )
+                # then replace it with the current dialog's staged extent or
+                # sweep. This is essential for Up to and for Revolve angles:
+                # those values live in the dialog until OK.
+                self._capture_feature_preview_frame(dialog, target)
                 self._preview_protrusion_dialog_frame(dialog)
             origin = next(
                 (
@@ -49184,6 +49543,16 @@ class MainWindow(QMainWindow):
         )
 
     def _container_orientation_selection_changed(self, active: bool) -> None:
+        signals_were_blocked = self.native_viewer.blockSignals(True)
+        try:
+            self.native_viewer.invalidate_pick_candidates()
+        finally:
+            self.native_viewer.blockSignals(signals_were_blocked)
+        self._view_candidate_cycle_ids = ()
+        self._view_candidate_cycle_index = -1
+        self._history_source_cycle_ids = ()
+        self._history_source_cycle_index = -1
+        self._history_source_cycle_active = False
         if active:
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
@@ -49226,6 +49595,7 @@ class MainWindow(QMainWindow):
         self.selected_object_id = None
         signals_were_blocked = self.native_viewer.blockSignals(True)
         try:
+            self.native_viewer.invalidate_pick_candidates()
             self.native_viewer._clear_topology_selection()
             self.native_viewer.set_selected_reference_owner(None)
             self.native_viewer.set_selected_container_origin(None)
@@ -49235,6 +49605,11 @@ class MainWindow(QMainWindow):
             self._sync_constraint_reference_highlights()
         finally:
             self.native_viewer.blockSignals(signals_were_blocked)
+        self._view_candidate_cycle_ids = ()
+        self._view_candidate_cycle_index = -1
+        self._history_source_cycle_ids = ()
+        self._history_source_cycle_index = -1
+        self._history_source_cycle_active = False
         dialog = self.point_constraint_dialog
         axis_waits_for_stop_face = bool(
             isinstance(dialog, AxisConstraintDialog)
@@ -49256,7 +49631,7 @@ class MainWindow(QMainWindow):
             isinstance(dialog, ProtrusionConstraintDialog)
             and dialog.isVisible()
         ):
-            # The selected end reference is staged dialog state until Apply.
+            # The selected end reference is staged dialog state until OK.
             # Restoring the persisted feature wire here races the synchronous
             # definitionChanged preview and can replace the newly selected
             # Up-to face with the old calculated extent.  Creation and edit
