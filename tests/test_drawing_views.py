@@ -5397,6 +5397,49 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(mesh.edges[0].points[1], (10.0, 0.0, 20.0))
         self.assertEqual(mesh.triangle_positions, ())
 
+    def test_thin_profile_preview_uses_offset_boundaries_and_end_caps(self) -> None:
+        document = create_empty_part()
+        owner = document.create_container("Sketch", ContainerType.SKETCH)
+        sketch = document.create_sketch(owner.entity_id, plane="xz")
+        model = SketchModel.from_editor_data([
+            {"type": "point", "id": "p1", "x": 0.0, "y": 0.0},
+            {"type": "point", "id": "p2", "x": 20.0, "y": 0.0},
+            {"type": "point", "id": "p3", "x": 20.0, "y": -10.0},
+            {
+                "type": "segment", "id": "g1",
+                "point_ids": ["p1", "p2"],
+            },
+            {
+                "type": "segment", "id": "g2",
+                "point_ids": ["p2", "p3"],
+            },
+        ], [])
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        window = MainWindow.__new__(MainWindow)
+
+        mesh = window._persisted_thin_profile_mesh(
+            sketch,
+            coordinate_system_transform(owner.coordinate_system),
+            2.0,
+            "symmetric",
+        )
+
+        self.assertIsNotNone(mesh)
+        self.assertEqual(len(mesh.edges), 6)
+        positions = {
+            tuple(round(value, 6) for value in point)
+            for edge in mesh.edges for point in edge.points
+        }
+        self.assertEqual(
+            positions,
+            {
+                (0.0, 0.0, -1.0), (19.0, 0.0, -1.0),
+                (19.0, 0.0, -10.0),
+                (0.0, 0.0, 1.0), (21.0, 0.0, 1.0),
+                (21.0, 0.0, -10.0),
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

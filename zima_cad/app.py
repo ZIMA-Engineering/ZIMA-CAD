@@ -11795,10 +11795,13 @@ class MainWindow(QMainWindow):
             transform_viewer_mesh(base_mesh, transform)
             if base_mesh is not None else None
         )
-        staged_sketch_mesh = (
-            transform_viewer_mesh(base_sketch, transform)
-            if base_sketch is not None else None
-        )
+        staged_sketch_mesh = self._new_protrusion_profile_mesh(dialog, staged)
+        if (
+            staged_sketch_mesh is None
+            and base_sketch is not None
+            and dialog.result_type_combo.currentData() != "thin"
+        ):
+            staged_sketch_mesh = transform_viewer_mesh(base_sketch, transform)
         wire_preview = self._protrusion_wire_preview(
             dialog, staged_sketch_mesh, staged
         )
@@ -11854,9 +11857,170 @@ class MainWindow(QMainWindow):
         sketch = self.document.find_entity(sketch_id) if sketch_id else None
         if sketch is None or sketch.kind != EntityKind.SKETCH:
             return None
-        return self._persisted_sketch_profile_mesh(
-            sketch,
-            coordinate_system_transform(coordinate_system),
+        parent_transform = coordinate_system_transform(coordinate_system)
+        if dialog.result_type_combo.currentData() == "thin":
+            return self._persisted_thin_profile_mesh(
+                sketch,
+                parent_transform,
+                dialog.thin_thickness_spin.value(),
+                str(dialog.thin_mode_combo.currentData()),
+            )
+        return self._persisted_sketch_profile_mesh(sketch, parent_transform)
+
+    def _persisted_thin_profile_mesh(
+        self,
+        sketch: ZimaEntity,
+        parent_transform,
+        thickness: float,
+        mode: str,
+    ) -> ViewerMesh | None:
+        """Build the supported straight-chain Thin boundary without OCCT."""
+        entities = self._stored_sketch_entities(sketch)
+        points = {
+            str(item.get("id", "")): (
+                float(item.get("x", 0.0)), float(item.get("y", 0.0))
+            )
+            for item in entities
+            if isinstance(item, dict) and item.get("type") == "point"
+        }
+        segments = [
+            tuple(map(str, item.get("point_ids", ())))
+            for item in entities
+            if isinstance(item, dict)
+            and item.get("role") != "construction"
+            and item.get("type") == "segment"
+            and len(item.get("point_ids", ())) == 2
+        ]
+        unsupported = any(
+            isinstance(item, dict)
+            and item.get("role") != "construction"
+            and item.get("type") not in ("point", "segment", "construction")
+            for item in entities
+        )
+        if unsupported or not segments:
+            return None
+        adjacency: dict[str, list[str]] = {}
+        for first, second in segments:
+            if first not in points or second not in points:
+                return None
+            adjacency.setdefault(first, []).append(second)
+            adjacency.setdefault(second, []).append(first)
+        ends = [key for key, neighbours in adjacency.items() if len(neighbours) == 1]
+        if len(ends) != 2 or any(len(value) > 2 for value in adjacency.values()):
+            return None
+        ordered = [ends[0]]
+        previous = ""
+        while ordered[-1] != ends[1]:
+            candidates = [
+                key for key in adjacency[ordered[-1]]
+                if key != previous
+            ]
+            if len(candidates) != 1 or candidates[0] in ordered:
+                return None
+            previous, next_key = ordered[-1], candidates[0]
+            ordered.append(next_key)
+        if len(ordered) != len(adjacency):
+            return None
+        chain = [points[key] for key in ordered]
+
+        def offset_chain(distance: float):
+            lines = []
+            for first, second in zip(chain, chain[1:]):
+                dx, dy = second[0] - first[0], second[1] - first[1]
+                length = math.hypot(dx, dy)
+                if length <= 1.0e-9:
+                    return None
+                lines.append((
+                    (first[0] - dy / length * distance,
+                     first[1] + dx / length * distance),
+                    (dx / length, dy / length),
+                ))
+            result = [lines[0][0]]
+            for first_line, second_line in zip(lines, lines[1:]):
+                first_point, first_direction = first_line
+                second_point, second_direction = second_line
+                denominator = (
+                    first_direction[0] * second_direction[1]
+                    - first_direction[1] * second_direction[0]
+                )
+                if abs(denominator) <= 1.0e-10:
+                    result.append(second_point)
+                    continue
+                delta = (
+                    second_point[0] - first_point[0],
+                    second_point[1] - first_point[1],
+                )
+                factor = (
+                    delta[0] * second_direction[1]
+                    - delta[1] * second_direction[0]
+                ) / denominator
+                intersection = (
+                    first_point[0] + factor * first_direction[0],
+                    first_point[1] + factor * first_direction[1],
+                )
+                if math.dist(intersection, chain[len(result)]) > thickness * 100.0:
+                    return None
+                result.append(intersection)
+            last_point, last_direction = lines[-1]
+            segment_length = math.dist(chain[-2], chain[-1])
+            result.append((
+                last_point[0] + last_direction[0] * segment_length,
+                last_point[1] + last_direction[1] * segment_length,
+            ))
+            return result
+
+        half = thickness * 0.5
+        first_distance, second_distance = {
+            "one_side": (0.0, thickness),
+            "other_side": (-thickness, 0.0),
+            "symmetric": (-half, half),
+        }.get(mode, (0.0, thickness))
+        sides = (
+            offset_chain(first_distance), offset_chain(second_distance)
+        )
+        if any(side is None for side in sides):
+            return None
+        plane = str(sketch.parameters.get("plane", "xy"))
+        offset = float(sketch.parameters.get("profile_offset", 0.0))
+        transform = multiply_transforms(
+            parent_transform,
+            multiply_transforms(
+                sketch_plane_offset_transform(plane, offset),
+                sketch_plane_transform(plane),
+            ),
+        )
+        # Keep each actual straight boundary as its own viewer edge.  The
+        # extrusion preview then adds a longitudinal edge at every corner;
+        # storing an entire offset side as one polyline omitted those corner
+        # edges and made a multi-segment Thin look like a simplified envelope.
+        local_edges = [
+            (first, second)
+            for side in sides
+            for first, second in zip(side, side[1:])
+        ]
+        local_edges.extend((
+            (sides[0][0], sides[1][0]),
+            (sides[0][-1], sides[1][-1]),
+        ))
+        edges = tuple(
+            EdgePolyline(
+                edge_index=index,
+                points=tuple(transform_point(
+                    transform, (point[0], point[1], 0.0)
+                ) for point in edge),
+                owner_id=sketch.entity_id,
+                element_kind="sketch",
+                curve_kind="segment",
+            )
+            for index, edge in enumerate(local_edges, start=1)
+        )
+        positions = tuple(point for edge in edges for point in edge.points)
+        return ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=edges, points=(), planes=(),
+            bounds_min=tuple(min(point[axis] for point in positions) for axis in range(3)),
+            bounds_max=tuple(max(point[axis] for point in positions) for axis in range(3)),
         )
 
     def _persisted_sketch_profile_mesh(

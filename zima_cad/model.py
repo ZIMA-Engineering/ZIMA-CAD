@@ -2891,6 +2891,7 @@ def make_protrusion_shape(
         None,
     )
     parameters = feature.parameters if feature is not None else obj.parameters
+    parameters.pop("build_status", None)
     sketch = document.find_entity(str(parameters.get("sketch_id", "")))
     if sketch is None or sketch.kind != EntityKind.SKETCH:
         return None
@@ -2906,6 +2907,8 @@ def make_protrusion_shape(
         else _make_sketch_profile_faces(sketch)
     )
     if not profiles:
+        if result_type == "thin":
+            parameters["build_status"] = "thin_profile_unsupported"
         return None
 
     forward = max(0.0, float(parameters.get("length_forward", parameters.get("length", 10.0))))
@@ -3664,6 +3667,7 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
         None,
     )
     parameters = feature.parameters if feature is not None else obj.parameters
+    parameters.pop("build_status", None)
     sketch = document.find_entity(str(parameters.get("sketch_id", "")))
     if sketch is None or sketch.kind != EntityKind.SKETCH:
         return None
@@ -3679,6 +3683,8 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
         else _make_sketch_profile_faces(sketch)
     )
     if not profiles:
+        if result_type == "thin":
+            parameters["build_status"] = "thin_profile_unsupported"
         return None
     try:
         sketch_model = SketchModel.from_dict(
