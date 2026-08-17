@@ -18,6 +18,7 @@ Current documentation:
 - [Viewer selection and Assembly Tree identity](doc/VIEWER_SELECTION.md)
 - [Sketcher interaction](doc/SKETCHER.md)
 - [Stable topology naming](doc/STABLE_TOPOLOGY_NAMING.md)
+- [Numerical precision and model tolerance](doc/NUMERICAL_PRECISION.md)
 
 ## License
 
@@ -71,11 +72,12 @@ direction in Part, Assembly and Drawing: forward zooms out and backward zooms
 in. Protrusion and Revolve use a staged workflow: Apply keeps the properties
 open and shows a cyan standalone feature preview without a Boolean operation;
 OK performs the final Fuse/Cut and closes the properties.
-Closed straight-segment profiles can create either ordinary solids or hollow
-Thin solids; open straight-segment chains create Thin solids. Thin wall side
-and symmetric offset changes rebuild the complete persistent cyan wire without
-an OCCT calculation. The ordinary Part application does not implicitly create
-standalone surfaces.
+Closed profiles can create either ordinary solids or hollow Thin solids; one
+continuous open profile creates a Thin solid. Segments, circular and elliptic
+arcs, ellipses, splines and persisted sketch-corner radii are supported. Thin
+wall side and symmetric offset changes rebuild the complete persistent cyan
+wire without an OCCT calculation. The ordinary Part application does not
+implicitly create standalone surfaces.
 Their direction-defined Start/End identities, positive in-view dimensions and
 purple extent manipulators remain stable across one-sided, two-sided,
 symmetric and Flip changes. Profile-plane offset and RX/RY/RZ correction use
@@ -105,12 +107,12 @@ container keeps its own local frame. Plane, Sketch, Protrusion and Revolve
 also have an independent work-plane/profile offset; this offset does not move
 the container origin. Solid dimensions opened by double-clicking a feature are
 anchored on that actual offset profile plane.
-Up-to extrusion supports planar, cylindrical, spherical and conical targets.
-Its OCCT-free `ViewerMesh` wire preview and the body calculation share one
-analytic ray/surface intersection solver, including branch and profile-coverage
-validation. Apply/OK/regeneration performs the OCCT extrusion and clips it with
-the corresponding analytic half-space or volume. General NURBS/B-spline
-targets remain later work.
+Up-to extrusion supports planar, cylindrical, spherical, conical and general
+NURBS/B-spline face targets. Its OCCT-free `ViewerMesh` wire preview uses the
+persisted analytic descriptor or selected-face triangles, including branch and
+profile-coverage validation. OK/regeneration performs the exact OCCT
+intersection and clips the extrusion with the corresponding analytic volume or
+referenced general surface.
 An Axis container can use a persisted circular edge or cylindrical surface as
 its centreline and a following planar reference to place its origin at the
 line-plane intersection. The same reference contract applies in Part and to

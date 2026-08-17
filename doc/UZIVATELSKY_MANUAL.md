@@ -258,31 +258,28 @@ nastavením solidu.
 
 Protrusion podporuje číselnou délku, **Až k ploše** a pro odečítání také
 **Skrz vše**. **Až k ploše** přijímá rovinnou plochu, datumovou rovinu,
-válcovou, kulovou nebo kuželovou plochu. Směr vysunutí zůstává kolmý ke
-skicové rovině. U zakřiveného cíle musí každý vzorkovaný paprsek profilu mít
-jednoznačný první kladný průsečík; smíšené, chybějící nebo nejednoznačné
-zásahy se odmítnou.
+válcovou, kulovou, kuželovou i obecnou NURBS/B-spline plochu. Směr vysunutí
+zůstává kolmý ke skicové rovině. U zakřiveného cíle musí každý vzorkovaný
+paprsek profilu mít jednoznačný první kladný průsečík; smíšené, chybějící nebo
+nejednoznačné zásahy se odmítnou.
 
 Azurový drátový náhled se počítá pouze z persistovaných bodů a vzorkovaných
-křivek skici a z uloženého analytického popisu cílové plochy. Otevření
-Vlastností, změna parametru ani výběr reference proto nespouští OCCT. Náhled i
-výpočet tělesa používají společný řešič průsečíků pro rovinu, kouli, válec a
-kužel, takže musí zvolit stejnou větev a stejné koncové body.
+křivek skici a z uloženého analytického popisu nebo triangulace cílové plochy.
+Otevření Vlastností, změna parametru ani výběr reference proto nespouští OCCT.
+Rovina, koule, válec a kužel používají společný analytický řešič; obecná plocha
+se v náhledu protíná s persistovanými trojúhelníky svého posledního výpočtu.
 
-Při **Použít**, **OK** nebo explicitní regeneraci vytvoří OCCT vysunutí s
+Při **OK** nebo explicitní regeneraci vytvoří OCCT vysunutí s
 potřebným přesahem a ořízne je objemem odpovídajícím uložené analytické ploše.
-U roviny se používá čistá nekonečná podpůrná rovina odvozená z vybrané plochy;
-hranice konečné vybrané plochy se jako hranice ořezu nepoužívají.
+U obecné plochy v tomto explicitním výpočtu vyřeší stabilní referenci a použije
+přesnou OCCT plochu; triangulace slouží pouze náhledu. U roviny se používá čistá
+nekonečná podpůrná rovina odvozená z vybrané plochy; hranice konečné vybrané
+plochy se jako hranice ořezu nepoužívají.
 
 Operace se neprovede, pokud je směr vysunutí rovnoběžný s cílem, některá část
 profilu cílovou plochu mine, profil cílovou plochu kříží nebo cílovou referenci
 nelze vyřešit. Kontejner v takovém případě zůstane označený jako chybný místo
 vytvoření zdánlivě platného tělesa s jiným koncem.
-
-Další případné zakřivené cíle jsou obecné NURBS/B-spline plochy. Pokud jediná
-přímka vedená bodem profilu ve směru
-vysunutí cíl neprotne, operace musí být odmítnuta; nesmí část profilu libovolně
-prodloužit nebo použít jiný průsečík bez jednoznačného pravidla.
 
 Po dvojkliku na Protrusion nebo Revolve se jejich prostorové kóty zobrazují na
 skutečné profilové rovině. Je-li zadané odsazení pracovní roviny, počátek
@@ -290,19 +287,22 @@ lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
 
 Uzavřený profil vytváří běžný solid. Otevřený profil automaticky nabídne režim
 **Thin**, který vytvoří tenkostěnný solid s tloušťkou na první stranu, druhou
-stranu nebo symetricky. U uzavřené smyčky přímých úseček lze mezi **Těleso** a
-**Thin** zvolit ručně: například uzavřený obdélník vytvoří buď plný kvádr, nebo
-dutou obdélníkovou stěnu mezi dvěma odsazenými smyčkami. Běžný Part nevytváří
-samostatná plošná tělesa; ta budou patřit do budoucího plošného modeláře.
+stranu nebo symetricky. U uzavřené smyčky lze mezi **Těleso** a **Thin** zvolit
+ručně: například uzavřený obdélník vytvoří buď plný kvádr, nebo
+dutou obdélníkovou stěnu mezi dvěma odsazenými smyčkami. Profil může obsahovat
+úsečky, kruhové oblouky, elipsy, eliptické oblouky, spline a rádiusy vytvořené
+ve společném bodu dvou úseček. Běžný Part nevytváří samostatná plošná tělesa;
+ta budou patřit do budoucího plošného modeláře.
 
 Azurový Thin náhled zobrazuje jednotlivé hrany obou odsazených obrysů,
 podélné hrany v každém rohu a u otevřeného profilu také oba koncové uzávěry.
 Po změně tloušťky nebo volby **První strana / Druhá strana / Symetricky** se
 drát znovu sestaví a nahradí předchozí overlay; nesmí pouze probliknout, zmizet
-ani se nahradit šedým mesh výsledného tělesa. Současná implementace podporuje
-jeden souvislý nevětvený řetězec nebo jednu uzavřenou smyčku z přímých úseček.
-Oblouky, spline, větvení a několik oddělených řetězců se odmítnou s chybou
-profilu Thin.
+ani se nahradit šedým mesh výsledného tělesa. Implementace podporuje jeden
+souvislý nevětvený řetězec nebo jednu uzavřenou smyčku z podporovaných křivek.
+Rádius nejprve zkrátí obě sousední úsečky a mezi jejich tečnými body vloží
+skutečný oblouk. Větvení, několik oddělených řetězců, kolaps příliš velkého
+odsazení a samoprotínající se paralelní obrys se odmítnou s chybou profilu Thin.
 
 Protrusion zobrazuje po celou dobu aktivních Vlastností fialový manipulátor a
 žlutou editovatelnou kótu. Tažení je plynulé, zobrazená hodnota se přichytává po

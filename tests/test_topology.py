@@ -25,12 +25,14 @@ from zima_cad.model import (
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeCone,
     BRepPrimAPI_MakeCylinder,
     BRepPrimAPI_MakeSphere,
 )
 from OCC.Core.GeomAbs import GeomAbs_Ellipse
+from OCC.Core.GProp import GProp_GProps
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
 from zima_cad.topology import (
@@ -702,6 +704,45 @@ class StableTopologyTests(unittest.TestCase):
         connected = document.build_active_shape()
         self.assertEqual(self._subshape_count(connected, TopAbs_SOLID), 1)
         self.assertNotIn("build_status", second.parameters)
+
+    def test_document_boolean_tolerance_removes_sub_tolerance_skin(self) -> None:
+        document = create_empty_part()
+        body_container = document.create_container("Body", ContainerType.BOX)
+        body = document.create_primitive(
+            body_container.entity_id, EntityKind.BOX
+        )
+        tool_container = document.create_container("Cut", ContainerType.BOX)
+        tool = document.create_primitive(
+            tool_container.entity_id, EntityKind.BOX
+        )
+        self.assertIsNotNone(body)
+        self.assertIsNotNone(tool)
+        body.parameters.update({
+            "length": "10", "width": "10", "height": "10",
+        })
+        tool.parameters.update({
+            "length": "4", "width": "12", "height": "10.5",
+        })
+        tool.combine_mode = CombineMode.SUBTRACT
+        tool_container.coordinate_system.origin = (3.0, 0.0, -0.2502)
+
+        def face_areas(shape) -> list[float]:
+            areas = []
+            explorer = TopExp_Explorer(shape, TopAbs_FACE)
+            while explorer.More():
+                properties = GProp_GProps()
+                brepgprop.SurfaceProperties(explorer.Current(), properties)
+                areas.append(abs(float(properties.Mass())))
+                explorer.Next()
+            return areas
+
+        document.document_precision["linear_tolerance"] = "0.0000001"
+        fine_areas = face_areas(document.build_active_shape())
+        self.assertTrue(any(area < 0.01 for area in fine_areas))
+
+        document.document_precision["linear_tolerance"] = "0.001"
+        engineering_areas = face_areas(document.build_active_shape())
+        self.assertFalse(any(area < 0.01 for area in engineering_areas))
 
     def test_boolean_cut_propagates_both_feature_face_identities(self) -> None:
         document = create_empty_part()

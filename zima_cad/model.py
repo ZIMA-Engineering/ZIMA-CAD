@@ -29,11 +29,15 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
+from OCC.Core.BRepTools import BRepTools_WireExplorer
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+from OCC.Core.IntCurvesFace import IntCurvesFace_ShapeIntersector
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.GeomAbs import (
+    GeomAbs_Arc,
+    GeomAbs_Intersection,
     GeomAbs_Circle,
     GeomAbs_Cone,
     GeomAbs_Cylinder,
@@ -41,9 +45,14 @@ from OCC.Core.GeomAbs import (
     GeomAbs_Plane,
     GeomAbs_Sphere,
 )
+from OCC.Core.Geom import Geom_OffsetCurve
 from OCC.Core.GProp import GProp_GProps
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCC.Core.BRepOffsetAPI import (
+    BRepOffsetAPI_MakeOffset,
+    BRepOffsetAPI_ThruSections,
+)
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+from OCC.Core.ShapeFix import ShapeFix_Face
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,
@@ -61,24 +70,31 @@ from OCC.Core.gp import (
     gp_Circ,
     gp_Dir,
     gp_Elips,
+    gp_Lin,
     gp_Pnt,
     gp_Pln,
     gp_Trsf,
     gp_Vec,
 )
-from OCC.Core.TopoDS import TopoDS_Compound
+from OCC.Core.TopoDS import TopoDS_Compound, topods
 from OCC.Core.TopAbs import (
     TopAbs_EDGE,
     TopAbs_FACE,
     TopAbs_REVERSED,
     TopAbs_SOLID,
     TopAbs_VERTEX,
+    TopAbs_WIRE,
 )
 from OCC.Core.TopExp import TopExp_Explorer, topexp
 from zima_cad.spline_geometry import interpolated_spline_curve, stored_spline_tangent
-from OCC.Core.TopTools import TopTools_IndexedMapOfShape
+from OCC.Core.TopTools import TopTools_IndexedMapOfShape, TopTools_ListOfShape
 
 from zima_cad.sketch_model import GeometryType, SketchModel, SketchModelError
+from zima_cad.sketch_trim import (
+    SampledCurve,
+    offset_ordered_profile_curves,
+    ordered_effective_profile_curves,
+)
 from zima_cad.analytic_intersections import (
     analytic_surface_side,
     ray_surface_intersections,
@@ -98,6 +114,11 @@ from zima_cad.topology import (
     TopologyResolutionState,
     VertexRef,
     semantic_provenance_id,
+)
+from zima_cad.precision import (
+    KERNEL_LINEAR_TOLERANCE,
+    format_model_float,
+    model_linear_tolerance,
 )
 
 
@@ -133,6 +154,36 @@ def default_document_precision() -> dict[str, str]:
         "mesh_deflection": "0.1",
         "decimal_places": "3",
     }
+
+
+def _build_boolean_operation(
+    operation_type,
+    first,
+    second,
+    linear_tolerance: float,
+):
+    """Build one OCCT Boolean with the model's engineering tolerance.
+
+    Coordinates remain untouched binary64 values.  ``SetFuzzyValue`` only
+    tells OCCT which gaps are mathematically coincident at the Boolean
+    boundary; this prevents sub-tolerance skins without quantizing geometry.
+    Constructing the builder empty avoids first calculating the operation at
+    OCCT's default tolerance and then calculating it a second time.
+    """
+
+    arguments = TopTools_ListOfShape()
+    tools = TopTools_ListOfShape()
+    arguments.Append(first)
+    tools.Append(second)
+    operation = operation_type()
+    operation.SetArguments(arguments)
+    operation.SetTools(tools)
+    operation.SetFuzzyValue(max(
+        KERNEL_LINEAR_TOLERANCE,
+        float(linear_tolerance),
+    ))
+    operation.Build()
+    return operation
 
 
 def default_physical_parameters() -> dict[str, str]:
@@ -1331,19 +1382,19 @@ class PartDocument:
                     if isinstance(definition["axis"], str)
                     else "custom"
                 ),
-                "origin_x": f"{origin[0]:.12g}",
-                "origin_y": f"{origin[1]:.12g}",
-                "origin_z": f"{origin[2]:.12g}",
-                "length": f"{definition['length']:.12g}",
+                "origin_x": format_model_float(origin[0]),
+                "origin_y": format_model_float(origin[1]),
+                "origin_z": format_model_float(origin[2]),
+                "length": format_model_float(definition['length']),
                 "source_geometry_id": definition["source_geometry_id"],
                 "unit": "mm",
             })
             axis_vector = definition["axis"]
             if not isinstance(axis_vector, str):
                 axis.parameters.update({
-                    "direction_x": f"{axis_vector[0]:.12g}",
-                    "direction_y": f"{axis_vector[1]:.12g}",
-                    "direction_z": f"{axis_vector[2]:.12g}",
+                    "direction_x": format_model_float(axis_vector[0]),
+                    "direction_y": format_model_float(axis_vector[1]),
+                    "direction_z": format_model_float(axis_vector[2]),
                 })
             else:
                 for coordinate in ("x", "y", "z"):
@@ -1541,18 +1592,86 @@ class PartDocument:
                 continue
             tool = self.build_standalone_shape(feature)
             if tool is not None:
-                shape = BRepAlgoAPI_Cut(shape, tool).Shape()
+                operation = _build_boolean_operation(
+                    BRepAlgoAPI_Cut,
+                    shape,
+                    tool,
+                    model_linear_tolerance(self),
+                )
+                shape = operation.Shape()
         return shape
 
     def build_standalone_shape(self, obj: ZimaEntity):
-        """Build one history object for source inspection, ignoring its first sign."""
-        return apply_object_to_shape(
-            None,
-            obj,
-            identity_transform(),
-            accept_first_shape=True,
-            document=self,
-        )
+        """Build one original history source without changing model status.
+
+        An Up-to protrusion is still dependent on the body immediately before
+        it: its stored face reference cannot be resolved against an empty
+        standalone calculation.  Recreate that boundary solely as calculation
+        input, then return the protrusion tool before its add/subtract Boolean.
+
+        Source-packet generation is auxiliary viewer work performed after the
+        authoritative history calculation.  It must therefore never clear or
+        replace ``build_status`` values produced by that calculation.
+        """
+        missing_status = object()
+        build_statuses: list[tuple[ZimaEntity, object]] = []
+
+        def remember_build_status(entity: ZimaEntity) -> None:
+            build_statuses.append((
+                entity,
+                entity.parameters.get("build_status", missing_status),
+            ))
+            for child in entity.children:
+                remember_build_status(child)
+
+        remember_build_status(self.root)
+        try:
+            if obj.container_type == ContainerType.PROTRUSION:
+                feature = next((
+                    child for child in obj.children
+                    if child.kind == EntityKind.PROTRUSION and not child.locked
+                ), None)
+                parameters = (
+                    feature.parameters
+                    if feature is not None
+                    else obj.parameters
+                )
+                needs_input_body = any(
+                    str(parameters.get(
+                        f"end_condition_{side}", "length"
+                    )) == "up_to"
+                    for side in ("forward", "reverse")
+                )
+                history_index = self.history_index(obj.entity_id)
+                if needs_input_body and history_index is not None:
+                    input_shape = self.build_shape_at(history_index)
+                    input_registry = (
+                        _rebind_registry_to_shape(
+                            boolean_topology_registry_at(self, history_index),
+                            input_shape,
+                        )
+                        if input_shape is not None
+                        else None
+                    )
+                    return make_protrusion_shape(
+                        self,
+                        obj,
+                        input_shape=input_shape,
+                        input_registry=input_registry,
+                    )
+            return apply_object_to_shape(
+                None,
+                obj,
+                identity_transform(),
+                accept_first_shape=True,
+                document=self,
+            )
+        finally:
+            for entity, status in build_statuses:
+                if status is missing_status:
+                    entity.parameters.pop("build_status", None)
+                else:
+                    entity.parameters["build_status"] = status
 
     def source_highlight_shapes(self, obj: ZimaEntity) -> list[Any]:
         shape = self.build_standalone_shape(obj)
@@ -1631,7 +1750,12 @@ class PartDocument:
                     result_shape = (
                         nested_shape
                         if result_shape is None
-                        else BRepAlgoAPI_Fuse(result_shape, nested_shape).Shape()
+                        else _build_boolean_operation(
+                            BRepAlgoAPI_Fuse,
+                            result_shape,
+                            nested_shape,
+                            model_linear_tolerance(self),
+                        ).Shape()
                     )
             else:
                 result_shape = apply_object_to_shape(
@@ -1927,7 +2051,11 @@ def apply_object_to_shape(
                 fused = (
                     _compound_shapes([*existing_solids, *added_solids])
                     if len(existing_solids) > 64
-                    else _fuse_preserving_disconnected(result_shape, shape)
+                    else _fuse_preserving_disconnected(
+                        result_shape,
+                        shape,
+                        model_linear_tolerance(document),
+                    )
                 )
                 if solid_count(fused) > 0:
                     result_shape = fused
@@ -1944,7 +2072,7 @@ def apply_object_to_shape(
                 return box.Get()
 
             def bounds_overlap(first, second) -> bool:
-                tolerance = 1.0e-7
+                tolerance = model_linear_tolerance(document)
                 return not any(
                     first[axis + 3] < second[axis] - tolerance
                     or second[axis + 3] < first[axis] - tolerance
@@ -1970,7 +2098,12 @@ def apply_object_to_shape(
                             "no_intersection"
                         )
                 else:
-                    cut_operation = BRepAlgoAPI_Cut(result_shape, shape)
+                    cut_operation = _build_boolean_operation(
+                        BRepAlgoAPI_Cut,
+                        result_shape,
+                        shape,
+                        model_linear_tolerance(document),
+                    )
                     cut = cut_operation.Shape() if cut_operation.IsDone() else None
                     cut_solids = unique_solids(cut)
                     removed_volume = (
@@ -2011,7 +2144,12 @@ def apply_object_to_shape(
                         )
                 else:
                     affected_shape = _compound_shapes(affected_solids)
-                    cut_operation = BRepAlgoAPI_Cut(affected_shape, shape)
+                    cut_operation = _build_boolean_operation(
+                        BRepAlgoAPI_Cut,
+                        affected_shape,
+                        shape,
+                        model_linear_tolerance(document),
+                    )
                     cut = (
                         cut_operation.Shape()
                         if cut_operation.IsDone()
@@ -2188,7 +2326,10 @@ def _make_sketch_profile_wires(
         for first_id, first_geometry in segment_entities.items():
             first_points = tuple(map(str, first_geometry.get("point_ids", ())))
             for record in first_geometry.get("corner_radii", ()):
-                if not isinstance(record, dict):
+                if (
+                    not isinstance(record, dict)
+                    or bool(record.get("suppressed", False))
+                ):
                     continue
                 second_id = str(record.get("other_geometry_id", ""))
                 vertex_id = str(record.get("vertex_id", ""))
@@ -2492,7 +2633,10 @@ def sketch_profile_status(sketch: ZimaEntity) -> str:
     return "open"
 
 
-def _make_sketch_profile_faces(sketch: ZimaEntity):
+def _make_sketch_profile_faces(
+    sketch: ZimaEntity,
+    linear_tolerance: float = KERNEL_LINEAR_TOLERANCE,
+):
     """Build planar faces for every closed non-construction sketch loop."""
     wires = _make_sketch_profile_wires(sketch)
     if not wires:
@@ -2532,7 +2676,10 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                 continue
             outer_bounds = bounds[outer_index]
             inner_bounds = bounds[inner_index]
-            tolerance = 1.0e-7
+            tolerance = max(
+                KERNEL_LINEAR_TOLERANCE,
+                float(linear_tolerance),
+            )
             if not (
                 outer_bounds[0] <= inner_bounds[0] + tolerance
                 and outer_bounds[1] <= inner_bounds[1] + tolerance
@@ -2540,11 +2687,17 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
                 and outer_bounds[4] >= inner_bounds[4] - tolerance
             ):
                 continue
-            common = BRepAlgoAPI_Common(outer, inner).Shape()
+            common = _build_boolean_operation(
+                BRepAlgoAPI_Common,
+                outer,
+                inner,
+                tolerance,
+            ).Shape()
             common_area = surface_area(common)
             if math.isclose(
                 common_area, areas[inner_index],
-                rel_tol=1.0e-7, abs_tol=1.0e-9,
+                rel_tol=1.0e-7,
+                abs_tol=max(1.0e-9, tolerance * tolerance),
             ):
                 containers.append((areas[outer_index], outer_index))
         if containers:
@@ -2566,24 +2719,722 @@ def _make_sketch_profile_faces(sketch: ZimaEntity):
         profile = outer
         for hole_index, parent in enumerate(parents):
             if parent == outer_index and depths[hole_index] == depths[outer_index] + 1:
-                profile = BRepAlgoAPI_Cut(profile, faces[hole_index]).Shape()
+                profile = _build_boolean_operation(
+                    BRepAlgoAPI_Cut,
+                    profile,
+                    faces[hole_index],
+                    linear_tolerance,
+                ).Shape()
         if not profile.IsNull():
             profiles.append(profile)
     return profiles
 
 
-def _make_simple_thin_profile_faces(
+def _ordered_wire_edges(wire) -> list[Any]:
+    explorer = BRepTools_WireExplorer(wire)
+    edges: list[Any] = []
+    while explorer.More():
+        edges.append(explorer.Current())
+        explorer.Next()
+    return edges
+
+
+def _wire_endpoint_points(
+    edges: list[Any],
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    if not edges:
+        return None
+
+    def position(vertex) -> tuple[float, float]:
+        point = BRep_Tool.Pnt(vertex)
+        return point.X(), point.Y()
+
+    return (
+        position(topexp.FirstVertex(edges[0], True)),
+        position(topexp.LastVertex(edges[-1], True)),
+    )
+
+
+def _sample_planar_edge(
+    edge,
+    samples: int = 17,
+) -> tuple[tuple[float, float], ...]:
+    adaptor = BRepAdaptor_Curve(edge)
+    first = float(adaptor.FirstParameter())
+    last = float(adaptor.LastParameter())
+    count = max(2, int(samples))
+    return tuple(
+        (
+            adaptor.Value(first + (last - first) * index / (count - 1)).X(),
+            adaptor.Value(first + (last - first) * index / (count - 1)).Y(),
+        )
+        for index in range(count)
+    )
+
+
+def _point_to_polyline_distance(
+    point: tuple[float, float],
+    polyline: tuple[tuple[float, float], ...],
+) -> float:
+    best = float("inf")
+    for first, second in zip(polyline, polyline[1:]):
+        dx, dy = second[0] - first[0], second[1] - first[1]
+        length_squared = dx * dx + dy * dy
+        factor = (
+            0.0
+            if length_squared <= 1.0e-24
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    (
+                        (point[0] - first[0]) * dx
+                        + (point[1] - first[1]) * dy
+                    ) / length_squared,
+                ),
+            )
+        )
+        closest = (
+            first[0] + factor * dx,
+            first[1] + factor * dy,
+        )
+        best = min(best, math.dist(point, closest))
+    return best
+
+
+def _match_wire_edges_to_profile_curves(
+    edges: list[Any],
+    curves: tuple[SampledCurve, ...],
+) -> list[SampledCurve] | None:
+    """Match exact offset edges back to their persisted sketch sources."""
+    if not edges or not curves:
+        return None
+    result = []
+    for edge in edges:
+        sampled = _sample_planar_edge(edge, 5)
+        result.append(min(
+            curves,
+            key=lambda curve: sum(
+                _point_to_polyline_distance(point, curve.points)
+                for point in sampled
+            ),
+        ))
+    return result
+
+
+def _exact_offset_wire(
+    wire,
+    distance: float,
+    *,
+    source_curves: tuple[SampledCurve, ...] = (),
+    target_curves: tuple[SampledCurve, ...] = (),
+):
+    """Offset one planar wire to the same left-hand side as the viewer."""
+    if abs(distance) <= 1.0e-12:
+        return wire
+    closed = bool(wire.Closed())
+    candidates = []
+
+    def append_shape(shape) -> None:
+        if shape is None or shape.IsNull():
+            return
+        if shape.ShapeType() == TopAbs_WIRE:
+            result = topods.Wire(shape)
+        else:
+            explorer = TopExp_Explorer(shape, TopAbs_WIRE)
+            if not explorer.More():
+                return
+            result = topods.Wire(explorer.Current())
+            explorer.Next()
+            if explorer.More():
+                return
+        if (
+            not result.IsNull()
+            and BRepCheck_Analyzer(result).IsValid()
+        ):
+            candidates.append(result)
+
+    # Prefer intersected (mitred) joins.  OCCT can reject only one side of a
+    # perfectly valid mixed spline/line loop at a sharp junction; its rounded
+    # join mode is a robust exact fallback for that missing side.
+    for join_type in (GeomAbs_Intersection, GeomAbs_Arc):
+        for signed_offset in (-float(distance), float(distance)):
+            try:
+                builder = BRepOffsetAPI_MakeOffset(
+                    wire,
+                    join_type,
+                    not closed,
+                )
+                builder.Perform(signed_offset)
+                append_shape(builder.Shape())
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                continue
+
+    # OCCT's wire offsetter declines an isolated open edge.  Its exact
+    # geometric offset remains well-defined for a line, circle arc, ellipse
+    # arc or C1 spline, so construct that one edge directly.
+    edges = _ordered_wire_edges(wire)
+    if not candidates and not closed and len(edges) == 1:
+        edge = edges[0]
+        for signed_offset in (-float(distance), float(distance)):
+            try:
+                curve, first, last = BRep_Tool.Curve(edge)
+                orientation = (
+                    -1.0
+                    if edge.Orientation() == TopAbs_REVERSED
+                    else 1.0
+                )
+                offset_curve = Geom_OffsetCurve(
+                    curve,
+                    signed_offset * orientation,
+                    gp_Dir(0.0, 0.0, 1.0),
+                    True,
+                )
+                offset_edge = BRepBuilderAPI_MakeEdge(
+                    offset_curve, first, last
+                ).Edge()
+                if edge.Orientation() == TopAbs_REVERSED:
+                    offset_edge.Reverse()
+                append_shape(BRepBuilderAPI_MakeWire(offset_edge).Wire())
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                continue
+    if not candidates:
+        return None
+    if not target_curves:
+        return candidates[0]
+
+    if closed and source_curves:
+        def sampled_area(curves: tuple[SampledCurve, ...]) -> float:
+            points = [
+                point
+                for curve in curves
+                for point in curve.points[:-1]
+            ]
+            return abs(sum(
+                first[0] * second[1] - second[0] * first[1]
+                for first, second in zip(points, (*points[1:], points[0]))
+            ) * 0.5) if len(points) >= 3 else 0.0
+
+        source_area = sampled_area(source_curves)
+        target_area = sampled_area(target_curves)
+
+        def exact_area(candidate) -> float:
+            try:
+                face = BRepBuilderAPI_MakeFace(candidate).Face()
+                properties = GProp_GProps()
+                brepgprop.SurfaceProperties(face, properties)
+                return abs(float(properties.Mass()))
+            except (RuntimeError, TypeError, ValueError):
+                return 0.0
+
+        # The sampled curve and OCCT interpolation may enclose noticeably
+        # different absolute areas (especially for a periodic spline), but
+        # they agree on whether this requested side grows or shrinks the
+        # loop. Use that invariant to disambiguate OCCT's orientation sign.
+        return (
+            max(candidates, key=exact_area)
+            if target_area > source_area
+            else min(candidates, key=exact_area)
+        )
+
+    def target_distance(candidate) -> float:
+        sampled_points = (
+            point
+            for edge in _ordered_wire_edges(candidate)
+            for point in _sample_planar_edge(edge, 5)
+        )
+        return sum(
+            min(
+                _point_to_polyline_distance(point, curve.points)
+                for curve in target_curves
+            )
+            for point in sampled_points
+        )
+
+    return min(candidates, key=target_distance)
+
+
+def _sampled_offset_wire(
+    curves: tuple[SampledCurve, ...],
+):
+    """Build a stable B-spline representation of a sampled parallel curve.
+
+    A parallel of an ellipse is not another ellipse.  OCCT therefore also
+    approximates it, but the wire returned by ``BRepOffsetAPI_MakeOffset``
+    can contain planar curve data which becomes invalid after the profile is
+    embedded into another sketch plane.  Re-interpolating the already
+    validated offset samples produces an ordinary planar B-spline wire whose
+    3D curve and p-curve remain consistent under later transforms.
+    """
+    if not curves:
+        return None
+    builder = BRepBuilderAPI_MakeWire()
+    for curve in curves:
+        points = curve.points
+        if len(points) < 2:
+            return None
+        try:
+            if curve.entity_type == "segment" and len(points) == 2:
+                edge = BRepBuilderAPI_MakeEdge(
+                    gp_Pnt(*points[0], 0.0),
+                    gp_Pnt(*points[1], 0.0),
+                ).Edge()
+            elif (
+                curve.entity_type == "arc"
+                and math.dist(points[0], points[-1]) > 1.0e-8
+                and len(points) >= 3
+            ):
+                edge = BRepBuilderAPI_MakeEdge(
+                    GC_MakeArcOfCircle(
+                        gp_Pnt(*points[0], 0.0),
+                        gp_Pnt(*points[len(points) // 2], 0.0),
+                        gp_Pnt(*points[-1], 0.0),
+                    ).Value()
+                ).Edge()
+            else:
+                # Keep enough stations to resolve the tightest supported
+                # profile while avoiding a needlessly large interpolation.
+                if len(points) > 65:
+                    last = len(points) - 1
+                    points = tuple(
+                        points[round(last * index / 64)]
+                        for index in range(65)
+                    )
+                spline = interpolated_spline_curve(points)
+                if spline is None:
+                    return None
+                edge = BRepBuilderAPI_MakeEdge(spline).Edge()
+            builder.Add(edge)
+        except (RuntimeError, TypeError, ValueError):
+            return None
+    if not builder.IsDone():
+        return None
+    wire = builder.Wire()
+    return wire if BRepCheck_Analyzer(wire).IsValid() else None
+
+
+def _sample_exact_profile_curves(
+    wire,
+    curves: tuple[SampledCurve, ...],
+) -> tuple[SampledCurve, ...]:
+    """Sample an exact profile wire while retaining ZIMA curve ownership."""
+    edges = _ordered_wire_edges(wire)
+    if len(edges) != len(curves):
+        return ()
+    result = []
+    unused = list(curves)
+    for edge in edges:
+        try:
+            endpoints = _sample_planar_edge(edge, 2)
+        except (RuntimeError, TypeError, ValueError):
+            return ()
+
+        def endpoint_distance(source: SampledCurve) -> float:
+            forward = math.dist(endpoints[0], source.points[0]) + math.dist(
+                endpoints[-1], source.points[-1]
+            )
+            reverse = math.dist(endpoints[-1], source.points[0]) + math.dist(
+                endpoints[0], source.points[-1]
+            )
+            return min(forward, reverse)
+
+        source = min(unused, key=endpoint_distance)
+        unused.remove(source)
+        count = 2 if source.entity_type == "segment" else max(
+            65, min(129, len(source.points))
+        )
+        try:
+            sampled = _sample_planar_edge(edge, count)
+        except (RuntimeError, TypeError, ValueError):
+            return ()
+        result.append(SampledCurve(
+            source.entity_id,
+            source.entity_type,
+            sampled,
+            tuple(index / (len(sampled) - 1) for index in range(len(sampled))),
+            source.closed,
+            source.trimmable,
+            source.creates_trim_points,
+        ))
+
+    def signed_area(sampled_curves: Iterable[SampledCurve]) -> float:
+        points = [
+            point
+            for curve in sampled_curves
+            for point in curve.points[:-1]
+        ]
+        return sum(
+            first[0] * second[1] - second[0] * first[1]
+            for first, second in zip(points, (*points[1:], points[0]))
+        ) * 0.5 if len(points) >= 3 else 0.0
+
+    if signed_area(result) * signed_area(curves) < 0.0:
+        result = [
+            SampledCurve(
+                curve.entity_id,
+                curve.entity_type,
+                tuple(reversed(curve.points)),
+                curve.parameters,
+                curve.closed,
+                curve.trimmable,
+                curve.creates_trim_points,
+            )
+            for curve in reversed(result)
+        ]
+    return tuple(result)
+
+
+def _orient_open_wire_edges(
+    wire,
+    start_hint: tuple[float, float],
+    end_hint: tuple[float, float],
+) -> list[Any]:
+    edges = _ordered_wire_edges(wire)
+    endpoints = _wire_endpoint_points(edges)
+    if endpoints is None:
+        return []
+    forward = math.dist(endpoints[0], start_hint) + math.dist(
+        endpoints[1], end_hint
+    )
+    reverse = math.dist(endpoints[0], end_hint) + math.dist(
+        endpoints[1], start_hint
+    )
+    if reverse < forward:
+        return [topods.Edge(edge.Reversed()) for edge in reversed(edges)]
+    return edges
+
+
+def _thin_boundary_records(
+    role: str,
+    edges: list[Any],
+    curves: tuple[SampledCurve, ...],
+) -> list[dict[str, Any]] | None:
+    matched = _match_wire_edges_to_profile_curves(edges, curves)
+    if matched is None:
+        return None
+    totals: dict[str, int] = {}
+    for curve in matched:
+        totals[curve.entity_id] = totals.get(curve.entity_id, 0) + 1
+    fragments: dict[str, int] = {}
+    records = []
+    for edge, curve in zip(edges, matched):
+        sampled = _sample_planar_edge(edge)
+        fragments[curve.entity_id] = fragments.get(curve.entity_id, 0) + 1
+        record = {
+            "role": role,
+            "source_id": curve.entity_id,
+            "first": list(sampled[0]),
+            "second": list(sampled[-1]),
+            "points": [list(point) for point in sampled],
+        }
+        if totals[curve.entity_id] > 1:
+            record["fragment"] = fragments[curve.entity_id]
+        records.append(record)
+    return records
+
+
+def _make_thin_profile_faces(
     sketch: ZimaEntity,
     thickness: float,
     mode: str,
     provenance_target: ZimaEntity | None = None,
+    *,
+    linear_tolerance: float = KERNEL_LINEAR_TOLERANCE,
 ):
-    """Create one planar band around one straight segment chain or loop.
+    """Create one exact planar Thin band from any supported sketch curve."""
+    entities: list[dict[str, Any]] = []
+    curves: tuple[SampledCurve, ...] = ()
+    if sketch.parameters.get("profile") == "circle":
+        radius = max(
+            1.0e-9,
+            float(sketch.parameters.get("diameter", 10.0)) * 0.5,
+        )
+        sampled = tuple(
+            (
+                radius * math.cos(math.tau * index / 192),
+                radius * math.sin(math.tau * index / 192),
+            )
+            for index in range(193)
+        )
+        curves = (SampledCurve(
+            sketch.entity_id,
+            "circle",
+            sampled,
+            tuple(index / 192 for index in range(193)),
+            True,
+            False,
+            False,
+        ),)
+    else:
+        try:
+            model = SketchModel.from_dict(json.loads(str(
+                sketch.parameters.get("sketch_data", "{}")
+            )))
+            entities, _dimensions = model.to_editor_data()
+        except (TypeError, ValueError, json.JSONDecodeError, SketchModelError):
+            return []
+        curves = ordered_effective_profile_curves(entities)
+    if not curves:
+        return []
 
-    This deliberately narrow first Thin implementation rejects curves,
-    branches, multiple chains and degenerate mitres. Rejection
-    is preferable to returning a plausible but topologically wrong solid.
-    """
+    # Retain the proven exact-mitre implementation for an unrounded chain of
+    # straight segments.  Every curved profile goes through the general OCCT
+    # offset path below.
+    if (
+        entities
+        and all(curve.entity_type == "segment" for curve in curves)
+    ):
+        return _make_straight_thin_profile_faces(
+            sketch,
+            thickness,
+            mode,
+            provenance_target,
+            linear_tolerance=linear_tolerance,
+        )
+
+    wires = _make_sketch_profile_wires(sketch, include_open=True)
+    if len(wires) != 1:
+        return []
+    wire = wires[0]
+    closed = bool(wire.Closed())
+    if closed != (
+        math.dist(curves[0].points[0], curves[-1].points[-1]) <= 1.0e-7
+    ):
+        return []
+    half = thickness * 0.5
+    distances = {
+        "one_side": (0.0, thickness),
+        "other_side": (-thickness, 0.0),
+        "symmetric": (-half, half),
+    }.get(mode, (0.0, thickness))
+    closed_spline = closed and any(
+        curve.entity_type == "spline" for curve in curves
+    )
+    offset_source_curves = (
+        _sample_exact_profile_curves(wire, curves)
+        if closed_spline else curves
+    )
+    if not offset_source_curves:
+        return []
+    sampled_sides = tuple(
+        offset_ordered_profile_curves(offset_source_curves, distance)
+        for distance in distances
+    )
+    # A parallel of an ellipse or elliptic arc is not a conic.  Construct its
+    # inevitable approximation from validated samples so its 3D curve and
+    # planar p-curve survive embedding in every sketch plane.  Circular arcs
+    # and open splines remain on OCCT's exact/general offset path. Closed
+    # splines are reconstructed from dense samples because OCCT can leave
+    # split offset p-curves unsuitable for the subsequent planar face.
+    sampled_offset = any(
+        curve.entity_type in {"ellipse", "elliptical_arc"}
+        for curve in curves
+    ) or closed_spline
+    exact_sides = tuple(
+        (
+            _sampled_offset_wire(sampled_side)
+            if sampled_offset and abs(distance) > 1.0e-12
+            else _exact_offset_wire(
+                wire,
+                distance,
+                source_curves=offset_source_curves,
+                target_curves=sampled_side,
+            )
+        )
+        for distance, sampled_side in zip(distances, sampled_sides)
+    )
+    if any(not side for side in sampled_sides) or any(
+        side is None for side in exact_sides
+    ):
+        return []
+
+    boundaries: list[dict[str, Any]] = []
+    vertices: list[dict[str, Any]] = []
+    if closed:
+        faces = []
+        edge_sets: list[list[Any]] = []
+        for exact in exact_sides:
+            assert exact is not None
+            try:
+                # Let OCCT retain the supporting plane carried by an offset
+                # wire. Re-projecting that wire onto a fresh gp_Pln can leave
+                # its existing p-curves inconsistent, especially when an
+                # offset spline was split at a sharp junction.
+                face = BRepBuilderAPI_MakeFace(exact).Face()
+            except (RuntimeError, TypeError, ValueError):
+                return []
+            if face.IsNull() or not BRepCheck_Analyzer(face).IsValid():
+                return []
+            faces.append(face)
+            edge_sets.append(_ordered_wire_edges(exact))
+        properties = []
+        for face in faces:
+            props = GProp_GProps()
+            brepgprop.SurfaceProperties(face, props)
+            properties.append(abs(float(props.Mass())))
+        outer_index = 0 if properties[0] > properties[1] else 1
+        inner_index = 1 - outer_index
+        if properties[inner_index] <= 1.0e-9:
+            return []
+        common = _build_boolean_operation(
+            BRepAlgoAPI_Common,
+            faces[outer_index],
+            faces[inner_index],
+            linear_tolerance,
+        ).Shape()
+        common_props = GProp_GProps()
+        brepgprop.SurfaceProperties(common, common_props)
+        if not math.isclose(
+            abs(float(common_props.Mass())),
+            properties[inner_index],
+            rel_tol=1.0e-6,
+            abs_tol=1.0e-8,
+        ):
+            return []
+        band = _build_boolean_operation(
+            BRepAlgoAPI_Cut,
+            faces[outer_index],
+            faces[inner_index],
+            linear_tolerance,
+        ).Shape()
+        if band.IsNull() or not BRepCheck_Analyzer(band).IsValid():
+            return []
+        roles = (
+            ("outside", "inside")
+            if outer_index == 0 else ("inside", "outside")
+        )
+        for role, edges, sampled_side in zip(
+            roles, edge_sets, sampled_sides
+        ):
+            records = _thin_boundary_records(role, edges, sampled_side)
+            if records is None:
+                return []
+            boundaries.extend(records)
+        result = [band]
+    else:
+        oriented_edges: list[list[Any]] = []
+        for exact, sampled_side in zip(exact_sides, sampled_sides):
+            assert exact is not None and sampled_side
+            oriented = _orient_open_wire_edges(
+                exact,
+                sampled_side[0].points[0],
+                sampled_side[-1].points[-1],
+            )
+            if not oriented:
+                return []
+            oriented_edges.append(oriented)
+        first_distance, second_distance = distances
+        first_role, second_role = (
+            ("outside", "inside")
+            if first_distance > second_distance
+            else ("inside", "outside")
+        )
+        for role, edges, sampled_side in (
+            (first_role, oriented_edges[0], sampled_sides[0]),
+            (second_role, oriented_edges[1], sampled_sides[1]),
+        ):
+            records = _thin_boundary_records(role, edges, sampled_side)
+            if records is None:
+                return []
+            boundaries.extend(records)
+        first_endpoints = _wire_endpoint_points(oriented_edges[0])
+        second_endpoints = _wire_endpoint_points(oriented_edges[1])
+        if first_endpoints is None or second_endpoints is None:
+            return []
+        end_cap = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(*first_endpoints[1], 0.0),
+            gp_Pnt(*second_endpoints[1], 0.0),
+        ).Edge()
+        start_cap = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(*second_endpoints[0], 0.0),
+            gp_Pnt(*first_endpoints[0], 0.0),
+        ).Edge()
+        wire_builder = BRepBuilderAPI_MakeWire()
+        for edge in oriented_edges[0]:
+            wire_builder.Add(edge)
+        wire_builder.Add(end_cap)
+        for edge in reversed(oriented_edges[1]):
+            wire_builder.Add(topods.Edge(edge.Reversed()))
+        wire_builder.Add(start_cap)
+        if not wire_builder.IsDone() or not wire_builder.Wire().Closed():
+            return []
+        try:
+            face = BRepBuilderAPI_MakeFace(
+                gp_Pln(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)),
+                wire_builder.Wire(),
+                True,
+            ).Face()
+        except (RuntimeError, TypeError, ValueError):
+            return []
+        if not face.IsNull() and not BRepCheck_Analyzer(face).IsValid():
+            # Two independently approximated spline offsets can carry
+            # incomplete planar p-curves even though their closed wire is
+            # valid. ShapeFix rebuilds that face-local data; it does not
+            # alter the model curves or their persisted provenance.
+            try:
+                fixer = ShapeFix_Face(face)
+                fixer.Perform()
+                face = fixer.Face()
+            except (RuntimeError, TypeError, ValueError):
+                return []
+        if face.IsNull() or not BRepCheck_Analyzer(face).IsValid():
+            return []
+        boundaries.extend((
+            {
+                "role": "profile_start",
+                "source_id": f"{curves[0].entity_id}:start",
+                "first": list(first_endpoints[0]),
+                "second": list(second_endpoints[0]),
+                "points": [
+                    list(first_endpoints[0]), list(second_endpoints[0])
+                ],
+            },
+            {
+                "role": "profile_end",
+                "source_id": f"{curves[-1].entity_id}:end",
+                "first": list(first_endpoints[1]),
+                "second": list(second_endpoints[1]),
+                "points": [
+                    list(first_endpoints[1]), list(second_endpoints[1])
+                ],
+            },
+        ))
+        for role, endpoints in (
+            (first_role, first_endpoints),
+            (second_role, second_endpoints),
+        ):
+            vertices.extend((
+                {
+                    "role": role,
+                    "source_id": f"{curves[0].entity_id}:start",
+                    "position": list(endpoints[0]),
+                },
+                {
+                    "role": role,
+                    "source_id": f"{curves[-1].entity_id}:end",
+                    "position": list(endpoints[1]),
+                },
+            ))
+        result = [face]
+
+    if provenance_target is not None:
+        provenance_target.parameters["thin_profile_provenance"] = json.dumps(
+            {"boundaries": boundaries, "vertices": vertices},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    return result
+
+
+def _make_straight_thin_profile_faces(
+    sketch: ZimaEntity,
+    thickness: float,
+    mode: str,
+    provenance_target: ZimaEntity | None = None,
+    *,
+    linear_tolerance: float = KERNEL_LINEAR_TOLERANCE,
+):
+    """Create the exact-mitre band for an unrounded straight profile."""
     try:
         model = SketchModel.from_dict(json.loads(str(
             sketch.parameters.get("sketch_data", "{}")
@@ -2729,8 +3580,11 @@ def _make_simple_thin_profile_faces(
         inner_index = 1 - outer_index
         if properties[inner_index] <= 1.0e-9:
             return []
-        band = BRepAlgoAPI_Cut(
-            loop_faces[outer_index], loop_faces[inner_index]
+        band = _build_boolean_operation(
+            BRepAlgoAPI_Cut,
+            loop_faces[outer_index],
+            loop_faces[inner_index],
+            linear_tolerance,
         ).Shape()
         if band.IsNull():
             return []
@@ -2929,68 +3783,6 @@ def _make_simple_thin_profile_faces(
         return []
     return [face] if not face.IsNull() else []
 
-    def surface_area(shape) -> float:
-        properties = GProp_GProps()
-        brepgprop.SurfaceProperties(shape, properties)
-        return abs(float(properties.Mass()))
-
-    areas = [surface_area(face) for face in faces]
-    bounds = []
-    for face in faces:
-        box = Bnd_Box()
-        brepbndlib.Add(face, box)
-        bounds.append(box.Get())
-    parents: list[int | None] = [None] * len(faces)
-    for inner_index, inner in enumerate(faces):
-        containers: list[tuple[float, int]] = []
-        for outer_index, outer in enumerate(faces):
-            if outer_index == inner_index or areas[outer_index] <= areas[inner_index]:
-                continue
-            outer_bounds = bounds[outer_index]
-            inner_bounds = bounds[inner_index]
-            tolerance = 1.0e-7
-            if not (
-                outer_bounds[0] <= inner_bounds[0] + tolerance
-                and outer_bounds[1] <= inner_bounds[1] + tolerance
-                and outer_bounds[3] >= inner_bounds[3] - tolerance
-                and outer_bounds[4] >= inner_bounds[4] - tolerance
-            ):
-                continue
-            common = BRepAlgoAPI_Common(outer, inner).Shape()
-            common_area = surface_area(common)
-            if math.isclose(
-                common_area,
-                areas[inner_index],
-                rel_tol=1.0e-7,
-                abs_tol=1.0e-9,
-            ):
-                containers.append((areas[outer_index], outer_index))
-        if containers:
-            parents[inner_index] = min(containers)[1]
-
-    depths: list[int] = []
-    for index in range(len(faces)):
-        depth = 0
-        parent = parents[index]
-        visited = {index}
-        while parent is not None and parent not in visited:
-            visited.add(parent)
-            depth += 1
-            parent = parents[parent]
-        depths.append(depth)
-
-    profiles = []
-    for outer_index, outer in enumerate(faces):
-        if depths[outer_index] % 2:
-            continue
-        profile = outer
-        for hole_index, parent in enumerate(parents):
-            if parent == outer_index and depths[hole_index] == depths[outer_index] + 1:
-                profile = BRepAlgoAPI_Cut(profile, faces[hole_index]).Shape()
-        if not profile.IsNull():
-            profiles.append(profile)
-    return profiles
-
 
 def _compound_shapes(shapes: list[Any]):
     if not shapes:
@@ -3029,14 +3821,18 @@ def make_protrusion_shape(
         return None
     result_type = str(parameters.get("result_type", "solid"))
     profiles = (
-        _make_simple_thin_profile_faces(
+        _make_thin_profile_faces(
             sketch,
             max(1.0e-9, float(parameters.get("thin_thickness", 1.0))),
             str(parameters.get("thin_mode", "one_side")),
             feature,
+            linear_tolerance=model_linear_tolerance(document),
         )
         if result_type == "thin"
-        else _make_sketch_profile_faces(sketch)
+        else _make_sketch_profile_faces(
+            sketch,
+            model_linear_tolerance(document),
+        )
     )
     if not profiles:
         if result_type == "thin":
@@ -3138,14 +3934,14 @@ def make_protrusion_shape(
             parameters["build_status"] = "through_all_missing_input"
             return None
         forward = evaluated
-        parameters["evaluated_length_forward"] = f"{forward:.12g}"
+        parameters["evaluated_length_forward"] = format_model_float(forward)
     if reverse_condition == "through_all":
         evaluated = through_all_distance(-1.0)
         if evaluated is None:
             parameters["build_status"] = "through_all_missing_input"
             return None
         reverse = evaluated
-        parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
+        parameters["evaluated_length_reverse"] = format_model_float(reverse)
     clipping_operations: list[tuple[str, Any]] = []
 
     def stored_end_targets(side: str) -> list[dict[str, Any]]:
@@ -3235,7 +4031,7 @@ def make_protrusion_shape(
                 distance = abs(distance)
             if distance <= 1.0e-7:
                 return None
-            parameters[f"evaluated_length_{side}"] = f"{distance:.12g}"
+            parameters[f"evaluated_length_{side}"] = format_model_float(distance)
             return distance
         if kind not in {"face", "plane"}:
             return None
@@ -3250,6 +4046,94 @@ def make_protrusion_shape(
                 target_face = resolution.shape
             except (RuntimeError, TypeError, ValueError):
                 target_face = None
+        if surface_kind == "other":
+            if target_face is None or target_face.IsNull():
+                return None
+            try:
+                exact_face = topods.Face(target_face)
+                intersector = IntCurvesFace_ShapeIntersector()
+                intersector.Load(exact_face, 1.0e-7)
+                target_box = Bnd_Box()
+                brepbndlib.Add(exact_face, target_box)
+                bounds = target_box.Get()
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            target_corners = tuple(
+                (
+                    bounds[3] if mask & 1 else bounds[0],
+                    bounds[4] if mask & 2 else bounds[1],
+                    bounds[5] if mask & 4 else bounds[2],
+                )
+                for mask in range(8)
+            )
+            target_span = math.dist(bounds[:3], bounds[3:])
+            ray_direction = tuple(sign * value for value in world_direction)
+            samples = profile_projection_points()
+            if not samples:
+                up_to_failure = "up_to_profile_misses_target"
+                return None
+            distances: list[float] = []
+            direction_sides: set[int] = set()
+            for point in samples:
+                directions = (
+                    (ray_direction, 1),
+                    (tuple(-value for value in ray_direction), -1),
+                ) if absolute else ((ray_direction, 1),)
+                hit: tuple[float, int] | None = None
+                for candidate_direction, direction_side in directions:
+                    upper = max(
+                        sum(
+                            (corner[index] - point[index])
+                            * candidate_direction[index]
+                            for index in range(3)
+                        )
+                        for corner in target_corners
+                    )
+                    if upper <= 1.0e-7:
+                        continue
+                    try:
+                        intersector.Perform(
+                            gp_Lin(
+                                gp_Pnt(*point),
+                                gp_Dir(*candidate_direction),
+                            ),
+                            1.0e-7,
+                            upper + max(1.0, target_span * 1.0e-4),
+                        )
+                        candidate_hits = tuple(sorted(
+                            float(intersector.WParameter(index))
+                            for index in range(1, intersector.NbPnt() + 1)
+                            if float(intersector.WParameter(index)) > 1.0e-7
+                        ))
+                    except (RuntimeError, TypeError, ValueError):
+                        candidate_hits = ()
+                    if candidate_hits:
+                        hit = candidate_hits[0], direction_side
+                        break
+                if hit is None:
+                    up_to_failure = "up_to_profile_misses_target"
+                    return None
+                distances.append(hit[0])
+                direction_sides.add(hit[1])
+            if len(direction_sides) != 1:
+                up_to_failure = "up_to_profile_crosses_target"
+                return None
+            evaluated = max(distances)
+            margin = max(1.0e-5, evaluated * 1.0e-6)
+            try:
+                halfspace = BRepPrimAPI_MakeHalfSpace(
+                    exact_face, gp_Pnt(*profile_origin)
+                ).Solid()
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            if halfspace.IsNull():
+                return None
+            clipping_operations.append(("common", halfspace))
+            parameters[f"end_targets_{side}"] = json.dumps(
+                targets, ensure_ascii=False, sort_keys=True
+            )
+            parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
+            return evaluated + margin
         if surface_kind == "cylinder":
             axis_origin = reference_data.get("fallback_axis_origin")
             axis_direction = reference_data.get("fallback_axis_direction")
@@ -3390,7 +4274,7 @@ def make_protrusion_shape(
             parameters[f"end_targets_{side}"] = json.dumps(
                 targets, ensure_ascii=False, sort_keys=True
             )
-            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
             return evaluated_with_margin
         if surface_kind == "sphere":
             center = reference_data.get("fallback_center")
@@ -3471,7 +4355,7 @@ def make_protrusion_shape(
             parameters[f"end_targets_{side}"] = json.dumps(
                 targets, ensure_ascii=False, sort_keys=True
             )
-            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
             return evaluated + margin
         if surface_kind == "cone":
             apex = reference_data.get("fallback_apex")
@@ -3613,7 +4497,7 @@ def make_protrusion_shape(
             parameters[f"end_targets_{side}"] = json.dumps(
                 targets, ensure_ascii=False, sort_keys=True
             )
-            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
             return evaluated + margin
         if surface_kind != "plane":
             return None
@@ -3696,7 +4580,7 @@ def make_protrusion_shape(
             up_to_failure = "up_to_profile_misses_target"
             return None
         evaluated = max(distances)
-        parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+        parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
         # A plane parallel to the profile gives every profile point the same
         # extrusion distance. In that common case the exact prism already
         # ends on the requested plane; a half-space Common only adds a
@@ -3704,7 +4588,7 @@ def make_protrusion_shape(
         # face of the body being cut).
         if max(distances) - min(distances) <= 1.0e-6:
             evaluated = sum(distances) / len(distances)
-            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            parameters[f"evaluated_length_{side}"] = format_model_float(evaluated)
             return evaluated
         # The selected OCCT face is bounded and may contain trimming wires.
         # Feeding it directly to MakeHalfSpace can retain those boundaries
@@ -3747,7 +4631,7 @@ def make_protrusion_shape(
             parameters["build_status"] = up_to_failure
             return None
         reverse = evaluated
-        parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
+        parameters["evaluated_length_reverse"] = format_model_float(reverse)
     length = forward + reverse
     if length <= 1.0e-9:
         return None
@@ -3770,10 +4654,13 @@ def make_protrusion_shape(
         ).Shape()
         world_shape = transform_shape(local, translated)
         for clipping_mode, clipping_shape in clipping_operations:
-            operation = (
-                BRepAlgoAPI_Cut(world_shape, clipping_shape)
+            operation = _build_boolean_operation(
+                BRepAlgoAPI_Cut
                 if clipping_mode == "cut"
-                else BRepAlgoAPI_Common(world_shape, clipping_shape)
+                else BRepAlgoAPI_Common,
+                world_shape,
+                clipping_shape,
+                model_linear_tolerance(document),
             )
             world_shape = operation.Shape() if operation.IsDone() else None
             if world_shape is None or world_shape.IsNull():
@@ -3805,14 +4692,18 @@ def make_revolve_shape(document: PartDocument | None, obj: ZimaEntity):
         return None
     result_type = str(parameters.get("result_type", "solid"))
     profiles = (
-        _make_simple_thin_profile_faces(
+        _make_thin_profile_faces(
             sketch,
             max(1.0e-9, float(parameters.get("thin_thickness", 1.0))),
             str(parameters.get("thin_mode", "one_side")),
             feature,
+            linear_tolerance=model_linear_tolerance(document),
         )
         if result_type == "thin"
-        else _make_sketch_profile_faces(sketch)
+        else _make_sketch_profile_faces(
+            sketch,
+            model_linear_tolerance(document),
+        )
     )
     if not profiles:
         if result_type == "thin":
@@ -4551,15 +5442,30 @@ def _thin_protrusion_topology_registry(
     for record in raw_provenance.get("boundaries", ()):
         if not isinstance(record, dict):
             continue
-        first = world_profile_point(record.get("first"), (start + end) * 0.5)
-        second = world_profile_point(record.get("second"), (start + end) * 0.5)
-        if first is None or second is None:
+        raw_points = record.get("points")
+        if not isinstance(raw_points, list) or len(raw_points) < 2:
+            raw_points = [record.get("first"), record.get("second")]
+        points = tuple(
+            point
+            for raw_point in raw_points
+            if (
+                point := world_profile_point(
+                    raw_point, (start + end) * 0.5
+                )
+            ) is not None
+        )
+        if len(points) < 2:
             continue
         boundary_records.append((
             str(record.get("role", "thin_wall")),
             str(record.get("source_id", "")),
-            first,
-            second,
+            (
+                int(record["fragment"])
+                if record.get("fragment") is not None
+                else None
+            ),
+            points,
+            tuple(raw_points),
         ))
     provenance_vertices = []
     for record in raw_provenance.get("vertices", ()):
@@ -4589,6 +5495,42 @@ def _thin_protrusion_topology_registry(
     for face, runtime_index in unique_shapes(TopAbs_FACE):
         role = "thin_side"
         adaptor = BRepAdaptor_Surface(face)
+        matches = []
+        for (
+            boundary_role,
+            source_id,
+            fragment,
+            points,
+            _raw_points,
+        ) in boundary_records:
+            midpoint = points[len(points) // 2]
+            distance = BRepExtrema_DistShapeShape(
+                BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(),
+                face,
+            )
+            distance.Perform()
+            if distance.IsDone() and distance.Value() <= 1.0e-5:
+                matches.append((boundary_role, source_id, fragment))
+        if len(matches) == 1:
+            role, source_id, fragment = matches[0]
+            thin_reference = FaceRef(
+                feature.entity_id, role, source_id, fragment
+            )
+            registry.register_face(
+                thin_reference,
+                face,
+                runtime_index=runtime_index,
+            )
+            if role in {"inside", "outside"}:
+                registry.register_face_parent(
+                    thin_reference,
+                    FaceRef(
+                        feature.entity_id,
+                        "generated",
+                        source_id,
+                    ),
+                )
+            continue
         if adaptor.GetType() == GeomAbs_Plane:
             direction = adaptor.Plane().Axis().Direction()
             normal = (direction.X(), direction.Y(), direction.Z())
@@ -4607,39 +5549,6 @@ def _thin_protrusion_topology_registry(
                     if abs(axial - axial_start) <= abs(axial - axial_end)
                     else "thin_end"
                 )
-            else:
-                matches = []
-                for boundary_role, source_id, first, second in boundary_records:
-                    midpoint = tuple(
-                        (first[index] + second[index]) * 0.5
-                        for index in range(3)
-                    )
-                    distance = BRepExtrema_DistShapeShape(
-                        BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(),
-                        face,
-                    )
-                    distance.Perform()
-                    if distance.IsDone() and distance.Value() <= 1.0e-6:
-                        matches.append((boundary_role, source_id))
-                if len(matches) == 1:
-                    role, source_id = matches[0]
-                    thin_reference = FaceRef(
-                        feature.entity_id, role, source_id
-                    )
-                    registry.register_face(
-                        thin_reference,
-                        face,
-                        runtime_index=runtime_index,
-                    )
-                    if role in {"inside", "outside"}:
-                        registry.register_face_parent(
-                            thin_reference,
-                            FaceRef(
-                                feature.entity_id, "generated", source_id
-                            ),
-                        )
-                    continue
-                role = "thin_wall"
         faces_by_role.setdefault(role, []).append((face, runtime_index))
     for role, candidates in faces_by_role.items():
         for fragment, (face, runtime_index) in enumerate(sorted(
@@ -4676,34 +5585,41 @@ def _thin_protrusion_topology_registry(
         matched = None
         if axial_role in {"start", "end"}:
             axial_distance = start if axial_role == "start" else end
-            for boundary_role, source_id, _mid_first, _mid_second in boundary_records:
-                raw_record = next((
-                    record for record in raw_provenance.get("boundaries", ())
-                    if isinstance(record, dict)
-                    and str(record.get("role", "")) == boundary_role
-                    and str(record.get("source_id", "")) == source_id
-                ), None)
-                if raw_record is None:
-                    continue
-                expected = (
-                    world_profile_point(raw_record.get("first"), axial_distance),
-                    world_profile_point(raw_record.get("second"), axial_distance),
+            matches = []
+            for (
+                boundary_role,
+                source_id,
+                fragment,
+                _mid_points,
+                raw_points,
+            ) in boundary_records:
+                expected = tuple(
+                    point
+                    for raw_point in raw_points
+                    if (
+                        point := world_profile_point(
+                            raw_point, axial_distance
+                        )
+                    ) is not None
                 )
-                if None in expected:
+                if len(expected) < 2:
                     continue
-                if (
-                    math.dist(endpoints[0], expected[0]) <= 1.0e-6
-                    and math.dist(endpoints[1], expected[1]) <= 1.0e-6
-                ) or (
-                    math.dist(endpoints[0], expected[1]) <= 1.0e-6
-                    and math.dist(endpoints[1], expected[0]) <= 1.0e-6
-                ):
-                    matched = EdgeRef(
-                        feature.entity_id,
-                        f"{axial_role}_{boundary_role}",
-                        source_id,
-                    )
-                    break
+                midpoint = expected[len(expected) // 2]
+                distance = BRepExtrema_DistShapeShape(
+                    BRepBuilderAPI_MakeVertex(gp_Pnt(*midpoint)).Vertex(),
+                    edge,
+                )
+                distance.Perform()
+                if distance.IsDone() and distance.Value() <= 1.0e-5:
+                    matches.append((boundary_role, source_id, fragment))
+            if len(matches) == 1:
+                boundary_role, source_id, fragment = matches[0]
+                matched = EdgeRef(
+                    feature.entity_id,
+                    f"{axial_role}_{boundary_role}",
+                    source_id,
+                    fragment,
+                )
         else:
             for vertex_role, source_id, raw_position in provenance_vertices:
                 expected = (
@@ -6063,7 +6979,11 @@ def _unify_same_domain(shape):
     return shape
 
 
-def _fuse_preserving_disconnected(first, second):
+def _fuse_preserving_disconnected(
+    first,
+    second,
+    linear_tolerance: float = KERNEL_LINEAR_TOLERANCE,
+):
     """Fuse each tool with all touched solids in one OCCT operation.
 
     Sequential pairwise Fuse is not associative for coincident/slanted faces:
@@ -6082,7 +7002,10 @@ def _fuse_preserving_disconnected(first, second):
             component_box = Bnd_Box()
             brepbndlib.Add(component, component_box)
             component_bounds = component_box.Get()
-            tolerance = 1.0e-7
+            tolerance = max(
+                KERNEL_LINEAR_TOLERANCE,
+                float(linear_tolerance),
+            )
             if any(
                 component_bounds[axis + 3] < tool_bounds[axis] - tolerance
                 or tool_bounds[axis + 3]
@@ -6100,8 +7023,11 @@ def _fuse_preserving_disconnected(first, second):
         if not touched:
             components = [*untouched, tool_solid]
             continue
-        operation = BRepAlgoAPI_Fuse(
-            _compound_shapes(touched), tool_solid
+        operation = _build_boolean_operation(
+            BRepAlgoAPI_Fuse,
+            _compound_shapes(touched),
+            tool_solid,
+            linear_tolerance,
         )
         candidate = operation.Shape() if operation.IsDone() else None
         candidate = _unify_same_domain(candidate)
@@ -7094,10 +8020,13 @@ def boolean_topology_registry_at(
             result_shape = tool_shape
             result_registry = tool_registry
             continue
-        builder = (
-            BRepAlgoAPI_Cut(result_shape, tool_shape)
+        builder = _build_boolean_operation(
+            BRepAlgoAPI_Cut
             if operation == CombineMode.SUBTRACT
-            else BRepAlgoAPI_Fuse(result_shape, tool_shape)
+            else BRepAlgoAPI_Fuse,
+            result_shape,
+            tool_shape,
+            model_linear_tolerance(document),
         )
         try:
             combined = builder.Shape()

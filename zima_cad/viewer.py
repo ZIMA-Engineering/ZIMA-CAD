@@ -2486,12 +2486,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # painting the previous OpenGL frame.  Starting another QPainter on
         # this QOpenGLWidget then fails and, in particular, makes the Up-to
         # face wire disappear while a symmetric extrusion is being staged.
-        # Coalesce that nested request; Qt already has another update queued.
-        if getattr(self, "_paint_event_active", False):
+        # QPaintDevice.paintingActive() also covers a painter owned by Qt (or
+        # a child render pass), which is not represented by our Python guard.
+        # Drop that nested frame; the state-changing setter already queued the
+        # authoritative repaint.
+        if (
+            getattr(self, "_paint_event_active", False)
+            or self.paintingActive()
+        ):
             return
         self._paint_event_active = True
         try:
             super().paintEvent(event)
+            if self.paintingActive():
+                return
             # Repeating every QPainter overlay for every mouse-move frame forces
             # a GPU synchronization. Paint the spatial overlays that must track
             # the camera, then restore the full overlay set when navigation ends.

@@ -35,19 +35,20 @@ views use native camera animations.
 Protrusion Properties no longer constructs or triangulates an OCCT sketch or
 standalone body merely to show its cyan wire. Profile points, segments and
 sampled curves are transformed directly into `ViewerMesh`; extrusion wires,
-including planar, spherical, cylindrical and conical Up-to plus Through-all,
-are derived from persisted viewer and reference data. All supported analytic
-Up-to targets use the same ray/surface solver in the preview and body
-calculation paths. Existing calculated wires are read from persisted
-`BodyResult` packets. OCCT is entered only at Apply, OK or explicit model
+including planar, spherical, cylindrical, conical and general-surface Up-to
+plus Through-all, are derived from persisted viewer and reference data.
+Analytic targets use the shared ray/surface solver. A general target uses its
+persisted face triangles for preview and resolves the exact face only at the
+explicit calculation boundary. Existing calculated wires are read from
+persisted `BodyResult` packets. OCCT is entered only at OK or explicit model
 regeneration.
 
-Thin previews likewise remain viewer-data-only. Supported open chains and
-closed straight-segment loops are offset in the persisted sketch plane; both
-boundaries, corner-longitudinal edges and open end caps are emitted as cyan
-`EdgePolyline` data. Switching wall side or symmetric mode replaces this
-overlay after the button event without rebuilding the body or substituting a
-cached shaded mesh.
+Thin previews likewise remain viewer-data-only. One supported open chain or
+closed loop may contain segments, circular/elliptic arcs, ellipses, splines and
+evaluated sketch-corner radii. Both offset boundaries, corner-longitudinal
+edges and open end caps are emitted as cyan `EdgePolyline` data. Switching
+wall side or symmetric mode replaces this overlay after the button event
+without rebuilding the body or substituting a cached shaded mesh.
 
 ## Removal sequence
 

@@ -150,7 +150,8 @@ from zima_cad.numeric_expression import (
     NumericExpressionError,
     evaluate_numeric_expression,
 )
-from zima_cad.widgets import PositiveQuantitySpinBox
+from zima_cad.precision import format_model_float, model_linear_tolerance
+from zima_cad.widgets import PositiveQuantitySpinBox, PrecisionDoubleSpinBox
 from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
@@ -218,9 +219,13 @@ from zima_cad.spline_geometry import (
     stored_spline_tangent,
 )
 from zima_cad.sketch_trim import (
+    SampledCurve,
     apply_trim_pieces,
     nearest_trim_piece,
+    offset_ordered_profile_curves,
+    ordered_effective_profile_curves,
     pieces_crossed_by_path,
+    sample_effective_profile_curves,
     sample_sketch_curves,
     trim_topology,
 )
@@ -234,7 +239,10 @@ from zima_cad.settings import (
 )
 from zima_cad.localization import configure_localization, tr
 from zima_cad.body_result import BodyResult
-from zima_cad.analytic_intersections import ray_surface_intersections
+from zima_cad.analytic_intersections import (
+    ray_surface_intersections,
+    ray_triangle_mesh_intersections,
+)
 from zima_cad.viewer_data import EdgePolyline
 from zima_cad.viewer import (
     AngularDimension,
@@ -1701,7 +1709,7 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
         return True
 
     def _create_position_spinbox(self) -> QDoubleSpinBox:
-        spinbox = QDoubleSpinBox()
+        spinbox = PrecisionDoubleSpinBox()
         spinbox.setRange(-1_000_000.0, 1_000_000.0)
         spinbox.setDecimals(self.decimal_places)
         spinbox.setSingleStep(1.0)
@@ -1709,7 +1717,7 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
         return spinbox
 
     def _create_rotation_spinbox(self) -> QDoubleSpinBox:
-        spinbox = QDoubleSpinBox()
+        spinbox = PrecisionDoubleSpinBox()
         spinbox.setRange(-360_000.0, 360_000.0)
         spinbox.setDecimals(self.decimal_places)
         spinbox.setSingleStep(5.0)
@@ -2012,7 +2020,7 @@ class PointConstraintDialog(QDialog):
         coordinates = QFormLayout()
         self.coordinate_edits: list[QDoubleSpinBox] = []
         for axis in ("X", "Y", "Z"):
-            edit = QDoubleSpinBox()
+            edit = PrecisionDoubleSpinBox()
             edit.setRange(-1_000_000_000.0, 1_000_000_000.0)
             edit.setDecimals(self.decimal_places)
             edit.setSuffix(" mm")
@@ -2053,7 +2061,7 @@ class PointConstraintDialog(QDialog):
                 )
             )
             for axis, value in zip(("RX", "RY", "RZ"), rotation):
-                edit = QDoubleSpinBox()
+                edit = PrecisionDoubleSpinBox()
                 edit.setRange(-360_000.0, 360_000.0)
                 edit.setDecimals(self.decimal_places)
                 edit.setSingleStep(5.0)
@@ -2331,7 +2339,7 @@ class PointConstraintDialog(QDialog):
             1,
             QTableWidgetItem(f"{row + 1}. {label}"),
         )
-        offset = QDoubleSpinBox()
+        offset = PrecisionDoubleSpinBox()
         offset.setRange(-1_000_000_000.0, 1_000_000_000.0)
         offset.setDecimals(self.decimal_places)
         offset.setSuffix(" mm")
@@ -2382,7 +2390,7 @@ class PointConstraintDialog(QDialog):
         item.setData(Qt.ItemDataRole.UserRole, "empty-reference")
         item.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
         self.reference_list.setItem(row, 1, item)
-        offset = QDoubleSpinBox()
+        offset = PrecisionDoubleSpinBox()
         offset.setEnabled(False)
         offset.setSuffix(" mm")
         self.reference_list.setCellWidget(row, 2, offset)
@@ -3165,7 +3173,7 @@ class AxisConstraintDialog(PointConstraintDialog):
             )
         )
         for label, value in zip(("RX", "RY", "RZ"), rotation):
-            spinbox = QDoubleSpinBox()
+            spinbox = PrecisionDoubleSpinBox()
             spinbox.setRange(-360_000.0, 360_000.0)
             spinbox.setDecimals(self.decimal_places)
             spinbox.setSingleStep(5.0)
@@ -3508,7 +3516,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             + self.container_orientation_table.frameWidth() * 2
         )
         self.container_orientation_table.setFixedHeight(table_height)
-        self.container_plane_offset = QDoubleSpinBox()
+        self.container_plane_offset = PrecisionDoubleSpinBox()
         self.container_plane_offset.setRange(
             -1_000_000_000.0, 1_000_000_000.0
         )
@@ -4164,7 +4172,7 @@ class SolidConstraintDialog(AxisConstraintDialog):
             edit = (
                 PositiveQuantitySpinBox()
                 if minimum > 0.0
-                else QDoubleSpinBox()
+                else PrecisionDoubleSpinBox()
             )
             edit.setRange(minimum, 1_000_000.0)
             edit.setDecimals(self.decimal_places)
@@ -5622,16 +5630,19 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             )
 
     def _submit_and_edit_sketch(self) -> None:
-        self._commit_pending_numeric_editor()
         # The feature is only a provisional owner for the sketch editor.
         # Set this before submit: the create signal is synchronous and the
         # handler must see it before it decides whether to rebuild the Part.
+        # It must also precede interpretText(): committing a typed placement
+        # value emits definitionChanged, and a queued feature-wire repaint
+        # must not race the viewport switch into Sketcher.
         self._defer_feature_rebuild_for_sketch = True
+        self._commit_pending_numeric_editor()
         if self._submit():
-            # Entering Sketcher ends the Properties reference interaction.
-            # Clear face/edge/point boundary highlights through the shared
-            # renderer-only path before the properties dialog is hidden.
-            self._clear_confirmed_reference_selection()
+            # Do not use the ordinary reference-confirmation cleanup here.
+            # It queues several paints of the outgoing Properties frame.
+            # _enter_sketch_edit() atomically resets those viewer layers
+            # before installing the editable sketch on the next event turn.
             self.editSketchRequested.emit(
                 self._profile_sketch_id
                 if self._profile_source == "external"
@@ -5640,6 +5651,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.accept()
         else:
             self._defer_feature_rebuild_for_sketch = False
+            self.definitionChanged.emit()
 
     def _submit_and_accept(self) -> None:
         """Store the feature; closing Properties performs the only rebuild."""
@@ -5662,16 +5674,32 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             if source_mode == "external" else ""
         )
         if self.solution is None or not name or (
-            source_mode == "external" and not sketch_id
+            source_mode == "external"
+            and (
+                not sketch_id
+                or not self.reference_exists_callback(sketch_id)
+            )
         ):
             return False
         result_type = str(self.result_type_combo.currentData())
         if (
-            (result_type == "solid" and self._profile_status not in ("closed", "pending"))
-            or (result_type == "thin" and self._profile_status == "invalid")
+            not self._defer_feature_rebuild_for_sketch
+            and (
+                (
+                    result_type == "solid"
+                    and self._profile_status not in ("closed", "pending")
+                )
+                or (
+                    result_type == "thin"
+                    and self._profile_status == "invalid"
+                )
+            )
         ):
             return False
-        if self._uses_protrusion_end_conditions:
+        if (
+            self._uses_protrusion_end_conditions
+            and not self._defer_feature_rebuild_for_sketch
+        ):
             active_sides = ["forward"]
             if self.extent_mode_combo.currentData() == "two_sides":
                 active_sides.append("reverse")
@@ -6589,7 +6617,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 lambda checked=False, index=row:
                 self._reference_button_clicked(index, "target", checked)
             )
-            offset = QDoubleSpinBox()
+            offset = PrecisionDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
             offset.setSuffix(" mm")
             mate_type = QComboBox()
@@ -8101,7 +8129,7 @@ class FileSettingsDialog(DocumentSubWindowDialog):
         layout.addWidget(buttons)
 
     def _precision_spinbox(self, value: str, decimals: int) -> QDoubleSpinBox:
-        spinbox = QDoubleSpinBox()
+        spinbox = PrecisionDoubleSpinBox()
         spinbox.setDecimals(decimals)
         spinbox.setRange(0.0, 1_000_000.0)
         spinbox.setValue(float(value))
@@ -8113,9 +8141,9 @@ class FileSettingsDialog(DocumentSubWindowDialog):
             for unit_name, combo in self.unit_edits.items()
         }
         self.document.document_precision = {
-            "linear_tolerance": f"{self.linear_tolerance.value():.12g}",
-            "angular_tolerance": f"{self.angular_tolerance.value():.12g}",
-            "mesh_deflection": f"{self.mesh_deflection.value():.12g}",
+            "linear_tolerance": format_model_float(self.linear_tolerance.value()),
+            "angular_tolerance": format_model_float(self.angular_tolerance.value()),
+            "mesh_deflection": format_model_float(self.mesh_deflection.value()),
             "decimal_places": str(self.decimal_places.value()),
         }
 
@@ -9547,7 +9575,7 @@ class SketchTextPropertiesDialog(QDialog):
         self.color_combo.addItem(tr("sketch.text.color.white"), "white")
         self.color_combo.addItem(tr("sketch.text.color.yellow"), "yellow")
         form.addRow(tr("sketch.text.dialog.color"), self.color_combo)
-        self.angle_spin = QDoubleSpinBox()
+        self.angle_spin = PrecisionDoubleSpinBox()
         self.angle_spin.setRange(-360_000.0, 360_000.0)
         self.angle_spin.setDecimals(3)
         self.angle_spin.setSuffix("°")
@@ -11527,6 +11555,9 @@ class MainWindow(QMainWindow):
                     or dialog._provisional_apply_pending
                     and not dialog._commit_deferred_feature
                 ),
+                defer_for_sketch=getattr(
+                    dialog, "_defer_feature_rebuild_for_sketch", False
+                ),
                 force_rebuild=dialog._commit_deferred_feature,
             ) if dialog.point_object is not None else None
         )
@@ -11643,6 +11674,9 @@ class MainWindow(QMainWindow):
                     or dialog._provisional_apply_pending
                     and not dialog._commit_deferred_feature
                 ),
+                defer_for_sketch=getattr(
+                    dialog, "_defer_feature_rebuild_for_sketch", False
+                ),
                 force_rebuild=dialog._commit_deferred_feature,
             ) if dialog.point_object is not None else None
         )
@@ -11727,6 +11761,9 @@ class MainWindow(QMainWindow):
                     or dialog._provisional_apply_pending
                     and not dialog._commit_deferred_feature
                 ),
+                defer_for_sketch=getattr(
+                    dialog, "_defer_feature_rebuild_for_sketch", False
+                ),
                 force_rebuild=dialog._commit_deferred_feature,
             )
         )
@@ -11786,6 +11823,11 @@ class MainWindow(QMainWindow):
         dialog: ProtrusionConstraintDialog,
     ) -> None:
         """Redraw the feature wire from every staged placement value."""
+        if getattr(dialog, "_defer_feature_rebuild_for_sketch", False):
+            # Sketcher installs a different scene, camera and overlay set on
+            # the next event-loop turn.  A late live-preview callback here
+            # used to repaint the outgoing Properties frame concurrently.
+            return
         owner = dialog.point_object
         base_mesh = getattr(dialog, "_frame_preview_object_mesh", None)
         base_sketch = getattr(dialog, "_frame_preview_sketch_mesh", None)
@@ -12046,224 +12088,50 @@ class MainWindow(QMainWindow):
         plane: str | None = None,
         profile_offset: float | None = None,
     ) -> ViewerMesh | None:
-        """Build the supported straight-chain Thin boundary without OCCT."""
+        """Build a curved Thin boundary solely from persisted sketch data."""
         entities = self._stored_sketch_entities(sketch)
-        points = {
-            str(item.get("id", "")): (
-                float(item.get("x", 0.0)), float(item.get("y", 0.0))
+        if sketch.parameters.get("profile") == "circle":
+            radius = max(
+                0.0,
+                float(sketch.parameters.get("diameter", 10.0)) * 0.5,
             )
-            for item in entities
-            if isinstance(item, dict) and item.get("type") == "point"
-        }
-        segments = [
-            tuple(map(str, item.get("point_ids", ())))
-            for item in entities
-            if isinstance(item, dict)
-            and item.get("role") != "construction"
-            and item.get("type") == "segment"
-            and len(item.get("point_ids", ())) == 2
-        ]
-        unsupported = any(
-            isinstance(item, dict)
-            and item.get("role") != "construction"
-            and item.get("type") not in ("point", "segment", "construction")
-            for item in entities
-        )
-        if unsupported or not segments:
-            return None
-        adjacency: dict[str, list[str]] = {}
-        for first, second in segments:
-            if first not in points or second not in points:
-                return None
-            adjacency.setdefault(first, []).append(second)
-            adjacency.setdefault(second, []).append(first)
-        ends = [key for key, neighbours in adjacency.items() if len(neighbours) == 1]
-        closed = not ends and all(
-            len(neighbours) == 2 for neighbours in adjacency.values()
-        )
-        if closed:
-            start = min(adjacency)
-            ordered = [start]
-            previous = ""
-            while True:
-                candidates = sorted(
-                    key for key in adjacency[ordered[-1]] if key != previous
+            sampled = tuple(
+                (
+                    radius * math.cos(math.tau * index / 192),
+                    radius * math.sin(math.tau * index / 192),
                 )
-                if not candidates:
-                    return None
-                next_key = candidates[0]
-                if next_key == start:
-                    break
-                if next_key in ordered:
-                    return None
-                previous = ordered[-1]
-                ordered.append(next_key)
-            if len(ordered) != len(adjacency):
-                return None
-            chain = [points[key] for key in ordered]
-
-            def offset_loop(distance: float):
-                lines = []
-                for index, first in enumerate(chain):
-                    second = chain[(index + 1) % len(chain)]
-                    dx, dy = second[0] - first[0], second[1] - first[1]
-                    length = math.hypot(dx, dy)
-                    if length <= 1.0e-9:
-                        return None
-                    lines.append((
-                        (first[0] - dy / length * distance,
-                         first[1] + dx / length * distance),
-                        (dx / length, dy / length),
-                    ))
-                result = []
-                for index, current_line in enumerate(lines):
-                    first_point, first_direction = lines[index - 1]
-                    second_point, second_direction = current_line
-                    denominator = (
-                        first_direction[0] * second_direction[1]
-                        - first_direction[1] * second_direction[0]
-                    )
-                    if abs(denominator) <= 1.0e-10:
-                        return None
-                    delta = (
-                        second_point[0] - first_point[0],
-                        second_point[1] - first_point[1],
-                    )
-                    factor = (
-                        delta[0] * second_direction[1]
-                        - delta[1] * second_direction[0]
-                    ) / denominator
-                    intersection = (
-                        first_point[0] + factor * first_direction[0],
-                        first_point[1] + factor * first_direction[1],
-                    )
-                    if math.dist(intersection, chain[index]) > thickness * 100.0:
-                        return None
-                    result.append(intersection)
-                return result
-
-            half = thickness * 0.5
-            distances = {
-                "one_side": (0.0, thickness),
-                "other_side": (-thickness, 0.0),
-                "symmetric": (-half, half),
-            }.get(mode, (0.0, thickness))
-            loops = tuple(offset_loop(distance) for distance in distances)
-            if any(loop is None for loop in loops):
-                return None
-            active_plane = plane or str(
-                sketch.parameters.get("plane", "xy")
+                for index in range(193)
             )
-            offset = (
-                float(profile_offset)
-                if profile_offset is not None
-                else float(sketch.parameters.get("profile_offset", 0.0))
-            )
-            transform = multiply_transforms(
-                parent_transform,
-                multiply_transforms(
-                    sketch_plane_offset_transform(active_plane, offset),
-                    sketch_plane_transform(active_plane),
+            curves = (
+                SampledCurve(
+                    sketch.entity_id,
+                    "circle",
+                    sampled,
+                    tuple(index / 192 for index in range(193)),
+                    True,
+                    False,
+                    False,
                 ),
-            )
-            local_edges = [
-                (loop[index], loop[(index + 1) % len(loop)])
-                for loop in loops for index in range(len(loop))
-            ]
-            edges = tuple(
-                EdgePolyline(
-                    edge_index=index,
-                    points=tuple(transform_point(
-                        transform, (point[0], point[1], 0.0)
-                    ) for point in edge),
-                    owner_id=sketch.entity_id,
-                    element_kind="sketch",
-                    curve_kind="segment",
-                )
-                for index, edge in enumerate(local_edges, start=1)
-            )
-            positions = tuple(point for edge in edges for point in edge.points)
-            return ViewerMesh(
-                triangle_positions=(), triangle_normals=(),
-                triangle_face_indices=(), triangle_owner_ids=(),
-                edges=edges, points=(), planes=(),
-                bounds_min=tuple(min(point[axis] for point in positions) for axis in range(3)),
-                bounds_max=tuple(max(point[axis] for point in positions) for axis in range(3)),
-            )
-        if len(ends) != 2 or any(len(value) > 2 for value in adjacency.values()):
+            ) if radius > 1.0e-12 else ()
+        else:
+            curves = ordered_effective_profile_curves(entities)
+        if not curves:
             return None
-        ordered = [ends[0]]
-        previous = ""
-        while ordered[-1] != ends[1]:
-            candidates = [
-                key for key in adjacency[ordered[-1]]
-                if key != previous
-            ]
-            if len(candidates) != 1 or candidates[0] in ordered:
-                return None
-            previous, next_key = ordered[-1], candidates[0]
-            ordered.append(next_key)
-        if len(ordered) != len(adjacency):
-            return None
-        chain = [points[key] for key in ordered]
-
-        def offset_chain(distance: float):
-            lines = []
-            for first, second in zip(chain, chain[1:]):
-                dx, dy = second[0] - first[0], second[1] - first[1]
-                length = math.hypot(dx, dy)
-                if length <= 1.0e-9:
-                    return None
-                lines.append((
-                    (first[0] - dy / length * distance,
-                     first[1] + dx / length * distance),
-                    (dx / length, dy / length),
-                ))
-            result = [lines[0][0]]
-            for first_line, second_line in zip(lines, lines[1:]):
-                first_point, first_direction = first_line
-                second_point, second_direction = second_line
-                denominator = (
-                    first_direction[0] * second_direction[1]
-                    - first_direction[1] * second_direction[0]
-                )
-                if abs(denominator) <= 1.0e-10:
-                    result.append(second_point)
-                    continue
-                delta = (
-                    second_point[0] - first_point[0],
-                    second_point[1] - first_point[1],
-                )
-                factor = (
-                    delta[0] * second_direction[1]
-                    - delta[1] * second_direction[0]
-                ) / denominator
-                intersection = (
-                    first_point[0] + factor * first_direction[0],
-                    first_point[1] + factor * first_direction[1],
-                )
-                if math.dist(intersection, chain[len(result)]) > thickness * 100.0:
-                    return None
-                result.append(intersection)
-            last_point, last_direction = lines[-1]
-            segment_length = math.dist(chain[-2], chain[-1])
-            result.append((
-                last_point[0] + last_direction[0] * segment_length,
-                last_point[1] + last_direction[1] * segment_length,
-            ))
-            return result
-
-        half = thickness * 0.5
-        first_distance, second_distance = {
-            "one_side": (0.0, thickness),
-            "other_side": (-thickness, 0.0),
+        half = float(thickness) * 0.5
+        distances = {
+            "one_side": (0.0, float(thickness)),
+            "other_side": (-float(thickness), 0.0),
             "symmetric": (-half, half),
-        }.get(mode, (0.0, thickness))
-        sides = (
-            offset_chain(first_distance), offset_chain(second_distance)
+        }.get(mode, (0.0, float(thickness)))
+        sides = tuple(
+            offset_ordered_profile_curves(curves, distance)
+            for distance in distances
         )
-        if any(side is None for side in sides):
+        if any(not side for side in sides):
             return None
+        closed = math.dist(
+            curves[0].points[0], curves[-1].points[-1]
+        ) <= 1.0e-7
         active_plane = plane or str(sketch.parameters.get("plane", "xy"))
         offset = (
             float(profile_offset)
@@ -12277,38 +12145,48 @@ class MainWindow(QMainWindow):
                 sketch_plane_transform(active_plane),
             ),
         )
-        # Keep each actual straight boundary as its own viewer edge.  The
-        # extrusion preview then adds a longitudinal edge at every corner;
-        # storing an entire offset side as one polyline omitted those corner
-        # edges and made a multi-segment Thin look like a simplified envelope.
         local_edges = [
-            (first, second)
-            for side in sides
-            for first, second in zip(side, side[1:])
+            (curve.entity_type, curve.points)
+            for side in sides for curve in side
+            if len(curve.points) >= 2
         ]
-        local_edges.extend((
-            (sides[0][0], sides[1][0]),
-            (sides[0][-1], sides[1][-1]),
-        ))
+        if not closed:
+            local_edges.extend((
+                (
+                    "segment",
+                    (sides[0][0].points[0], sides[1][0].points[0]),
+                ),
+                (
+                    "segment",
+                    (sides[0][-1].points[-1], sides[1][-1].points[-1]),
+                ),
+            ))
         edges = tuple(
             EdgePolyline(
                 edge_index=index,
-                points=tuple(transform_point(
-                    transform, (point[0], point[1], 0.0)
-                ) for point in edge),
+                points=tuple(
+                    transform_point(transform, (*point, 0.0))
+                    for point in sampled
+                ),
                 owner_id=sketch.entity_id,
                 element_kind="sketch",
-                curve_kind="segment",
+                curve_kind=kind,
             )
-            for index, edge in enumerate(local_edges, start=1)
+            for index, (kind, sampled) in enumerate(local_edges, start=1)
         )
         positions = tuple(point for edge in edges for point in edge.points)
+        if not positions:
+            return None
         return ViewerMesh(
             triangle_positions=(), triangle_normals=(),
             triangle_face_indices=(), triangle_owner_ids=(),
             edges=edges, points=(), planes=(),
-            bounds_min=tuple(min(point[axis] for point in positions) for axis in range(3)),
-            bounds_max=tuple(max(point[axis] for point in positions) for axis in range(3)),
+            bounds_min=tuple(
+                min(point[axis] for point in positions) for axis in range(3)
+            ),
+            bounds_max=tuple(
+                max(point[axis] for point in positions) for axis in range(3)
+            ),
         )
 
     def _persisted_sketch_profile_mesh(
@@ -12358,7 +12236,7 @@ class MainWindow(QMainWindow):
             }
             local_curves = tuple(
                 (curve.entity_type, curve.points)
-                for curve in sample_sketch_curves(entities)
+                for curve in sample_effective_profile_curves(entities)
                 if (
                     curve.entity_type != "construction"
                     and entity_by_id.get(curve.entity_id, {}).get("role")
@@ -12714,30 +12592,17 @@ class MainWindow(QMainWindow):
                 surface_kind = str(
                     reference.get("surface_kind", "plane")
                 )
-                intersection = ray_surface_intersections(
-                    surface_kind,
-                    point,
-                    side_direction,
-                    plane_origin=reference.get("fallback_origin"),
-                    plane_normal=reference.get("fallback_normal"),
-                    center=reference.get("fallback_center"),
-                    axis_origin=reference.get("fallback_axis_origin"),
-                    axis_direction=reference.get(
-                        "fallback_axis_direction"
-                    ),
-                    radius=reference.get("fallback_radius"),
-                    apex=reference.get("fallback_apex"),
-                    semi_angle=reference.get("fallback_semi_angle"),
-                )
-                if (
-                    not intersection.distances
-                    and absolute
-                    and intersection.error == "behind"
-                ):
-                    intersection = ray_surface_intersections(
+                intersection = (
+                    ray_triangle_mesh_intersections(
+                        point,
+                        side_direction,
+                        reference.get("fallback_triangles"),
+                    )
+                    if surface_kind == "other"
+                    else ray_surface_intersections(
                         surface_kind,
                         point,
-                        tuple(-value for value in side_direction),
+                        side_direction,
                         plane_origin=reference.get("fallback_origin"),
                         plane_normal=reference.get("fallback_normal"),
                         center=reference.get("fallback_center"),
@@ -12748,6 +12613,42 @@ class MainWindow(QMainWindow):
                         radius=reference.get("fallback_radius"),
                         apex=reference.get("fallback_apex"),
                         semi_angle=reference.get("fallback_semi_angle"),
+                    )
+                )
+                if (
+                    not intersection.distances
+                    and absolute
+                    and intersection.error in {"behind", "miss"}
+                ):
+                    reverse_direction = tuple(
+                        -value for value in side_direction
+                    )
+                    intersection = (
+                        ray_triangle_mesh_intersections(
+                            point,
+                            reverse_direction,
+                            reference.get("fallback_triangles"),
+                        )
+                        if surface_kind == "other"
+                        else ray_surface_intersections(
+                            surface_kind,
+                            point,
+                            reverse_direction,
+                            plane_origin=reference.get("fallback_origin"),
+                            plane_normal=reference.get("fallback_normal"),
+                            center=reference.get("fallback_center"),
+                            axis_origin=reference.get(
+                                "fallback_axis_origin"
+                            ),
+                            axis_direction=reference.get(
+                                "fallback_axis_direction"
+                            ),
+                            radius=reference.get("fallback_radius"),
+                            apex=reference.get("fallback_apex"),
+                            semi_angle=reference.get(
+                                "fallback_semi_angle"
+                            ),
+                        )
                     )
                 if not intersection.distances:
                     return None
@@ -12779,7 +12680,7 @@ class MainWindow(QMainWindow):
                 curved_target = (
                     isinstance(target, dict)
                     and str(target.get("surface_kind", ""))
-                    in {"cylinder", "sphere", "cone"}
+                    in {"cylinder", "sphere", "cone", "other"}
                 )
                 sampled_points = edge.points
                 if curved_target and len(edge.points) == 2:
@@ -12918,6 +12819,9 @@ class MainWindow(QMainWindow):
                     dialog._defer_feature_rebuild
                     or dialog._provisional_apply_pending
                     and not dialog._commit_deferred_feature
+                ),
+                defer_for_sketch=getattr(
+                    dialog, "_defer_feature_rebuild_for_sketch", False
                 ),
                 force_rebuild=dialog._commit_deferred_feature,
             )
@@ -13230,10 +13134,12 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, obj)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        if (
-            getattr(dialog, "_defer_feature_rebuild_for_sketch", False)
-            or dialog._defer_feature_rebuild
-        ):
+        if getattr(dialog, "_defer_feature_rebuild_for_sketch", False):
+            # The provisional container only gives the owned Sketch a stable
+            # parent and frame.  Do not install its Properties overlays or
+            # request an outgoing viewport paint immediately before entry.
+            self.document.regeneration_required = True
+        elif dialog._defer_feature_rebuild:
             self.document.regeneration_required = True
             self._show_protrusion_profile_overlay(obj)
             self.native_viewer.update()
@@ -13246,6 +13152,7 @@ class MainWindow(QMainWindow):
         extent_mode, direction, result_type, thin_thickness, thin_mode,
         operation,
         *, end_definition=None, defer_rebuild: bool = False,
+        defer_for_sketch: bool = False,
         force_rebuild: bool = False,
     ) -> None:
         if obj is None:
@@ -13266,6 +13173,13 @@ class MainWindow(QMainWindow):
             ):
                 delattr(obj, "_history_edit_preview")
             changed = self._entity_definition_signature(obj) != previous_definition
+            if defer_for_sketch:
+                # Persist the staged frame used by the owned Sketch, but do
+                # no Properties overlay work while that viewport is leaving.
+                self.document.regeneration_required = True
+                self._populate_tree()
+                self._select_tree_object_without_reference_event(obj.entity_id)
+                return
             if defer_rebuild:
                 self.document.regeneration_required = True
                 self._populate_tree()
@@ -13329,7 +13243,7 @@ class MainWindow(QMainWindow):
                 str(internal.parameters.get("plane", "xz")),
             )
             internal.parameters["plane"] = sketch_plane
-            internal.parameters["profile_offset"] = f"{profile_offset:.12g}"
+            internal.parameters["profile_offset"] = format_model_float(profile_offset)
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -13364,15 +13278,15 @@ class MainWindow(QMainWindow):
             {
                 "profile_source": source_mode,
                 "sketch_id": sketch_id,
-                "length_forward": f"{length_forward:.12g}",
-                "length_reverse": f"{length_reverse:.12g}",
+                "length_forward": format_model_float(length_forward),
+                "length_reverse": format_model_float(length_reverse),
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "result_type": result_type,
-                "thin_thickness": f"{thin_thickness:.12g}",
+                "thin_thickness": format_model_float(thin_thickness),
                 "thin_mode": thin_mode,
                 "operation": operation,
-                "profile_offset": f"{profile_offset:.12g}",
+                "profile_offset": format_model_float(profile_offset),
             }
         )
         if end_definition:
@@ -13401,13 +13315,13 @@ class MainWindow(QMainWindow):
                 "container_type": ContainerType.PROTRUSION.value,
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
         if self.document.document_settings.get("type") == "assembly":
@@ -13445,10 +13359,9 @@ class MainWindow(QMainWindow):
         dialog.adopt_created_entity(obj, obj)
         self._populate_tree()
         self._select_tree_object_without_reference_event(obj.entity_id)
-        if (
-            getattr(dialog, "_defer_feature_rebuild_for_sketch", False)
-            or dialog._defer_feature_rebuild
-        ):
+        if getattr(dialog, "_defer_feature_rebuild_for_sketch", False):
+            self.document.regeneration_required = True
+        elif dialog._defer_feature_rebuild:
             self.document.regeneration_required = True
             self._show_protrusion_profile_overlay(obj)
             self.native_viewer.update()
@@ -13461,7 +13374,8 @@ class MainWindow(QMainWindow):
         angle_reverse, extent_mode, direction, result_type,
         thin_thickness, thin_mode, operation,
         *, extent_value_sets: dict[str, list[float]] | None = None,
-        defer_rebuild: bool = False, force_rebuild: bool = False,
+        defer_rebuild: bool = False, defer_for_sketch: bool = False,
+        force_rebuild: bool = False,
     ) -> None:
         if obj is None:
             return
@@ -13485,6 +13399,11 @@ class MainWindow(QMainWindow):
             ):
                 delattr(obj, "_history_edit_preview")
             changed = self._entity_definition_signature(obj) != previous_definition
+            if defer_for_sketch:
+                self.document.regeneration_required = True
+                self._populate_tree()
+                self._select_tree_object_without_reference_event(obj.entity_id)
+                return
             if defer_rebuild:
                 self.document.regeneration_required = True
                 self._populate_tree()
@@ -13546,7 +13465,7 @@ class MainWindow(QMainWindow):
                 str(internal.parameters.get("plane", "xz")),
             )
             internal.parameters["plane"] = sketch_plane
-            internal.parameters["profile_offset"] = f"{profile_offset:.12g}"
+            internal.parameters["profile_offset"] = format_model_float(profile_offset)
             sketch_id = internal.entity_id
         elif (
             not sketch_id
@@ -13581,15 +13500,15 @@ class MainWindow(QMainWindow):
             {
                 "profile_source": source_mode,
                 "sketch_id": sketch_id,
-                "angle": f"{angle:.12g}",
-                "angle_reverse": f"{angle_reverse:.12g}",
+                "angle": format_model_float(angle),
+                "angle_reverse": format_model_float(angle_reverse),
                 "extent_mode": extent_mode,
                 "direction": direction,
                 "result_type": result_type,
-                "thin_thickness": f"{thin_thickness:.12g}",
+                "thin_thickness": format_model_float(thin_thickness),
                 "thin_mode": thin_mode,
                 "operation": operation,
-                "profile_offset": f"{profile_offset:.12g}",
+                "profile_offset": format_model_float(profile_offset),
             }
         )
         obj.parameters.update(
@@ -13600,13 +13519,13 @@ class MainWindow(QMainWindow):
                     ensure_ascii=False,
                 ),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
         if self.document.document_settings.get("type") == "assembly":
@@ -15356,8 +15275,9 @@ class MainWindow(QMainWindow):
         if entering_sketch:
             # The queued Sketcher entry only needs the newly stored sketch.
             # Rebuilding the complete Part between Properties and Sketcher
-            # creates a frame that is immediately discarded again.
-            self.native_viewer.update()
+            # creates a frame that is immediately discarded again.  Do not
+            # even queue a paint of the outgoing Properties overlays: the
+            # queued editor entry installs the authoritative next frame.
             return
         # OK is the authoritative calculation/commit boundary.  A plain view
         # rebuild creates the displayed final Body but does not calculate the
@@ -15421,13 +15341,13 @@ class MainWindow(QMainWindow):
                     ensure_ascii=False,
                 ),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "false",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
         self._populate_tree()
@@ -15752,13 +15672,13 @@ class MainWindow(QMainWindow):
                     ensure_ascii=False,
                 ),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
         self._refresh_object_properties(obj)
@@ -16007,7 +15927,8 @@ class MainWindow(QMainWindow):
                     [0.0, 0.0, 1.0, point[2]],
                 ])
 
-        matrix = [row[:] for row in equations]
+        source_equations = [row[:] for row in equations]
+        matrix = [row[:] for row in source_equations]
         rank = 0
         pivot_columns: list[int] = []
         tolerance = 1e-9
@@ -16035,20 +15956,8 @@ class MainWindow(QMainWindow):
                 ]
             pivot_columns.append(column)
             rank += 1
-        inconsistent = any(
-            all(abs(row[column]) <= tolerance for column in range(3))
-            and abs(row[3]) > tolerance
-            for row in matrix
-        )
         dof = max(0, 3 - rank)
         constrained = tuple(column in pivot_columns for column in range(3))
-        if inconsistent:
-            return (
-                None,
-                dof,
-                "dialog.point_constraints.conflict",
-                constrained,
-            )
         for column in range(3):
             if column not in pivot_columns:
                 matrix.append(
@@ -16088,6 +15997,42 @@ class MainWindow(QMainWindow):
         solution = [0.0, 0.0, 0.0]
         for row, column in enumerate(pivot_columns):
             solution[column] = matrix[row][3]
+        solution = [
+            MainWindow._canonical_transform_value(value)
+            for value in solution
+        ]
+        # Matrix pivots are a numerical-algebra question, while a residual is
+        # an engineering-length question.  Check the calculated point against
+        # each original equation and normalize by the equation normal.  Thus
+        # x=10 and 1000*x=10000 describe the same physical plane and receive
+        # exactly the same millimetre tolerance.
+        residual_tolerance = model_linear_tolerance(
+            getattr(self, "document", None)
+        )
+        inconsistent = False
+        for equation in source_equations:
+            normal_length = math.sqrt(sum(
+                float(equation[column]) ** 2 for column in range(3)
+            ))
+            residual = abs(
+                sum(
+                    float(equation[column]) * solution[column]
+                    for column in range(3)
+                )
+                - float(equation[3])
+            )
+            if normal_length > tolerance:
+                residual /= normal_length
+            if residual > residual_tolerance:
+                inconsistent = True
+                break
+        if inconsistent:
+            return (
+                None,
+                dof,
+                "dialog.point_constraints.conflict",
+                constrained,
+            )
         return (
             (solution[0], solution[1], solution[2]),
             dof,
@@ -16139,7 +16084,7 @@ class MainWindow(QMainWindow):
         body_result: BodyResult | None,
     ) -> bool:
         """Refresh persisted planes from one explicitly calculated prefix."""
-        if self.document is None or body_result is None:
+        if self.document is None:
             return False
         source_results: dict[str, BodyResult | None] = {}
 
@@ -16192,44 +16137,127 @@ class MainWindow(QMainWindow):
                     stable_id = str(
                         value.get("surface_reference_id", "")
                     )
-                    reference_result = result_for_reference(value)
-                    surfaces_by_reference_id = {
-                        surface.reference_id: (lookup_key, surface)
-                        for lookup_key, surface in (
-                            reference_result.faces.items()
-                            if reference_result is not None else ()
+                    lookup_key = ""
+                    plane_origin = None
+                    plane_normal = None
+                    assembly_reference = parse_assembly_face_descriptor(
+                        stable_id
+                    )
+                    if (
+                        reference_scope == "source_object"
+                        and assembly_reference is not None
+                    ):
+                        # An AssemblyFaceRef owns both the original Part face
+                        # and its exact occurrence path.  Resolving it against
+                        # a component's combined result loses that identity
+                        # (and was the reason a moved component left a stale
+                        # cut plane behind).  Explicit Regenerate is an OCCT
+                        # calculation boundary, so resolve the original face
+                        # and transform it through the current occurrence now.
+                        try:
+                            choice = self._assembly_stored_topology_choice(
+                                stable_id
+                            )
+                        except (AttributeError, RuntimeError, TypeError, ValueError):
+                            choice = None
+                        if choice is not None:
+                            plane_origin = choice[2]
+                            plane_normal = choice[3]
+                    else:
+                        reference_result = result_for_reference(value)
+                        surfaces_by_reference_id = {}
+                        # Prefer the original source packet, while allowing
+                        # the freshly calculated prefix to supply a stable
+                        # source face when that original container cannot be
+                        # materialized independently (for example a dependent
+                        # Up-to feature).
+                        for candidate_result in (body_result, reference_result):
+                            if candidate_result is None:
+                                continue
+                            surfaces_by_reference_id.update({
+                                surface.reference_id: (key, surface)
+                                for key, surface
+                                in candidate_result.faces.items()
+                            })
+                        resolved = surfaces_by_reference_id.get(stable_id)
+                        if resolved is not None:
+                            lookup_key, surface = resolved
+                            if (
+                                surface.kind == "plane"
+                                and surface.origin is not None
+                                and surface.normal is not None
+                            ):
+                                plane_origin = surface.origin
+                                plane_normal = surface.normal
+                    if plane_origin is not None and plane_normal is not None:
+                        normal = tuple(float(item) for item in plane_normal)
+                        normal_length = math.sqrt(sum(
+                            item * item for item in normal
+                        ))
+                        if normal_length <= 1.0e-12:
+                            return
+                        normal = tuple(
+                            item / normal_length for item in normal
                         )
-                    }
-                    resolved = surfaces_by_reference_id.get(stable_id)
-                    if resolved is not None:
-                        lookup_key, surface = resolved
+                        normal = tuple(
+                            0.0
+                            if abs(item) <= 1.0e-12
+                            else 1.0
+                            if abs(item - 1.0) <= 1.0e-12
+                            else -1.0
+                            if abs(item + 1.0) <= 1.0e-12
+                            else item
+                            for item in normal
+                        )
+                        previous_equations = value.get("equations", ())
+                        previous_normal = (
+                            previous_equations[0][:3]
+                            if isinstance(previous_equations, (list, tuple))
+                            and previous_equations
+                            and isinstance(
+                                previous_equations[0], (list, tuple)
+                            )
+                            and len(previous_equations[0]) >= 3
+                            else ()
+                        )
                         if (
-                            surface.kind == "plane"
-                            and surface.origin is not None
-                            and surface.normal is not None
+                            len(previous_normal) == 3
+                            and sum(
+                                normal[index] * float(previous_normal[index])
+                                for index in range(3)
+                            ) < 0.0
                         ):
-                            normal = tuple(float(item) for item in surface.normal)
-                            distance = sum(
-                                normal[index] * float(surface.origin[index])
+                            # A plane has two equivalent normal directions.
+                            # Retain the direction accepted at pick time so a
+                            # regeneration cannot reverse feature orientation
+                            # merely because OCCT traversed the face backward.
+                            normal = tuple(
+                                0.0 if item == 0.0 else -item
+                                for item in normal
+                            )
+                        distance = MainWindow._canonical_transform_value(
+                            sum(
+                                normal[index] * float(plane_origin[index])
                                 for index in range(3)
                             )
+                        )
+                        owner_id = (
+                            str(value.get("source_object_id", ""))
+                            if reference_scope == "source_object"
+                            else self.document.root.entity_id
+                        )
+                        if not owner_id and lookup_key:
+                            owner_id = lookup_key.split(":face:", 1)[0]
+                        value["entity_id"] = owner_id
+                        if lookup_key:
                             topology_key = lookup_key.rsplit(":", 1)[-1]
-                            owner_id = (
-                                str(value.get("source_object_id", ""))
-                                if reference_scope == "source_object"
-                                else self.document.root.entity_id
-                            )
-                            if not owner_id:
-                                owner_id = lookup_key.split(":face:", 1)[0]
-                            value["entity_id"] = owner_id
                             value["topology_key"] = topology_key
                             value["key"] = (
-                                f"face:{owner_id}:"
-                                f"{topology_key}"
+                                f"face:{owner_id}:{topology_key}"
                             )
-                            value["equations"] = [[*normal, distance]]
-                            value.pop("source_anchor", None)
-                            changed = True
+                        value["equations"] = [[*normal, distance]]
+                        value.pop("source_anchor", None)
+                        changed = True
                 for nested in value.values():
                     visit(nested)
             elif isinstance(value, list):
@@ -16547,20 +16575,20 @@ class MainWindow(QMainWindow):
             {
                 "display_style": "centerline",
                 "axis": direction,
-                "length": f"{length:.12g}",
+                "length": format_model_float(length),
                 "unit": "mm",
                 "constraint_refs": json.dumps(
                     references,
                     ensure_ascii=False,
                 ),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
 
@@ -16657,16 +16685,16 @@ class MainWindow(QMainWindow):
             {
                 "display_style": "datum",
                 "plane": plane,
-                "size": f"{size:.12g}",
+                "size": format_model_float(size),
                 "unit": "mm",
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
 
@@ -17208,13 +17236,13 @@ class MainWindow(QMainWindow):
                 "container_type": ContainerType(container_type).value,
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
 
@@ -17270,19 +17298,19 @@ class MainWindow(QMainWindow):
         solid.parameters.update(
             {
                 **{
-                    key: f"{value:.12g}"
+                    key: format_model_float(value)
                     for key, value in parameters.items()
                 },
                 "unit": "mm",
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
                 "reference_orientation": "true",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
 
@@ -17431,15 +17459,15 @@ class MainWindow(QMainWindow):
                 ),
                 "unit": "mm",
                 "role": SketchRole.PROFILE.value,
-                "profile_offset": f"{profile_offset:.12g}",
+                "profile_offset": format_model_float(profile_offset),
                 "constraint_refs": json.dumps(references, ensure_ascii=False),
                 "constraint_type": "linear_entities",
-                "fallback_x": f"{fallback[0]:.12g}",
-                "fallback_y": f"{fallback[1]:.12g}",
-                "fallback_z": f"{fallback[2]:.12g}",
-                "rotation_offset_x": f"{rotation[0]:.12g}",
-                "rotation_offset_y": f"{rotation[1]:.12g}",
-                "rotation_offset_z": f"{rotation[2]:.12g}",
+                "fallback_x": format_model_float(fallback[0]),
+                "fallback_y": format_model_float(fallback[1]),
+                "fallback_z": format_model_float(fallback[2]),
+                "rotation_offset_x": format_model_float(rotation[0]),
+                "rotation_offset_y": format_model_float(rotation[1]),
+                "rotation_offset_z": format_model_float(rotation[2]),
             }
         )
 
@@ -18897,6 +18925,14 @@ class MainWindow(QMainWindow):
             viewer.set_source_topology_hover(None)
             viewer.set_source_topology_selection(None)
             viewer.set_selected_reference_owner(None)
+            viewer.set_constraint_reference_highlights(
+                owner_ids=set(),
+                faces=set(),
+                edges=set(),
+                points=set(),
+                planes=set(),
+                positions=set(),
+            )
             viewer.set_selected_container_origin(None)
             viewer.set_insertion_origin_marker(None)
             viewer.set_selected_container_contents(set())
@@ -25216,7 +25252,7 @@ class MainWindow(QMainWindow):
             # consumes the corresponding offset from the feature profile.
             # Keep both representations atomic so regeneration cannot replay
             # the feature at its previous plane.
-            feature.parameters["profile_offset"] = f"{value:.12g}"
+            feature.parameters["profile_offset"] = format_model_float(value)
         self._mark_model_for_regeneration()
         # Outside a Properties edit session this is a committed container
         # change, so evaluate the complete history immediately.
@@ -25269,17 +25305,17 @@ class MainWindow(QMainWindow):
                 )
                 if feature.kind == EntityKind.PROTRUSION:
                     feature.parameters["length_forward"] = (
-                        f"{dialog.forward_length_spin.value():.12g}"
+                        format_model_float(dialog.forward_length_spin.value())
                     )
                     feature.parameters["length_reverse"] = (
-                        f"{dialog.reverse_length_spin.value():.12g}"
+                        format_model_float(dialog.reverse_length_spin.value())
                     )
                 else:
                     feature.parameters["angle"] = (
-                        f"{dialog.forward_length_spin.value():.12g}"
+                        format_model_float(dialog.forward_length_spin.value())
                     )
                     feature.parameters["angle_reverse"] = (
-                        f"{dialog.reverse_length_spin.value():.12g}"
+                        format_model_float(dialog.reverse_length_spin.value())
                     )
             else:
                 feature.parameters["direction"] = (
@@ -25299,7 +25335,7 @@ class MainWindow(QMainWindow):
                         reverse_key, "0"
                     )
                     feature.parameters[reverse_key] = forward
-        formatted_value = f"{value:.12g}"
+        formatted_value = format_model_float(value)
         parameter_key = self._feature_dimension_parameter_key(feature, key)
         if (
             key in {"length_forward", "length_reverse"}
@@ -25412,7 +25448,7 @@ class MainWindow(QMainWindow):
             dialog.protrusion_direction_combo.currentData()
         )
         self._commit_protrusion_preview_value(
-            feature.entity_id, key, f"{value:.12g}"
+            feature.entity_id, key, format_model_float(value)
         )
         if finished:
             self._extent_handle_crossed_key = None
@@ -27248,12 +27284,12 @@ class MainWindow(QMainWindow):
             if (
                 descriptor is None
                 or descriptor.kind not in {
-                    "plane", "cylinder", "sphere", "cone",
+                    "plane", "cylinder", "sphere", "cone", "other",
                 }
                 or reference is None
             ):
                 self.statusBar().showMessage(
-                    tr("protrusion.end.planar_face_required"), 5000
+                    tr("protrusion.end.reference_unavailable"), 5000
                 )
                 return True
             value = {
@@ -27305,7 +27341,7 @@ class MainWindow(QMainWindow):
                     "fallback_center": list(descriptor.origin),
                     "fallback_radius": float(descriptor.radius),
                 })
-            else:
+            elif descriptor.kind == "cone":
                 if (
                     descriptor.origin is None
                     or descriptor.axis is None
@@ -27320,6 +27356,68 @@ class MainWindow(QMainWindow):
                     "fallback_apex": list(descriptor.origin),
                     "fallback_axis_direction": list(descriptor.axis),
                     "fallback_semi_angle": float(descriptor.semi_angle),
+                })
+            else:
+                face_mesh = result.mesh.face_mesh(owner_id, element_index)
+                positions = face_mesh.triangle_positions
+                triangles = tuple(
+                    tuple(
+                        tuple(
+                            float(positions[offset + vertex * 3 + axis])
+                            for axis in range(3)
+                        )
+                        for vertex in range(3)
+                    )
+                    for offset in range(0, len(positions), 9)
+                    if offset + 9 <= len(positions)
+                )
+                if not triangles:
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                all_points = tuple(
+                    point for triangle in triangles for point in triangle
+                )
+                centroid = tuple(
+                    sum(point[axis] for point in all_points)
+                    / len(all_points)
+                    for axis in range(3)
+                )
+                fallback_normal = None
+                for first, second, third in triangles:
+                    first_edge = tuple(
+                        second[axis] - first[axis] for axis in range(3)
+                    )
+                    second_edge = tuple(
+                        third[axis] - first[axis] for axis in range(3)
+                    )
+                    normal = (
+                        first_edge[1] * second_edge[2]
+                        - first_edge[2] * second_edge[1],
+                        first_edge[2] * second_edge[0]
+                        - first_edge[0] * second_edge[2],
+                        first_edge[0] * second_edge[1]
+                        - first_edge[1] * second_edge[0],
+                    )
+                    length = math.sqrt(sum(value * value for value in normal))
+                    if length > 1.0e-12:
+                        fallback_normal = tuple(
+                            value / length for value in normal
+                        )
+                        break
+                if fallback_normal is None:
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                value.update({
+                    "fallback_origin": list(centroid),
+                    "fallback_normal": list(fallback_normal),
+                    "fallback_triangles": [
+                        [list(point) for point in triangle]
+                        for triangle in triangles
+                    ],
                 })
         elif kind == "point":
             descriptor = result.vertex(owner_id, element_index)
@@ -28463,7 +28561,7 @@ class MainWindow(QMainWindow):
                         apply_callback()
                     return
                 previous = str(feature.parameters.get("distance", value))
-                feature.parameters["distance"] = f"{value:.12g}"
+                feature.parameters["distance"] = format_model_float(value)
                 self._mark_model_for_regeneration()
                 self.document.build_active_shape()
                 if feature.parameters.get("build_status"):
@@ -28563,7 +28661,7 @@ class MainWindow(QMainWindow):
                         apply_callback()
                 else:
                     previous = str(feature.parameters.get("radius", value))
-                    feature.parameters["radius"] = f"{value:.12g}"
+                    feature.parameters["radius"] = format_model_float(value)
                     self._mark_model_for_regeneration()
                     self.document.build_active_shape()
                     if feature.parameters.get("build_status"):
@@ -51645,11 +51743,11 @@ class MainWindow(QMainWindow):
             # feature parameter, regenerates, and recreates the dimensions.
             self._commit_container_work_plane_offset(
                 container.entity_id,
-                f"{value:.12g}",
+                format_model_float(value),
             )
             return
         else:
-            entity.parameters[str(binding[1])] = f"{value:.12g}"
+            entity.parameters[str(binding[1])] = format_model_float(value)
         self._mark_model_for_regeneration()
         preview_owner = (
             self.document.find_owning_object(entity.entity_id)

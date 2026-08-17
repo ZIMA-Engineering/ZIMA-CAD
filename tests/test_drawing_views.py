@@ -48,7 +48,13 @@ from zima_cad.app import (
 )
 from zima_cad.viewer import ExtentHandle
 from zima_cad.body_result import BodyResult, CurveDescriptor, SurfaceDescriptor
-from zima_cad.topology import EdgeRef, FaceRef
+from zima_cad.topology import (
+    AssemblyFaceRef,
+    EdgeRef,
+    FaceRef,
+    assembly_face_descriptor,
+)
+from zima_cad.widgets import PrecisionDoubleSpinBox
 from zima_cad.drawing import (
     DrawingCanvas,
     DrawingWorkspace,
@@ -78,6 +84,7 @@ from zima_cad.model import (
     make_sketch_shape,
     coordinate_system_transform,
     multiply_transforms,
+    standalone_topology_registry,
     transform_point,
     transform_shape,
 )
@@ -716,13 +723,37 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(assembly.active_history_objects(), [first])
 
     def test_assembly_regeneration_refreshes_cut_source_face_plane(self):
+        source_document = create_empty_part()
+        source = source_document.create_container(
+            "Source box", ContainerType.BOX
+        )
+        source_document.create_primitive(source.entity_id, EntityKind.BOX)
+        source_reference = standalone_topology_registry(
+            source_document, source
+        ).reference_for_runtime_index(1)
+        self.assertIsNotNone(source_reference)
+
         assembly = create_empty_assembly()
         component = assembly.create_container(
             "Part", ContainerType.COMPONENT
         )
+        component.coordinate_system.origin = (
+            1.23456789012345,
+            -2.34567890123456,
+            7.39922688802,
+        )
+        component.coordinate_system.rotation = (-90.0, 0.0, 0.0)
         window = MainWindow.__new__(MainWindow)
         window.document = assembly
-        reference_id = f"{component.entity_id}:face:1"
+        window._component_source_document = (
+            lambda candidate: source_document
+            if candidate.entity_id == component.entity_id
+            else None
+        )
+        reference_id = assembly_face_descriptor(AssemblyFaceRef(
+            component.entity_id,
+            source_reference,
+        ))
         references = [{
             "type": "face",
             "reference_scope": "source_object",
@@ -731,25 +762,50 @@ class DrawingViewConventionTests(unittest.TestCase):
             "surface_reference_id": reference_id,
             "equations": [[1.0, 0.0, 0.0, 10.0]],
         }]
-        body_result = SimpleNamespace(faces={
-            reference_id: SurfaceDescriptor(
-                reference_id=reference_id,
-                kind="plane",
-                origin=(25.0, 0.0, 0.0),
-                normal=(1.0, 0.0, 0.0),
-            )
-        })
+        body_result = SimpleNamespace(faces={})
+        choice = window._assembly_stored_topology_choice(reference_id)
+        self.assertIsNotNone(choice)
+        expected_origin = np.asarray(choice[2], dtype=float)
+        expected_normal = np.asarray(choice[3], dtype=float)
+        expected_normal /= np.linalg.norm(expected_normal)
+        expected_distance = MainWindow._canonical_transform_value(
+            float(expected_normal @ expected_origin)
+        )
 
         self.assertTrue(
             window._refresh_history_result_surface_references(
                 references, body_result
             )
         )
-        self.assertEqual(
-            references[0]["equations"],
-            [[1.0, 0.0, 0.0, 25.0]],
-        )
+        actual = references[0]["equations"][0]
+        np.testing.assert_allclose(actual[:3], expected_normal, atol=1.0e-12)
+        self.assertAlmostEqual(actual[3], expected_distance, places=12)
         self.assertEqual(references[0]["entity_id"], component.entity_id)
+
+    def test_precision_spinbox_does_not_round_unchanged_model_value(self):
+        application = QApplication.instance() or QApplication([])
+        spinbox = PrecisionDoubleSpinBox()
+        spinbox.setRange(-1_000_000_000.0, 1_000_000_000.0)
+        spinbox.setDecimals(3)
+        exact = 7.399226888021235
+
+        spinbox.setValue(exact)
+        self.assertEqual(spinbox.text(), "7.399")
+        self.assertEqual(spinbox.value(), exact)
+        spinbox.interpretText()
+
+        self.assertEqual(spinbox.value(), exact)
+        tiny_exact = 1.2345678901234567e-8
+        spinbox.setValue(tiny_exact)
+        self.assertEqual(spinbox.value(), tiny_exact)
+        spinbox.interpretText()
+        self.assertEqual(spinbox.value(), tiny_exact)
+        spinbox.lineEdit().setText("7.401")
+        spinbox.lineEdit().setModified(True)
+        spinbox.interpretText()
+        self.assertEqual(spinbox.value(), 7.401)
+        spinbox.close()
+        self.assertIsNotNone(application)
 
     def test_part_regeneration_refreshes_protrusion_source_face_plane(self):
         document = create_empty_part()
@@ -1072,6 +1128,115 @@ class DrawingViewConventionTests(unittest.TestCase):
         summary.deleteLater()
         application.processEvents()
 
+    def test_offset_protrusion_enters_sketch_without_outgoing_view_paint(self):
+        application = QApplication.instance() or QApplication([])
+        document = create_empty_part()
+        origin = next(
+            child for child in document.root.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        xz_plane = next(
+            child for child in origin.children
+            if child.kind == EntityKind.PLANE
+            and child.parameters.get("plane") == "xz"
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window._active_component_return_document = None
+        window._pending_assembly_cut_exceptions = []
+        window._populate_tree = lambda: None
+        window._select_tree_object_without_reference_event = lambda _id: None
+
+        def unexpected_paint(*_args, **_kwargs):
+            raise AssertionError("outgoing Properties viewport was repainted")
+
+        window.native_viewer = SimpleNamespace(update=unexpected_paint)
+        window._show_protrusion_profile_overlay = unexpected_paint
+        window.rebuild_view = unexpected_paint
+        entered_sketches = []
+        window._enter_sketch_edit = lambda sketch_id, **options: (
+            entered_sketches.append((sketch_id, options))
+        )
+        dialog = ProtrusionConstraintDialog(
+            window._solve_point_constraints,
+            [],
+            suggested_name="Offset extrusion",
+            reference_kind_callback=lambda entity_id: (
+                reference.kind
+                if (reference := document.find_entity(entity_id)) is not None
+                else None
+            ),
+        )
+        dialog._clear_confirmed_reference_selection = unexpected_paint
+        dialog.add_reference(xz_plane)
+        dialog._set_reference_offset(dialog.references[0], 100.0)
+        requested_sketches = []
+        dialog.createProtrusionRequested.connect(
+            lambda *arguments: window._apply_new_protrusion(
+                dialog,
+                *arguments,
+                end_definition=dialog.protrusion_end_definition(),
+            )
+        )
+        dialog.editSketchRequested.connect(requested_sketches.append)
+        dialog.editSketchRequested.connect(
+            lambda sketch_id: window._queue_protrusion_sketch_edit(
+                dialog, sketch_id
+            )
+        )
+
+        dialog._submit_and_edit_sketch()
+        application.processEvents()
+
+        owner = dialog.point_object
+        self.assertIsNotNone(owner)
+        self.assertEqual(owner.coordinate_system.origin, (0.0, 100.0, 0.0))
+        self.assertTrue(document.regeneration_required)
+        self.assertEqual(requested_sketches, [""])
+        self.assertTrue(any(
+            child.kind == EntityKind.SKETCH and not child.locked
+            for child in owner.children
+        ))
+        internal_sketch = next(
+            child for child in owner.children
+            if child.kind == EntityKind.SKETCH and not child.locked
+        )
+        self.assertEqual(entered_sketches, [(
+            internal_sketch.entity_id,
+            {"return_properties_id": owner.entity_id},
+        )])
+        dialog.deleteLater()
+        application.processEvents()
+
+    def test_sketch_entry_allows_profile_that_needs_repair(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+            suggested_name="Repair profile",
+        )
+        dialog._profile_status = "invalid"
+        dialog.forward_end_condition_combo.setCurrentIndex(
+            dialog.forward_end_condition_combo.findData("up_to")
+        )
+        created = []
+        edited = []
+        dialog.createProtrusionRequested.connect(
+            lambda *_arguments: created.append(True)
+        )
+        dialog.editSketchRequested.connect(edited.append)
+
+        self.assertFalse(dialog._submit())
+        dialog._submit_and_edit_sketch()
+
+        self.assertEqual(created, [True])
+        self.assertEqual(edited, [""])
+        self.assertTrue(dialog._defer_feature_rebuild_for_sketch)
+        dialog.deleteLater()
+        application.processEvents()
+
     def test_protrusion_end_condition_row_tracks_operation_without_replacing_length(self):
         application = QApplication.instance() or QApplication([])
         dialog = ProtrusionConstraintDialog(
@@ -1199,6 +1364,64 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertNotIn("end_reference_forward", definition)
         dialog.close()
         self.assertIsNotNone(application)
+
+    def test_general_up_to_pick_persists_only_viewer_triangle_fallback(self):
+        application = QApplication.instance() or QApplication([])
+        document = create_empty_part()
+        owner = document.create_container("Target", ContainerType.PROTRUSION)
+        reference = FaceRef("target-feature", "end", "spline-surface")
+        positions = (
+            0.0, 5.0, 0.0, 10.0, 6.0, 0.0, 10.0, 7.0, 10.0,
+            0.0, 5.0, 0.0, 10.0, 7.0, 10.0, 0.0, 6.0, 10.0,
+        )
+        mesh = ViewerMesh(
+            triangle_positions=positions,
+            triangle_normals=(0.0,) * len(positions),
+            triangle_face_indices=(1, 1),
+            triangle_owner_ids=(owner.entity_id, owner.entity_id),
+            edges=(), points=(), planes=(),
+            bounds_min=(0.0, 5.0, 0.0),
+            bounds_max=(10.0, 7.0, 10.0),
+        )
+        result = BodyResult(
+            mesh=mesh,
+            faces={
+                f"{owner.entity_id}:face:1": SurfaceDescriptor(
+                    reference.serialize(), "other"
+                )
+            },
+        )
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        dialog.forward_end_condition_combo.setCurrentIndex(
+            dialog.forward_end_condition_combo.findData("up_to")
+        )
+        dialog._set_end_reference_pick_active("forward", True)
+        dialog.show()
+        application.processEvents()
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window.point_constraint_dialog = dialog
+        window._persisted_source_body_result = lambda _owner_id: result
+        window._orient_protrusion_toward_end_reference = (
+            lambda _dialog, _value: None
+        )
+        window._reference_selection_confirmed = lambda: None
+
+        self.assertTrue(window._accept_protrusion_end_reference(
+            "face", owner.entity_id, 1
+        ))
+
+        target = dialog.forward_end_targets[0]
+        self.assertEqual(target["surface_kind"], "other")
+        self.assertEqual(len(target["fallback_triangles"]), 2)
+        self.assertIn("fallback_origin", target)
+        self.assertIn("fallback_normal", target)
+        dialog.close()
 
     def test_operation_preview_is_restored_after_button_event(self):
         application = QApplication.instance() or QApplication([])
@@ -1399,6 +1622,7 @@ class DrawingViewConventionTests(unittest.TestCase):
         component = assembly.create_container(
             "First", ContainerType.COMPONENT
         )
+        component.coordinate_system.origin = (0.0, 0.0, 7.39922688802)
         choices = []
         for plane, normal in (
             ("XZ", (0.0, 1.0, 0.0)),
@@ -1428,6 +1652,10 @@ class DrawingViewConventionTests(unittest.TestCase):
             choices,
         )
 
+        self.assertEqual(
+            dialog.coordinate_edits[2].value(),
+            7.39922688802,
+        )
         self.assertTrue(dialog.accept_assembly_origin())
         self.assertEqual(
             [
@@ -2190,6 +2418,21 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertIs(selected, fresh)
         self.assertIsNone(viewer._cycled_topology_candidate)
         self.assertFalse(viewer._selection_preview_pending)
+        viewer.close()
+        viewer.deleteLater()
+        application.processEvents()
+
+    def test_viewer_skips_frame_while_paint_device_is_already_active(self):
+        application = QApplication.instance() or QApplication([])
+
+        class BusyPaintViewer(ZimaOpenGLViewer):
+            def paintingActive(self):
+                return True
+
+        viewer = BusyPaintViewer()
+        viewer.paintEvent(None)
+
+        self.assertFalse(getattr(viewer, "_paint_event_active", False))
         viewer.close()
         viewer.deleteLater()
         application.processEvents()
@@ -3068,6 +3311,38 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertEqual(vertex_solution, (4.0, 29.0, 6.0))
         self.assertEqual(vertex_dof, 0)
+
+    def test_constraint_residual_uses_model_not_display_tolerance(self):
+        document = create_empty_part()
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        references = [
+            {
+                "type": "face",
+                "equations": [[1.0, 0.0, 0.0, 10.0]],
+            },
+            {
+                "type": "face",
+                # The residual is still 0.0005 mm.  Scaling an equation must
+                # not scale its physical acceptance tolerance.
+                "equations": [[1000.0, 0.0, 0.0, 10000.5]],
+            },
+        ]
+
+        document.document_precision["decimal_places"] = "0"
+        document.document_precision["linear_tolerance"] = "0.001"
+        accepted, _dof, _status, _constrained = (
+            window._solve_point_constraints(references)
+        )
+        self.assertIsNotNone(accepted)
+
+        document.document_precision["decimal_places"] = "12"
+        document.document_precision["linear_tolerance"] = "0.0001"
+        rejected, _dof, status, _constrained = (
+            window._solve_point_constraints(references)
+        )
+        self.assertIsNone(rejected)
+        self.assertEqual(status, "dialog.point_constraints.conflict")
 
     def test_stored_shape_equations_can_be_used_without_live_resolution(self):
         class ConstraintHarness:
@@ -5997,6 +6272,161 @@ class DrawingViewConventionTests(unittest.TestCase):
             )
             self.assertIsNotNone(refreshed, mode)
             self.assertEqual(len(refreshed.edges), 8, mode)
+
+    def test_curved_and_rounded_thin_profiles_have_complete_wire_previews(self):
+        profiles = {
+            "ellipse": ([
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+                {
+                    "id": "ellipse", "type": "ellipse",
+                    "point_ids": ["c", "major", "minor"],
+                },
+            ], 2),
+            "elliptical_arc": ([
+                {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+                {"id": "start", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "end", "type": "point", "x": 0.0, "y": 5.0},
+                {
+                    "id": "elliptical-arc", "type": "elliptical_arc",
+                    "point_ids": ["c", "major", "minor", "start", "end"],
+                },
+            ], 4),
+            "spline": ([
+                {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "m", "type": "point", "x": 8.0, "y": 5.0},
+                {"id": "b", "type": "point", "x": 16.0, "y": 0.0},
+                {
+                    "id": "spline", "type": "spline",
+                    "point_ids": ["a", "m", "b"],
+                },
+            ], 4),
+            "closed_spline": ([
+                {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "b", "type": "point", "x": 12.0, "y": 0.0},
+                {"id": "c", "type": "point", "x": 12.0, "y": 8.0},
+                {"id": "d", "type": "point", "x": 0.0, "y": 8.0},
+                {
+                    "id": "closed-spline", "type": "spline",
+                    "point_ids": ["a", "b", "c", "d", "a"],
+                },
+            ], 2),
+            "mixed_closed_spline": ([
+                {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "s1", "type": "point", "x": 10.0, "y": 5.0},
+                {"id": "s2", "type": "point", "x": 20.0, "y": -5.0},
+                {"id": "b", "type": "point", "x": 30.0, "y": 0.0},
+                {"id": "rt", "type": "point", "x": 30.0, "y": 20.0},
+                {"id": "lt", "type": "point", "x": 0.0, "y": 20.0},
+                {
+                    "id": "spline", "type": "spline",
+                    "point_ids": ["a", "s1", "s2", "b"],
+                },
+                {"id": "right", "type": "segment", "point_ids": ["b", "rt"]},
+                {"id": "top", "type": "segment", "point_ids": ["rt", "lt"]},
+                {"id": "left", "type": "segment", "point_ids": ["lt", "a"]},
+            ], 8),
+            "corner_radius": ([
+                {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+                {"id": "c", "type": "point", "x": 20.0, "y": 10.0},
+                {
+                    "id": "ab", "type": "segment", "point_ids": ["a", "b"],
+                    "corner_radii": [{
+                        "id": "round-b", "other_geometry_id": "bc",
+                        "vertex_id": "b", "radius": 2.0,
+                    }],
+                },
+                {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            ], 8),
+        }
+        document = create_empty_part()
+        window = MainWindow.__new__(MainWindow)
+        for name, (entities, expected_edges) in profiles.items():
+            with self.subTest(profile=name):
+                owner = document.create_container(
+                    f"Sketch-{name}", ContainerType.SKETCH
+                )
+                transform = coordinate_system_transform(
+                    owner.coordinate_system
+                )
+                sketch = document.create_sketch(owner.entity_id, plane="xz")
+                sketch.parameters["sketch_data"] = json.dumps(
+                    SketchModel.from_editor_data(entities, []).to_dict()
+                )
+                mesh = window._persisted_thin_profile_mesh(
+                    sketch, transform, 1.0, "symmetric"
+                )
+                self.assertIsNotNone(mesh)
+                self.assertEqual(len(mesh.edges), expected_edges)
+                if name == "corner_radius":
+                    ordinary = window._persisted_sketch_profile_mesh(
+                        sketch, transform
+                    )
+                    self.assertIsNotNone(ordinary)
+                    self.assertIn(
+                        "arc", {edge.curve_kind for edge in ordinary.edges}
+                    )
+
+        owner = document.create_container(
+            "Sketch-circle", ContainerType.SKETCH
+        )
+        transform = coordinate_system_transform(owner.coordinate_system)
+        legacy_circle = document.create_sketch(owner.entity_id, plane="xz")
+        legacy_circle.parameters.update({"profile": "circle", "diameter": 12.0})
+        circle_mesh = window._persisted_thin_profile_mesh(
+            legacy_circle, transform, 1.0, "symmetric"
+        )
+        self.assertIsNotNone(circle_mesh)
+        self.assertEqual(len(circle_mesh.edges), 2)
+
+    def test_general_surface_up_to_preview_uses_persisted_triangles(self):
+        target = {
+            "kind": "face",
+            "surface_kind": "other",
+            "fallback_triangles": [
+                [[0.0, 5.0, 0.0], [10.0, 6.0, 0.0], [10.0, 7.0, 10.0]],
+                [[0.0, 5.0, 0.0], [10.0, 7.0, 10.0], [0.0, 6.0, 10.0]],
+            ],
+        }
+        combo = lambda value: SimpleNamespace(currentData=lambda: value)
+        dialog = SimpleNamespace(
+            _solution_references=lambda: [],
+            _primary_end_target=lambda _side: target,
+            protrusion_direction_combo=combo("forward"),
+            extent_mode_combo=combo("one_side"),
+            forward_end_condition_combo=combo("up_to"),
+            reverse_end_condition_combo=combo("length"),
+            point_object=None,
+        )
+        source = ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                1, ((1.0, 0.0, 1.0), (9.0, 0.0, 1.0)),
+                owner_id="profile", curve_kind="line",
+            ),),
+            points=(), planes=(),
+            bounds_min=(1.0, 0.0, 1.0),
+            bounds_max=(9.0, 0.0, 1.0),
+        )
+        window = MainWindow.__new__(MainWindow)
+        window._native_viewer_scene = None
+        window._datum_plane_frame = (
+            lambda _references, fallback: (fallback, (0.0, 0.0, 0.0))
+        )
+
+        preview = window._protrusion_wire_preview(
+            dialog, source, CoordinateSystem()
+        )
+
+        self.assertIsNotNone(preview)
+        self.assertEqual(len(preview.edges[0].points), 17)
+        end_heights = {round(point[1], 6) for point in preview.edges[0].points}
+        self.assertGreater(len(end_heights), 1)
 
     def test_straight_chamfer_dimension_uses_the_real_short_chord(self) -> None:
         curves = (

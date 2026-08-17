@@ -3,7 +3,68 @@ from __future__ import annotations
 from PySide6.QtWidgets import QDoubleSpinBox
 
 
-class PositiveQuantitySpinBox(QDoubleSpinBox):
+class PrecisionDoubleSpinBox(QDoubleSpinBox):
+    """Show rounded text while retaining the full model value.
+
+    ``QDoubleSpinBox.setDecimals`` normally rounds its stored value.  In CAD
+    that makes opening and confirming an otherwise unchanged property dialog
+    destructive.  This editor keeps enough fractional digits for binary64
+    calculations internally and applies the requested decimal count only in
+    ``textFromValue``.
+    """
+
+    # Qt permits up to 323 fractional decimal places.  Using that limit keeps
+    # even very small finite binary64 values intact; 15 or 17 *fractional*
+    # places would still round values close to zero before the dialog opens.
+    _INTERNAL_DECIMALS = 323
+    _MAX_DISPLAY_DECIMALS = 12
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._display_decimals = 3
+        super().__init__(*args, **kwargs)
+        QDoubleSpinBox.setDecimals(self, self._INTERNAL_DECIMALS)
+
+    def setDecimals(self, decimals: int) -> None:  # noqa: N802 - Qt API
+        self._display_decimals = max(
+            0,
+            min(self._MAX_DISPLAY_DECIMALS, int(decimals)),
+        )
+        # Calling the base implementation with the UI precision would round
+        # the model value.  Keep its numeric range at calculation precision.
+        QDoubleSpinBox.setDecimals(self, self._INTERNAL_DECIMALS)
+        self.update()
+
+    def displayDecimals(self) -> int:  # noqa: N802 - Qt-style API
+        return self._display_decimals
+
+    def textFromValue(self, value: float) -> str:  # noqa: N802 - Qt API
+        return self.locale().toString(
+            float(value),
+            "f",
+            self._display_decimals,
+        )
+
+    def valueFromText(self, text: str) -> float:  # noqa: N802 - Qt API
+        # Focus changes and dialog submission can ask the spinbox to
+        # reinterpret its already rounded display string.  If the user did
+        # not edit that string, preserve the exact value currently held.
+        line_edit = self.lineEdit()
+        displayed = str(text).strip()
+        prefix = self.prefix().strip()
+        suffix = self.suffix().strip()
+        if prefix and displayed.startswith(prefix):
+            displayed = displayed[len(prefix):].strip()
+        if suffix and displayed.endswith(suffix):
+            displayed = displayed[:-len(suffix)].strip()
+        if (
+            not line_edit.isModified()
+            and displayed == self.textFromValue(self.value()).strip()
+        ):
+            return self.value()
+        return QDoubleSpinBox.valueFromText(self, text)
+
+
+class PositiveQuantitySpinBox(PrecisionDoubleSpinBox):
     """Positive quantity editor with practical arrow-button increments.
 
     Values typed by the user retain the widget's configured precision and

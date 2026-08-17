@@ -5,11 +5,14 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+from OCC.Core.GeomAPI import GeomAPI_PointsToBSplineSurface
+from OCC.Core.TColgp import TColgp_Array2OfPnt
 from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt
 
 from zima_cad.app import MainWindow
@@ -23,10 +26,11 @@ from zima_cad.model import (
     make_protrusion_shape,
     make_revolve_shape,
     make_sketch_shape,
+    protrusion_face_registry,
     sketch_profile_status,
 )
 from zima_cad.sketch_model import SketchModel
-from zima_cad.topology import FaceRef, TopologyRegistry
+from zima_cad.topology import EdgeRef, FaceRef, TopologyRegistry
 
 
 class ProtrusionProfileTests(unittest.TestCase):
@@ -42,6 +46,9 @@ class ProtrusionProfileTests(unittest.TestCase):
         input_shape=None,
         input_registry=None,
         return_feature=False,
+        thin_thickness=1.0,
+        thin_mode="one_side",
+        plane="xz",
     ):
         document = create_empty_part()
         container = ZimaEntity(
@@ -53,7 +60,7 @@ class ProtrusionProfileTests(unittest.TestCase):
             "Sketch001",
             EntityKind.SKETCH,
             parameters={
-                "plane": "xz",
+                "plane": plane,
                 "profile": "entities",
                 "sketch_data": json.dumps(
                     SketchModel.from_editor_data(entities).to_dict()
@@ -70,6 +77,8 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "direction": "forward",
                 "profile_offset": f"{profile_offset:.12g}",
                 "result_type": result_type,
+                "thin_thickness": f"{thin_thickness:.12g}",
+                "thin_mode": thin_mode,
                 "end_condition_forward": end_condition,
                 "end_targets_forward": json.dumps(
                     [end_reference] if isinstance(end_reference, dict) else []
@@ -172,6 +181,177 @@ class ProtrusionProfileTests(unittest.TestCase):
             4,
         )
 
+    def test_up_to_accepts_a_general_spline_surface(self):
+        entities = [
+            {"id": "a", "type": "point", "x": 1.0, "y": 1.0},
+            {"id": "b", "type": "point", "x": 9.0, "y": 1.0},
+            {"id": "c", "type": "point", "x": 9.0, "y": 9.0},
+            {"id": "d", "type": "point", "x": 1.0, "y": 9.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        poles = TColgp_Array2OfPnt(1, 4, 1, 4)
+        for row in range(1, 5):
+            for column in range(1, 5):
+                poles.SetValue(
+                    row,
+                    column,
+                    gp_Pnt(
+                        (row - 1) * 10.0 / 3.0,
+                        10.0 + (1.0 if (row + column) % 2 else 0.0),
+                        (column - 1) * 10.0 / 3.0,
+                    ),
+                )
+        target_face = BRepBuilderAPI_MakeFace(
+            GeomAPI_PointsToBSplineSurface(poles).Surface(), 1.0e-7
+        ).Face()
+        reference = FaceRef("target", "generated", "spline-surface")
+        registry = TopologyRegistry()
+        registry.register_face(reference, target_face)
+
+        shape = self._build_profile(
+            entities,
+            end_condition="up_to",
+            end_reference={
+                "kind": "face",
+                "surface_kind": "other",
+                "reference": reference.to_dict(),
+            },
+            input_registry=registry,
+        )
+
+        self.assertHasVolume(shape)
+        end_heights = []
+        explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+        while explorer.More():
+            point = BRep_Tool.Pnt(explorer.Current())
+            if point.Y() > 1.0:
+                end_heights.append(round(point.Y(), 6))
+            explorer.Next()
+        self.assertGreaterEqual(len(set(end_heights)), 2)
+
+        ellipse = [
+            {"id": "center", "type": "point", "x": 5.0, "y": 5.0},
+            {"id": "major", "type": "point", "x": 8.0, "y": 5.0},
+            {"id": "minor", "type": "point", "x": 5.0, "y": 7.0},
+            {
+                "id": "ellipse", "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        self.assertHasVolume(self._build_profile(
+            ellipse,
+            result_type="thin",
+            thin_thickness=0.5,
+            end_condition="up_to",
+            end_reference={
+                "kind": "face",
+                "surface_kind": "other",
+                "reference": reference.to_dict(),
+            },
+            input_registry=registry,
+        ))
+
+    def test_dependent_multi_profile_source_does_not_mark_valid_up_to_red(self):
+        document = create_empty_part()
+        target_container = document.create_container(
+            "Target",
+            ContainerType.BOX,
+        )
+        target_box = document.create_primitive(
+            target_container.entity_id,
+            EntityKind.BOX,
+        )
+        self.assertIsNotNone(target_box)
+
+        entities = [
+            {"id": "a", "type": "point", "x": -10.0, "y": -8.0},
+            {"id": "b", "type": "point", "x": -6.0, "y": -8.0},
+            {"id": "c", "type": "point", "x": -6.0, "y": -4.0},
+            {"id": "d", "type": "point", "x": -10.0, "y": -4.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+            {"id": "e", "type": "point", "x": 6.0, "y": 4.0},
+            {"id": "f", "type": "point", "x": 10.0, "y": 4.0},
+            {"id": "g", "type": "point", "x": 10.0, "y": 8.0},
+            {"id": "h", "type": "point", "x": 6.0, "y": 8.0},
+            {"id": "ef", "type": "segment", "point_ids": ["e", "f"]},
+            {"id": "fg", "type": "segment", "point_ids": ["f", "g"]},
+            {"id": "gh", "type": "segment", "point_ids": ["g", "h"]},
+            {"id": "he", "type": "segment", "point_ids": ["h", "e"]},
+            {"id": "o", "type": "point", "x": 0.0, "y": 0.0},
+            {
+                "id": "circle",
+                "type": "circle",
+                "point_ids": ["o"],
+                "radius": 2.0,
+            },
+        ]
+        source_container = document.create_container(
+            "Profiles",
+            ContainerType.PROTRUSION,
+        )
+        source_container.coordinate_system = CoordinateSystem(
+            origin=(30.0, 0.0, 0.0)
+        )
+        sketch = document.create_sketch(source_container.entity_id, plane="yz")
+        self.assertIsNotNone(sketch)
+        sketch.parameters["sketch_data"] = json.dumps(
+            SketchModel.from_editor_data(entities).to_dict()
+        )
+        feature = ZimaEntity(
+            "Protrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "50",
+                "length_reverse": "0",
+                "extent_mode": "one_side",
+                "direction": "reverse",
+                "result_type": "solid",
+                "operation": CombineMode.ADD.value,
+                "end_condition_forward": "up_to",
+                "end_targets_forward": json.dumps([{
+                    "kind": "face",
+                    # Exercise the same general supporting-surface path as
+                    # an extruded ellipse side in Projects/01.prtz.
+                    "surface_kind": "other",
+                    "reference": FaceRef(
+                        target_box.entity_id,
+                        "x_max",
+                    ).to_dict(),
+                }]),
+                "end_condition_reverse": "length",
+                "end_targets_reverse": "[]",
+            },
+        )
+        source_container.add_child(feature)
+
+        # Simulate the diagnostic left by an earlier failed edit.  A
+        # successful authoritative calculation must clear it before the UI
+        # reads the feature status for the Properties label and tree row.
+        feature.parameters["build_status"] = "up_to_reference_unresolved"
+        body = document.build_active_shape()
+        self.assertHasVolume(body)
+        self.assertNotIn("build_status", feature.parameters)
+
+        # Regeneration builds this auxiliary packet after the authoritative
+        # Body. It needs the preceding Body only to resolve the target face;
+        # the packet itself must contain the three uncombined profile solids.
+        source = document.build_standalone_shape(source_container)
+        self.assertHasVolume(source)
+        source_solids = TopExp_Explorer(source, TopAbs_SOLID)
+        count = 0
+        while source_solids.More():
+            count += 1
+            source_solids.Next()
+        self.assertEqual(count, 3)
+        self.assertNotIn("build_status", feature.parameters)
+
     def test_through_all_uses_a_calculated_length_without_replacing_manual_length(self):
         entities = [
             {"id": "a", "type": "point", "x": 1.0, "y": 1.0},
@@ -244,6 +424,195 @@ class ProtrusionProfileTests(unittest.TestCase):
         self.assertLess(
             float(thin_properties.Mass()), float(solid_properties.Mass())
         )
+
+    def test_open_curves_create_valid_thin_solids_in_every_side_mode(self):
+        profiles = {
+            "arc": [
+                {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "start", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "end", "type": "point", "x": 0.0, "y": 10.0},
+                {
+                    "id": "arc", "type": "arc", "arc_mode": "center",
+                    "radius": 10.0,
+                    "point_ids": ["center", "start", "end"],
+                },
+            ],
+            "elliptical_arc": [
+                {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+                {"id": "start", "type": "point", "x": 10.0, "y": 0.0},
+                {"id": "end", "type": "point", "x": 0.0, "y": 5.0},
+                {
+                    "id": "elliptical-arc", "type": "elliptical_arc",
+                    "point_ids": [
+                        "center", "major", "minor", "start", "end",
+                    ],
+                },
+            ],
+            "spline": [
+                {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+                {"id": "m1", "type": "point", "x": 8.0, "y": 5.0},
+                {"id": "m2", "type": "point", "x": 15.0, "y": -3.0},
+                {"id": "b", "type": "point", "x": 22.0, "y": 2.0},
+                {
+                    "id": "spline", "type": "spline",
+                    "point_ids": ["a", "m1", "m2", "b"],
+                },
+            ],
+        }
+        for name, entities in profiles.items():
+            for mode in ("one_side", "other_side", "symmetric"):
+                with self.subTest(profile=name, mode=mode):
+                    shape = self._build_profile(
+                        entities,
+                        result_type="thin",
+                        thin_thickness=0.75,
+                        thin_mode=mode,
+                    )
+                    self.assertHasVolume(shape)
+
+    def test_closed_ellipse_creates_both_solid_and_thin(self):
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+            {
+                "id": "ellipse", "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        for plane in ("xy", "xz", "yz"):
+            for mode in ("one_side", "other_side", "symmetric"):
+                with self.subTest(plane=plane, mode=mode):
+                    self.assertHasVolume(self._build_profile(
+                        entities,
+                        result_type="thin",
+                        thin_thickness=0.75,
+                        thin_mode=mode,
+                        plane=plane,
+                    ))
+        self.assertIsNone(self._build_profile(
+            entities,
+            result_type="thin",
+            thin_thickness=7.0,
+            thin_mode="one_side",
+        ))
+
+    def test_circle_entity_creates_both_solid_and_thin(self):
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {
+                "id": "circle", "type": "circle",
+                "point_ids": ["center"], "radius": 6.0,
+            },
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        for mode in ("one_side", "other_side", "symmetric"):
+            with self.subTest(mode=mode):
+                self.assertHasVolume(self._build_profile(
+                    entities,
+                    result_type="thin",
+                    thin_thickness=0.75,
+                    thin_mode=mode,
+                ))
+
+    def test_ellipse_thin_keeps_named_inner_and_outer_topology(self):
+        document = create_empty_part()
+        container = ZimaEntity(
+            "ThinEllipse",
+            EntityKind.CONTAINER,
+            parameters={"container_type": ContainerType.PROTRUSION.value},
+        )
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+            {
+                "id": "ellipse", "type": "ellipse",
+                "point_ids": ["center", "major", "minor"],
+            },
+        ]
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz", "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "Thin",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "10",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "result_type": "thin",
+                "thin_thickness": "0.75",
+                "thin_mode": "one_side",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        expected_faces = {
+            FaceRef(feature.entity_id, "inside", "ellipse"),
+            FaceRef(feature.entity_id, "outside", "ellipse"),
+        }
+        expected_edges = {
+            EdgeRef(feature.entity_id, f"{cap}_{side}", "ellipse")
+            for cap in ("start", "end")
+            for side in ("inside", "outside")
+        }
+        for thickness in ("0.75", "0.5"):
+            feature.parameters["thin_thickness"] = thickness
+            shape = make_protrusion_shape(document, container)
+            self.assertHasVolume(shape)
+            registry = protrusion_face_registry(document, container, shape)
+            self.assertTrue(expected_faces.issubset(registry.references))
+            self.assertTrue(
+                expected_edges.issubset(registry.edge_references)
+            )
+
+    def test_corner_radius_is_used_by_solid_and_thin_profiles(self):
+        closed = [
+            {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "c", "type": "point", "x": 20.0, "y": 10.0},
+            {"id": "d", "type": "point", "x": 0.0, "y": 10.0},
+            {
+                "id": "ab", "type": "segment", "point_ids": ["a", "b"],
+                "corner_radii": [{
+                    "id": "round-b",
+                    "other_geometry_id": "bc",
+                    "vertex_id": "b",
+                    "radius": 2.0,
+                }],
+            },
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        solid = self._build_profile(closed)
+        thin = self._build_profile(closed, result_type="thin")
+        self.assertHasVolume(solid)
+        self.assertHasVolume(thin)
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(solid, properties)
+        expected_volume = (200.0 - 4.0 + 3.141592653589793) * 10.0
+        self.assertAlmostEqual(float(properties.Mass()), expected_volume, places=5)
+
+        open_profile = closed[:3] + closed[4:6]
+        self.assertHasVolume(self._build_profile(
+            open_profile,
+            result_type="thin",
+        ))
 
     def test_profile_status_distinguishes_open_and_closed(self):
         def sketch(entities):
@@ -320,8 +689,61 @@ class ProtrusionProfileTests(unittest.TestCase):
         brepgprop.VolumeProperties(thin, properties)
         self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
 
+    def test_elliptical_arc_can_create_revolved_thin_solid(self):
+        entities = [
+            {"id": "axis-a", "type": "point", "x": 0.0, "y": -10.0},
+            {"id": "axis-b", "type": "point", "x": 0.0, "y": 20.0},
+            {"id": "center", "type": "point", "x": 12.0, "y": 5.0},
+            {"id": "major", "type": "point", "x": 18.0, "y": 5.0},
+            {"id": "minor", "type": "point", "x": 12.0, "y": 9.0},
+            {"id": "start", "type": "point", "x": 18.0, "y": 5.0},
+            {"id": "end", "type": "point", "x": 12.0, "y": 9.0},
+            {
+                "id": "axis", "type": "construction",
+                "point_ids": ["axis-a", "axis-b"],
+            },
+            {
+                "id": "elliptical-arc", "type": "elliptical_arc",
+                "point_ids": [
+                    "center", "major", "minor", "start", "end",
+                ],
+            },
+        ]
+        document = create_empty_part()
+        container = ZimaEntity("RevolveEllipse", EntityKind.CONTAINER)
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={
+                "plane": "xz",
+                "profile": "entities",
+                "sketch_data": json.dumps(
+                    SketchModel.from_editor_data(entities).to_dict()
+                ),
+            },
+        )
+        feature = ZimaEntity(
+            "Revolve",
+            EntityKind.REVOLVE,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "angle": "180",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "result_type": "thin",
+                "thin_thickness": "1",
+                "thin_mode": "symmetric",
+            },
+        )
+        container.add_child(sketch)
+        container.add_child(feature)
+        document.root.add_child(container)
+
+        self.assertHasVolume(make_revolve_shape(document, container))
+
     def assertHasVolume(self, shape):
         self.assertIsNotNone(shape)
+        self.assertTrue(BRepCheck_Analyzer(shape).IsValid())
         properties = GProp_GProps()
         brepgprop.VolumeProperties(shape, properties)
         self.assertGreater(abs(float(properties.Mass())), 1.0e-6)
@@ -356,7 +778,7 @@ class ProtrusionProfileTests(unittest.TestCase):
         self.assertAlmostEqual(ymax, 207.0, places=6)
 
     def test_closed_profile_can_include_center_arc(self):
-        self.assertHasVolume(self._build_profile([
+        entities = [
             {"id": "c", "type": "point", "x": 0.0, "y": 0.0},
             {"id": "top", "type": "point", "x": 0.0, "y": 10.0},
             {"id": "bottom", "type": "point", "x": 0.0, "y": -10.0},
@@ -373,10 +795,47 @@ class ProtrusionProfileTests(unittest.TestCase):
             },
             {"id": "bottom_line", "type": "segment", "point_ids": ["bottom", "rb"]},
             {"id": "right_line", "type": "segment", "point_ids": ["rb", "rt"]},
-        ]))
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        self.assertHasVolume(self._build_profile(
+            entities,
+            result_type="thin",
+            thin_thickness=0.75,
+            thin_mode="symmetric",
+        ))
+
+    def test_closed_profile_can_include_elliptical_arc_for_solid_and_thin(self):
+        entities = [
+            {"id": "center", "type": "point", "x": 0.0, "y": 0.0},
+            {"id": "major", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "minor", "type": "point", "x": 0.0, "y": 5.0},
+            {"id": "start", "type": "point", "x": 10.0, "y": 0.0},
+            {"id": "end", "type": "point", "x": 0.0, "y": 5.0},
+            {
+                "id": "elliptical-arc", "type": "elliptical_arc",
+                "point_ids": [
+                    "center", "major", "minor", "start", "end",
+                ],
+            },
+            {
+                "id": "end-center", "type": "segment",
+                "point_ids": ["end", "center"],
+            },
+            {
+                "id": "center-start", "type": "segment",
+                "point_ids": ["center", "start"],
+            },
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        self.assertHasVolume(self._build_profile(
+            entities,
+            result_type="thin",
+            thin_thickness=0.5,
+            thin_mode="symmetric",
+        ))
 
     def test_closed_profile_can_include_spline(self):
-        self.assertHasVolume(self._build_profile([
+        entities = [
             {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
             {"id": "s1", "type": "point", "x": 10.0, "y": 5.0},
             {"id": "s2", "type": "point", "x": 20.0, "y": -5.0},
@@ -387,10 +846,17 @@ class ProtrusionProfileTests(unittest.TestCase):
             {"id": "right", "type": "segment", "point_ids": ["b", "rt"]},
             {"id": "top", "type": "segment", "point_ids": ["rt", "lt"]},
             {"id": "left", "type": "segment", "point_ids": ["lt", "a"]},
-        ]))
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        self.assertHasVolume(self._build_profile(
+            entities,
+            result_type="thin",
+            thin_thickness=0.75,
+            thin_mode="symmetric",
+        ))
 
     def test_single_spline_can_close_on_its_first_point(self):
-        self.assertHasVolume(self._build_profile([
+        entities = [
             {"id": "a", "type": "point", "x": 0.0, "y": 0.0},
             {"id": "b", "type": "point", "x": 20.0, "y": 0.0},
             {"id": "c", "type": "point", "x": 20.0, "y": 20.0},
@@ -400,7 +866,14 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "type": "spline",
                 "point_ids": ["a", "b", "c", "d", "a"],
             },
-        ]))
+        ]
+        self.assertHasVolume(self._build_profile(entities))
+        self.assertHasVolume(self._build_profile(
+            entities,
+            result_type="thin",
+            thin_thickness=0.75,
+            thin_mode="symmetric",
+        ))
 
     def test_front_xz_profile_extrudes_from_profile_offset(self):
         shape = self._build_profile([

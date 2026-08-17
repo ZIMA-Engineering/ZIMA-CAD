@@ -203,6 +203,71 @@ def ray_surface_intersections(
     return RaySurfaceIntersections(error="invalid_surface")
 
 
+def ray_triangle_mesh_intersections(
+    ray_origin,
+    ray_direction,
+    triangles,
+) -> RaySurfaceIntersections:
+    """Intersect a ray with persisted viewer triangles, without using OCCT.
+
+    This is the preview/editing counterpart of an exact general-surface
+    intersection performed only at the explicit body-calculation boundary.
+    """
+    origin = _vector(ray_origin)
+    direction = _normalized(ray_direction)
+    if origin is None or direction is None or not isinstance(
+        triangles, (list, tuple)
+    ):
+        return RaySurfaceIntersections(error="invalid_surface")
+    distances: list[float] = []
+    valid_triangles = 0
+    parallel_triangles = 0
+    for raw_triangle in triangles:
+        if not isinstance(raw_triangle, (list, tuple)) or len(raw_triangle) != 3:
+            continue
+        triangle = tuple(_vector(point) for point in raw_triangle)
+        if any(point is None for point in triangle):
+            continue
+        valid_triangles += 1
+        first, second, third = triangle
+        assert first is not None and second is not None and third is not None
+        edge_a = tuple(second[index] - first[index] for index in range(3))
+        edge_b = tuple(third[index] - first[index] for index in range(3))
+        cross = (
+            direction[1] * edge_b[2] - direction[2] * edge_b[1],
+            direction[2] * edge_b[0] - direction[0] * edge_b[2],
+            direction[0] * edge_b[1] - direction[1] * edge_b[0],
+        )
+        determinant = _dot(edge_a, cross)
+        if abs(determinant) <= 1.0e-12:
+            parallel_triangles += 1
+            continue
+        inverse = 1.0 / determinant
+        offset = tuple(origin[index] - first[index] for index in range(3))
+        u = _dot(offset, cross) * inverse
+        if u < -1.0e-9 or u > 1.0 + 1.0e-9:
+            continue
+        offset_cross = (
+            offset[1] * edge_a[2] - offset[2] * edge_a[1],
+            offset[2] * edge_a[0] - offset[0] * edge_a[2],
+            offset[0] * edge_a[1] - offset[1] * edge_a[0],
+        )
+        v = _dot(direction, offset_cross) * inverse
+        if v < -1.0e-9 or u + v > 1.0 + 1.0e-9:
+            continue
+        distance = _dot(edge_b, offset_cross) * inverse
+        if math.isfinite(distance) and distance > 1.0e-7:
+            distances.append(distance)
+    if not valid_triangles:
+        return RaySurfaceIntersections(error="invalid_surface")
+    if not distances:
+        return RaySurfaceIntersections(
+            error=("parallel" if parallel_triangles == valid_triangles else "miss")
+        )
+    unique = tuple(sorted({round(distance, 10) for distance in distances}))
+    return RaySurfaceIntersections(unique)
+
+
 def analytic_surface_side(
     surface_kind: str,
     point,

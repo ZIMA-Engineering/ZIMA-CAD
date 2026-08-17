@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from zima_cad.body_result import BodyResult
+from zima_cad.precision import format_model_float
 from zima_cad.model import (
     CombineMode,
     ContainerType,
@@ -624,7 +625,7 @@ def read_entity(
 
 
 def format_float(value: float) -> str:
-    return f"{float(value):.12g}"
+    return format_model_float(value)
 
 
 def flatten_language_map(values: dict[str, dict[str, str]]) -> dict[str, str]:

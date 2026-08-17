@@ -77,6 +77,39 @@ class AssemblyDocumentTests(unittest.TestCase):
             bounds = self._shape_bounds(shape)
             self.assertAlmostEqual(bounds[0], 105.0, places=5)
 
+    def test_component_transform_round_trips_full_double_precision(self):
+        document = create_empty_assembly()
+        component = document.create_container(
+            "Precise component", ContainerType.COMPONENT
+        )
+        component.coordinate_system.origin = (
+            7.399226888021235,
+            -68.14864728512346,
+            0.000000123456789012345,
+        )
+        component.coordinate_system.rotation = (
+            -89.99999999912345,
+            0.12345678901234566,
+            179.99999999987654,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "precise.asmz"
+            restored = document
+            for _ in range(5):
+                save_part_document(restored, path)
+                restored = load_part_document(path)
+
+        restored_component = restored.history_objects()[0]
+        self.assertEqual(
+            restored_component.coordinate_system.origin,
+            component.coordinate_system.origin,
+        )
+        self.assertEqual(
+            restored_component.coordinate_system.rotation,
+            component.coordinate_system.rotation,
+        )
+
     @staticmethod
     def _shape_bounds(shape):
         from OCC.Core.Bnd import Bnd_Box

@@ -205,15 +205,15 @@
 - Keep the ordinary Part application solid-only. A closed profile creates an
   ordinary solid or, when explicitly selected, a hollow thin solid. An open
   profile creates a thin solid; neither silently creates a standalone surface
-  body. Straight, unbranched open chains and closed loops are implemented.
+  body. One unbranched open chain or closed loop of segments, arcs, ellipses,
+  elliptic arcs, splines and evaluated sketch-corner radii is implemented.
 - **Implemented:** the Thin ViewerMesh preview contains both offset boundaries,
   every corner-longitudinal edge and open-chain end caps. Thickness-side and
   symmetric switches atomically replace the cyan overlay after button-event
   cleanup and never fall back to displaying the old shaded result body.
-- Stabilize the current thin-solid foundation first: wall-side controls,
-  curved-chain offsets, Inside/Outside and Start/End identities,
-  self-intersection diagnostics and reference recovery when switching between
-  thin and ordinary solid results.
+- Continue stabilizing the thin-solid foundation: Inside/Outside and Start/End
+  identities, detailed self-intersection diagnostics and reference recovery
+  when switching between thin and ordinary solid results.
 - Add a solid-cut operation driven by a selected surface or surface body. The
   operation must define the retained side explicitly and store stable
   references to the cutting surface.
@@ -338,7 +338,10 @@
   clip the extrusion with the corresponding cylindrical volume.
 - **Implemented:** spherical and conical targets use the same persisted
   analytic/ray-validation contract and OCCT volume clipping as cylinders.
-  General NURBS/B-spline targets remain a later stage.
+- **Implemented:** a general NURBS/B-spline target persists its selected-face
+  triangles for the OCCT-free wire preview. OK/regeneration resolves the stable
+  face reference, intersects the exact OCCT face and clips with that surface;
+  every sampled profile ray must hit the selected face in one common direction.
 - **Implemented:** plane, sphere, cylinder and cone intersections are evaluated
   by one shared analytic solver used by both the cyan wire preview and body
   calculation. Invalid targets distinguish unresolved reference, parallel
@@ -346,8 +349,9 @@
 - For cylinders and spheres choose the first positive intersection in the
   requested direction and persist the selected inside/outside side. Reject the
   operation if any required profile ray misses the target or is ambiguous.
-- General curved Up-to must not use one maximum scalar length: every profile
-  ray owns its terminal point on the target surface.
+- General curved Up-to does not use one scalar preview endpoint: every profile
+  ray owns its terminal point on the target surface. The maximum distance is
+  used only as safe construction overrun before exact clipping.
 - A target point defines the plane through that point perpendicular to the
   extrusion direction. Do not offer an axis as a target until its geometric
   meaning is unambiguous for the selected direction.

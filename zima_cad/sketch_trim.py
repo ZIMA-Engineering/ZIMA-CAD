@@ -11,6 +11,7 @@ from zima_cad.sketch_geometry import (
     center_arc_points,
     ellipse_points,
     elliptical_arc_points,
+    evaluate_corner_radius,
 )
 
 Point2 = tuple[float, float]
@@ -147,6 +148,502 @@ def sample_sketch_curves(entities: list[dict[str, Any]]) -> tuple[SampledCurve, 
             not is_auxiliary,
         ))
     return tuple(curves)
+
+
+def _profile_curve_endpoints(
+    entity: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Return the two graph endpoints owned by an open sketch curve."""
+    entity_type = str(entity.get("type", ""))
+    point_ids = tuple(map(str, entity.get("point_ids", ())))
+    if entity_type == "segment" and len(point_ids) == 2:
+        return point_ids
+    if entity_type == "arc" and len(point_ids) >= 3:
+        return (
+            (point_ids[1], point_ids[2])
+            if entity.get("arc_mode") == "center"
+            else (point_ids[0], point_ids[-1])
+        )
+    if entity_type == "elliptical_arc" and len(point_ids) >= 5:
+        return point_ids[3], point_ids[4]
+    if entity_type == "spline" and len(point_ids) >= 2:
+        return point_ids[0], point_ids[-1]
+    return None
+
+
+def _effective_profile_curve_data(
+    entities: list[dict[str, Any]],
+) -> tuple[
+    dict[str, SampledCurve],
+    dict[tuple[str, str, str], SampledCurve],
+]:
+    """Evaluate persisted corner radii into trimmed lines and real arcs."""
+    points = _point_map(entities)
+    entity_by_id = {
+        str(entity.get("id", "")): entity
+        for entity in entities
+        if isinstance(entity, dict) and str(entity.get("id", ""))
+    }
+    sampled_by_id = {
+        curve.entity_id: curve
+        for curve in sample_sketch_curves(entities)
+        if entity_by_id.get(curve.entity_id, {}).get("role")
+        != "construction"
+        and curve.entity_type != "construction"
+    }
+    segments = {
+        entity_id: entity
+        for entity_id, entity in entity_by_id.items()
+        if entity.get("type") == "segment"
+        and entity.get("role") != "construction"
+        and len(entity.get("point_ids", ())) == 2
+    }
+    trim_points: dict[tuple[str, str], Point2] = {}
+    corner_curves: dict[tuple[str, str, str], SampledCurve] = {}
+    seen: set[tuple[str, str, str]] = set()
+    for first_id, first in segments.items():
+        first_points = tuple(map(str, first.get("point_ids", ())))
+        records = first.get("corner_radii", ())
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if not isinstance(record, dict) or bool(record.get("suppressed", False)):
+                continue
+            second_id = str(record.get("other_geometry_id", ""))
+            vertex_id = str(record.get("vertex_id", ""))
+            key = (*sorted((first_id, second_id)), vertex_id)
+            if key in seen:
+                continue
+            second = segments.get(second_id)
+            second_points = (
+                tuple(map(str, second.get("point_ids", ())))
+                if second is not None else ()
+            )
+            if (
+                len(first_points) != 2
+                or len(second_points) != 2
+                or vertex_id not in first_points
+                or vertex_id not in second_points
+                or vertex_id not in points
+            ):
+                continue
+            first_outer_id = next(
+                point_id for point_id in first_points
+                if point_id != vertex_id
+            )
+            second_outer_id = next(
+                point_id for point_id in second_points
+                if point_id != vertex_id
+            )
+            if first_outer_id not in points or second_outer_id not in points:
+                continue
+            evaluated = evaluate_corner_radius(
+                points[vertex_id],
+                points[first_outer_id],
+                points[second_outer_id],
+                float(record.get("radius", 0.0)),
+                samples=64,
+            )
+            if evaluated is None:
+                continue
+            seen.add(key)
+            trim_points[(first_id, vertex_id)] = evaluated.first_tangent
+            trim_points[(second_id, vertex_id)] = evaluated.second_tangent
+            radius_id = str(
+                record.get("id")
+                or f"radius:{key[0]}:{key[1]}:{vertex_id}"
+            )
+            sampled = tuple(evaluated.arc_points)
+            corner_curves[key] = SampledCurve(
+                radius_id,
+                "arc",
+                sampled,
+                tuple(
+                    index / (len(sampled) - 1)
+                    for index in range(len(sampled))
+                ),
+                False,
+                False,
+                False,
+            )
+
+    effective: dict[str, SampledCurve] = {}
+    for entity_id, curve in sampled_by_id.items():
+        entity = entity_by_id.get(entity_id, {})
+        if curve.entity_type != "segment":
+            effective[entity_id] = curve
+            continue
+        point_ids = tuple(map(str, entity.get("point_ids", ())))
+        if len(point_ids) != 2 or any(point_id not in points for point_id in point_ids):
+            continue
+        sampled = (
+            trim_points.get((entity_id, point_ids[0]), points[point_ids[0]]),
+            trim_points.get((entity_id, point_ids[1]), points[point_ids[1]]),
+        )
+        if math.dist(*sampled) <= 1.0e-12:
+            continue
+        effective[entity_id] = SampledCurve(
+            curve.entity_id,
+            curve.entity_type,
+            sampled,
+            (0.0, 1.0),
+            False,
+            curve.trimmable,
+            curve.creates_trim_points,
+        )
+    return effective, corner_curves
+
+
+def sample_effective_profile_curves(
+    entities: list[dict[str, Any]],
+) -> tuple[SampledCurve, ...]:
+    """Sample visible profile curves, including persisted corner radii."""
+    effective, corner_curves = _effective_profile_curve_data(entities)
+    ordered_ids = [
+        str(entity.get("id", ""))
+        for entity in entities
+        if isinstance(entity, dict)
+        and str(entity.get("id", "")) in effective
+    ]
+    return tuple(
+        [effective[entity_id] for entity_id in ordered_ids]
+        + [corner_curves[key] for key in sorted(corner_curves)]
+    )
+
+
+def ordered_effective_profile_curves(
+    entities: list[dict[str, Any]],
+) -> tuple[SampledCurve, ...]:
+    """Return one consistently oriented, unbranched effective profile."""
+    effective, corner_curves = _effective_profile_curve_data(entities)
+    entity_by_id = {
+        str(entity.get("id", "")): entity
+        for entity in entities
+        if isinstance(entity, dict)
+        and str(entity.get("id", "")) in effective
+    }
+    if not entity_by_id:
+        return ()
+
+    closed_ids = [
+        entity_id for entity_id, curve in effective.items()
+        if curve.closed and _profile_curve_endpoints(entity_by_id[entity_id]) is None
+    ]
+    if closed_ids:
+        return (
+            (effective[closed_ids[0]],)
+            if len(closed_ids) == 1 and len(entity_by_id) == 1
+            else ()
+        )
+
+    endpoints = {
+        entity_id: _profile_curve_endpoints(entity)
+        for entity_id, entity in entity_by_id.items()
+    }
+    if any(value is None for value in endpoints.values()):
+        return ()
+    adjacency: dict[str, list[str]] = {}
+    for entity_id, endpoint_pair in endpoints.items():
+        assert endpoint_pair is not None
+        first, second = endpoint_pair
+        adjacency.setdefault(first, []).append(entity_id)
+        adjacency.setdefault(second, []).append(entity_id)
+    if any(len(linked) > 2 for linked in adjacency.values()):
+        return ()
+    ends = sorted(
+        point_id for point_id, linked in adjacency.items()
+        if len(linked) == 1
+    )
+    if len(ends) not in (0, 2):
+        return ()
+    start = ends[0] if ends else min(adjacency)
+    current = start
+    used: set[str] = set()
+    chain: list[tuple[str, str, str]] = []
+    while len(used) < len(entity_by_id):
+        candidates = sorted(
+            entity_id for entity_id in adjacency.get(current, ())
+            if entity_id not in used
+        )
+        if not candidates:
+            return ()
+        entity_id = candidates[0]
+        pair = endpoints[entity_id]
+        assert pair is not None
+        next_point = pair[1] if pair[0] == current else pair[0]
+        chain.append((entity_id, current, next_point))
+        used.add(entity_id)
+        current = next_point
+    closed = not ends
+    if (closed and current != start) or (not closed and current != ends[1]):
+        return ()
+
+    result: list[SampledCurve] = []
+    oriented: list[SampledCurve] = []
+    for entity_id, start_id, _end_id in chain:
+        curve = effective[entity_id]
+        pair = endpoints[entity_id]
+        assert pair is not None
+        if pair[0] != start_id:
+            sampled = tuple(reversed(curve.points))
+            curve = SampledCurve(
+                curve.entity_id,
+                curve.entity_type,
+                sampled,
+                tuple(
+                    index / (len(sampled) - 1)
+                    for index in range(len(sampled))
+                ),
+                curve.closed,
+                curve.trimmable,
+                curve.creates_trim_points,
+            )
+        oriented.append(curve)
+
+    for index, curve in enumerate(oriented):
+        result.append(curve)
+        if not closed and index + 1 == len(oriented):
+            continue
+        next_index = (index + 1) % len(oriented)
+        first_id, _start_id, vertex_id = chain[index]
+        second_id = chain[next_index][0]
+        radius_curve = corner_curves.get(
+            (*sorted((first_id, second_id)), vertex_id)
+        )
+        if radius_curve is None:
+            continue
+        sampled = radius_curve.points
+        if math.dist(sampled[0], curve.points[-1]) > math.dist(
+            sampled[-1], curve.points[-1]
+        ):
+            sampled = tuple(reversed(sampled))
+        result.append(SampledCurve(
+            radius_curve.entity_id,
+            radius_curve.entity_type,
+            sampled,
+            tuple(
+                item / (len(sampled) - 1)
+                for item in range(len(sampled))
+            ),
+            False,
+            False,
+            False,
+        ))
+    return tuple(result)
+
+
+def offset_ordered_profile_curves(
+    curves: tuple[SampledCurve, ...],
+    distance: float,
+) -> tuple[SampledCurve, ...]:
+    """Offset one ordered sampled profile while preserving curve boundaries."""
+    if not curves:
+        return ()
+    tolerance = 1.0e-8
+    points: list[Point2] = []
+    curve_indices: list[list[int]] = []
+    for curve in curves:
+        indices: list[int] = []
+        for point in curve.points:
+            if points and math.dist(point, points[-1]) <= tolerance:
+                index = len(points) - 1
+            elif points and math.dist(point, points[0]) <= tolerance:
+                index = 0
+            else:
+                points.append(point)
+                index = len(points) - 1
+            indices.append(index)
+        curve_indices.append(indices)
+    closed = (
+        len(points) >= 3
+        and math.dist(curves[0].points[0], curves[-1].points[-1])
+        <= tolerance
+    )
+    minimum = 3 if closed else 2
+    if len(points) < minimum:
+        return ()
+    if abs(distance) <= 1.0e-12:
+        return curves
+
+    segment_pairs = [
+        (points[index], points[index + 1])
+        for index in range(len(points) - 1)
+    ]
+    if closed:
+        segment_pairs.append((points[-1], points[0]))
+    lines: list[tuple[Point2, Point2]] = []
+    for first, second in segment_pairs:
+        dx, dy = second[0] - first[0], second[1] - first[1]
+        length = math.hypot(dx, dy)
+        if length <= 1.0e-12:
+            return ()
+        lines.append((
+            (
+                first[0] - dy / length * distance,
+                first[1] + dx / length * distance,
+            ),
+            (dx / length, dy / length),
+        ))
+
+    def intersection(
+        first_line: tuple[Point2, Point2],
+        second_line: tuple[Point2, Point2],
+        fallback: Point2,
+    ) -> Point2:
+        first_point, first_direction = first_line
+        second_point, second_direction = second_line
+        denominator = (
+            first_direction[0] * second_direction[1]
+            - first_direction[1] * second_direction[0]
+        )
+        if abs(denominator) <= 1.0e-10:
+            return second_point
+        delta = (
+            second_point[0] - first_point[0],
+            second_point[1] - first_point[1],
+        )
+        factor = (
+            delta[0] * second_direction[1]
+            - delta[1] * second_direction[0]
+        ) / denominator
+        candidate = (
+            first_point[0] + factor * first_direction[0],
+            first_point[1] + factor * first_direction[1],
+        )
+        if math.dist(candidate, fallback) > abs(distance) * 100.0:
+            raise ValueError("profile offset creates an unbounded mitre")
+        return candidate
+
+    try:
+        if closed:
+            offset_points = [
+                intersection(lines[index - 1], lines[index], points[index])
+                for index in range(len(points))
+            ]
+        else:
+            offset_points = [lines[0][0]]
+            offset_points.extend(
+                intersection(lines[index - 1], lines[index], points[index])
+                for index in range(1, len(points) - 1)
+            )
+            last_point, last_direction = lines[-1]
+            last_length = math.dist(points[-2], points[-1])
+            offset_points.append((
+                last_point[0] + last_direction[0] * last_length,
+                last_point[1] + last_direction[1] * last_length,
+            ))
+    except ValueError:
+        return ()
+
+    def direction_dot(
+        original_first: Point2,
+        original_second: Point2,
+        offset_first: Point2,
+        offset_second: Point2,
+    ) -> float:
+        return (
+            (original_second[0] - original_first[0])
+            * (offset_second[0] - offset_first[0])
+            + (original_second[1] - original_first[1])
+            * (offset_second[1] - offset_first[1])
+        )
+
+    # A mitre at a real junction between two sketch entities may legitimately
+    # trim a short piece from either parallel curve.  Applying the ordinary
+    # local-curvature reversal check to that last sampled piece rejects a
+    # valid offset (notably a spline meeting a line at a sharp corner).  Trim
+    # only those boundary-adjacent samples; a reversal anywhere inside one
+    # entity still means that the requested offset crossed its local centre
+    # of curvature.
+    sampled_curves: list[
+        tuple[SampledCurve, list[Point2], list[Point2], list[float]]
+    ] = []
+    may_trim_junctions = len(curves) > 1
+    for curve, indices in zip(curves, curve_indices):
+        original = list(curve.points)
+        sampled = [offset_points[index] for index in indices]
+        parameters = list(curve.parameters)
+        if len(parameters) != len(original):
+            parameters = [
+                index / (len(original) - 1)
+                for index in range(len(original))
+            ]
+        if may_trim_junctions:
+            while len(sampled) > 2 and direction_dot(
+                original[0], original[1], sampled[0], sampled[1]
+            ) <= 1.0e-14:
+                del original[1]
+                del sampled[1]
+                del parameters[1]
+            while len(sampled) > 2 and direction_dot(
+                original[-2], original[-1], sampled[-2], sampled[-1]
+            ) <= 1.0e-14:
+                del original[-2]
+                del sampled[-2]
+                del parameters[-2]
+        if any(
+            direction_dot(
+                original_first,
+                original_second,
+                offset_first,
+                offset_second,
+            ) <= 1.0e-14
+            for (original_first, original_second),
+            (offset_first, offset_second) in zip(
+                zip(original, original[1:]),
+                zip(sampled, sampled[1:]),
+            )
+        ):
+            return ()
+        sampled_curves.append((curve, original, sampled, parameters))
+
+    contour: list[Point2] = []
+    for _curve, _original, sampled, _parameters in sampled_curves:
+        for point in sampled:
+            if not contour or math.dist(point, contour[-1]) > tolerance:
+                contour.append(point)
+    if closed and len(contour) > 1 and math.dist(
+        contour[0], contour[-1]
+    ) <= tolerance:
+        contour.pop()
+    edges = tuple(zip(
+        contour,
+        (*contour[1:], contour[0]) if closed else contour[1:],
+    ))
+    for first_index, (a, b) in enumerate(edges):
+        for second_index, (c, d) in enumerate(edges):
+            if second_index <= first_index + 1 or (
+                closed
+                and first_index == 0
+                and second_index == len(edges) - 1
+            ):
+                continue
+            ab = (b[0] - a[0], b[1] - a[1])
+            cd = (d[0] - c[0], d[1] - c[1])
+            denominator = ab[0] * cd[1] - ab[1] * cd[0]
+            if abs(denominator) <= 1.0e-12:
+                continue
+            delta = (c[0] - a[0], c[1] - a[1])
+            first = (delta[0] * cd[1] - delta[1] * cd[0]) / denominator
+            second = (delta[0] * ab[1] - delta[1] * ab[0]) / denominator
+            if (
+                1.0e-9 < first < 1.0 - 1.0e-9
+                and 1.0e-9 < second < 1.0 - 1.0e-9
+            ):
+                return ()
+
+    result: list[SampledCurve] = []
+    for curve, _original, sampled, parameters in sampled_curves:
+        result.append(SampledCurve(
+            curve.entity_id,
+            curve.entity_type,
+            tuple(sampled),
+            tuple(parameters),
+            curve.closed,
+            curve.trimmable,
+            curve.creates_trim_points,
+        ))
+    return tuple(result)
 
 
 def _segment_intersection(a: Point2, b: Point2, c: Point2, d: Point2) -> tuple[float, float] | None:

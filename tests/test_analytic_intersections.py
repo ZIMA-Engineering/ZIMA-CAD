@@ -4,6 +4,7 @@ import unittest
 from zima_cad.analytic_intersections import (
     analytic_surface_side,
     ray_surface_intersections,
+    ray_triangle_mesh_intersections,
 )
 
 
@@ -90,6 +91,24 @@ class AnalyticIntersectionTests(unittest.TestCase):
             semi_angle=math.atan(0.5),
         )
         self.assertEqual(opposite.error, "behind")
+
+    def test_persisted_triangle_mesh_supports_general_surface_preview(self):
+        triangles = (
+            ((-2.0, 5.0, -2.0), (2.0, 6.0, -2.0), (2.0, 7.0, 2.0)),
+            ((-2.0, 5.0, -2.0), (2.0, 7.0, 2.0), (-2.0, 6.0, 2.0)),
+        )
+        result = ray_triangle_mesh_intersections(
+            (0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            triangles,
+        )
+        self.assert_distances(result, (6.0,))
+        miss = ray_triangle_mesh_intersections(
+            (3.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            triangles,
+        )
+        self.assertEqual(miss.error, "miss")
 
     def test_surface_side_classification_matches_clipping_semantics(self):
         self.assertEqual(
