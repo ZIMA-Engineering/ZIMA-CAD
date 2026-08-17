@@ -177,6 +177,89 @@ def _curve_intersections(first: SampledCurve, second: SampledCurve) -> tuple[tup
     return tuple(result)
 
 
+def _nearest_curve_parameter(curve: SampledCurve, point: Point2) -> float:
+    """Project a persisted sketch contact onto the transient trim curve."""
+    best: tuple[float, float] | None = None
+    for index, (first, second) in enumerate(
+        zip(curve.points, curve.points[1:])
+    ):
+        dx = second[0] - first[0]
+        dy = second[1] - first[1]
+        length_squared = dx * dx + dy * dy
+        factor = (
+            0.0
+            if length_squared <= 1.0e-20
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    (
+                        (point[0] - first[0]) * dx
+                        + (point[1] - first[1]) * dy
+                    ) / length_squared,
+                ),
+            )
+        )
+        closest = (
+            first[0] + factor * dx,
+            first[1] + factor * dy,
+        )
+        candidate = (
+            math.dist(point, closest),
+            curve.parameters[index]
+            + factor
+            * (curve.parameters[index + 1] - curve.parameters[index]),
+        )
+        if best is None or candidate[0] < best[0]:
+            best = candidate
+    return best[1] if best is not None else 0.0
+
+
+def _persisted_curve_contacts(
+    entities: list[dict[str, Any]],
+    curves: dict[str, SampledCurve],
+) -> tuple[tuple[str, float, str], ...]:
+    """Return exact model contacts which do not geometrically cross.
+
+    A tangent merely touches a curve, so polyline intersection tests are not
+    allowed to decide whether it creates a trim boundary.  Sketcher already
+    persists that boundary as a contact point / curve attachment.
+    """
+    points = _point_map(entities)
+    contacts: set[tuple[str, str]] = set()
+    for entity in entities:
+        entity_id = str(entity.get("id", ""))
+        attachment = entity.get("curve_attachment")
+        if entity_id in points and isinstance(attachment, dict):
+            geometry_id = str(attachment.get("geometry_id", ""))
+            if geometry_id in curves:
+                contacts.add((geometry_id, entity_id))
+        for constraint in entity.get("constraints", ()):
+            if not isinstance(constraint, dict):
+                continue
+            contact_id = str(constraint.get("contact_point_id", ""))
+            if not contact_id or contact_id not in points:
+                continue
+            for key in (
+                "geometry_id",
+                "curve_geometry_id",
+                "circle_geometry_id",
+                "first_curve_geometry_id",
+                "second_curve_geometry_id",
+            ):
+                geometry_id = str(constraint.get(key, ""))
+                if geometry_id in curves:
+                    contacts.add((geometry_id, contact_id))
+    return tuple(
+        (
+            geometry_id,
+            _nearest_curve_parameter(curves[geometry_id], points[point_id]),
+            point_id,
+        )
+        for geometry_id, point_id in sorted(contacts)
+    )
+
+
 def trim_topology(
     entities: list[dict[str, Any]],
     *,
@@ -213,6 +296,11 @@ def trim_topology(
             for first_t, second_t in _curve_intersections(first, second):
                 cuts[first.entity_id].append(first_t)
                 cuts[second.entity_id].append(second_t)
+    curves_by_id = {curve.entity_id: curve for curve in curves}
+    for geometry_id, parameter, _point_id in _persisted_curve_contacts(
+        entities, curves_by_id
+    ):
+        cuts[geometry_id].append(parameter)
     pieces: list[TrimPiece] = []
     for curve in curves:
         if not curve.trimmable:
@@ -294,6 +382,7 @@ def apply_trim_pieces(
         return copy.deepcopy(entities), {}
     curves = {curve.entity_id: curve for curve in sample_sketch_curves(entities)}
     source_by_id = {str(entity.get("id", "")): entity for entity in entities}
+    persisted_contacts = _persisted_curve_contacts(entities, curves)
     output = [copy.deepcopy(entity) for entity in entities if str(entity.get("id", "")) not in removed_by_id]
     used_ids = {str(entity.get("id", "")) for entity in output}
 
@@ -311,6 +400,12 @@ def apply_trim_pieces(
     }
 
     def point_id(position: Point2, preferred: str = "") -> str:
+        if (
+            preferred
+            and preferred in used_ids
+            and source_by_id.get(preferred, {}).get("type") == "point"
+        ):
+            return preferred
         key = (round(position[0], 9), round(position[1], 9))
         existing = point_cache.get(key)
         if existing:
@@ -320,6 +415,21 @@ def apply_trim_pieces(
         output.append({"id": identifier, "type": "point", "x": position[0], "y": position[1]})
         point_cache[key] = identifier
         return identifier
+
+    def contact_point_id(entity_id: str, parameter: float) -> str:
+        curve = curves.get(entity_id)
+        matches: list[tuple[float, str]] = []
+        for geometry_id, contact_parameter, identifier in persisted_contacts:
+            if geometry_id != entity_id:
+                continue
+            distance = abs(parameter - contact_parameter)
+            if curve is not None and curve.closed:
+                distance = min(distance, abs(distance - 1.0))
+            matches.append((distance, identifier))
+        if not matches:
+            return ""
+        distance, identifier = min(matches)
+        return identifier if distance <= 1.0e-6 else ""
 
     mapping: dict[str, list[str]] = {}
     for entity_id, intervals in removed_by_id.items():
@@ -386,11 +496,27 @@ def apply_trim_pieces(
                 geometry["type"] = "arc"
                 geometry["arc_mode"] = "center"
                 geometry["clockwise"] = bool(source.get("clockwise", False))
-                geometry["point_ids"] = [center_id, point_id(sampled[0]), point_id(sampled[-1])]
+                geometry["point_ids"] = [
+                    center_id,
+                    point_id(
+                        sampled[0], contact_point_id(entity_id, start)
+                    ),
+                    point_id(
+                        sampled[-1], contact_point_id(entity_id, end)
+                    ),
+                ]
             elif source.get("type") in ("ellipse", "elliptical_arc"):
                 geometry["type"] = "elliptical_arc"
                 geometry["clockwise"] = bool(source.get("clockwise", False))
-                geometry["point_ids"] = [*source_ids[:3], point_id(sampled[0]), point_id(sampled[-1])]
+                geometry["point_ids"] = [
+                    *source_ids[:3],
+                    point_id(
+                        sampled[0], contact_point_id(entity_id, start)
+                    ),
+                    point_id(
+                        sampled[-1], contact_point_id(entity_id, end)
+                    ),
+                ]
             elif source.get("type") == "spline":
                 step = max(1, len(sampled) // 12)
                 controls = [sampled[index] for index in range(0, len(sampled), step)]

@@ -1,4 +1,5 @@
 import unittest
+import math
 
 from zima_cad.sketch_trim import (
     apply_trim_pieces,
@@ -124,6 +125,97 @@ class SketchTrimTests(unittest.TestCase):
         result = next(item for item in revised if item.get("id") == "circle")
         self.assertEqual(result["type"], "arc")
         self.assertEqual(len(result["point_ids"]), 3)
+        SketchModel.from_editor_data(revised, []).validate()
+
+    def test_two_slanted_tangents_split_each_circle_into_arcs(self):
+        radius = 5.0
+        centre_offset = (20.0, 5.0)
+        length = math.hypot(*centre_offset)
+        normal = (-centre_offset[1] / length, centre_offset[0] / length)
+        entities = [
+            point("center1", 0.0, 0.0),
+            point("center2", *centre_offset),
+        ]
+        for index, side in enumerate((-1.0, 1.0), start=1):
+            first_id = f"t{index}a"
+            second_id = f"t{index}b"
+            first = (
+                side * radius * normal[0],
+                side * radius * normal[1],
+            )
+            second = (
+                centre_offset[0] + first[0],
+                centre_offset[1] + first[1],
+            )
+            entities.extend((
+                {
+                    **point(first_id, *first),
+                    "curve_attachment": {
+                        "type": "circle",
+                        "geometry_id": "circle1",
+                    },
+                },
+                {
+                    **point(second_id, *second),
+                    "curve_attachment": {
+                        "type": "circle",
+                        "geometry_id": "circle2",
+                    },
+                },
+                {
+                    "id": f"line{index}",
+                    "type": "segment",
+                    "point_ids": [first_id, second_id],
+                    "constraints": [
+                        {
+                            "type": "tangent",
+                            "geometry_id": "circle1",
+                            "contact_point_id": first_id,
+                        },
+                        {
+                            "type": "tangent",
+                            "geometry_id": "circle2",
+                            "contact_point_id": second_id,
+                        },
+                    ],
+                },
+            ))
+        entities.extend((
+            {
+                "id": "circle1", "type": "circle",
+                "point_ids": ["center1"], "radius": radius,
+            },
+            {
+                "id": "circle2", "type": "circle",
+                "point_ids": ["center2"], "radius": radius,
+            },
+        ))
+
+        pieces = trim_topology(entities)
+
+        self.assertEqual(
+            sum(piece.entity_id == "circle1" for piece in pieces), 2
+        )
+        self.assertEqual(
+            sum(piece.entity_id == "circle2" for piece in pieces), 2
+        )
+        self.assertFalse(
+            any(
+                piece.entity_id == "circle1"
+                and piece.start == 0.0
+                and piece.end == 1.0
+                for piece in pieces
+            )
+        )
+        selected = next(
+            piece for piece in pieces if piece.entity_id == "circle1"
+        )
+        revised, _mapping = apply_trim_pieces(entities, (selected,))
+        result = next(
+            entity for entity in revised if entity.get("id") == "circle1"
+        )
+        self.assertEqual(result["type"], "arc")
+        self.assertEqual(set(result["point_ids"][1:]), {"t1a", "t2a"})
         SketchModel.from_editor_data(revised, []).validate()
 
     def test_drag_path_selects_every_crossed_piece(self):

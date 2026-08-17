@@ -71,7 +71,9 @@ class ProtrusionProfileTests(unittest.TestCase):
                 "profile_offset": f"{profile_offset:.12g}",
                 "result_type": result_type,
                 "end_condition_forward": end_condition,
-                "end_reference_forward": json.dumps(end_reference),
+                "end_targets_forward": json.dumps(
+                    [end_reference] if isinstance(end_reference, dict) else []
+                ),
                 "operation": (
                     CombineMode.SUBTRACT.value
                     if end_condition == "through_all"

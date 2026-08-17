@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from math import sqrt
 from typing import Any
 
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+from OCC.Core.GeomAbs import GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Sphere
 from OCC.Core.TopAbs import TopAbs_EDGE
 from OCC.Core.TopExp import TopExp_Explorer, topexp
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
@@ -52,6 +54,66 @@ from zima_cad.step_import import INTERACTIVE_TOPOLOGY_FACE_LIMIT
 
 SKETCH_COLOR = (1.0, 0.843, 0.251)
 CONTAINER_PREVIEW_ORIGIN_ID = "__container_preview_origin__"
+
+
+def with_occt_analytic_surfaces(
+    result: BodyResult,
+    shape: Any,
+    owner_id: str,
+) -> BodyResult:
+    """Persist curved analytics only at an explicit OCCT calculation boundary."""
+    faces = dict(result.faces)
+    changed = False
+    for face_index in set(result.mesh.triangle_face_indices):
+        face = topology_subshape(
+            shape,
+            element_kind="face",
+            element_index=face_index,
+        )
+        descriptor = result.surface(owner_id, face_index)
+        if face is None or descriptor is None:
+            continue
+        try:
+            adaptor = BRepAdaptor_Surface(face)
+            surface_type = adaptor.GetType()
+            if surface_type == GeomAbs_Cylinder:
+                cylinder = adaptor.Cylinder()
+                location = cylinder.Axis().Location()
+                direction = cylinder.Axis().Direction()
+                updated = replace(
+                    descriptor,
+                    kind="cylinder",
+                    origin=(location.X(), location.Y(), location.Z()),
+                    axis=(direction.X(), direction.Y(), direction.Z()),
+                    radius=float(cylinder.Radius()),
+                )
+            elif surface_type == GeomAbs_Sphere:
+                sphere = adaptor.Sphere()
+                center = sphere.Location()
+                updated = replace(
+                    descriptor,
+                    kind="sphere",
+                    origin=(center.X(), center.Y(), center.Z()),
+                    radius=float(sphere.Radius()),
+                )
+            elif surface_type == GeomAbs_Cone:
+                cone = adaptor.Cone()
+                apex = cone.Apex()
+                direction = cone.Axis().Direction()
+                updated = replace(
+                    descriptor,
+                    kind="cone",
+                    origin=(apex.X(), apex.Y(), apex.Z()),
+                    axis=(direction.X(), direction.Y(), direction.Z()),
+                    semi_angle=float(cone.SemiAngle()),
+                )
+            else:
+                continue
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            continue
+        faces[f"{owner_id}:face:{face_index}"] = updated
+        changed = True
+    return replace(result, faces=faces) if changed else result
 
 
 @dataclass(frozen=True)
@@ -198,6 +260,7 @@ def build_document_viewer_scene_data(
     shapes_by_owner_id: dict[str, Any] = {}
     surface_colors_by_owner_id: dict[str, str] = {}
     body_mesh: ViewerMesh | None = None
+    shape = None
     face_reference_ids: dict[tuple[str, int], str] = {}
     face_boundary_edge_ids: dict[tuple[str, int], tuple[str, ...]] = {}
     edge_reference_ids: dict[tuple[str, int], str] = {}
@@ -897,6 +960,7 @@ def build_document_viewer_scene_data(
                 show_user_points,
                 editing_object_id,
                 reference_scene_size,
+                preview_coordinate_system is not None,
             )
 
     for obj in display_objects:
@@ -1107,6 +1171,16 @@ def build_document_viewer_scene_data(
         if body_mesh is not None
         else None
     )
+    if (
+        calculated_body_result is not None
+        and shape is not None
+        and body_mesh is not None
+    ):
+        calculated_body_result = with_occt_analytic_surfaces(
+            calculated_body_result,
+            shape,
+            document.root.entity_id,
+        )
     if calculated_body_result is not None:
         treatment_feature_ids = {
             child.entity_id
@@ -1338,6 +1412,7 @@ def _append_object_origins(
     show_user_points: bool,
     editing_object_id: str | None,
     reference_scene_size: float,
+    suppress_editing_origin: bool = False,
 ) -> None:
     if not document.is_effectively_visible(obj.entity_id):
         return
@@ -1376,7 +1451,10 @@ def _append_object_origins(
             and obj.show_auxiliary_geometry
             and show_object_origins
         )
-        or obj.entity_id == editing_object_id
+        or (
+            obj.entity_id == editing_object_id
+            and not suppress_editing_origin
+        )
     ):
         reference_size = max(reference_scene_size * 0.075, 2.5)
         layers.append(
@@ -1420,6 +1498,7 @@ def _append_object_origins(
                 show_user_points,
                 editing_object_id,
                 reference_scene_size,
+                suppress_editing_origin,
             )
 
 

@@ -25,7 +25,11 @@ from zima_cad.model import (
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCone, BRepPrimAPI_MakeCylinder
+from OCC.Core.BRepPrimAPI import (
+    BRepPrimAPI_MakeCone,
+    BRepPrimAPI_MakeCylinder,
+    BRepPrimAPI_MakeSphere,
+)
 from OCC.Core.GeomAbs import GeomAbs_Ellipse
 from zima_cad.sketch_model import SketchModel
 from zima_cad.storage import load_part_document, save_part_document
@@ -60,10 +64,24 @@ from zima_cad.topology import (
     semantic_provenance_id,
 )
 from zima_cad.viewer_mesh import triangulate_shape
+from zima_cad.viewer_scene import with_occt_analytic_surfaces
 from zima_cad.body_result import BodyResult
 
 
 class StableTopologyTests(unittest.TestCase):
+    def test_sphere_surface_has_a_stable_face_reference(self) -> None:
+        document = create_empty_part()
+        container = document.create_container("Sphere", ContainerType.SPHERE)
+        sphere = document.create_primitive(container.entity_id, EntityKind.SPHERE)
+
+        registry = active_face_registry(document)
+
+        self.assertIsNotNone(sphere)
+        self.assertEqual(
+            registry.reference_for_runtime_index(1),
+            FaceRef(sphere.entity_id, "surface"),
+        )
+
     def test_nested_assembly_reference_path_round_trip(self) -> None:
         face = AssemblyFaceRef(
             "top-instance",
@@ -122,6 +140,37 @@ class StableTopologyTests(unittest.TestCase):
             surface.kind == "cylinder"
             for surface in result.faces.values()
         ))
+
+    def test_calculation_boundary_persists_sphere_analytics(self) -> None:
+        shape = BRepPrimAPI_MakeSphere(12.0).Shape()
+        mesh = triangulate_shape(shape, owner_id="solid")
+
+        result = with_occt_analytic_surfaces(
+            BodyResult.from_mesh(mesh), shape, "solid"
+        )
+
+        sphere = next(
+            surface for surface in result.faces.values()
+            if surface.kind == "sphere"
+        )
+        self.assertAlmostEqual(sphere.radius, 12.0)
+        self.assertEqual(sphere.origin, (0.0, 0.0, 0.0))
+
+    def test_calculation_boundary_persists_cone_analytics(self) -> None:
+        shape = BRepPrimAPI_MakeCone(10.0, 2.0, 20.0).Shape()
+        mesh = triangulate_shape(shape, owner_id="solid")
+
+        result = with_occt_analytic_surfaces(
+            BodyResult.from_mesh(mesh), shape, "solid"
+        )
+
+        cone = next(
+            surface for surface in result.faces.values()
+            if surface.kind == "cone"
+        )
+        self.assertIsNotNone(cone.origin)
+        self.assertIsNotNone(cone.axis)
+        self.assertGreater(abs(cone.semi_angle), 0.0)
 
     @staticmethod
     def _subshape_count(shape, shape_type) -> int:
@@ -631,7 +680,7 @@ class StableTopologyTests(unittest.TestCase):
         )
         self.assertEqual(self._subshape_count(second_shape, TopAbs_SOLID), 1)
 
-    def test_disconnected_add_preserves_last_valid_body(self) -> None:
+    def test_disconnected_add_preserves_both_valid_solids(self) -> None:
         document = create_empty_part()
         first_container = document.create_container("Box", ContainerType.BOX)
         first = document.create_primitive(first_container.entity_id, EntityKind.BOX)
@@ -645,9 +694,9 @@ class StableTopologyTests(unittest.TestCase):
 
         disconnected = document.build_active_shape()
         self.assertEqual(
-            self._subshape_count(disconnected, TopAbs_SOLID), 1
+            self._subshape_count(disconnected, TopAbs_SOLID), 2
         )
-        self.assertEqual(second.parameters.get("build_status"), "disconnected")
+        self.assertNotIn("build_status", second.parameters)
 
         second_container.coordinate_system.origin = (20.0, 0.0, 0.0)
         connected = document.build_active_shape()

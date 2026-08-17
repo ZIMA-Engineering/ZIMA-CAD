@@ -35,9 +35,11 @@ from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.GeomAbs import (
     GeomAbs_Circle,
+    GeomAbs_Cone,
     GeomAbs_Cylinder,
     GeomAbs_Ellipse,
     GeomAbs_Plane,
+    GeomAbs_Sphere,
 )
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
@@ -77,6 +79,10 @@ from zima_cad.spline_geometry import interpolated_spline_curve, stored_spline_ta
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
 from zima_cad.sketch_model import GeometryType, SketchModel, SketchModelError
+from zima_cad.analytic_intersections import (
+    analytic_surface_side,
+    ray_surface_intersections,
+)
 from zima_cad.sketch_geometry import (
     center_arc_points,
     ellipse_points,
@@ -1923,19 +1929,10 @@ def apply_object_to_shape(
                     if len(existing_solids) > 64
                     else _fuse_preserving_disconnected(result_shape, shape)
                 )
-                if (
-                    solid_count(fused) == 1
-                    or is_protrusion
-                    or is_revolve
-                    or len(existing_solids) > 64
-                ):
+                if solid_count(fused) > 0:
                     result_shape = fused
                 elif record_build_status:
-                    status_owner.parameters["build_status"] = (
-                        "disconnected"
-                        if solid_count(fused) > 1
-                        else "boolean_failed"
-                    )
+                    status_owner.parameters["build_status"] = "boolean_failed"
         elif (
             shape is not None
             and operation == CombineMode.SUBTRACT
@@ -3014,37 +3011,47 @@ def make_protrusion_shape(
             return None
         reverse = evaluated
         parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
-    clipping_halfspaces = []
+    clipping_operations: list[tuple[str, Any]] = []
 
-    def stored_end_reference(side: str) -> dict[str, Any] | None:
+    def stored_end_targets(side: str) -> list[dict[str, Any]]:
         try:
             value = json.loads(str(parameters.get(
-                f"end_reference_{side}", "null"
+                f"end_targets_{side}", "[]"
             )))
         except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-        return value if isinstance(value, dict) else None
+            return []
+        return (
+            [target for target in value if isinstance(target, dict)]
+            if isinstance(value, list)
+            else []
+        )
 
     def profile_projection_points() -> tuple[tuple[float, float, float], ...]:
-        points = []
+        points: list[tuple[float, float, float]] = []
         full_transform = multiply_transforms(profile_transform, plane_transform)
         for profile in profiles:
             try:
                 world_profile = transform_shape(profile, full_transform)
-                box = Bnd_Box()
-                brepbndlib.Add(world_profile, box)
-                bounds = box.Get()
             except (RuntimeError, TypeError, ValueError):
                 continue
-            points.extend(
-                (
-                    bounds[3] if mask & 1 else bounds[0],
-                    bounds[4] if mask & 2 else bounds[1],
-                    bounds[5] if mask & 4 else bounds[2],
-                )
-                for mask in range(8)
-            )
-        return tuple(points)
+            explorer = TopExp_Explorer(world_profile, TopAbs_EDGE)
+            while explorer.More():
+                try:
+                    curve = BRepAdaptor_Curve(explorer.Current())
+                    first = float(curve.FirstParameter())
+                    last = float(curve.LastParameter())
+                    for sample in range(33):
+                        parameter = first + (last - first) * sample / 32.0
+                        point = curve.Value(parameter)
+                        points.append((point.X(), point.Y(), point.Z()))
+                except (RuntimeError, TypeError, ValueError):
+                    pass
+                explorer.Next()
+        return tuple(dict.fromkeys(
+            tuple(round(value, 10) for value in point) for point in points
+        ))
+
+    up_to_failure = "up_to_reference_unresolved"
 
     def evaluate_up_to(
         side: str,
@@ -3053,9 +3060,12 @@ def make_protrusion_shape(
         definition_side: str | None = None,
         absolute: bool = False,
     ) -> float | None:
-        reference_data = stored_end_reference(definition_side or side)
-        if reference_data is None:
+        nonlocal up_to_failure
+        up_to_failure = "up_to_reference_unresolved"
+        targets = stored_end_targets(definition_side or side)
+        if len(targets) != 1:
             return None
+        reference_data = targets[0]
         kind = str(reference_data.get("kind", ""))
         if kind == "point":
             position = reference_data.get("fallback_position")
@@ -3094,6 +3104,384 @@ def make_protrusion_shape(
             return distance
         if kind not in {"face", "plane"}:
             return None
+        surface_kind = str(reference_data.get("surface_kind", "plane"))
+        raw_reference = reference_data.get("reference")
+        target_face = None
+        if isinstance(raw_reference, dict) and input_registry is not None:
+            try:
+                resolution = input_registry.resolve(
+                    FaceRef.from_dict(raw_reference)
+                )
+                target_face = resolution.shape
+            except (RuntimeError, TypeError, ValueError):
+                target_face = None
+        if surface_kind == "cylinder":
+            axis_origin = reference_data.get("fallback_axis_origin")
+            axis_direction = reference_data.get("fallback_axis_direction")
+            radius = reference_data.get("fallback_radius")
+            if target_face is not None:
+                try:
+                    adaptor = BRepAdaptor_Surface(target_face)
+                    if adaptor.GetType() != GeomAbs_Cylinder:
+                        return None
+                    cylinder = adaptor.Cylinder()
+                    location = cylinder.Axis().Location()
+                    direction = cylinder.Axis().Direction()
+                    axis_origin = (
+                        location.X(), location.Y(), location.Z()
+                    )
+                    axis_direction = (
+                        direction.X(), direction.Y(), direction.Z()
+                    )
+                    radius = float(cylinder.Radius())
+                except (RuntimeError, TypeError, ValueError):
+                    return None
+            if (
+                not isinstance(axis_origin, (list, tuple))
+                or not isinstance(axis_direction, (list, tuple))
+                or len(axis_origin) != 3
+                or len(axis_direction) != 3
+            ):
+                return None
+            try:
+                radius = float(radius)
+                axis_origin = tuple(float(value) for value in axis_origin)
+                axis_direction = tuple(
+                    float(value) for value in axis_direction
+                )
+            except (TypeError, ValueError):
+                return None
+            axis_length = math.sqrt(sum(
+                value * value for value in axis_direction
+            ))
+            if radius <= 1.0e-9 or axis_length <= 1.0e-12:
+                return None
+            axis_direction = tuple(
+                value / axis_length for value in axis_direction
+            )
+            ray_direction = tuple(sign * value for value in world_direction)
+            samples = profile_projection_points()
+            intersections: list[tuple[float, float]] = []
+            initial_sides: set[str] = set()
+            for point in samples:
+                initial_side = analytic_surface_side(
+                    "cylinder",
+                    point,
+                    axis_origin=axis_origin,
+                    axis_direction=axis_direction,
+                    radius=radius,
+                )
+                if initial_side in {"on", "invalid"}:
+                    up_to_failure = "up_to_profile_crosses_target"
+                    return None
+                initial_sides.add(initial_side)
+                result = ray_surface_intersections(
+                    "cylinder",
+                    point,
+                    ray_direction,
+                    axis_origin=axis_origin,
+                    axis_direction=axis_direction,
+                    radius=radius,
+                )
+                if not result.distances:
+                    up_to_failure = (
+                        "up_to_direction_parallel_target"
+                        if result.error == "parallel"
+                        else "up_to_profile_misses_target"
+                    )
+                    return None
+                intersections.append((
+                    result.distances[0], result.distances[-1]
+                ))
+            if not intersections or len(initial_sides) != 1:
+                up_to_failure = "up_to_profile_crosses_target"
+                return None
+            evaluated = max(first for first, _last in intersections)
+            cylinder_side = next(iter(initial_sides))
+            if cylinder_side == "outside":
+                far_limit = min(last for _first, last in intersections)
+                if evaluated >= far_limit - 1.0e-7:
+                    up_to_failure = "up_to_profile_misses_target"
+                    return None
+            margin = max(1.0e-5, evaluated * 1.0e-6)
+            evaluated_with_margin = evaluated + margin
+            axial_values = [
+                sum(
+                    (point[index] - axis_origin[index])
+                    * axis_direction[index]
+                    for index in range(3)
+                )
+                for point in samples
+            ]
+            axial_values.extend(
+                sum(
+                    (
+                        point[index]
+                        + ray_direction[index] * evaluated_with_margin
+                        - axis_origin[index]
+                    ) * axis_direction[index]
+                    for index in range(3)
+                )
+                for point in samples
+            )
+            axial_margin = max(1.0, radius * 0.01)
+            axial_start = min(axial_values) - axial_margin
+            axial_end = max(axial_values) + axial_margin
+            cylinder_origin = tuple(
+                axis_origin[index] + axial_start * axis_direction[index]
+                for index in range(3)
+            )
+            try:
+                clipping_cylinder = BRepPrimAPI_MakeCylinder(
+                    gp_Ax2(
+                        gp_Pnt(*cylinder_origin),
+                        gp_Dir(*axis_direction),
+                    ),
+                    radius,
+                    axial_end - axial_start,
+                ).Shape()
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            clipping_operations.append((
+                "common" if cylinder_side == "inside" else "cut",
+                clipping_cylinder,
+            ))
+            reference_data.update({
+                "fallback_axis_origin": list(axis_origin),
+                "fallback_axis_direction": list(axis_direction),
+                "fallback_radius": radius,
+                "cylinder_side": cylinder_side,
+            })
+            parameters[f"end_targets_{side}"] = json.dumps(
+                targets, ensure_ascii=False, sort_keys=True
+            )
+            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            return evaluated_with_margin
+        if surface_kind == "sphere":
+            center = reference_data.get("fallback_center")
+            radius = reference_data.get("fallback_radius")
+            if target_face is not None:
+                try:
+                    adaptor = BRepAdaptor_Surface(target_face)
+                    if adaptor.GetType() != GeomAbs_Sphere:
+                        return None
+                    sphere = adaptor.Sphere()
+                    location = sphere.Location()
+                    center = (location.X(), location.Y(), location.Z())
+                    radius = float(sphere.Radius())
+                except (RuntimeError, TypeError, ValueError):
+                    return None
+            if not isinstance(center, (list, tuple)) or len(center) != 3:
+                return None
+            try:
+                center = tuple(float(value) for value in center)
+                radius = float(radius)
+            except (TypeError, ValueError):
+                return None
+            if radius <= 1.0e-9:
+                return None
+            ray_direction = tuple(sign * value for value in world_direction)
+            samples = profile_projection_points()
+            intersections: list[tuple[float, float]] = []
+            initial_sides: set[str] = set()
+            for point in samples:
+                initial_side = analytic_surface_side(
+                    "sphere", point, center=center, radius=radius
+                )
+                if initial_side in {"on", "invalid"}:
+                    up_to_failure = "up_to_profile_crosses_target"
+                    return None
+                initial_sides.add(initial_side)
+                result = ray_surface_intersections(
+                    "sphere",
+                    point,
+                    ray_direction,
+                    center=center,
+                    radius=radius,
+                )
+                if not result.distances:
+                    up_to_failure = "up_to_profile_misses_target"
+                    return None
+                intersections.append((
+                    result.distances[0], result.distances[-1]
+                ))
+            if not intersections or len(initial_sides) != 1:
+                up_to_failure = "up_to_profile_crosses_target"
+                return None
+            evaluated = max(first for first, _last in intersections)
+            target_side = next(iter(initial_sides))
+            if (
+                target_side == "outside"
+                and evaluated
+                >= min(last for _first, last in intersections) - 1.0e-7
+            ):
+                up_to_failure = "up_to_profile_misses_target"
+                return None
+            margin = max(1.0e-5, evaluated * 1.0e-6)
+            try:
+                clipping_sphere = BRepPrimAPI_MakeSphere(
+                    gp_Pnt(*center), radius
+                ).Shape()
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            clipping_operations.append((
+                "common" if target_side == "inside" else "cut",
+                clipping_sphere,
+            ))
+            reference_data.update({
+                "fallback_center": list(center),
+                "fallback_radius": radius,
+                "sphere_side": target_side,
+            })
+            parameters[f"end_targets_{side}"] = json.dumps(
+                targets, ensure_ascii=False, sort_keys=True
+            )
+            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            return evaluated + margin
+        if surface_kind == "cone":
+            apex = reference_data.get("fallback_apex")
+            axis_direction = reference_data.get("fallback_axis_direction")
+            semi_angle = reference_data.get("fallback_semi_angle")
+            if target_face is not None:
+                try:
+                    adaptor = BRepAdaptor_Surface(target_face)
+                    if adaptor.GetType() != GeomAbs_Cone:
+                        return None
+                    cone = adaptor.Cone()
+                    apex_point = cone.Apex()
+                    direction = cone.Axis().Direction()
+                    apex = (apex_point.X(), apex_point.Y(), apex_point.Z())
+                    axis_direction = (
+                        direction.X(), direction.Y(), direction.Z()
+                    )
+                    semi_angle = float(cone.SemiAngle())
+                except (RuntimeError, TypeError, ValueError):
+                    return None
+            if (
+                not isinstance(apex, (list, tuple))
+                or not isinstance(axis_direction, (list, tuple))
+                or len(apex) != 3
+                or len(axis_direction) != 3
+            ):
+                return None
+            try:
+                apex = tuple(float(value) for value in apex)
+                axis_direction = tuple(
+                    float(value) for value in axis_direction
+                )
+                semi_angle = float(semi_angle)
+            except (TypeError, ValueError):
+                return None
+            if semi_angle < 0.0:
+                axis_direction = tuple(-value for value in axis_direction)
+                semi_angle = -semi_angle
+            axis_length = math.sqrt(sum(
+                value * value for value in axis_direction
+            ))
+            if (
+                axis_length <= 1.0e-12
+                or not 1.0e-7 < semi_angle < math.pi / 2.0 - 1.0e-7
+            ):
+                return None
+            axis_direction = tuple(
+                value / axis_length for value in axis_direction
+            )
+            ray_direction = tuple(sign * value for value in world_direction)
+            ray_axis = sum(
+                ray_direction[index] * axis_direction[index]
+                for index in range(3)
+            )
+            samples = profile_projection_points()
+            intersections: list[tuple[float, float]] = []
+            initial_sides: set[str] = set()
+            maximum_axial = 0.0
+            for point in samples:
+                offset = tuple(
+                    point[index] - apex[index] for index in range(3)
+                )
+                offset_axis = sum(
+                    offset[index] * axis_direction[index]
+                    for index in range(3)
+                )
+                initial_side = analytic_surface_side(
+                    "cone",
+                    point,
+                    apex=apex,
+                    axis_direction=axis_direction,
+                    semi_angle=semi_angle,
+                )
+                if initial_side in {"on", "invalid"}:
+                    up_to_failure = "up_to_profile_crosses_target"
+                    return None
+                initial_sides.add(initial_side)
+                result = ray_surface_intersections(
+                    "cone",
+                    point,
+                    ray_direction,
+                    apex=apex,
+                    axis_direction=axis_direction,
+                    semi_angle=semi_angle,
+                )
+                if not result.distances:
+                    up_to_failure = (
+                        "up_to_direction_parallel_target"
+                        if result.error == "parallel"
+                        else "up_to_profile_misses_target"
+                    )
+                    return None
+                intersections.append((
+                    result.distances[0], result.distances[-1]
+                ))
+                maximum_axial = max(
+                    maximum_axial,
+                    offset_axis,
+                    offset_axis + result.distances[0] * ray_axis,
+                )
+            if not intersections or len(initial_sides) != 1:
+                up_to_failure = "up_to_profile_crosses_target"
+                return None
+            evaluated = max(first for first, _last in intersections)
+            target_side = next(iter(initial_sides))
+            far_intersections = [
+                last for first, last in intersections
+                if last > first + 1.0e-7
+            ]
+            if (
+                target_side == "outside"
+                and far_intersections
+                and evaluated >= min(far_intersections) - 1.0e-7
+            ):
+                up_to_failure = "up_to_profile_misses_target"
+                return None
+            margin = max(1.0e-5, evaluated * 1.0e-6)
+            maximum_axial += abs(ray_axis) * margin
+            cone_height = max(maximum_axial + 1.0, 1.0)
+            try:
+                clipping_cone = BRepPrimAPI_MakeCone(
+                    gp_Ax2(gp_Pnt(*apex), gp_Dir(*axis_direction)),
+                    0.0,
+                    cone_height * math.tan(semi_angle),
+                    cone_height,
+                ).Shape()
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            clipping_operations.append((
+                "common" if target_side == "inside" else "cut",
+                clipping_cone,
+            ))
+            reference_data.update({
+                "fallback_apex": list(apex),
+                "fallback_axis_direction": list(axis_direction),
+                "fallback_semi_angle": semi_angle,
+                "cone_side": target_side,
+            })
+            parameters[f"end_targets_{side}"] = json.dumps(
+                targets, ensure_ascii=False, sort_keys=True
+            )
+            parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
+            return evaluated + margin
+        if surface_kind != "plane":
+            return None
         origin = reference_data.get("fallback_origin")
         normal = reference_data.get("fallback_normal")
         entity_id = str(reference_data.get("entity_id", ""))
@@ -3115,23 +3503,18 @@ def make_protrusion_shape(
                 entity_transform, (0.0, 0.0, 0.0)
             )
             normal = transform_vector(entity_transform, local_normal)
-        target_face = None
-        raw_reference = reference_data.get("reference")
-        if isinstance(raw_reference, dict) and input_registry is not None:
+        if target_face is not None:
             try:
-                resolution = input_registry.resolve(FaceRef.from_dict(raw_reference))
-                target_face = resolution.shape
-                if target_face is not None:
-                    adaptor = BRepAdaptor_Surface(target_face)
-                    if adaptor.GetType() != GeomAbs_Plane:
-                        return None
-                    plane = adaptor.Plane()
-                    location = plane.Location()
-                    direction = plane.Axis().Direction()
-                    origin = (location.X(), location.Y(), location.Z())
-                    normal = (direction.X(), direction.Y(), direction.Z())
+                adaptor = BRepAdaptor_Surface(target_face)
+                if adaptor.GetType() != GeomAbs_Plane:
+                    return None
+                plane = adaptor.Plane()
+                location = plane.Location()
+                direction = plane.Axis().Direction()
+                origin = (location.X(), location.Y(), location.Z())
+                normal = (direction.X(), direction.Y(), direction.Z())
             except (RuntimeError, TypeError, ValueError):
-                target_face = None
+                return None
         if (
             not isinstance(origin, (list, tuple))
             or not isinstance(normal, (list, tuple))
@@ -3144,24 +3527,38 @@ def make_protrusion_shape(
             float(value) for value in origin
         ]
         reference_data["fallback_normal"] = list(normal)
-        parameters[f"end_reference_{side}"] = json.dumps(
-            reference_data, ensure_ascii=False, sort_keys=True
+        parameters[f"end_targets_{side}"] = json.dumps(
+            targets, ensure_ascii=False, sort_keys=True
         )
-        denominator = sign * sum(
-            normal[index] * world_direction[index] for index in range(3)
-        )
-        if abs(denominator) <= 1.0e-9:
-            return None
-        distances = tuple(
-            sum(
-                normal[index] * (float(origin[index]) - point[index])
-                for index in range(3)
-            ) / denominator
-            for point in profile_projection_points()
-        )
-        if absolute:
-            distances = tuple(abs(distance) for distance in distances)
-        if not distances or min(distances) <= 1.0e-7:
+        ray_direction = tuple(sign * value for value in world_direction)
+        distances_list: list[float] = []
+        for point in profile_projection_points():
+            result = ray_surface_intersections(
+                "plane",
+                point,
+                ray_direction,
+                plane_origin=origin,
+                plane_normal=normal,
+            )
+            if not result.distances and absolute and result.error == "behind":
+                result = ray_surface_intersections(
+                    "plane",
+                    point,
+                    tuple(-value for value in ray_direction),
+                    plane_origin=origin,
+                    plane_normal=normal,
+                )
+            if not result.distances:
+                up_to_failure = (
+                    "up_to_direction_parallel_target"
+                    if result.error == "parallel"
+                    else "up_to_profile_misses_target"
+                )
+                return None
+            distances_list.append(result.distances[0])
+        distances = tuple(distances_list)
+        if not distances:
+            up_to_failure = "up_to_profile_misses_target"
             return None
         evaluated = max(distances)
         parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
@@ -3171,13 +3568,7 @@ def make_protrusion_shape(
         # numerically fragile Boolean (especially when the target is also a
         # face of the body being cut).
         if max(distances) - min(distances) <= 1.0e-6:
-            evaluated = sum(
-                normal[index]
-                * (float(origin[index]) - profile_origin[index])
-                for index in range(3)
-            ) / denominator
-            if absolute:
-                evaluated = abs(evaluated)
+            evaluated = sum(distances) / len(distances)
             parameters[f"evaluated_length_{side}"] = f"{evaluated:.12g}"
             return evaluated
         # The selected OCCT face is bounded and may contain trimming wires.
@@ -3197,7 +3588,7 @@ def make_protrusion_shape(
             ).Solid()
             if halfspace.IsNull():
                 return None
-            clipping_halfspaces.append(halfspace)
+            clipping_operations.append(("common", halfspace))
             evaluated += max(1.0, evaluated * 1.0e-4)
         except (RuntimeError, TypeError, ValueError):
             return None
@@ -3208,7 +3599,7 @@ def make_protrusion_shape(
             "forward", 1.0, absolute=extent_mode == "symmetric"
         )
         if evaluated is None:
-            parameters["build_status"] = "up_to_reference_unresolved"
+            parameters["build_status"] = up_to_failure
             return None
         forward = evaluated
     if reverse_condition == "up_to":
@@ -3218,7 +3609,7 @@ def make_protrusion_shape(
             else evaluate_up_to("reverse", -1.0)
         )
         if evaluated is None:
-            parameters["build_status"] = "up_to_reference_unresolved"
+            parameters["build_status"] = up_to_failure
             return None
         reverse = evaluated
         parameters["evaluated_length_reverse"] = f"{reverse:.12g}"
@@ -3243,8 +3634,12 @@ def make_protrusion_shape(
             gp_Vec(*(value * length for value in extrusion_direction)),
         ).Shape()
         world_shape = transform_shape(local, translated)
-        for halfspace in clipping_halfspaces:
-            operation = BRepAlgoAPI_Common(world_shape, halfspace)
+        for clipping_mode, clipping_shape in clipping_operations:
+            operation = (
+                BRepAlgoAPI_Cut(world_shape, clipping_shape)
+                if clipping_mode == "cut"
+                else BRepAlgoAPI_Common(world_shape, clipping_shape)
+            )
             world_shape = operation.Shape() if operation.IsDone() else None
             if world_shape is None or world_shape.IsNull():
                 parameters["build_status"] = "up_to_boolean_failed"
@@ -3844,6 +4239,77 @@ def semantic_face_registry(
     return registry
 
 
+def analytic_primitive_face_registry(
+    solid: ZimaEntity,
+    shape,
+) -> TopologyRegistry:
+    """Persist the modeling faces of sphere and cone primitives."""
+    registry = TopologyRegistry()
+    if shape is None:
+        return registry
+    faces: list[tuple[int, Any, Any]] = []
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    runtime_index = 0
+    while explorer.More():
+        runtime_index += 1
+        face = explorer.Current()
+        try:
+            adaptor = BRepAdaptor_Surface(face)
+            faces.append((runtime_index, face, adaptor))
+        except (RuntimeError, TypeError, ValueError):
+            pass
+        explorer.Next()
+    if solid.kind == EntityKind.SPHERE:
+        for index, face, adaptor in faces:
+            if adaptor.GetType() == GeomAbs_Sphere:
+                registry.register_face(
+                    FaceRef(solid.entity_id, "surface"),
+                    face,
+                    runtime_index=index,
+                )
+        return registry
+    if solid.kind != EntityKind.CONE:
+        return registry
+    planar: list[tuple[float, int, Any]] = []
+    cone_axis = None
+    cone_origin = None
+    for index, face, adaptor in faces:
+        if adaptor.GetType() == GeomAbs_Cone:
+            cone = adaptor.Cone()
+            axis = cone.Axis()
+            location = axis.Location()
+            direction = axis.Direction()
+            cone_origin = (location.X(), location.Y(), location.Z())
+            cone_axis = (direction.X(), direction.Y(), direction.Z())
+            registry.register_face(
+                FaceRef(solid.entity_id, "side"),
+                face,
+                runtime_index=index,
+            )
+    if cone_axis is None or cone_origin is None:
+        return registry
+    for index, face, adaptor in faces:
+        if adaptor.GetType() != GeomAbs_Plane:
+            continue
+        location = adaptor.Plane().Location()
+        point = (location.X(), location.Y(), location.Z())
+        axial = sum(
+            (point[axis] - cone_origin[axis]) * cone_axis[axis]
+            for axis in range(3)
+        )
+        planar.append((axial, index, face))
+    for order, (_axial, index, face) in enumerate(sorted(planar)):
+        registry.register_face(
+            FaceRef(
+                solid.entity_id,
+                "bottom" if order == 0 else "top",
+            ),
+            face,
+            runtime_index=index,
+        )
+    return registry
+
+
 def cylinder_face_registry(
     document: PartDocument,
     cylinder: ZimaEntity,
@@ -4329,11 +4795,12 @@ def protrusion_face_registry(
         )) != "up_to":
             return None
         try:
-            value = json.loads(str(feature.parameters.get(
-                f"end_reference_{side}", "null"
+            targets = json.loads(str(feature.parameters.get(
+                f"end_targets_{side}", "[]"
             )))
         except (TypeError, ValueError, json.JSONDecodeError):
             return None
+        value = targets[0] if isinstance(targets, list) and len(targets) == 1 else None
         origin = value.get("fallback_origin") if isinstance(value, dict) else None
         normal = value.get("fallback_normal") if isinstance(value, dict) else None
         if (
@@ -5373,12 +5840,23 @@ def _standalone_topology_registry(
         return registry
     solid = next((
         child for child in container.children
-        if child.kind in (EntityKind.BOX, EntityKind.WEDGE, EntityKind.CYLINDER)
+        if child.kind in (
+            EntityKind.BOX,
+            EntityKind.WEDGE,
+            EntityKind.CYLINDER,
+            EntityKind.CONE,
+            EntityKind.SPHERE,
+        )
         and not child.locked
     ), None)
     return (
         cylinder_face_registry(document, solid, shape)
         if solid is not None and solid.kind == EntityKind.CYLINDER
+        else analytic_primitive_face_registry(solid, shape)
+        if solid is not None and solid.kind in (
+            EntityKind.CONE,
+            EntityKind.SPHERE,
+        )
         else semantic_face_registry(document, solid, shape)
         if solid is not None
         else TopologyRegistry()
@@ -6583,6 +7061,8 @@ def face_registry_at(
                     EntityKind.BOX,
                     EntityKind.WEDGE,
                     EntityKind.CYLINDER,
+                    EntityKind.CONE,
+                    EntityKind.SPHERE,
                 )
                 and not child.locked
             ),
@@ -6591,6 +7071,11 @@ def face_registry_at(
         registry = (
             cylinder_face_registry(document, solid, shape)
             if solid is not None and solid.kind == EntityKind.CYLINDER
+            else analytic_primitive_face_registry(solid, shape)
+            if solid is not None and solid.kind in (
+                EntityKind.CONE,
+                EntityKind.SPHERE,
+            )
             else semantic_face_registry(document, solid, shape)
             if solid is not None
             else TopologyRegistry()

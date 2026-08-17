@@ -234,6 +234,7 @@ from zima_cad.settings import (
 )
 from zima_cad.localization import configure_localization, tr
 from zima_cad.body_result import BodyResult
+from zima_cad.analytic_intersections import ray_surface_intersections
 from zima_cad.viewer_data import EdgePolyline
 from zima_cad.viewer import (
     AngularDimension,
@@ -248,6 +249,7 @@ from zima_cad.viewer import (
 from zima_cad.viewer_scene import (
     DocumentViewerScene,
     build_document_viewer_scene_data,
+    with_occt_analytic_surfaces,
 )
 from zima_cad.viewer_mesh import (
     ViewerMesh,
@@ -1530,8 +1532,6 @@ class EdgeTreatmentPropertiesDialog(QDialog):
 
 
 class ContainerSummaryDialog(DocumentSubWindowDialog):
-    applied = Signal()
-
     def __init__(self, obj: ZimaEntity, document: PartDocument, parent=None) -> None:
         super().__init__(tr("dialog.properties.title", name=obj.name), parent)
         self.object = obj
@@ -1631,24 +1631,6 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
         super().showEvent(event)
         position_dialog_top_right_after_show(self)
 
-    def _apply_without_closing(self) -> None:
-        if not self._validate_attachment_axes():
-            return
-        if not self.apply_to_object():
-            return
-        self.applied.emit()
-        self._load_transform_values()
-
-    def _load_transform_values(self) -> None:
-        x, y, z = self.object.coordinate_system.origin
-        self.x_spin.setValue(float(x))
-        self.y_spin.setValue(float(y))
-        self.z_spin.setValue(float(z))
-        rx, ry, rz = self.object.coordinate_system.rotation
-        self.rx_spin.setValue(float(rx))
-        self.ry_spin.setValue(float(ry))
-        self.rz_spin.setValue(float(rz))
-
     def _set_transform_read_only(self, read_only: bool) -> None:
         for spinbox in (
             self.x_spin,
@@ -1739,98 +1721,34 @@ class ContainerSummaryDialog(DocumentSubWindowDialog):
         return True
 
 
-class PrimitivePropertiesDialog(QDialog):
-    applied = Signal()
-    PARAMETER_DEFINITIONS = {
-        EntityKind.BOX: (
-            ("length", "primitive.parameter.length", 0.001),
-            ("width", "primitive.parameter.width", 0.001),
-            ("height", "primitive.parameter.height", 0.001),
-        ),
-        EntityKind.SPHERE: (
-            ("diameter", "primitive.parameter.diameter", 0.001),
-        ),
-        EntityKind.CYLINDER: (
-            ("diameter", "primitive.parameter.diameter", 0.001),
-            ("height", "primitive.parameter.height", 0.001),
-        ),
-        EntityKind.CONE: (
-            ("bottom_diameter", "primitive.parameter.bottom_diameter", 0.001),
-            ("top_diameter", "primitive.parameter.top_diameter", 0.0),
-            ("height", "primitive.parameter.height", 0.001),
-        ),
-        EntityKind.PYRAMID: (
-            ("length", "primitive.parameter.length", 0.001),
-            ("width", "primitive.parameter.width", 0.001),
-            ("height", "primitive.parameter.height", 0.001),
-        ),
-        EntityKind.WEDGE: (
-            ("length", "primitive.parameter.length", 0.001),
-            ("width", "primitive.parameter.width", 0.001),
-            ("height", "primitive.parameter.height", 0.001),
-            ("top_offset", "primitive.parameter.top_offset", 0.0),
-        ),
-    }
-
-    def __init__(self, primitive: ZimaEntity, parent=None) -> None:
-        super().__init__(parent)
-        compact_font = QFont(self.font())
-        compact_font.setPixelSize(10)
-        self.setFont(compact_font)
-        self.primitive = primitive
-        self.decimal_places = display_decimal_places(parent)
-        self.setWindowTitle(
-            tr("dialog.container_properties.title", name=primitive.name)
-        )
-
-        layout = QFormLayout(self)
-        self.name_edit = QLineEdit(primitive.name)
-        layout.addRow(tr("dialog.properties.name"), self.name_edit)
-        layout.addRow(
-            tr("dialog.properties.container_type"),
-            QLabel(tr(f"primitive.{primitive.kind.value}")),
-        )
-
-        self.parameter_edits: dict[str, QDoubleSpinBox] = {}
-        for key, label_key, minimum in self.PARAMETER_DEFINITIONS[primitive.kind]:
-            spinbox = (
-                PositiveQuantitySpinBox()
-                if minimum > 0.0
-                else QDoubleSpinBox()
-            )
-            spinbox.setRange(minimum, 1_000_000.0)
-            spinbox.setDecimals(self.decimal_places)
-            spinbox.setSingleStep(1.0)
-            spinbox.setSuffix(" mm")
-            spinbox.setValue(float(primitive.parameters.get(key, minimum)))
-            self.parameter_edits[key] = spinbox
-            layout.addRow(tr(label_key), spinbox)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
-        )
-        localize_dialog_buttons(buttons)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        position_dialog_top_right_after_show(self)
-
-    def _apply_without_closing(self) -> None:
-        if self.apply_to_primitive():
-            self.applied.emit()
-
-    def apply_to_primitive(self) -> bool:
-        name = self.name_edit.text().strip()
-        if not name:
-            return False
-        self.primitive.name = name
-        for key, spinbox in self.parameter_edits.items():
-            self.primitive.parameters[key] = f"{spinbox.value():.12g}"
-        return True
+PRIMITIVE_PARAMETER_DEFINITIONS = {
+    EntityKind.BOX: (
+        ("length", "primitive.parameter.length", 0.001),
+        ("width", "primitive.parameter.width", 0.001),
+        ("height", "primitive.parameter.height", 0.001),
+    ),
+    EntityKind.SPHERE: (("diameter", "primitive.parameter.diameter", 0.001),),
+    EntityKind.CYLINDER: (
+        ("diameter", "primitive.parameter.diameter", 0.001),
+        ("height", "primitive.parameter.height", 0.001),
+    ),
+    EntityKind.CONE: (
+        ("bottom_diameter", "primitive.parameter.bottom_diameter", 0.001),
+        ("top_diameter", "primitive.parameter.top_diameter", 0.0),
+        ("height", "primitive.parameter.height", 0.001),
+    ),
+    EntityKind.PYRAMID: (
+        ("length", "primitive.parameter.length", 0.001),
+        ("width", "primitive.parameter.width", 0.001),
+        ("height", "primitive.parameter.height", 0.001),
+    ),
+    EntityKind.WEDGE: (
+        ("length", "primitive.parameter.length", 0.001),
+        ("width", "primitive.parameter.width", 0.001),
+        ("height", "primitive.parameter.height", 0.001),
+        ("top_offset", "primitive.parameter.top_offset", 0.0),
+    ),
+}
 
 
 class PointConstraintDialog(QDialog):
@@ -1840,7 +1758,6 @@ class PointConstraintDialog(QDialog):
     referenceActivated = Signal(dict)
     referenceHighlightsChanged = Signal()
     definitionChanged = Signal()
-    applied = Signal()
     entityAdopted = Signal()
 
     def __init__(
@@ -2922,6 +2839,10 @@ class PointConstraintDialog(QDialog):
     def _remove_reference_at(self, row: int) -> None:
         if not 0 <= row < len(self.references):
             return
+        # Activating the position picker can synchronously remove or replace
+        # the selected row. Keep the descriptor identity across that callback
+        # and resolve its current index again before mutating the table.
+        descriptor = self.references[row]
         activate_position = getattr(
             self,
             "_activate_position_reference_selection",
@@ -2929,7 +2850,11 @@ class PointConstraintDialog(QDialog):
         )
         if callable(activate_position):
             activate_position()
-        removed_key = str(self.references[row].get("key", ""))
+        try:
+            row = self.references.index(descriptor)
+        except ValueError:
+            return
+        removed_key = str(descriptor.get("key", ""))
         self._replacement_reference_row = None
         self._references_being_removed.add(removed_key)
         self.highlighted_reference_keys.discard(removed_key)
@@ -3061,6 +2986,17 @@ class PointConstraintDialog(QDialog):
             )
         self.definitionChanged.emit()
 
+    def _commit_pending_numeric_editor(self) -> None:
+        """Commit typed placement values before a command consumes them."""
+        focused = QApplication.focusWidget()
+        widget = focused
+        while isinstance(widget, QWidget) and widget is not self:
+            if isinstance(widget, QAbstractSpinBox):
+                widget.interpretText()
+                break
+            widget = widget.parentWidget()
+        self._update_solution()
+
     def _solution_references(
         self,
         extra: dict[str, Any] | None = None,
@@ -3102,11 +3038,6 @@ class PointConstraintDialog(QDialog):
         if not self._submit():
             return
         self.accept()
-
-    def _apply(self) -> None:
-        if self._submit():
-            self._clear_confirmed_reference_selection()
-            self.applied.emit()
 
     def _clear_confirmed_reference_selection(self) -> None:
         """Finish either reference-picking table after Apply/middle click."""
@@ -4192,9 +4123,7 @@ class SolidConstraintDialog(AxisConstraintDialog):
             self.length_label.setVisible(False)
         self.parameter_edits: dict[str, QDoubleSpinBox] = {}
         parameter_form = QFormLayout()
-        for key, label_key, minimum in PrimitivePropertiesDialog.PARAMETER_DEFINITIONS[
-            solid_kind
-        ]:
+        for key, label_key, minimum in PRIMITIVE_PARAMETER_DEFINITIONS[solid_kind]:
             edit = (
                 PositiveQuantitySpinBox()
                 if minimum > 0.0
@@ -4496,6 +4425,7 @@ class SketchConstraintDialog(PlaneConstraintDialog):
             )
 
     def _submit_and_enter_sketch(self) -> None:
+        self._commit_pending_numeric_editor()
         self._defer_sketch_rebuild = True
         self._entering_sketch = True
         try:
@@ -4545,6 +4475,73 @@ class SketchConstraintDialog(PlaneConstraintDialog):
         return True
 
 
+class EndTargetCollectionDialog(DocumentSubWindowDialog):
+    """Edit one side's persisted Up-to target collection atomically."""
+
+    targetsAccepted = Signal(list)
+
+    def __init__(
+        self,
+        targets: list[dict[str, Any]],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(tr("protrusion.end.up_to"), parent)
+        self._targets = copy.deepcopy(targets)
+        layout = QVBoxLayout()
+        self.content_layout.addLayout(layout)
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels((
+            "", tr("dialog.point_constraints.reference")
+        ))
+        self.table.verticalHeader().hide()
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        layout.addWidget(self.table)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        localize_dialog_buttons(buttons)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.setMinimumWidth(420)
+        self._refresh_table()
+
+    def _refresh_table(self) -> None:
+        self.table.setRowCount(0)
+        for target in self._targets:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            remove = QPushButton("×")
+            remove.setToolTip(tr("dialog.reference.remove"))
+            remove.clicked.connect(
+                lambda _checked=False, descriptor=target:
+                self._remove_target(descriptor)
+            )
+            self.table.setCellWidget(row, 0, remove)
+            label = str(target.get("label", "")).strip()
+            self.table.setItem(
+                row, 1, QTableWidgetItem(label or tr("protrusion.end.up_to"))
+            )
+
+    def _remove_target(self, descriptor: dict[str, Any]) -> None:
+        try:
+            self._targets.remove(descriptor)
+        except ValueError:
+            return
+        self._refresh_table()
+
+    def accept(self) -> None:
+        self.targetsAccepted.emit(copy.deepcopy(self._targets))
+        super().accept()
+
+
 class ProtrusionConstraintDialog(PlaneConstraintDialog):
     createProtrusionRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, str,
@@ -4591,6 +4588,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             feature_kind == EntityKind.PROTRUSION
         )
         self._active_end_reference_side: str | None = None
+        self._end_target_collection_dialog: EndTargetCollectionDialog | None = None
         self._subtract_only = subtract_only
         self._assembly_components = dict(assembly_components or ())
         try:
@@ -4814,10 +4812,10 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.reverse_end_condition_combo = self._end_condition_combo(
                 str(feature_parameters.get("end_condition_reverse", "length"))
             )
-            self.forward_end_reference = self._stored_end_reference(
+            self.forward_end_targets = self._stored_end_targets(
                 feature_parameters, "forward"
             )
-            self.reverse_end_reference = self._stored_end_reference(
+            self.reverse_end_targets = self._stored_end_targets(
                 feature_parameters, "reverse"
             )
             self.forward_end_row = self._end_condition_row(
@@ -4997,16 +4995,20 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         self._defer_feature_rebuild_for_sketch = False
 
     @staticmethod
-    def _stored_end_reference(
+    def _stored_end_targets(
         parameters: dict[str, Any], side: str
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]]:
         try:
             value = json.loads(str(parameters.get(
-                f"end_reference_{side}", "null"
+                f"end_targets_{side}", "[]"
             )))
         except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-        return value if isinstance(value, dict) else None
+            return []
+        return [
+            copy.deepcopy(target)
+            for target in value
+            if isinstance(target, dict)
+        ] if isinstance(value, list) else []
 
     def _end_condition_combo(self, selected: str) -> QComboBox:
         combo = QComboBox()
@@ -5030,18 +5032,18 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         reference.setCursor(Qt.CursorShape.PointingHandCursor)
         reference.setProperty("protrusionEndReferenceSide", side)
         reference.installEventFilter(self)
-        clear = QPushButton("×")
-        clear.setToolTip(tr("dialog.reference.remove"))
-        clear.clicked.connect(
+        collection = QPushButton("…")
+        collection.setToolTip(tr("protrusion.end.up_to"))
+        collection.clicked.connect(
             lambda _checked=False, selected_side=side:
-            self.clear_end_reference(selected_side)
+            self._show_end_target_collection(selected_side)
         )
         layout.addWidget(combo, 1)
         layout.addWidget(length_spin, 1)
         layout.addWidget(reference, 1)
-        layout.addWidget(clear)
+        layout.addWidget(collection)
         setattr(self, f"{side}_end_reference_edit", reference)
-        setattr(self, f"{side}_end_clear_button", clear)
+        setattr(self, f"{side}_end_collection_button", collection)
         return row
 
     def eventFilter(self, watched, event) -> bool:
@@ -5117,9 +5119,60 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
     def end_reference_pick_active(self) -> bool:
         return self._active_end_reference_side is not None
 
+    def _end_targets(self, side: str) -> list[dict[str, Any]]:
+        side = self._end_reference_definition_side(side)
+        return getattr(self, f"{side}_end_targets")
+
+    def _primary_end_target(self, side: str) -> dict[str, Any] | None:
+        targets = self._end_targets(side)
+        return targets[0] if targets else None
+
+    def _show_end_target_collection(self, side: str) -> None:
+        side = self._end_reference_definition_side(side)
+        existing = self._end_target_collection_dialog
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dialog = EndTargetCollectionDialog(
+            self._end_targets(side), self.parentWidget()
+        )
+        dialog.targetsAccepted.connect(
+            lambda targets, selected_side=side:
+            self._replace_end_targets(selected_side, targets)
+        )
+        dialog.finished.connect(
+            lambda _result, target=dialog:
+            setattr(self, "_end_target_collection_dialog", None)
+            if self._end_target_collection_dialog is target else None
+        )
+        self._end_target_collection_dialog = dialog
+        dialog.show()
+        position_dialog_top_right_after_show(dialog)
+
+    def done(self, result: int) -> None:
+        collection = self._end_target_collection_dialog
+        if collection is not None:
+            collection.reject()
+            self._end_target_collection_dialog = None
+        super().done(result)
+
+    def _replace_end_targets(
+        self, side: str, targets: list[dict[str, Any]]
+    ) -> None:
+        side = self._end_reference_definition_side(side)
+        # The persisted/UI contract is already a collection. The current
+        # geometric evaluator deliberately accepts one target until envelope
+        # intersection and branch validation are implemented.
+        setattr(self, f"{side}_end_targets", copy.deepcopy(targets[:1]))
+        self._refresh_end_reference(side)
+        if not self._end_targets(side):
+            self._set_end_reference_pick_active(side, True)
+        self.definitionChanged.emit()
+
     def clear_end_reference(self, side: str) -> None:
         side = self._end_reference_definition_side(side)
-        setattr(self, f"{side}_end_reference", None)
+        setattr(self, f"{side}_end_targets", [])
         if self._active_end_reference_side == side:
             self._set_end_reference_pick_active(side, False)
         self._refresh_end_reference(side)
@@ -5141,21 +5194,24 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         side = self._active_end_reference_side
         if side is None or value.get("kind") not in {"point", "plane", "face"}:
             return False
-        setattr(self, f"{side}_end_reference", copy.deepcopy(value))
+        setattr(self, f"{side}_end_targets", [copy.deepcopy(value)])
         self._set_end_reference_pick_active(side, False)
         self._refresh_end_reference(side)
         self.definitionChanged.emit()
         return True
 
     def _refresh_end_reference(self, side: str) -> None:
-        value = getattr(self, f"{side}_end_reference", None)
+        targets = self._end_targets(side)
+        value = targets[0] if targets else None
         edit = getattr(self, f"{side}_end_reference_edit")
         edit.setText(str(value.get("label", "")) if value else "")
-        getattr(self, f"{side}_end_clear_button").setEnabled(value is not None)
+        getattr(self, f"{side}_end_collection_button").setEnabled(True)
 
     def _update_end_condition_controls(self, _index: int = -1) -> None:
         if not self._uses_protrusion_end_conditions:
             return
+        changed_combo = self.sender()
+        activate_side: str | None = None
         subtract = self.subtract_operation_button.isChecked() if hasattr(
             self, "subtract_operation_button"
         ) else self._subtract_only
@@ -5170,16 +5226,24 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             condition = str(combo.currentData())
             length = getattr(self, f"{side}_length_spin")
             reference = getattr(self, f"{side}_end_reference_edit")
-            clear = getattr(self, f"{side}_end_clear_button")
+            collection = getattr(self, f"{side}_end_collection_button")
             length.setVisible(condition == "length")
             reference.setVisible(condition == "up_to")
-            clear.setVisible(condition == "up_to")
+            collection.setVisible(condition == "up_to")
             if (
                 condition != "up_to"
                 and self._active_end_reference_side == side
             ):
                 self._set_end_reference_pick_active(side, False)
             self._refresh_end_reference(side)
+            if (
+                combo is changed_combo
+                and condition == "up_to"
+                and not self._end_targets(side)
+            ):
+                activate_side = side
+        if activate_side is not None:
+            self._set_end_reference_pick_active(activate_side, True)
         self.definitionChanged.emit()
 
     def protrusion_end_definition(self) -> dict[str, Any]:
@@ -5192,12 +5256,8 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             "end_condition_reverse": str(
                 self.reverse_end_condition_combo.currentData()
             ),
-            "end_reference_forward": copy.deepcopy(
-                self.forward_end_reference
-            ),
-            "end_reference_reverse": copy.deepcopy(
-                self.reverse_end_reference
-            ),
+            "end_targets_forward": copy.deepcopy(self.forward_end_targets),
+            "end_targets_reverse": copy.deepcopy(self.reverse_end_targets),
         }
 
     def cut_exception_ids(self) -> list[str]:
@@ -5501,6 +5561,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             )
 
     def _submit_and_edit_sketch(self) -> None:
+        self._commit_pending_numeric_editor()
         # The feature is only a provisional owner for the sketch editor.
         # Set this before submit: the create signal is synchronous and the
         # handler must see it before it decides whether to rebuild the Part.
@@ -5518,19 +5579,6 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.accept()
         else:
             self._defer_feature_rebuild_for_sketch = False
-
-    def _apply(self) -> None:
-        """Store a lightweight feature preview without evaluating booleans."""
-        self._defer_feature_rebuild = True
-        self._provisional_apply_pending = True
-        try:
-            if self._submit():
-                self._clear_confirmed_reference_selection()
-                self.applied.emit()
-            else:
-                self._provisional_apply_pending = False
-        finally:
-            self._defer_feature_rebuild = False
 
     def _submit_and_accept(self) -> None:
         """Store the feature; closing Properties performs the only rebuild."""
@@ -5572,7 +5620,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
                 )
                 if (
                     condition == "up_to"
-                    and getattr(self, f"{side}_end_reference") is None
+                    and not self._end_targets(side)
                 ):
                     self._set_end_reference_pick_active(side, True)
                     return False
@@ -8977,8 +9025,6 @@ class ParameterEditOverlay(QWidget):
 
 
 class DimensionPropertiesDialog(QDialog):
-    applied = Signal(dict)
-
     DIMENSION_SYMBOLS = (
         ("⌀", "dialog.dimension_properties.symbol.diameter"),
         ("○", "dialog.dimension_properties.symbol.circle"),
@@ -9192,9 +9238,6 @@ class DimensionPropertiesDialog(QDialog):
             )
         layout.addLayout(button_row)
 
-    def _apply_without_closing(self) -> None:
-        self.applied.emit(self.dimension_style())
-
     def _symbol_edit_row(self, edit: QLineEdit) -> QWidget:
         row = QWidget(self)
         layout = QHBoxLayout(row)
@@ -9340,7 +9383,6 @@ class DimensionPropertiesDialog(QDialog):
 
 
 class SketchTextPropertiesDialog(QDialog):
-    applyRequested = Signal()
     previewChanged = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -9457,15 +9499,11 @@ class SketchTextPropertiesDialog(QDialog):
         layout.addLayout(tools)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
         localize_dialog_buttons(buttons)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
-        if apply_button is not None:
-            apply_button.clicked.connect(self.applyRequested.emit)
         layout.addWidget(buttons)
         for signal in (
             self.text_edit.textChanged,
@@ -11604,13 +11642,6 @@ class MainWindow(QMainWindow):
         self._connect_assembly_cut_exception_dialog(dialog)
         obj._history_edit_preview = True
         dialog._feature_edit_baseline = copy.deepcopy(obj)
-        dialog.applied.connect(
-            lambda: setattr(
-                dialog,
-                "_feature_edit_baseline",
-                copy.deepcopy(obj),
-            )
-        )
         dialog.updateRevolveRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, angle, angle_reverse,
@@ -11661,21 +11692,35 @@ class MainWindow(QMainWindow):
         )
         if owner is None or base_world is None:
             coordinate_system = self._definition_preview_coordinate_system()
+            dialog._frame_preview_coordinate_system = coordinate_system
+            # Update only renderer-owned reference layers. The calculated
+            # body mesh is reused, so staged placement never invokes OCCT.
+            self.rebuild_view(fit=False, rebuild_geometry=False)
             profile_mesh = self._new_protrusion_profile_mesh(
                 dialog, coordinate_system
             )
             wire_preview = self._protrusion_wire_preview(
                 dialog, profile_mesh, coordinate_system
             ) if coordinate_system is not None else None
-            if wire_preview is not None:
+            visible_wire = wire_preview or self._cyan_viewer_wire(profile_mesh)
+            if visible_wire is not None:
                 self.native_viewer.set_object_overlay(
-                    wire_preview,
+                    visible_wire,
                     selected=True,
                     locks_interaction=False,
                     match_owner_id=self._active_component_entity_id,
                 )
                 self.native_viewer.set_passive_sketch_overlay(profile_mesh)
             self._show_new_protrusion_extent_handles(dialog)
+            QTimer.singleShot(
+                0,
+                lambda target=dialog: (
+                    self._show_new_protrusion_extent_handles(target)
+                    if target is self.point_constraint_dialog
+                    and target.isVisible()
+                    else None
+                ),
+            )
             return
         references = dialog._solution_references()
         sketch = next((
@@ -11700,6 +11745,10 @@ class MainWindow(QMainWindow):
                 tuple(edit.value() for edit in dialog.rotation_edits),
             ),
         )
+        dialog._frame_preview_coordinate_system = staged
+        # Update the reference scene first.  Reapply the cyan wire/object
+        # overlays afterwards because rebuilding the scene may replace them.
+        self.rebuild_view(fit=False, rebuild_geometry=False)
         def homogeneous(transform) -> np.ndarray:
             matrix = np.eye(4, dtype=float)
             matrix[:3, :4] = np.array(transform, dtype=float)[:3, :4]
@@ -11731,7 +11780,9 @@ class MainWindow(QMainWindow):
             dialog, staged_sketch_mesh, staged
         )
         self.native_viewer.set_object_overlay(
-            wire_preview or staged_object_mesh,
+            wire_preview
+            or self._cyan_viewer_wire(staged_sketch_mesh)
+            or staged_object_mesh,
             selected=True,
             locks_interaction=False,
             match_owner_id=self._active_component_entity_id,
@@ -11739,8 +11790,19 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_passive_sketch_overlay(
             staged_sketch_mesh
         )
-        dialog._frame_preview_coordinate_system = staged
         self._show_new_protrusion_extent_handles(dialog)
+        # Reference confirmation and the associated renderer refresh finish
+        # later in the same event turn. Restore the transient purple handles
+        # afterwards so that cleanup of the old candidate cannot erase them.
+        QTimer.singleShot(
+            0,
+            lambda target=dialog: (
+                self._show_new_protrusion_extent_handles(target)
+                if target is self.point_constraint_dialog
+                and target.isVisible()
+                else None
+            ),
+        )
 
     def _queue_protrusion_operation_preview(
         self,
@@ -11954,9 +12016,7 @@ class MainWindow(QMainWindow):
                     ) + max(1.0, span * 1.0e-4),
                     1.0,
                 )
-            reference = getattr(
-                dialog, f"{definition_side}_end_reference", None
-            )
+            reference = dialog._primary_end_target(definition_side)
             if not isinstance(reference, dict):
                 return None
             if reference.get("kind") == "point":
@@ -11969,26 +12029,47 @@ class MainWindow(QMainWindow):
                     for index in range(3)
                 )
             else:
-                origin = reference.get("fallback_origin")
-                normal = reference.get("fallback_normal")
-                if (
-                    not isinstance(origin, (list, tuple))
-                    or not isinstance(normal, (list, tuple))
-                    or len(origin) != 3
-                    or len(normal) != 3
-                ):
-                    return None
-                denominator = sum(
-                    float(normal[index]) * side_direction[index]
-                    for index in range(3)
+                surface_kind = str(
+                    reference.get("surface_kind", "plane")
                 )
-                if abs(denominator) <= 1.0e-9:
+                intersection = ray_surface_intersections(
+                    surface_kind,
+                    point,
+                    side_direction,
+                    plane_origin=reference.get("fallback_origin"),
+                    plane_normal=reference.get("fallback_normal"),
+                    center=reference.get("fallback_center"),
+                    axis_origin=reference.get("fallback_axis_origin"),
+                    axis_direction=reference.get(
+                        "fallback_axis_direction"
+                    ),
+                    radius=reference.get("fallback_radius"),
+                    apex=reference.get("fallback_apex"),
+                    semi_angle=reference.get("fallback_semi_angle"),
+                )
+                if (
+                    not intersection.distances
+                    and absolute
+                    and intersection.error == "behind"
+                ):
+                    intersection = ray_surface_intersections(
+                        surface_kind,
+                        point,
+                        tuple(-value for value in side_direction),
+                        plane_origin=reference.get("fallback_origin"),
+                        plane_normal=reference.get("fallback_normal"),
+                        center=reference.get("fallback_center"),
+                        axis_origin=reference.get("fallback_axis_origin"),
+                        axis_direction=reference.get(
+                            "fallback_axis_direction"
+                        ),
+                        radius=reference.get("fallback_radius"),
+                        apex=reference.get("fallback_apex"),
+                        semi_angle=reference.get("fallback_semi_angle"),
+                    )
+                if not intersection.distances:
                     return None
-                distance = sum(
-                    float(normal[index])
-                    * (float(origin[index]) - point[index])
-                    for index in range(3)
-                ) / denominator
+                distance = intersection.distances[0]
             if absolute:
                 distance = abs(distance)
             return distance if distance > 1.0e-7 else None
@@ -12012,11 +12093,29 @@ class MainWindow(QMainWindow):
             side_direction = tuple(sign * value for value in direction)
             for edge in source_edges:
                 end_points = []
+                target = dialog._primary_end_target(effective_side)
+                curved_target = (
+                    isinstance(target, dict)
+                    and str(target.get("surface_kind", ""))
+                    in {"cylinder", "sphere", "cone"}
+                )
+                sampled_points = edge.points
+                if curved_target and len(edge.points) == 2:
+                    first_point, last_point = edge.points
+                    sampled_points = tuple(
+                        tuple(
+                            first_point[axis]
+                            + (last_point[axis] - first_point[axis])
+                            * sample / 16.0
+                            for axis in range(3)
+                        )
+                        for sample in range(17)
+                    )
                 closed_edge = (
                     edge.curve_kind == "circle"
                     or math.dist(edge.points[0], edge.points[-1]) <= 1.0e-7
                 )
-                for point_index, point in enumerate(edge.points):
+                for point_index, point in enumerate(sampled_points):
                     distance = automatic_distance(
                         point,
                         effective_side,
@@ -12038,7 +12137,7 @@ class MainWindow(QMainWindow):
                     # still share/deduplicate their vertex connectors.
                     if point_index == 0 or (
                         not closed_edge
-                        and point_index == len(edge.points) - 1
+                        and point_index == len(sampled_points) - 1
                     ):
                         connector_points.setdefault(
                             (
@@ -12123,13 +12222,6 @@ class MainWindow(QMainWindow):
         self._connect_assembly_cut_exception_dialog(dialog)
         obj._history_edit_preview = True
         dialog._feature_edit_baseline = copy.deepcopy(obj)
-        dialog.applied.connect(
-            lambda: setattr(
-                dialog,
-                "_feature_edit_baseline",
-                copy.deepcopy(obj),
-            )
-        )
         dialog.updateProtrusionRequested.connect(
             lambda references, fallback, name, show_internal, show_auxiliary,
             rotation, source_mode, sketch_id, length_forward, length_reverse,
@@ -12631,9 +12723,10 @@ class MainWindow(QMainWindow):
                 ):
                     condition = "length"
                 feature.parameters[f"end_condition_{side}"] = condition
-                reference = end_definition.get(f"end_reference_{side}")
-                feature.parameters[f"end_reference_{side}"] = json.dumps(
-                    reference if isinstance(reference, dict) else None,
+                targets = end_definition.get(f"end_targets_{side}")
+                feature.parameters[f"end_targets_{side}"] = json.dumps(
+                    [target for target in targets if isinstance(target, dict)]
+                    if isinstance(targets, list) else [],
                     ensure_ascii=False,
                     sort_keys=True,
                 )
@@ -12995,12 +13088,166 @@ class MainWindow(QMainWindow):
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
-            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+            lambda: self._preview_solid_dialog(dialog)
         )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
+        self._preview_solid_dialog(dialog)
+
+    @staticmethod
+    def _solid_preview_wire(dialog: SolidConstraintDialog) -> ViewerMesh:
+        """Create an OCCT-independent wire preview from staged parameters."""
+        value = lambda key, default: float(
+            dialog.parameter_edits[key].value()
+            if key in dialog.parameter_edits else default
+        )
+        kind = dialog.solid_kind
+        paths: list[tuple[tuple[float, float, float], ...]] = []
+
+        def add_loop(points):
+            values = tuple(points)
+            if values:
+                paths.append((*values, values[0]))
+
+        def circle(radius: float, z: float = 0.0, plane: str = "xy"):
+            if radius <= 1.0e-12:
+                return
+            sampled = []
+            for index in range(65):
+                angle = math.tau * index / 64.0
+                first = radius * math.cos(angle)
+                second = radius * math.sin(angle)
+                sampled.append(
+                    (first, second, z) if plane == "xy"
+                    else (first, z, second) if plane == "xz"
+                    else (z, first, second)
+                )
+            paths.append(tuple(sampled))
+
+        if kind == EntityKind.BOX:
+            half = (
+                value("length", 40.0) / 2.0,
+                value("width", 30.0) / 2.0,
+                value("height", 20.0) / 2.0,
+            )
+            vertices = tuple(
+                (
+                    half[0] if mask & 1 else -half[0],
+                    half[1] if mask & 2 else -half[1],
+                    half[2] if mask & 4 else -half[2],
+                )
+                for mask in range(8)
+            )
+            for first, second in (
+                (first, first ^ bit)
+                for first in range(8)
+                for bit in (1, 2, 4)
+                if first < (first ^ bit)
+            ):
+                paths.append((vertices[first], vertices[second]))
+        elif kind == EntityKind.SPHERE:
+            radius = value("diameter", 30.0) / 2.0
+            circle(radius, plane="xy")
+            circle(radius, plane="xz")
+            circle(radius, plane="yz")
+        elif kind == EntityKind.CYLINDER:
+            radius = value("diameter", 30.0) / 2.0
+            half_height = value("height", 50.0) / 2.0
+            circle(radius, -half_height)
+            circle(radius, half_height)
+            for angle in (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0):
+                x = radius * math.cos(angle)
+                y = radius * math.sin(angle)
+                paths.append(((x, y, -half_height), (x, y, half_height)))
+        elif kind == EntityKind.CONE:
+            bottom = value("bottom_diameter", 40.0) / 2.0
+            top = value("top_diameter", 0.0) / 2.0
+            height = value("height", 50.0)
+            circle(bottom, 0.0)
+            circle(top, height)
+            for angle in (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0):
+                cosine, sine = math.cos(angle), math.sin(angle)
+                paths.append((
+                    (bottom * cosine, bottom * sine, 0.0),
+                    (top * cosine, top * sine, height),
+                ))
+        elif kind == EntityKind.PYRAMID:
+            half_length = value("length", 40.0) / 2.0
+            half_width = value("width", 40.0) / 2.0
+            height = value("height", 50.0)
+            base = (
+                (-half_length, -half_width, 0.0),
+                (half_length, -half_width, 0.0),
+                (half_length, half_width, 0.0),
+                (-half_length, half_width, 0.0),
+            )
+            add_loop(base)
+            apex = (0.0, 0.0, height)
+            paths.extend((point, apex) for point in base)
+        elif kind == EntityKind.WEDGE:
+            half_length = value("length", 60.0) / 2.0
+            half_width = value("width", 40.0) / 2.0
+            height = value("height", 40.0)
+            top_x = -half_length + max(
+                0.0, min(value("top_offset", 30.0), 2.0 * half_length)
+            )
+            for y in (-half_width, half_width):
+                profile = (
+                    (-half_length, y, 0.0),
+                    (half_length, y, 0.0),
+                    (top_x, y, height),
+                    (-half_length, y, height),
+                )
+                add_loop(profile)
+            for x, z in (
+                (-half_length, 0.0),
+                (half_length, 0.0),
+                (top_x, height),
+                (-half_length, height),
+            ):
+                paths.append(((x, -half_width, z), (x, half_width, z)))
+
+        edges = tuple(
+            EdgePolyline(
+                edge_index=index,
+                points=path,
+                owner_id="__solid_preview__",
+                element_kind="sketch",
+                base_color=FEATURE_PREVIEW_RGB,
+            )
+            for index, path in enumerate(paths, start=1)
+            if len(path) >= 2
+        )
+        positions = tuple(point for edge in edges for point in edge.points)
+        return ViewerMesh(
+            triangle_positions=(), triangle_normals=(),
+            triangle_face_indices=(), triangle_owner_ids=(),
+            edges=edges, points=(), planes=(),
+            bounds_min=tuple(
+                min(point[axis] for point in positions) for axis in range(3)
+            ) if positions else (0.0, 0.0, 0.0),
+            bounds_max=tuple(
+                max(point[axis] for point in positions) for axis in range(3)
+            ) if positions else (0.0, 0.0, 0.0),
+        )
+
+    def _preview_solid_dialog(self, dialog: SolidConstraintDialog) -> None:
+        if dialog is not self.point_constraint_dialog or not dialog.isVisible():
+            return
+        coordinate_system = self._definition_preview_coordinate_system()
         self.rebuild_view(fit=False, rebuild_geometry=False)
+        mesh = self._solid_preview_wire(dialog)
+        if coordinate_system is not None:
+            mesh = transform_viewer_mesh(
+                mesh, coordinate_system_transform(coordinate_system)
+            )
+        self.native_viewer.set_object_overlay(
+            mesh,
+            selected=True,
+            locks_interaction=False,
+            match_owner_id=self._active_component_entity_id,
+        )
 
     def _create_fillet(self) -> None:
         self._create_edge_treatment(ContainerType.FILLET)
@@ -13109,7 +13356,11 @@ class MainWindow(QMainWindow):
                 source_shape,
                 owner_id=obj.entity_id,
             )
-            source_bodies[obj.entity_id] = BodyResult.from_mesh(source_mesh)
+            source_bodies[obj.entity_id] = with_occt_analytic_surfaces(
+                BodyResult.from_mesh(source_mesh),
+                source_shape,
+                obj.entity_id,
+            )
         return source_bodies
 
     def _install_scene_source_bodies(
@@ -14618,9 +14869,6 @@ class MainWindow(QMainWindow):
                 if dialog.isVisible():
                     dialog._submit()
 
-            def accept_preview_as_baseline() -> None:
-                baseline[0] = copy.deepcopy(target)
-
             def restore_baseline() -> None:
                 restored = copy.deepcopy(baseline[0].__dict__)
                 target.__dict__.clear()
@@ -14629,7 +14877,6 @@ class MainWindow(QMainWindow):
                 self._refresh_object_properties(target)
 
             dialog.definitionChanged.connect(preview_changes)
-            dialog.applied.connect(accept_preview_as_baseline)
             dialog.rejected.connect(restore_baseline)
 
         enable_feature_live_preview()
@@ -14923,6 +15170,7 @@ class MainWindow(QMainWindow):
             None,
         )
         equations: list[list[float]] = []
+        point_anchors: list[tuple[float, float, float]] = []
         for descriptor in references:
             if descriptor.get("position_role") == "orientation_only":
                 continue
@@ -14941,6 +15189,23 @@ class MainWindow(QMainWindow):
                     if resolved is not None
                     else [list(row) for row in descriptor.get("equations", ())]
                 )
+                if descriptor.get("type") == "vertex" and len(rows) >= 3:
+                    coordinate_rows: dict[int, float] = {}
+                    for row in rows:
+                        nonzero = [
+                            index for index, value in enumerate(row[:3])
+                            if abs(float(value)) > 1e-9
+                        ]
+                        if (
+                            len(nonzero) == 1
+                            and abs(float(row[nonzero[0]]) - 1.0) <= 1e-9
+                        ):
+                            coordinate_rows[nonzero[0]] = float(row[3])
+                    if len(coordinate_rows) == 3:
+                        point_anchors.append(tuple(
+                            coordinate_rows[index] for index in range(3)
+                        ))
+                        continue
                 if descriptor.get("type") == "face" and rows:
                     rows[0][3] += float(descriptor.get("offset", 0.0))
                 equations.extend(rows)
@@ -14957,13 +15222,7 @@ class MainWindow(QMainWindow):
                     reference,
                     include_active_instance=False,
                 )
-                equations.extend(
-                    [
-                        [1.0, 0.0, 0.0, point[0]],
-                        [0.0, 1.0, 0.0, point[1]],
-                        [0.0, 0.0, 1.0, point[2]],
-                    ]
-                )
+                point_anchors.append(point)
             elif reference.kind == EntityKind.PLANE:
                 point = self._reference_origin(
                     reference,
@@ -15033,6 +15292,59 @@ class MainWindow(QMainWindow):
                             ),
                         ]
                     )
+
+        if len(point_anchors) == 1:
+            # A point combined with planes/axes is an anchor, not three
+            # competing absolute equations.  Existing references constrain
+            # their normal directions; the anchor supplies only the remaining
+            # free directions.  Thus Point + XZ(offset=29) resolves to the
+            # point's X/Z and Y=29 instead of becoming inconsistent.
+            anchor = point_anchors[0]
+            row_basis: list[tuple[float, float, float]] = []
+            tolerance = 1e-9
+            for equation in equations:
+                candidate = [float(value) for value in equation[:3]]
+                for basis in row_basis:
+                    projection = sum(
+                        candidate[index] * basis[index]
+                        for index in range(3)
+                    )
+                    candidate = [
+                        candidate[index] - projection * basis[index]
+                        for index in range(3)
+                    ]
+                length = math.sqrt(sum(value * value for value in candidate))
+                if length > tolerance:
+                    row_basis.append(tuple(value / length for value in candidate))
+            for axis in range(3):
+                candidate = [1.0 if index == axis else 0.0 for index in range(3)]
+                for basis in row_basis:
+                    projection = sum(
+                        candidate[index] * basis[index]
+                        for index in range(3)
+                    )
+                    candidate = [
+                        candidate[index] - projection * basis[index]
+                        for index in range(3)
+                    ]
+                length = math.sqrt(sum(value * value for value in candidate))
+                if length <= tolerance:
+                    continue
+                normal = tuple(value / length for value in candidate)
+                row_basis.append(normal)
+                equations.append([
+                    normal[0],
+                    normal[1],
+                    normal[2],
+                    sum(normal[index] * anchor[index] for index in range(3)),
+                ])
+        elif point_anchors:
+            for point in point_anchors:
+                equations.extend([
+                    [1.0, 0.0, 0.0, point[0]],
+                    [0.0, 1.0, 0.0, point[1]],
+                    [0.0, 0.0, 1.0, point[2]],
+                ])
 
         matrix = [row[:] for row in equations]
         rank = 0
@@ -15192,7 +15504,7 @@ class MainWindow(QMainWindow):
             registry = standalone_topology_registry(
                 self.document, source, shape
             )
-            source_results[source_id] = BodyResult.from_mesh(
+            source_result = BodyResult.from_mesh(
                 mesh,
                 face_reference_ids={
                     (source_id, face_index): reference.serialize()
@@ -15201,6 +15513,9 @@ class MainWindow(QMainWindow):
                         face_index
                     )) is not None
                 },
+            )
+            source_results[source_id] = with_occt_analytic_surfaces(
+                source_result, shape, source_id
             )
             return source_results[source_id]
         changed = False
@@ -16147,9 +16462,11 @@ class MainWindow(QMainWindow):
             show_auxiliary, rotation, parameters, solution, operation,
         )
         dialog.adopt_created_entity(obj, solid)
-        self._populate_tree()
-        self._select_tree_object_without_reference_event(obj.entity_id)
-        self.rebuild_view(fit=False)
+        # The create signal is emitted synchronously by OK. Defer the only
+        # history calculation and tree refresh to the shared dialog-finished
+        # commit boundary; drawing an intermediate frame here used to expose
+        # the standalone cyan wire before the final Body was regenerated.
+        self.selected_object_id = obj.entity_id
 
     def _apply_new_experimental_container(
         self,
@@ -17976,6 +18293,11 @@ class MainWindow(QMainWindow):
         icon_name = TREE_ICON_NAMES.get(obj.kind)
         if obj.kind == EntityKind.CONTAINER:
             icon_name = {
+                ContainerType.COMPONENT: (
+                    "assembly"
+                    if self._component_source_is_assembly(obj)
+                    else "part"
+                ),
                 ContainerType.POINT: "point",
                 ContainerType.AXIS: "axis",
                 ContainerType.PLANE: "plane",
@@ -18846,6 +19168,19 @@ class MainWindow(QMainWindow):
                 0,
                 lambda expected=self.document, sketch_id=sketch.entity_id:
                 self._enter_template_sketch_if_active(expected, sketch_id),
+            )
+        elif (
+            not is_drawing
+            and document_type in ("part", "assembly")
+            and not self.document.history_objects()
+        ):
+            # A new empty modeling document has no cached body packet, but it
+            # still needs its reference-only scene so the document Origin is
+            # visible immediately.  With no history objects this cannot
+            # trigger a body calculation.
+            self.rebuild_view(
+                fit=saved_camera is None,
+                rebuild_geometry=False,
             )
         elif not is_drawing and self.document.regeneration_required:
             # Tab activation is never a body-calculation request. Preserve the
@@ -21780,6 +22115,11 @@ class MainWindow(QMainWindow):
         icon_name = TREE_ICON_NAMES.get(obj.kind)
         if obj.kind == EntityKind.CONTAINER:
             icon_name = {
+                ContainerType.COMPONENT: (
+                    "assembly"
+                    if self._component_source_is_assembly(obj)
+                    else "part"
+                ),
                 ContainerType.POINT: "point",
                 ContainerType.AXIS: "axis",
                 ContainerType.PLANE: "plane",
@@ -26248,9 +26588,9 @@ class MainWindow(QMainWindow):
             )
             if (
                 descriptor is None
-                or descriptor.kind != "plane"
-                or descriptor.origin is None
-                or descriptor.normal is None
+                or descriptor.kind not in {
+                    "plane", "cylinder", "sphere", "cone",
+                }
                 or reference is None
             ):
                 self.statusBar().showMessage(
@@ -26260,13 +26600,68 @@ class MainWindow(QMainWindow):
             value = {
                 "kind": "face",
                 "reference": reference.to_dict(),
+                "surface_kind": descriptor.kind,
                 "label": (
                     f"{owner.name if owner is not None else owner_id} / "
                     f"{tr('selection.face')} {element_index}"
                 ),
-                "fallback_origin": list(descriptor.origin),
-                "fallback_normal": list(descriptor.normal),
             }
+            if descriptor.kind == "plane":
+                if descriptor.origin is None or descriptor.normal is None:
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                value.update({
+                    "fallback_origin": list(descriptor.origin),
+                    "fallback_normal": list(descriptor.normal),
+                })
+            elif descriptor.kind == "cylinder":
+                if (
+                    descriptor.origin is None
+                    or descriptor.axis is None
+                    or descriptor.radius is None
+                    or descriptor.radius <= 0.0
+                ):
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                value.update({
+                    "fallback_axis_origin": list(descriptor.origin),
+                    "fallback_axis_direction": list(descriptor.axis),
+                    "fallback_radius": float(descriptor.radius),
+                })
+            elif descriptor.kind == "sphere":
+                if (
+                    descriptor.origin is None
+                    or descriptor.radius is None
+                    or descriptor.radius <= 0.0
+                ):
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                value.update({
+                    "fallback_center": list(descriptor.origin),
+                    "fallback_radius": float(descriptor.radius),
+                })
+            else:
+                if (
+                    descriptor.origin is None
+                    or descriptor.axis is None
+                    or descriptor.semi_angle is None
+                    or not 0.0 < abs(descriptor.semi_angle) < math.pi / 2.0
+                ):
+                    self.statusBar().showMessage(
+                        tr("protrusion.end.reference_unavailable"), 5000
+                    )
+                    return True
+                value.update({
+                    "fallback_apex": list(descriptor.origin),
+                    "fallback_axis_direction": list(descriptor.axis),
+                    "fallback_semi_angle": float(descriptor.semi_angle),
+                })
         elif kind == "point":
             descriptor = result.vertex(owner_id, element_index)
             reference = (
@@ -28561,7 +28956,6 @@ class MainWindow(QMainWindow):
             operation_target = self._operation_target(obj)
             if (
                 operation_target is not None
-                and operation_target.kind not in SOLID_KINDS
                 and self.document is not None
                 and self.document.document_settings.get("type") != "assembly"
             ):
@@ -28714,9 +29108,9 @@ class MainWindow(QMainWindow):
                 target.combine_mode = (
                     CombineMode.ADD if action == add_action else CombineMode.SUBTRACT
                 )
-                self._populate_tree()
-                self._select_tree_object(obj.entity_id)
-                self.rebuild_view(fit=False)
+                self._mark_model_for_regeneration()
+                self.selected_object_id = obj.entity_id
+                self.regenerate_model()
 
     def _cycle_sketch_reference_candidate(
         self,
@@ -31049,7 +31443,6 @@ class MainWindow(QMainWindow):
             return
         dialog = ContainerSummaryDialog(obj, self.document, self)
         self.container_summary_dialog = dialog
-        dialog.applied.connect(lambda: self._refresh_object_properties(obj))
         self._begin_definition_edit(obj)
 
         def finished(result: int) -> None:
@@ -32645,12 +33038,12 @@ class MainWindow(QMainWindow):
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
-            lambda: self.rebuild_view(fit=False, rebuild_geometry=False)
+            lambda: self._preview_solid_dialog(dialog)
         )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
         self._show_properties_dialog(dialog)
-        self.rebuild_view(fit=False, rebuild_geometry=False)
+        self._preview_solid_dialog(dialog)
 
     def _edit_sketch_object(
         self,
@@ -36099,7 +36492,6 @@ class MainWindow(QMainWindow):
                     "text_color": self._sketch_text_color,
                     "text_font": self._sketch_text_font,
                 })
-                dialog.applyRequested.connect(self._apply_sketch_text_dialog)
                 dialog.previewChanged.connect(self._preview_sketch_text_dialog)
                 dialog.accepted.connect(self._accept_sketch_text_dialog)
                 dialog.rejected.connect(self._cancel_sketch_text_dialog)
@@ -36220,7 +36612,7 @@ class MainWindow(QMainWindow):
         ) = self._sketch_text_dialog.values()
         return bool(self._sketch_text_value)
 
-    def _apply_sketch_text_dialog(self) -> None:
+    def _commit_sketch_text_dialog_values(self) -> None:
         if not self._read_sketch_text_dialog():
             return
         if self._sketch_text_edit_group is not None:
@@ -36271,7 +36663,7 @@ class MainWindow(QMainWindow):
 
     def _accept_sketch_text_dialog(self) -> None:
         was_editing = self._sketch_text_edit_group is not None
-        self._apply_sketch_text_dialog()
+        self._commit_sketch_text_dialog_values()
         self._sketch_text_edit_group = None
         self._sketch_text_edit_baseline = None
         self._sketch_text_waiting_confirmation = False
@@ -38536,7 +38928,7 @@ class MainWindow(QMainWindow):
             return
         if self._sketch_tool == "text":
             if self._sketch_text_edit_group is not None:
-                self._apply_sketch_text_dialog()
+                self._commit_sketch_text_dialog_values()
                 self._sketch_pending_points.clear()
             else:
                 self._commit_pending_sketch_text()
@@ -48476,7 +48868,7 @@ class MainWindow(QMainWindow):
     ) -> CoordinateSystem | None:
         """Return the live coordinate system for an uncommitted container."""
         dialog = self.point_constraint_dialog
-        if dialog is None or dialog.point_object is not None:
+        if dialog is None:
             return None
         solution = dialog.solution or tuple(
             float(edit.value()) for edit in dialog.coordinate_edits
@@ -49659,7 +50051,6 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, refresh_sketch_dimension)
             dialog.deleteLater()
 
-        dialog.applied.connect(apply_style)
         dialog.accepted.connect(accept_style)
         dialog.finished.connect(finish_dialog)
         dialog.show()
@@ -51745,7 +52136,7 @@ class MainWindow(QMainWindow):
             source_registry = standalone_topology_registry(
                 self.document, obj, source_shape
             )
-            source_bodies[obj.entity_id] = BodyResult.from_mesh(
+            source_result = BodyResult.from_mesh(
                 source_mesh,
                 face_reference_ids={
                     (obj.entity_id, face_index): reference.serialize()
@@ -51769,6 +52160,9 @@ class MainWindow(QMainWindow):
                         point.point_index
                     )) is not None
                 },
+            )
+            source_bodies[obj.entity_id] = with_occt_analytic_surfaces(
+                source_result, source_shape, obj.entity_id
             )
         QApplication.processEvents()
         invalid_features = [
@@ -52079,6 +52473,20 @@ class MainWindow(QMainWindow):
             # click to recalculate the Assembly and intermittently lose cuts.
             cached_body_mesh = previous_scene.body_mesh
         definition_origin_visible = self._definition_origin_is_visible()
+        definition_dialog = self.point_constraint_dialog
+        source_origin_needed_for_definition = (
+            definition_origin_visible
+            and definition_dialog is not None
+            and not definition_dialog.references
+        )
+        # An empty modeling document has no geometry to orient the user in the
+        # view.  Keep its own Origin visible from creation, without changing
+        # the global visibility actions or exposing component origins.
+        empty_document_origin_visible = (
+            display_document.document_settings.get("type", "part")
+            in ("part", "assembly")
+            and not display_document.history_objects()
+        )
         active_instance_result = (
             editing_document.cached_body_result_at(
                 editing_document.history_objects_at(
@@ -52223,11 +52631,16 @@ class MainWindow(QMainWindow):
             # Standalone datum points and axes belong to their own toggles.
             show_document_origin=(
                 self.show_origins_action.isChecked()
-                or definition_origin_visible
+                or source_origin_needed_for_definition
+                or (
+                    empty_document_origin_visible
+                    and definition_dialog is None
+                )
             ),
             show_document_planes=(
                 self.show_planes_action.isChecked()
                 or definition_origin_visible
+                or empty_document_origin_visible
             ),
             show_object_planes=(
                 self.show_planes_action.isChecked()
@@ -52270,8 +52683,6 @@ class MainWindow(QMainWindow):
             ),
             preview_coordinate_system=(
                 self._definition_preview_coordinate_system()
-                if editing_object is None
-                else None
             ),
             preview_origin_label=(
                 self.point_constraint_dialog.name_edit.text().strip()

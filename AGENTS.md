@@ -16,13 +16,13 @@
 - Creation and later editing of the same feature must use one dialog class and
   one interaction contract. Do not maintain separate "create" and "edit"
   property windows; inject only the operation callbacks and initial values.
-- Feature dialogs that support staged calculation always expose the same
-  `OK`, `Apply`, `Cancel` controls. `Apply` validates/calculates and keeps the
-  dialog open, `OK` performs the same validation/calculation and then closes,
-  and `Cancel` discards changes made since the last successful Apply.
-- A short middle-button click invokes Apply and a middle-button double-click
-  invokes OK even while the pointer is over the 3D view. Middle-button drag is
-  reserved for view navigation and must not confirm a dialog.
+- Property and feature dialogs expose only `OK` and `Cancel`; do not add or
+  retain an `Apply` action or an intermediate Apply transaction. `OK`
+  validates, calculates, commits, and closes. `Cancel` closes without
+  committing the pending dialog changes.
+- A middle-button double-click invokes OK even while the pointer is over the
+  3D view. A short middle-button click does not commit a dialog. Middle-button
+  drag is reserved for view navigation and must not confirm a dialog.
 
 ## History container editing
 
@@ -31,15 +31,12 @@
   at the boundary immediately before that container. The edited container
   remains visible in the tree as the active green item; downstream containers
   are suppressed only for the edit session.
-- Apply may update the edited feature and its preview, but must not create a
-  duplicate history container. OK is Apply plus ending the edit session.
-- Creation previews must likewise remain transient: repeated Apply operations
-  recalculate from the unchanged input body and only OK inserts the new history
-  container.
+- Pending edits and creation previews remain transient. Only OK updates or
+  inserts the history container; Cancel restores the unchanged input/history.
 - During rollback the 3D view shows the real input geometry before the edited
   container, never the cached final body. Picking resolves against this input.
-  Apply may replace it with a transient preview; OK or Cancel restores normal
-  full-history display, selection mode, and highlights.
+  A transient preview may replace it while the dialog is open; OK or Cancel
+  restores normal full-history display, selection mode, and highlights.
 
 ## Explicit dependency regeneration
 

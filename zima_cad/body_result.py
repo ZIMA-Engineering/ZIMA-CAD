@@ -34,6 +34,7 @@ class SurfaceDescriptor:
     normal: Point3 | None = None
     axis: Point3 | None = None
     radius: float | None = None
+    semi_angle: float | None = None
     boundary_edge_ids: tuple[str, ...] = ()
 
 
@@ -236,6 +237,10 @@ class BodyResult:
                 normal=point3(item.get("normal")),
                 axis=point3(item.get("axis")),
                 radius=(float(item["radius"]) if item.get("radius") is not None else None),
+                semi_angle=(
+                    float(item["semi_angle"])
+                    if item.get("semi_angle") is not None else None
+                ),
                 boundary_edge_ids=tuple(str(edge) for edge in item.get("boundary_edge_ids", ())),
             )
             for key, item in value.get("faces", {}).items()

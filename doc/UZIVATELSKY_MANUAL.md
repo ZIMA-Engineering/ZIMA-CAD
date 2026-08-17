@@ -253,21 +253,30 @@ nastavením solidu.
 ### Rozsah vysunutí Až k ploše
 
 Protrusion podporuje číselnou délku, **Až k ploše** a pro odečítání také
-**Skrz vše**. Současná implementace **Až k ploše** přijímá rovinnou plochu nebo
-datumovou rovinu. Směr vysunutí zůstává kolmý ke skicové rovině; cílová rovina
-mění délku jednotlivých přímek profilu, takže při šikmém zásahu vznikne šikmá
-koncová plocha.
+**Skrz vše**. **Až k ploše** přijímá rovinnou plochu, datumovou rovinu,
+válcovou, kulovou nebo kuželovou plochu. Směr vysunutí zůstává kolmý ke
+skicové rovině. U zakřiveného cíle musí každý vzorkovaný paprsek profilu mít
+jednoznačný první kladný průsečík; smíšené, chybějící nebo nejednoznačné
+zásahy se odmítnou.
 
 Azurový drátový náhled se počítá pouze z persistovaných bodů a vzorkovaných
-křivek skici a z uložené rovnice cílové roviny. Otevření Vlastností, změna
-parametru ani výběr reference proto nespouští OCCT. Při **Použít**, **OK** nebo
-explicitní regeneraci vytvoří OCCT dlouhé vysunutí a ořízne je čistou
-nekonečnou podpůrnou rovinou odvozenou z vybrané plochy. Hranice konečné
-vybrané plochy se jako hranice ořezu nepoužívají.
+křivek skici a z uloženého analytického popisu cílové plochy. Otevření
+Vlastností, změna parametru ani výběr reference proto nespouští OCCT. Náhled i
+výpočet tělesa používají společný řešič průsečíků pro rovinu, kouli, válec a
+kužel, takže musí zvolit stejnou větev a stejné koncové body.
 
-Zakřivené cíle zatím podporované nejsou. Plánované pořadí rozšíření je
-válcová plocha, kulová plocha, případně kuželová plocha a teprve potom obecné
-NURBS/B-spline plochy. Pokud jediná přímka vedená bodem profilu ve směru
+Při **Použít**, **OK** nebo explicitní regeneraci vytvoří OCCT vysunutí s
+potřebným přesahem a ořízne je objemem odpovídajícím uložené analytické ploše.
+U roviny se používá čistá nekonečná podpůrná rovina odvozená z vybrané plochy;
+hranice konečné vybrané plochy se jako hranice ořezu nepoužívají.
+
+Operace se neprovede, pokud je směr vysunutí rovnoběžný s cílem, některá část
+profilu cílovou plochu mine, profil cílovou plochu kříží nebo cílovou referenci
+nelze vyřešit. Kontejner v takovém případě zůstane označený jako chybný místo
+vytvoření zdánlivě platného tělesa s jiným koncem.
+
+Další případné zakřivené cíle jsou obecné NURBS/B-spline plochy. Pokud jediná
+přímka vedená bodem profilu ve směru
 vysunutí cíl neprotne, operace musí být odmítnuta; nesmí část profilu libovolně
 prodloužit nebo použít jiný průsečík bez jednoznačného pravidla.
 

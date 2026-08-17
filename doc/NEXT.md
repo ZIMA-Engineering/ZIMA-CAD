@@ -8,6 +8,34 @@
 - Add repeatable timing/regression benchmarks for document open/save, history
   evaluation, Fillet creation/editing, Sketcher entry/finish, dimension editing,
   topology naming, triangulation, silhouette generation and GPU scene upload.
+- Use the designer's natural inspection time as an explicit background-work
+  opportunity. While the user is rotating, zooming or studying an unchanged
+  model, low-priority workers may prepare likely next-use data such as history-
+  boundary caches, viewer meshes from already calculated/persisted geometry,
+  spatial picking indexes and Sketcher inference candidates. Interactive input
+  always has priority; background work must be bounded, preemptible and
+  coalesced to the newest request rather than building a stale queue. Workers
+  consume immutable document/view snapshots and publish an atomic result only
+  when its document revision and interaction context are still current.
+  Speculation must never mutate the live document, commit commands, or invoke
+  hidden OCCT body calculations: OCCT remains limited to an explicitly
+  requested OK/regeneration, which may itself continue in a background worker
+  and atomically replace the last valid displayed result when complete. Add
+  scheduling telemetry and tests proving that navigation/input latency wins
+  over background throughput and stale results are discarded.
+- Eliminate no-op and duplicate regeneration when closing Properties for every
+  editable history container. The primitive-solid path is the first confirmed
+  case: pressing OK without changing a Box, Sphere, Cylinder, Cone, Pyramid or
+  Wedge writes the identical definition and runs `regenerate_model()` from
+  `_update_solid_object()`, then the shared dialog-finished handler runs a
+  second full regeneration. Give all container editors one shared comparison
+  of their persisted geometry-affecting definition before and after the
+  dialog. Unchanged OK must only leave rollback/edit presentation and restore
+  the cached full-history view; changed OK must commit atomically and perform
+  exactly one regeneration, invalidating from the earliest affected history
+  boundary rather than the whole Part where possible. Benchmark this on long
+  real Parts and add parameterized tests for every container type asserting
+  zero body calculations for unchanged OK and one for changed OK.
 - Extend the implemented per-history-step OCCT Shape cache so invalidation is
   explicit and starts only at the earliest changed feature. Preserve cached
   prefix shapes and topology registries across late-feature edits and Undo/Redo.
@@ -298,12 +326,17 @@
   An inclined supporting plane produces an inclined terminal face; calculation
   clips with a clean infinite plane derived from persisted origin/normal,
   never with the bounded trimming wires of the selected face.
-- **Next:** support cylindrical Up-to targets. Intersect every persisted
-  profile-sample ray analytically with the cylinder for the ViewerMesh preview;
-  at Apply/OK/regeneration use OCCT to clip the solid with the corresponding
-  cylindrical volume.
-- **Then:** support spherical targets by the same contract, followed where
-  useful by cones. General NURBS/B-spline targets remain a later stage.
+- **Implemented:** cylindrical Up-to targets persist the selected analytic
+  cylinder, validate sampled profile rays against its first positive
+  intersection, reject mixed/missing/ambiguous hits, and at OK/regeneration
+  clip the extrusion with the corresponding cylindrical volume.
+- **Implemented:** spherical and conical targets use the same persisted
+  analytic/ray-validation contract and OCCT volume clipping as cylinders.
+  General NURBS/B-spline targets remain a later stage.
+- **Implemented:** plane, sphere, cylinder and cone intersections are evaluated
+  by one shared analytic solver used by both the cyan wire preview and body
+  calculation. Invalid targets distinguish unresolved reference, parallel
+  direction, missing profile coverage and a profile crossing the target.
 - For cylinders and spheres choose the first positive intersection in the
   requested direction and persist the selected inside/outside side. Reject the
   operation if any required profile ray misses the target or is ambiguous.
@@ -316,8 +349,30 @@
   payload, offset, direction and last valid calculated length. Flip exchanges
   those side definitions where appropriate; symmetric mode keeps stable
   Start/End identities.
-- If a target disappears, mandatory own-value fallback keeps the last valid
-  length while marking the target unresolved and repairable.
+- Model each Up-to target as a collection from the beginning, even while the
+  first implementation limits the collection to one selected face. Keep the
+  compact target row in Properties; replace its trailing delete-only control
+  with a collection button that opens a small shared internal SubWindow listing
+  every selected target face, its state and removal/replacement controls. A
+  later **Up to face set/envelope** mode can then allow different profile rays
+  to terminate on the nearest valid positive intersection across several
+  planes, cylinders, spheres or cones without changing serialization or the
+  dialog contract.
+- Persist the branch/side decision and one frozen analytic fallback descriptor
+  for every successfully resolved target: plane origin/normal, cylinder
+  axis/radius/range, sphere centre/radius or cone axis/apex/angle, expressed in
+  a stable owner frame. If a reference disappears, keep the Up-to intent and
+  visibly broken reference, calculate against that frozen target where it
+  still produces a valid closed solid, and automatically resume only when the
+  same stable reference returns. A single last-valid length is sufficient only
+  for a plane perpendicular to the extrusion direction; otherwise preserve
+  the last valid calculated feature body as the final fallback rather than
+  flattening an inclined or curved terminal face.
+- For a target collection, every required profile ray must have one continuous
+  nearest valid branch across the envelope. Missing coverage, tangency
+  ambiguity, discontinuous branch switching or an invalid/open result keeps
+  the last valid feature body and reports the collection as repairable instead
+  of silently choosing a distant intersection or another similar face.
 
 ## Pattern and Mirror
 

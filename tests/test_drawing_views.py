@@ -22,6 +22,7 @@ from zima_cad.app import (
     ContainerSummaryDialog,
     DocumentTextInputDialog,
     EdgeTreatmentPropertiesDialog,
+    EndTargetCollectionDialog,
     FamilyTableDialog,
     FileSettingsDialog,
     MainWindow,
@@ -35,6 +36,7 @@ from zima_cad.app import (
     SKETCH_ENTITY_SELECTION_TOOLS,
     ViewSelectionMode,
     canonical_document_path,
+    resource_icon,
     tangent_edge_route,
 )
 from zima_cad.viewer import ExtentHandle
@@ -842,6 +844,30 @@ class DrawingViewConventionTests(unittest.TestCase):
         dialog.close()
         self.assertIsNotNone(application)
 
+    def test_reference_removal_survives_reentrant_picker_change(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = PointConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            suggested_name="Test",
+        )
+        dialog._add_reference({
+            "type": "point",
+            "key": "point-1",
+            "label": "Point 1",
+            "equations": [],
+        })
+        dialog._activate_position_reference_selection = (
+            lambda: dialog.references.pop(0)
+        )
+
+        dialog._remove_reference_at(0)
+
+        self.assertEqual(dialog.references, [])
+        dialog.close()
+        self.assertIsNotNone(application)
+
     def test_placement_table_keeps_next_target_until_three_references(self):
         application = QApplication.instance() or QApplication([])
         dialog = PointConstraintDialog(
@@ -1030,6 +1056,55 @@ class DrawingViewConventionTests(unittest.TestCase):
         dialog.clear_end_reference("forward")
         self.assertEqual(dialog.forward_end_reference_edit.text(), "")
         self.assertTrue(dialog.end_reference_pick_active())
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_up_to_target_collection_is_atomic_and_internal(self):
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        original = [{"kind": "face", "label": "Face 1"}]
+        accepted = []
+        dialog = EndTargetCollectionDialog(original, parent)
+        dialog.targetsAccepted.connect(accepted.append)
+
+        dialog._remove_target(dialog._targets[0])
+        dialog.reject()
+        self.assertEqual(accepted, [])
+        self.assertEqual(original, [{"kind": "face", "label": "Face 1"}])
+
+        dialog = EndTargetCollectionDialog(original, parent)
+        dialog.targetsAccepted.connect(accepted.append)
+        dialog._remove_target(dialog._targets[0])
+        dialog.accept()
+
+        self.assertTrue(dialog.windowFlags() & Qt.WindowType.SubWindow)
+        self.assertEqual(accepted, [[]])
+        dialog.deleteLater()
+        parent.deleteLater()
+        application.processEvents()
+
+    def test_protrusion_persists_up_to_target_as_collection(self):
+        application = QApplication.instance() or QApplication([])
+        dialog = ProtrusionConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            [],
+        )
+        dialog.forward_end_condition_combo.setCurrentIndex(
+            dialog.forward_end_condition_combo.findData("up_to")
+        )
+        dialog._set_end_reference_pick_active("forward", True)
+        self.assertTrue(dialog.select_end_reference({
+            "kind": "face", "label": "Face 1",
+        }))
+
+        definition = dialog.protrusion_end_definition()
+
+        self.assertEqual(definition["end_targets_forward"], [{
+            "kind": "face", "label": "Face 1",
+        }])
+        self.assertNotIn("end_reference_forward", definition)
         dialog.close()
         self.assertIsNotNone(application)
 
@@ -1496,6 +1571,40 @@ class DrawingViewConventionTests(unittest.TestCase):
 
         self.assertFalse(MainWindow._component_source_is_assembly(part))
         self.assertTrue(MainWindow._component_source_is_assembly(subassembly))
+
+    def test_assembly_tree_distinguishes_part_and_subassembly_icons(self):
+        application = QApplication.instance() or QApplication([])
+        window = MainWindow.__new__(MainWindow)
+        window._active_component_entity_id = None
+        assembly = create_empty_assembly()
+        part = assembly.create_container("Part", ContainerType.COMPONENT)
+        part.parameters.update({
+            "source_path": "part.prtz",
+            "source_document_type": "part",
+        })
+        subassembly = assembly.create_container(
+            "Subassembly", ContainerType.COMPONENT
+        )
+        subassembly.parameters.update({
+            "source_path": "subassembly.asmz",
+            "source_document_type": "assembly",
+        })
+
+        part_item = window._create_referenced_part_tree_item(
+            part, "root", source_document=assembly
+        )
+        subassembly_item = window._create_referenced_part_tree_item(
+            subassembly, "root", source_document=assembly
+        )
+
+        self.assertEqual(
+            part_item.icon(0).cacheKey(), resource_icon("part").cacheKey()
+        )
+        self.assertEqual(
+            subassembly_item.icon(0).cacheKey(),
+            resource_icon("assembly").cacheKey(),
+        )
+        self.assertIsNotNone(application)
 
     def test_active_subassembly_exposes_only_assembly_application(self):
         window = MainWindow.__new__(MainWindow)
@@ -2671,6 +2780,50 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(solution, (0.0, 0.0, 0.0))
         self.assertEqual(dof, 0)
 
+    def test_point_anchor_and_offset_plane_resolve_without_conflict(self):
+        document = create_empty_part()
+        origin = next(
+            child for child in document.root.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        point = next(
+            child for child in origin.children
+            if child.kind == EntityKind.POINT
+        )
+        xz_plane = next(
+            child for child in origin.children
+            if child.kind == EntityKind.PLANE
+            and child.parameters.get("plane") == "xz"
+        )
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+
+        solution, dof, _status, _constrained = (
+            window._solve_point_constraints([
+                {"type": "entity", "entity_id": xz_plane.entity_id,
+                 "offset": 29.0},
+                {"type": "entity", "entity_id": point.entity_id},
+            ])
+        )
+
+        self.assertEqual(solution, (0.0, 29.0, 0.0))
+        self.assertEqual(dof, 0)
+
+        vertex_solution, vertex_dof, _status, _constrained = (
+            window._solve_point_constraints([
+                {"type": "entity", "entity_id": xz_plane.entity_id,
+                 "offset": 29.0},
+                {"type": "vertex", "equations": [
+                    [1.0, 0.0, 0.0, 4.0],
+                    [0.0, 1.0, 0.0, 5.0],
+                    [0.0, 0.0, 1.0, 6.0],
+                ]},
+            ])
+        )
+
+        self.assertEqual(vertex_solution, (4.0, 29.0, 6.0))
+        self.assertEqual(vertex_dof, 0)
+
     def test_stored_shape_equations_can_be_used_without_live_resolution(self):
         class ConstraintHarness:
             document = None
@@ -3568,7 +3721,10 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertIn(SelectionKind.EDGE, placement_policy.allowed_kinds)
         self.assertIn(SelectionKind.AXIS, placement_policy.allowed_kinds)
 
-        dialog._set_end_reference_pick_active("forward", True)
+        dialog.forward_end_condition_combo.setCurrentIndex(
+            dialog.forward_end_condition_combo.findData("up_to")
+        )
+        self.assertTrue(dialog.end_reference_pick_active())
         up_to_policy = window._viewer_selection_policy()
         self.assertEqual(
             up_to_policy.allowed_kinds,
