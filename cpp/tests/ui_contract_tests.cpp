@@ -1,4 +1,5 @@
 #include "primitive_properties_dialog.hpp"
+#include "component_properties_dialog.hpp"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -120,6 +121,31 @@ int main(int argc, char* argv[]) {
                     committed_cylinder.cylinder.radius == 17.0 &&
                     committed_cylinder.cylinder.height == 63.0,
                 "Cylinder Properties did not commit exact parameters");
+
+        zima::kernel::BodyResult component_body;
+        auto component = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Komponenta", "source-part", "source.zcp.json", component_body);
+        const std::string source_id = component.source_document_id;
+        int component_commits = 0;
+        zima::assembly::PartOccurrence committed_component;
+        auto* component_dialog = new zima::app::ComponentPropertiesDialog(
+            component,
+            [&](zima::assembly::PartOccurrence value) {
+                ++component_commits;
+                committed_component = std::move(value);
+            }, &parent);
+        component_dialog->show();
+        application.processEvents();
+        const auto component_translations =
+            component_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
+        require(component_translations.size() == 3,
+                "Component Properties does not expose Assembly-owned placement");
+        component_translations.front()->setValue(88.0);
+        component_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(component_commits == 1 && committed_component.placement.x == 88.0 &&
+                    committed_component.source_document_id == source_id,
+                "Component Properties changed source ownership or lost placement");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

@@ -113,6 +113,17 @@ void MeshView::confirm_container(const std::string& owner_id) {
     update();
 }
 
+void MeshView::confirm_occurrence(const std::string& instance_path) {
+    auto candidate = occurrence_candidate(impl_->mesh, instance_path);
+    if (!candidate) {
+        clear_selection();
+        return;
+    }
+    impl_->confirmed_candidate = std::move(candidate);
+    impl_->candidates.clear();
+    update();
+}
+
 void MeshView::clear_selection() {
     impl_->confirmed_candidate.reset();
     impl_->candidates.clear();
@@ -280,7 +291,8 @@ void MeshView::paintGL() {
         highlighted = impl_->candidates[impl_->active_candidate];
         highlight_color = QVector4D(1.0F, 0.55F, 0.05F, 1.0F);
     }
-    if (highlighted && (highlighted->kind == CandidateKind::Container ||
+    if (highlighted && (highlighted->kind == CandidateKind::Occurrence ||
+                        highlighted->kind == CandidateKind::Container ||
                         highlighted->kind == CandidateKind::Face)) {
         glDisable(GL_DEPTH_TEST);
         impl_->program.setUniformValue("color", highlight_color);
@@ -288,7 +300,9 @@ void MeshView::paintGL() {
         for (std::size_t triangle = 0;
              triangle < impl_->mesh.triangle_references.size(); ++triangle) {
             const auto& reference = impl_->mesh.triangle_references[triangle];
-            const bool matches = highlighted->kind == CandidateKind::Container
+            const bool matches = highlighted->kind == CandidateKind::Occurrence
+                ? reference.instance_path == highlighted->instance_path
+                : highlighted->kind == CandidateKind::Container
                 ? reference.owner_id == highlighted->owner_id
                 : reference.owner_id == highlighted->owner_id &&
                     reference.semantic_key == highlighted->semantic_key;

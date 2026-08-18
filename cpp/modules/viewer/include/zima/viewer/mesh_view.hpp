@@ -24,6 +24,7 @@ public:
     void fit_all();
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     void confirm_container(const std::string& owner_id);
+    void confirm_occurrence(const std::string& instance_path);
     void clear_selection();
     void set_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);

@@ -168,6 +168,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     std::vector<ViewerCandidate> result;
     const auto faces = ordered_ray_candidates(mesh, ray_origin, ray_direction);
     for (const auto& face : faces) {
+        if (!face.reference.instance_path.empty() &&
+            std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
+                return item.kind == CandidateKind::Occurrence &&
+                    item.instance_path == face.reference.instance_path;
+            })) {
+            result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
+                              {}, {}, face.reference.instance_path});
+        }
         result.push_back({CandidateKind::Face, face.distance, face.triangle,
                           face.reference.owner_id, face.reference.semantic_key,
                           face.reference.instance_path});
@@ -199,6 +207,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::Edge: return 1;
         case CandidateKind::Face: return 2;
         case CandidateKind::Container: return 3;
+        case CandidateKind::Occurrence: return 4;
         }
         return 4;
     };
@@ -209,6 +218,22 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         return priority(left.kind) < priority(right.kind);
     });
     return result;
+}
+
+std::optional<ViewerCandidate> occurrence_candidate(
+    const zima::kernel::ViewerMesh& mesh, const std::string& instance_path) {
+    if (instance_path.empty()) return std::nullopt;
+    const auto triangle = std::find_if(
+        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+        [&](const zima::kernel::FaceReference& reference) {
+            return reference.valid() && reference.instance_path == instance_path;
+        });
+    if (triangle == mesh.triangle_references.end()) return std::nullopt;
+    return ViewerCandidate{
+        CandidateKind::Occurrence, 0.0,
+        static_cast<std::size_t>(std::distance(
+            mesh.triangle_references.begin(), triangle)),
+        {}, {}, instance_path};
 }
 
 std::vector<ViewerCandidate> filter_candidates(

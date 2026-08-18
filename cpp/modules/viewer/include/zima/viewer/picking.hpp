@@ -29,7 +29,7 @@ struct VertexPickCandidate {
     zima::kernel::VertexReference reference;
 };
 
-enum class CandidateKind { Container, Face, Edge, Vertex };
+enum class CandidateKind { Occurrence, Container, Face, Edge, Vertex };
 
 struct ViewerCandidate {
     CandidateKind kind{CandidateKind::Container};
@@ -75,5 +75,7 @@ struct ViewerCandidate {
 [[nodiscard]] std::optional<ViewerCandidate> container_candidate(
     const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,
     const std::string& instance_path = {});
+[[nodiscard]] std::optional<ViewerCandidate> occurrence_candidate(
+    const zima::kernel::ViewerMesh& mesh, const std::string& instance_path);
 
 }  // namespace zima::viewer

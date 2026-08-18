@@ -141,6 +141,50 @@ validator. Opening composes the persisted scene without OCCT. A one-way
 dependency graph rejects self-reference and arbitrarily deep indirect cycles
 before an insertion mutates the document.
 
+`Workspace` owns multiple open Part/Assembly documents and keeps writable
+activation separate from the displayed top-level document. Each Assembly has
+revisioned `AssemblySession` state. Part edits do not implicitly update parent
+Assemblies; insertion and Regenerate explicitly consume authoritative
+in-memory calculated Part results, including unsaved ones.
+
+The `zima-cad-workspace-cpp` migration target provides the first Assembly GUI:
+document tabs, new/open/save Assembly, open Part, insert active Part, explicit
+Regenerate, occurrence tree, leaf occurrence picking, and Assembly-owned
+component Properties. It remains a separate executable until its Workspace
+shell is merged with the already verified Part modeling commands.
+
+The Workspace target now also owns the verified Part commands: new/open Part,
+Box, Cylinder, shared Properties, explicit Part Regenerate, Save, and
+revisioned Undo/Redo. Editing an active Part while an Assembly remains
+displayed does not mutate the parent snapshot; only explicit Assembly
+Regenerate pulls the new in-memory result. The older Part-only executable is
+retained temporarily as a behavioural comparison target.
+
+Part rollback also works inside a still-displayed Assembly. The Workspace
+requires an exact occurrence context and never guesses among repeated sources.
+Only that occurrence is transiently replaced by the persisted boundary packet
+before the edited container; other occurrences and the complete Assembly stay
+visible as passive context. The first operation correctly contributes an empty
+input.
+
+Assembly occurrences persist suppression and visibility as separate states.
+Suppression removes a component from the active Assembly scene; visibility is
+display-only. Neither deletes source packets, placement, or occurrence
+identity. The shared tree/viewer context menu exposes Properties, Hide/Show,
+and Suppress/Restore. Dependencies are never guessed from geometry.
+
+Assembly files now persist that explicit directed graph for placement and
+external-sketch references. Manual suppression propagates only to transitive
+dependants; visibility never propagates. Restoring a prerequisite restores
+dependency-suppressed components while preserving their own manual
+suppression. Cyclic edges are rejected.
+
+An occurrence may also source an Assembly snapshot. Scene composition prefixes
+the parent occurrence segment to existing leaf instance paths instead of
+flattening or replacing them, while placement remains owned by the immediate
+parent. Explicit top-level Regenerate recursively consumes open in-memory
+subassemblies and Parts. Insertion rejects direct and indirect document cycles.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.
@@ -165,6 +209,7 @@ cmake --preset linux-runtime-debug
 cmake --build --preset linux-debug
 ctest --preset linux-debug
 ../build/cpp-debug/zima-cad-cpp
+../build/cpp-debug/zima-cad-workspace-cpp
 ```
 
 CMake and Ninja are build prerequisites. They are deliberately not embedded

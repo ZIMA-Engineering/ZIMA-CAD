@@ -29,11 +29,16 @@ target_link_libraries(zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_assembly
-    modules/assembly/src/assembly_document.cpp)
+    modules/assembly/src/assembly_document.cpp
+    modules/assembly/src/assembly_session.cpp)
 target_include_directories(zima_assembly PUBLIC modules/assembly/include)
 target_link_libraries(zima_assembly
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
+
+add_library(zima_workspace modules/workspace/src/workspace.cpp)
+target_include_directories(zima_workspace PUBLIC modules/workspace/include)
+target_link_libraries(zima_workspace PUBLIC zima_document_core zima_assembly)
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)
@@ -56,10 +61,19 @@ target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets)
 
 add_executable(zima-cad-cpp
-    app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp)
+    app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp
+    app/component_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_document_core zima_kernel_occt zima_viewer zima_ui
+    Qt6::Core Qt6::Gui Qt6::Widgets)
+
+add_executable(zima-cad-workspace-cpp
+    app/main_workspace.cpp app/assembly_workspace_window.cpp
+    app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp)
+target_include_directories(zima-cad-workspace-cpp PRIVATE app)
+target_link_libraries(zima-cad-workspace-cpp PRIVATE
+    zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
 if(ZIMA_BUILD_TESTS)
@@ -69,10 +83,11 @@ if(ZIMA_BUILD_TESTS)
         zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
-        tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp)
+        tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
+        app/component_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
-        zima_document_core zima_ui Qt6::Widgets)
+        zima_document_core zima_assembly zima_ui Qt6::Widgets)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -83,4 +98,7 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_assembly_contract_tests PRIVATE
         zima_assembly zima_kernel_occt zima_viewer)
     add_test(NAME zima_cpp_assembly_contract_tests COMMAND zima_cpp_assembly_contract_tests)
+    add_executable(zima_cpp_workspace_contract_tests tests/workspace_contract_tests.cpp)
+    target_link_libraries(zima_cpp_workspace_contract_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_workspace_contract_tests COMMAND zima_cpp_workspace_contract_tests)
 endif()

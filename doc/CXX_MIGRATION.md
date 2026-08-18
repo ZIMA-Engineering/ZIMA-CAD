@@ -156,6 +156,58 @@ Otevření sestavy pouze ověří a složí persistovanou scénu; OCCT nespoušt
 Samostatný jednosměrný `DependencyGraph` odmítá self-reference i libovolně
 hluboký nepřímý cyklus ještě před vložením závislosti.
 
+`Workspace` nyní drží více otevřených Part/Assembly dokumentů a explicitně
+odděluje aktivní zapisovatelný dokument od nejvyššího zobrazovaného dokumentu.
+Aktivace zdrojového Partu tedy sama nenahrazuje zobrazenou sestavu. Každá
+sestava má `AssemblySession` s revizemi, Undo/Redo a savepointem. Umístění
+komponenty vytváří modelovou revizi; explicitní převzetí nového vypočteného
+stavu závislosti pouze označí odvozený stav k uložení.
+
+Workspace umí vložit aktuální vypočtený stav otevřeného Partu a explicitně
+regenerovat přímé Part závislosti z autoritativních in-memory dokumentů.
+Obyčejná změna Partu parent Assembly nemění. Nový Assembly Workspace GUI
+prototyp `zima-cad-workspace-cpp` nabízí taby otevřených dokumentů, vytvoření a
+otevření sestavy, otevření Partu, vložení aktivního Partu, uložení, explicitní
+Regenerovat, occurrence strom a leaf Part occurrence picking. Samostatný
+`ComponentPropertiesDialog` mění pouze sestavou vlastněný název a placement;
+zdrojová identita a geometrie zůstávají read-only.
+
+Workspace shell nyní obsahuje také ověřené Part modelovací příkazy: nový a
+otevřený Part, kvádr, válec, společné Properties, explicitní Part Regenerate,
+Save a revizní Undo/Redo. Aktivní Part lze editovat při zachování zobrazeného
+Assembly snapshotu; parent se změní teprve explicitním Assembly Regenerate.
+Tím je funkční obsah původního samostatného Part shellu přenesen do společného
+Workspace směru, přestože starý target zatím zůstává jako porovnávací reference.
+
+Rollback editace aktivního Partu funguje také uvnitř stále zobrazené sestavy.
+Workspace vyžaduje přesný occurrence kontext; u opakovaného zdrojového Partu
+nikdy výskyt nehádá. Pouze tento occurrence je v transientní scéně nahrazen
+persistovaným boundary packetem před editovaným kontejnerem. Ostatní výskyty
+stejného Partu a celá sestava zůstávají jako pasivní kontext. První operace má
+prázdný vstup, aktivní položka je zelená a downstream historie potlačená.
+
+Assembly occurrence nyní odděleně persistuje `suppressed` a `visible`.
+Potlačení vyřazuje komponentu z aktivní sestavové scény, zatímco skrytí je
+čistě zobrazovací stav; ani jedno nemaže zdrojový packet, placement nebo
+occurrence identitu. Společné RMB menu ve stromu i nad potvrzeným viewer
+occurrence nabízí Vlastnosti, Skrýt/Zobrazit a Potlačit/Obnovit. Závislosti se
+nikdy nehádají z geometrie.
+
+Sestava nyní persistuje explicitní orientované vazby komponent pro reference
+uložení a externí reference skici. Ruční potlačení předpokladu se tranzitivně
+promítne jen do komponent, které na něm podle tohoto grafu závisejí; skrytí se
+nešíří. Obnovení předpokladu automaticky obnoví jen odvozeně potlačené
+komponenty, zatímco jejich vlastní ruční potlačení zůstává zachované. Cyklus
+je odmítnut už při vložení vazby.
+
+Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
+vnitřní instance paths a parent k nim při skládání pouze přidá vlastní stabilní
+segment; opakované vložení stejné podsestavy proto nesloučí identity listových
+Partů. Umístění podsestavy vlastní výhradně její bezprostřední parent.
+Explicitní Regenerate top-level sestavy projde otevřené podsestavy až k
+autoritativním in-memory Partům, aniž by editace zdroje sama změnila parent.
+Vložení, které by uzavřelo přímý nebo nepřímý dokumentový cyklus, je odmítnuto.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce
