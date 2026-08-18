@@ -537,11 +537,11 @@ Core jednoznačně určí vnější a vnitřní smyčky, normalizuje orientaci p
 ještě před OCCT odmítne dotyk, křížení, oddělené či překrývající se smyčky a
 samoprotínající obrys. Kružnice přechází do adaptéru jako přesný střed a poloměr
 a vytváří skutečnou válcovou plochu, nikoliv polygonovou aproximaci. Oblouky
-se mohou s přímými úsečkami skládat do jedné vnější uzavřené smyčky. Document
-Core je deterministicky seřadí podle geometricky shodných koncových bodů;
+se mohou s přímými úsečkami skládat do jedné vnější uzavřené smyčky s vnitřními
+kruhovými otvory. Document Core je deterministicky seřadí podle sdílených
+stabilních ID koncových bodů;
 kernelové rozhraní nezávisle znovu ověří návaznost, uzavření, konečné souřadnice
-a nekolineární trojici bodů každého přesného oblouku. Vnitřní smyčky kombinované
-s oblouky zatím tento řez nepřijímá. OCCT adaptér před vrácením viewer dat
+a nekolineární trojici bodů každého přesného oblouku. OCCT adaptér před vrácením viewer dat
 deterministicky ověří platnost přesné profilové plochy i výsledného solidu.
 Kontrolní obdélník
 30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³. Druhá nezávislá kontrola
@@ -552,8 +552,9 @@ odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytic
 Rozšíření o další křivky přijde až s vlastním jednoznačným datovým kontraktem,
 ne skrytou OCCT rekonstrukcí při editaci.
 
-Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou, symetricky
-vytažený o 6 mm, musí mít objem `300π mm³` a interval `−3…3 mm`. Dva půlkruhové
+Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou s vnitřním
+kruhovým otvorem R2, symetricky vytažený o 6 mm, musí mít objem `276π mm³` a
+interval `−3…3 mm`. Dva půlkruhové
 oblouky R4 vytažené o 9 mm musí vytvořit přesný objem `144π mm³`. Tyto kontroly
 zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygon.
 
@@ -565,7 +566,9 @@ kružnice, vnější smyčky kombinující úsečky a oblouky a vnitřní kruhov
 Oblouk má vlastní stabilní ID geometrie a persistované reference na stabilní
 středový, počáteční a koncový bod. Navazující geometrie tak sdílí ID bodu a
 nespoléhá jen na shodu souřadnic; změna poloměru současně aktualizuje oba
-referencované koncové body. Křivky se mezi příkazy nekopírují do druhé reprezentace
+referencované koncové body. Tažení středu pouze překládá celý oblouk a nikdy
+nemění jeho poloměr ani úhlový rozsah; stejné základní pravidlo platí pro kružnici
+a bude platit pro elipsu. Křivky se mezi příkazy nekopírují do druhé reprezentace
 a nepřevádějí se na polygon. Dalšími vstupy jsou osa X nebo Y zdrojové skici,
 úhel v intervalu `(0, 360]°` a operace Přičíst/Odečíst. Document Core převede
 lokální osu skici do souřadnic XY/XZ/YZ a do úzkého `RevolutionRequest` vloží

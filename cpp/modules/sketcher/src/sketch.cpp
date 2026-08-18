@@ -306,8 +306,70 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     auto next = *this;
     auto* point = next.find_point(point_id);
     if (point == nullptr || point->fixed) return false;
+    const double original_x = point->x;
+    const double original_y = point->y;
     point->x = x;
     point->y = y;
+    constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    const auto driving_radius = [&](const SketchArc& arc) {
+        return std::find_if(next.dimensions.begin(), next.dimensions.end(),
+            [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    dimension.kind == DimensionKind::Radius &&
+                    dimension.geometry_id == arc.id;
+            });
+    };
+    for (auto& arc : next.arcs) {
+        auto* center = next.find_point(arc.center_point_id);
+        auto* start = next.find_point(arc.start_point_id);
+        auto* end = next.find_point(arc.end_point_id);
+        if (arc.center_point_id == point_id) {
+            const double dx = x - original_x;
+            const double dy = y - original_y;
+            if ((start->fixed && (std::abs(dx) > 1.0e-12 || std::abs(dy) > 1.0e-12)) ||
+                (end->fixed && (std::abs(dx) > 1.0e-12 || std::abs(dy) > 1.0e-12))) {
+                return false;
+            }
+            start->x += dx;
+            start->y += dy;
+            end->x += dx;
+            end->y += dy;
+            continue;
+        }
+        const bool moving_start = arc.start_point_id == point_id;
+        const bool moving_end = arc.end_point_id == point_id;
+        if (!moving_start && !moving_end) continue;
+        double angle = std::atan2(y - center->y, x - center->x);
+        const auto driver = driving_radius(arc);
+        const double requested_radius = std::hypot(x - center->x, y - center->y);
+        if (requested_radius <= 1.0e-12) return false;
+        const double radius = driver == next.dimensions.end()
+            ? requested_radius : driver->value;
+        if (moving_start) {
+            while (angle > arc.start_angle + 3.14159265358979323846) angle -= full_turn;
+            while (angle < arc.start_angle - 3.14159265358979323846) angle += full_turn;
+            while (angle >= arc.end_angle) angle -= full_turn;
+            if (arc.end_angle - angle >= full_turn - 1.0e-12 ||
+                (end->fixed && std::abs(radius - arc.radius) > 1.0e-12)) return false;
+            arc.start_angle = angle;
+            arc.radius = radius;
+            start->x = center->x + radius * std::cos(angle);
+            start->y = center->y + radius * std::sin(angle);
+            end->x = center->x + radius * std::cos(arc.end_angle);
+            end->y = center->y + radius * std::sin(arc.end_angle);
+        } else {
+            while (angle <= arc.start_angle) angle += full_turn;
+            while (angle > arc.start_angle + full_turn) angle -= full_turn;
+            if (angle - arc.start_angle >= full_turn - 1.0e-12 ||
+                (start->fixed && std::abs(radius - arc.radius) > 1.0e-12)) return false;
+            arc.end_angle = angle;
+            arc.radius = radius;
+            start->x = center->x + radius * std::cos(arc.start_angle);
+            start->y = center->y + radius * std::sin(arc.start_angle);
+            end->x = center->x + radius * std::cos(angle);
+            end->y = center->y + radius * std::sin(angle);
+        }
+    }
     const auto solved = next.solve();
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
         return false;
@@ -345,7 +407,11 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         }
         dimension.value = measured;
     }
-    next.validate();
+    try {
+        next.validate();
+    } catch (const std::exception&) {
+        return false;
+    }
     *this = std::move(next);
     return true;
 }

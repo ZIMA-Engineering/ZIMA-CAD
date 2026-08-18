@@ -459,6 +459,10 @@ int main() {
         }
         require(second_radial_driver_rejected,
                 "Circle accepted simultaneous driving radius and diameter dimensions");
+        const auto diameter_center_id = diameter_sketch.circles.front().center_point_id;
+        require(diameter_sketch.move_point(diameter_center_id, 7.0, -3.0) &&
+                    std::abs(diameter_sketch.circles.front().radius - 15.0) < 1.0e-9,
+                "Moving a Circle center changed its radius");
         const auto loaded_diameter = zima::sketcher::Sketch::from_serialized(
             diameter_sketch.serialized());
         require(loaded_diameter.circles == diameter_sketch.circles &&
@@ -513,6 +517,37 @@ int main() {
                     dimensioned_arc_packet.dimensions.front().label_prefix == "R" &&
                     std::abs(dimensioned_arc_packet.dimensions.front().value - 18.0) < 1.0e-9,
                 "Arc radius dimension did not produce stable viewer data");
+        auto moved_arc = zima::sketcher::Sketch::create_default();
+        static_cast<void>(moved_arc.add_arc(
+            0.0, 0.0, 10.0, 0.0, 0.0, 10.0));
+        const auto moved_arc_center = moved_arc.arcs.front().center_point_id;
+        const auto moved_arc_start = moved_arc.arcs.front().start_point_id;
+        const auto moved_arc_end = moved_arc.arcs.front().end_point_id;
+        require(moved_arc.move_point(moved_arc_center, 5.0, 3.0) &&
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 15.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_end)->y - 13.0) < 1.0e-9 &&
+                    std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9,
+                "Moving an Arc center changed its radius or failed to translate endpoints");
+        require(moved_arc.move_point(moved_arc_end, 5.0, 23.0) &&
+                    std::abs(moved_arc.arcs.front().radius - 20.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 25.0) < 1.0e-9,
+                "Moving an undimensioned Arc endpoint did not update its radius");
+        auto driven_arc = zima::sketcher::Sketch::create_default();
+        const auto driven_arc_id = driven_arc.add_arc(
+            0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
+        driven_arc.apply_dimension(
+            driven_arc.create_arc_radius_dimension(driven_arc_id));
+        const auto driven_arc_end = driven_arc.arcs.front().end_point_id;
+        require(driven_arc.move_point(driven_arc_end, -20.0, 0.0) &&
+                    std::abs(driven_arc.find_point(driven_arc_end)->x + 10.0) < 1.0e-9 &&
+                    std::abs(driven_arc.arcs.front().radius - 10.0) < 1.0e-9,
+                "Dragging a dimensioned Arc endpoint did not preserve its radius");
+        moved_arc.set_point_fixed(moved_arc_start, true);
+        const auto fixed_arc_before_move = moved_arc;
+        require(!moved_arc.move_point(moved_arc_end, 5.0, 33.0) &&
+                    moved_arc.points == fixed_arc_before_move.points &&
+                    moved_arc.arcs == fixed_arc_before_move.arcs,
+                "Arc drag moved a fixed dependent endpoint");
         const auto arc_before_limit_error = arc_sketch;
         auto invalid_arc_radius = arc_sketch.dimensions.front();
         invalid_arc_radius.value = 30.0;

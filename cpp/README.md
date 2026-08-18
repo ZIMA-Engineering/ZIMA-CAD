@@ -332,8 +332,13 @@ stored radius transactionally, contributes radius DOF to the Jacobian, and is
 rendered/picked with an `R` prefix. Circle geometry and its Radius dimension
 round-trip in the current Sketch format without OCCT.
 
-Arc is entered by three clicks: centre, start and end. It persists a stable
-centre point, radius and counter-clockwise angular interval. The adaptive
+Arc is entered by three clicks: centre, start and end. It owns a stable curve ID
+and references stable centre, start, and end points together with its radius and
+counter-clockwise angular interval. Dragging the centre is strictly a translation:
+it moves the complete Arc without changing radius or sweep, matching Circle and
+the future Ellipse contract. Dragging an endpoint changes the angular interval;
+an undimensioned Arc may also change radius, while a driving Radius keeps it fixed.
+The adaptive
 viewer polyline owns a stable `arc:<id>` `SketchCurve` reference, so both the
 creation preview and later picking stay within ZIMA-CAD data.
 Selecting the Arc exposes the same internal Radius-dimension Properties window
