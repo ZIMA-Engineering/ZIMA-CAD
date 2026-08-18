@@ -78,6 +78,8 @@ int main() {
         workspace.add_assembly(std::move(topassembly), "topassembly.zca.json");
         const std::string subassembly_occurrence = workspace.insert_open_assembly(
             topassembly_id, subassembly_id, "Vložená podsestava");
+        const std::string direct_part_occurrence = workspace.insert_open_part(
+            topassembly_id, part_id, "Přímý kontextový díl");
         const auto nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
         const std::string expected_nested_path =
@@ -87,6 +89,26 @@ int main() {
                     nested_scene.triangle_references.front().instance_path ==
                         expected_nested_path,
                 "Nested Assembly flattened or lost its stable leaf instance path");
+        const auto resolved_nested = workspace.resolve_occurrence(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path));
+        require(resolved_nested.has_value() &&
+                    resolved_nested->owner_assembly_document_id == subassembly_id &&
+                    resolved_nested->occurrence_id == nested_part_occurrence &&
+                    resolved_nested->source_document_id == part_id,
+                "Workspace did not resolve exact nested occurrence ownership");
+        const auto rollback_scene = workspace.build_scene_with_part_override(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path), {});
+        const std::string direct_part_path = zima::assembly::InstancePath{}
+            .child(direct_part_occurrence).encoded();
+        require(!rollback_scene.triangle_references.empty() &&
+                    std::all_of(rollback_scene.triangle_references.begin(),
+                        rollback_scene.triangle_references.end(),
+                        [&](const auto& reference) {
+                            return reference.instance_path == direct_part_path;
+                        }),
+                "Nested rollback changed passive sibling context or kept target body");
         const auto maximum_y = [](const zima::kernel::ViewerMesh& scene) {
             return std::max_element(scene.vertices.begin(), scene.vertices.end(),
                 [](const auto& left, const auto& right) {

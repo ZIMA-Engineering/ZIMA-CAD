@@ -77,6 +77,17 @@ int main() {
             .child("a:b").child("c").encoded();
         require(nested == "3:a:b1:c",
                 "Length-prefixed instance path encoding is ambiguous");
+        require(zima::assembly::InstancePath::decode(nested).occurrence_ids ==
+                    std::vector<std::string>{"a:b", "c"},
+                "Length-prefixed instance path did not round-trip");
+        bool malformed_path_rejected = false;
+        try {
+            static_cast<void>(zima::assembly::InstancePath::decode("4:abc"));
+        } catch (const std::invalid_argument&) {
+            malformed_path_rejected = true;
+        }
+        require(malformed_path_rejected,
+                "Malformed instance path was accepted");
         const auto assembly_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-contract.zca.json";
         assembly.save(assembly_path);

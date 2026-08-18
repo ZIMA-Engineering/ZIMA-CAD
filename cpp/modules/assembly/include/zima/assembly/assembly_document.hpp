@@ -15,6 +15,7 @@ struct InstancePath {
 
     [[nodiscard]] InstancePath child(const std::string& occurrence_id) const;
     [[nodiscard]] std::string encoded() const;
+    [[nodiscard]] static InstancePath decode(const std::string& encoded);
     bool operator==(const InstancePath&) const = default;
 };
 

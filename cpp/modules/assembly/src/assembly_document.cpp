@@ -101,6 +101,35 @@ std::string InstancePath::encoded() const {
     return result;
 }
 
+InstancePath InstancePath::decode(const std::string& encoded) {
+    InstancePath result;
+    std::size_t cursor = 0;
+    while (cursor < encoded.size()) {
+        const auto separator = encoded.find(':', cursor);
+        if (separator == std::string::npos || separator == cursor) {
+            throw std::invalid_argument("Instance path length is invalid");
+        }
+        std::size_t parsed = 0;
+        unsigned long long length = 0;
+        try {
+            length = std::stoull(encoded.substr(cursor, separator - cursor), &parsed);
+        } catch (const std::exception&) {
+            throw std::invalid_argument("Instance path length is invalid");
+        }
+        if (parsed != separator - cursor || length == 0 ||
+            length > encoded.size() - separator - 1) {
+            throw std::invalid_argument("Instance path segment is invalid");
+        }
+        cursor = separator + 1;
+        result.occurrence_ids.push_back(encoded.substr(cursor, length));
+        cursor += static_cast<std::size_t>(length);
+    }
+    if (result.occurrence_ids.empty()) {
+        throw std::invalid_argument("Instance path must not be empty");
+    }
+    return result;
+}
+
 AssemblyDocument AssemblyDocument::create_default() {
     AssemblyDocument document;
     document.document_id = make_id();

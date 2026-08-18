@@ -24,6 +24,14 @@ struct AssemblyState {
 
 using DocumentState = std::variant<PartState, AssemblyState>;
 
+struct OccurrenceAddress {
+    std::string owner_assembly_document_id;
+    std::string occurrence_id;
+    std::string source_document_id;
+    zima::assembly::ComponentSourceKind source_kind;
+    zima::assembly::InstancePath instance_path;
+};
+
 class Workspace {
 public:
     void add_part(
@@ -47,6 +55,13 @@ public:
     [[nodiscard]] AssemblyState* open_assembly(const std::string& document_id);
     [[nodiscard]] const AssemblyState* open_assembly(const std::string& document_id) const;
     [[nodiscard]] const std::vector<DocumentState>& documents() const;
+    [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path) const;
+    [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        zima::kernel::BodyResult calculated_source) const;
     [[nodiscard]] std::string insert_open_part(
         const std::string& assembly_document_id,
         const std::string& part_document_id,

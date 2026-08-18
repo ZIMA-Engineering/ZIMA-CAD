@@ -185,6 +185,14 @@ flattening or replacing them, while placement remains owned by the immediate
 parent. Explicit top-level Regenerate recursively consumes open in-memory
 subassemblies and Parts. Insertion rejects direct and indirect document cycles.
 
+The Workspace strictly decodes the full length-prefixed instance path to
+resolve a leaf occurrence and its immediate owning Assembly. The GUI tree uses
+those same paths recursively, so viewer confirmation and context actions stay
+exact for repeated nested sources. Properties, visibility, and suppression are
+committed to the immediate owner. Nested Part rollback replaces only the exact
+leaf geometry in the cached top-level scene, preserving passive siblings and
+avoiding parent regeneration.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

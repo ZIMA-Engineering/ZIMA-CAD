@@ -12,6 +12,7 @@ class QDialog;
 class QLabel;
 class QTabBar;
 class QTreeWidget;
+class QTreeWidgetItem;
 
 namespace zima::viewer { class MeshView; }
 
@@ -39,11 +40,11 @@ private:
     QDialog* properties_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
-        std::string occurrence_id;
+        std::string instance_path;
         std::size_t history_limit{};
     };
     std::optional<PartRollbackContext> part_rollback_;
-    std::string active_occurrence_id_;
+    std::string active_occurrence_path_;
 
     void create_layout();
     void create_actions();
@@ -65,13 +66,16 @@ private:
         const zima::document::PartDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    void add_assembly_tree_children(
+        QTreeWidgetItem* parent,
+        const std::string& assembly_document_id,
+        const zima::assembly::InstancePath& parent_path,
+        bool ancestor_suppressed = false);
     void select_occurrence(const std::string& instance_path);
     void select_container(const std::string& container_id);
-    void show_component_properties(const std::string& occurrence_id);
+    void show_component_properties(const std::string& instance_path);
     void show_component_context_menu(
-        const std::string& occurrence_id, const QPoint& global_position);
-    [[nodiscard]] std::string occurrence_id_for_path(
-        const std::string& instance_path) const;
+        const std::string& instance_path, const QPoint& global_position);
     [[nodiscard]] std::optional<std::string> resolve_active_occurrence(
         const std::string& part_document_id) const;
 };

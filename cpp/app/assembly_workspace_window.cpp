@@ -19,6 +19,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <set>
 #include <type_traits>
 
 namespace zima::app {
@@ -83,11 +84,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if (candidate.kind != zima::viewer::CandidateKind::Occurrence) return;
-            const std::string occurrence_id =
-                occurrence_id_for_path(candidate.instance_path);
-            if (!occurrence_id.empty()) {
-                show_component_context_menu(occurrence_id, global_position);
-            }
+            show_component_context_menu(candidate.instance_path, global_position);
         });
     splitter->addWidget(left);
     splitter->addWidget(viewer_);
@@ -99,7 +96,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         const std::string id = tabs_->tabData(index).toString().toStdString();
         workspace_.activate(id);
         workspace_.display_top_level(id);
-        active_occurrence_id_.clear();
+        active_occurrence_path_.clear();
         refresh_scene();
     });
     connect(tree_, &QTreeWidget::itemClicked, this,
@@ -128,8 +125,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             const std::string source_id =
                 item->data(0, Qt::UserRole + 2).toString().toStdString();
             if (workspace_.find(source_id) != nullptr) {
-                active_occurrence_id_ =
-                    item->data(0, Qt::UserRole).toString().toStdString();
+                active_occurrence_path_ =
+                    item->data(0, Qt::UserRole + 1).toString().toStdString();
                 workspace_.activate(source_id);
                 refresh_tabs();
                 refresh_scene();
@@ -148,7 +145,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (container != nullptr) show_primitive_properties(container->feature_kind, id);
             } else {
                 show_component_context_menu(
-                    item->data(0, Qt::UserRole).toString().toStdString(),
+                    item->data(0, Qt::UserRole + 1).toString().toStdString(),
                     tree_->viewport()->mapToGlobal(position));
             }
         });
@@ -160,7 +157,7 @@ void AssemblyWorkspaceWindow::new_part() {
     workspace_.add_part(std::move(document));
     workspace_.activate(id);
     workspace_.display_top_level(id);
-    active_occurrence_id_.clear();
+    active_occurrence_path_.clear();
     refresh_tabs();
     refresh_scene();
 }
@@ -171,7 +168,7 @@ void AssemblyWorkspaceWindow::new_assembly() {
     workspace_.add_assembly(std::move(document));
     workspace_.activate(id);
     workspace_.display_top_level(id);
-    active_occurrence_id_.clear();
+    active_occurrence_path_.clear();
     refresh_tabs();
     refresh_scene();
 }
@@ -186,7 +183,7 @@ void AssemblyWorkspaceWindow::open_part() {
         const std::string id = document.document_id;
         workspace_.add_part(std::move(document), std::move(calculated), path.toStdString());
         workspace_.activate(id);
-        active_occurrence_id_.clear();
+        active_occurrence_path_.clear();
         refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
@@ -204,7 +201,7 @@ void AssemblyWorkspaceWindow::open_assembly() {
         workspace_.add_assembly(std::move(document), path.toStdString());
         workspace_.activate(id);
         workspace_.display_top_level(id);
-        active_occurrence_id_.clear();
+        active_occurrence_path_.clear();
         refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
@@ -359,20 +356,32 @@ std::optional<std::string> AssemblyWorkspaceWindow::resolve_active_occurrence(
     const std::string& part_document_id) const {
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) return std::string{};
-    const auto& components = assembly->session.document().components;
-    if (!active_occurrence_id_.empty()) {
-        const auto found = std::find_if(components.begin(), components.end(),
-            [&](const auto& occurrence) {
-                return occurrence.occurrence_id == active_occurrence_id_ &&
-                    occurrence.source_document_id == part_document_id;
-            });
-        if (found != components.end()) return active_occurrence_id_;
+    if (!active_occurrence_path_.empty()) {
+        try {
+            const auto address = workspace_.resolve_occurrence(
+                workspace_.displayed_document_id(),
+                zima::assembly::InstancePath::decode(active_occurrence_path_));
+            if (address && address->source_document_id == part_document_id &&
+                address->source_kind == zima::assembly::ComponentSourceKind::Part) {
+                return active_occurrence_path_;
+            }
+        } catch (const std::invalid_argument&) {
+            return std::nullopt;
+        }
     }
     std::optional<std::string> only;
-    for (const auto& occurrence : components) {
-        if (occurrence.source_document_id != part_document_id) continue;
+    std::set<std::string> paths;
+    for (const auto& reference : assembly->session.document()
+             .build_scene().triangle_references) {
+        paths.insert(reference.instance_path);
+    }
+    for (const auto& path : paths) {
+        const auto address = workspace_.resolve_occurrence(
+            workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(path));
+        if (!address || address->source_document_id != part_document_id) continue;
         if (only) return std::nullopt;
-        only = occurrence.occurrence_id;
+        only = path;
     }
     return only;
 }
@@ -483,36 +492,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         return;
     }
     const auto& document = assembly->session.document();
-    const auto effectively_suppressed = document.effectively_suppressed_occurrences();
     auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
-    for (const auto& component : document.components) {
-        QString label = QString::fromStdString(component.name);
-        if (component.suppressed) label += tr(" [potlačeno]");
-        else if (effectively_suppressed.contains(component.occurrence_id)) {
-            label += tr(" [potlačeno závislostí]");
-        }
-        else if (!component.visible) label += tr(" [skryto]");
-        auto* item = new QTreeWidgetItem(root, {label});
-        const std::string path = zima::assembly::InstancePath{}
-            .child(component.occurrence_id).encoded();
-        item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));
-        item->setData(0, Qt::UserRole + 1, QString::fromStdString(path));
-        item->setData(0, Qt::UserRole + 2,
-                      QString::fromStdString(component.source_document_id));
-        if (part_rollback_ &&
-            component.occurrence_id == part_rollback_->occurrence_id) {
-            item->setForeground(0, QBrush(QColor(70, 190, 95)));
-            QFont font = item->font(0);
-            font.setBold(true);
-            item->setFont(0, font);
-        } else if (effectively_suppressed.contains(component.occurrence_id) ||
-                   !component.visible) {
-            item->setForeground(0, QBrush(QColor(125, 125, 125)));
-        }
-    }
+    add_assembly_tree_children(root, document.document_id, {});
     root->setExpanded(true);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
-    if (part_rollback_ && !part_rollback_->occurrence_id.empty()) {
+    if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
         if (active_part != nullptr) {
@@ -521,8 +505,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     boundaries.size() < part_rollback_->history_limit
                 ? zima::kernel::BodyResult{}
                 : boundaries[part_rollback_->history_limit - 1];
-            viewer_->set_mesh(document.build_scene_with_part_override(
-                part_rollback_->occurrence_id, std::move(boundary)));
+            viewer_->set_mesh(workspace_.build_scene_with_part_override(
+                document.document_id,
+                zima::assembly::InstancePath::decode(part_rollback_->instance_path),
+                std::move(boundary)));
         } else {
             viewer_->set_mesh(document.build_scene());
         }
@@ -554,6 +540,53 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     }
 }
 
+void AssemblyWorkspaceWindow::add_assembly_tree_children(
+    QTreeWidgetItem* parent,
+    const std::string& assembly_document_id,
+    const zima::assembly::InstancePath& parent_path,
+    bool ancestor_suppressed) {
+    const auto* assembly = workspace_.open_assembly(assembly_document_id);
+    if (assembly == nullptr) return;
+    const auto& document = assembly->session.document();
+    const auto effectively_suppressed = document.effectively_suppressed_occurrences();
+    for (const auto& component : document.components) {
+        const bool suppressed = ancestor_suppressed ||
+            effectively_suppressed.contains(component.occurrence_id);
+        QString label = QString::fromStdString(component.name);
+        if (component.suppressed) label += tr(" [potlačeno]");
+        else if (suppressed) {
+            label += tr(" [potlačeno závislostí]");
+        }
+        else if (!component.visible) label += tr(" [skryto]");
+        auto* item = new QTreeWidgetItem(parent, {label});
+        const auto path = parent_path.child(component.occurrence_id);
+        item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));
+        item->setData(0, Qt::UserRole + 1, QString::fromStdString(path.encoded()));
+        item->setData(0, Qt::UserRole + 2,
+                      QString::fromStdString(component.source_document_id));
+        item->setData(0, Qt::UserRole + 3,
+            component.source_kind == zima::assembly::ComponentSourceKind::Assembly
+                ? "assembly-occurrence" : "part-occurrence");
+        item->setData(0, Qt::UserRole + 4,
+                      QString::fromStdString(assembly_document_id));
+        if (part_rollback_ && path.encoded() == part_rollback_->instance_path) {
+            item->setForeground(0, QBrush(QColor(70, 190, 95)));
+            QFont font = item->font(0);
+            font.setBold(true);
+            item->setFont(0, font);
+        } else if (suppressed || !component.visible) {
+            item->setForeground(0, QBrush(QColor(125, 125, 125)));
+        }
+        if (component.source_kind == zima::assembly::ComponentSourceKind::Assembly &&
+            workspace_.open_assembly(component.source_document_id) != nullptr) {
+            add_assembly_tree_children(
+                item, component.source_document_id, path,
+                suppressed || !component.visible);
+            item->setExpanded(true);
+        }
+    }
+}
+
 void AssemblyWorkspaceWindow::select_container(const std::string& container_id) {
     auto* root = tree_->topLevelItem(0);
     if (root == nullptr) return;
@@ -569,25 +602,40 @@ void AssemblyWorkspaceWindow::select_container(const std::string& container_id) 
 void AssemblyWorkspaceWindow::select_occurrence(const std::string& instance_path) {
     auto* root = tree_->topLevelItem(0);
     if (root == nullptr) return;
-    for (int index = 0; index < root->childCount(); ++index) {
-        auto* item = root->child(index);
+    std::vector<QTreeWidgetItem*> pending{root};
+    while (!pending.empty()) {
+        auto* item = pending.back();
+        pending.pop_back();
         if (item->data(0, Qt::UserRole + 1).toString().toStdString() == instance_path) {
             tree_->setCurrentItem(item);
             return;
+        }
+        for (int index = 0; index < item->childCount(); ++index) {
+            pending.push_back(item->child(index));
         }
     }
 }
 
 void AssemblyWorkspaceWindow::show_component_properties(
-    const std::string& occurrence_id) {
+    const std::string& instance_path) {
     if (properties_dialog_ != nullptr) return;
-    auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
+    std::optional<zima::workspace::OccurrenceAddress> address;
+    try {
+        address = workspace_.resolve_occurrence(
+            workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(instance_path));
+    } catch (const std::invalid_argument&) {
+        return;
+    }
+    if (!address) return;
+    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
     if (assembly == nullptr) return;
-    const auto* occurrence = assembly->session.document().find_occurrence(occurrence_id);
+    const auto* occurrence = assembly->session.document().find_occurrence(
+        address->occurrence_id);
     if (occurrence == nullptr) return;
     auto* dialog = new ComponentPropertiesDialog(
         *occurrence,
-        [this, assembly_id = workspace_.displayed_document_id()]
+        [this, assembly_id = address->owner_assembly_document_id]
         (zima::assembly::PartOccurrence committed) {
             auto* assembly = workspace_.open_assembly(assembly_id);
             if (assembly == nullptr) {
@@ -610,22 +658,21 @@ void AssemblyWorkspaceWindow::show_component_properties(
     dialog->show();
 }
 
-std::string AssemblyWorkspaceWindow::occurrence_id_for_path(
-    const std::string& instance_path) const {
-    const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
-    if (assembly == nullptr) return {};
-    for (const auto& occurrence : assembly->session.document().components) {
-        if (zima::assembly::InstancePath{}.child(occurrence.occurrence_id).encoded() ==
-            instance_path) return occurrence.occurrence_id;
-    }
-    return {};
-}
-
 void AssemblyWorkspaceWindow::show_component_context_menu(
-    const std::string& occurrence_id, const QPoint& global_position) {
-    auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
+    const std::string& instance_path, const QPoint& global_position) {
+    std::optional<zima::workspace::OccurrenceAddress> address;
+    try {
+        address = workspace_.resolve_occurrence(
+            workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(instance_path));
+    } catch (const std::invalid_argument&) {
+        return;
+    }
+    if (!address) return;
+    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
     if (assembly == nullptr || properties_dialog_ != nullptr) return;
-    const auto* occurrence = assembly->session.document().find_occurrence(occurrence_id);
+    const auto* occurrence = assembly->session.document().find_occurrence(
+        address->occurrence_id);
     if (occurrence == nullptr) return;
     QMenu menu(this);
     auto* properties = menu.addAction(tr("Vlastnosti"));
@@ -635,13 +682,13 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         occurrence->suppressed ? tr("Obnovit") : tr("Potlačit"));
     const QAction* selected = menu.exec(global_position);
     if (selected == properties) {
-        show_component_properties(occurrence_id);
+        show_component_properties(instance_path);
         return;
     }
     if (selected != visibility && selected != suppression) return;
     auto next = assembly->session.document();
     auto found = std::find_if(next.components.begin(), next.components.end(),
-        [&](const auto& item) { return item.occurrence_id == occurrence_id; });
+        [&](const auto& item) { return item.occurrence_id == address->occurrence_id; });
     if (found == next.components.end()) return;
     if (selected == visibility) found->visible = !found->visible;
     if (selected == suppression) found->suppressed = !found->suppressed;

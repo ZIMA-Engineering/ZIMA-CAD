@@ -208,6 +208,15 @@ Explicitní Regenerate top-level sestavy projde otevřené podsestavy až k
 autoritativním in-memory Partům, aniž by editace zdroje sama změnila parent.
 Vložení, které by uzavřelo přímý nebo nepřímý dokumentový cyklus, je odmítnuto.
 
+`InstancePath` má striktní obousměrný délkově kódovaný formát. Workspace podle
+celé cesty určí konkrétní occurrence, jeho source dokument i bezprostředně
+vlastnící Assembly. Strom GUI zobrazuje otevřené podsestavy rekurzivně a nese
+stejnou plnou cestu jako viewer candidate; výběr se proto synchronizuje i pro
+opakované hluboce vnořené zdroje. Vlastnosti, Skrýt a Potlačit se zapisují do
+bezprostředního owneru. Rollback vnořeného Partu nahradí v cached top-level
+scéně jen geometrii přesné listové cesty a zachová všechny pasivní sourozence
+bez implicitní regenerace parentu.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce
