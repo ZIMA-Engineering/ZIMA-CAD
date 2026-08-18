@@ -23,6 +23,12 @@
 - A middle-button double-click invokes OK even while the pointer is over the
   3D view. A short middle-button click does not commit a dialog. Middle-button
   drag is reserved for view navigation and must not confirm a dialog.
+- This middle-button double-click contract applies to every in-application
+  dialog that exposes an enabled `OK` action, not only feature/property
+  dialogs. Dialog classes must use the shared confirmation mechanism. A class
+  may opt out only when it implements the same behavior itself, including
+  confirmation while the pointer is over the owning document view, and has a
+  regression test for that equivalent behavior.
 
 ## History container editing
 

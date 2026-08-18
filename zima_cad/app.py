@@ -150,6 +150,11 @@ from zima_cad.numeric_expression import (
     evaluate_numeric_expression,
 )
 from zima_cad.precision import format_model_float, model_linear_tolerance
+from zima_cad.dimension_range import (
+    dimension_range_bounds,
+    dimension_value_in_range,
+    validate_dimension_range,
+)
 from zima_cad.widgets import PositiveQuantitySpinBox, PrecisionDoubleSpinBox
 from zima_cad.topology import (
     AssemblyEdgeRef,
@@ -6515,8 +6520,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             reference_exists_callback=lambda _entity_id: True,
         )
         self.component = component
-        self.source_choices = tuple(source_choices)
-        self.target_choices = tuple(target_choices)
+        # Persisted choices are extended lazily when the common viewer picker
+        # discovers an axis-capable circular/straight edge on an original
+        # solid.  Keep these collections mutable for that contract.
+        self.source_choices = list(source_choices)
+        self.target_choices = list(target_choices)
         self.reference_state_callback = reference_state_callback
         self.setMinimumWidth(720)
         self.setWindowTitle(tr("assembly.properties.title", name=component.name))
@@ -6528,7 +6536,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             tr("assembly.properties.component_reference"),
             tr("assembly.properties.target_reference"),
             tr("assembly.properties.mate_type"),
-            tr("assembly.properties.offset"),
+            tr("assembly.properties.current_offset"),
             tr("assembly.properties.flip"),
         ))
         self.reference_list.verticalHeader().hide()
@@ -6592,6 +6600,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             )
             offset = PrecisionDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
+            offset.setDecimals(display_decimal_places(parent))
             offset.setSuffix(" mm")
             mate_type = QComboBox()
             mate_type.addItem(tr("assembly.properties.mate_plane"), "plane")
@@ -6616,7 +6625,19 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 self._mark_unresolved_reference(
                     target_button, str(values["target"])
                 )
-            offset.setValue(float(values.get("offset", 0.0)))
+            current_value = float(values.get("current_value", 0.0))
+            nominal_value = current_value
+            offset.setProperty("nominalValue", nominal_value)
+            offset.setProperty(
+                "rangeEnabled", bool(values.get("range_enabled", False))
+            )
+            offset.setProperty(
+                "lowerLimit", float(values.get("lower_limit", nominal_value))
+            )
+            offset.setProperty(
+                "upperLimit", float(values.get("upper_limit", nominal_value))
+            )
+            offset.setValue(current_value)
             flip.setChecked(bool(values.get("flip", False)))
             stored_type = str(values.get("type", "plane"))
             mate_type.setCurrentIndex(max(0, mate_type.findData(stored_type)))
@@ -6625,7 +6646,9 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             if stored_type == "angle":
                 offset.setRange(-360.0, 360.0)
             offset.valueChanged.connect(
-                lambda _value: self.matesSubmitted.emit(self.mate_rows())
+                lambda value, index=row: self._mate_offset_changed(
+                    index, value
+                )
             )
             flip.toggled.connect(
                 lambda checked, index=row: self._flip_toggled(index, checked)
@@ -6652,6 +6675,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         self.active_pick = (first_empty_row, "source")
         for row in range(len(self.rows)):
             self._update_available_mate_types(row)
+            self._refresh_mate_range_label(row)
         self._update_remove_buttons()
         header = self.reference_list.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -6681,6 +6705,59 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         content_height = self.sizeHint().height()
         self.setFixedHeight(content_height)
         self.resize(820, content_height)
+
+    def _mate_offset_changed(self, row: int, value: float) -> None:
+        if not 0 <= row < len(self.rows):
+            return
+        edit = self.rows[row][3]
+        enabled = bool(edit.property("rangeEnabled"))
+        if enabled:
+            try:
+                lower, upper = dimension_range_bounds(
+                    float(edit.property("lowerLimit")),
+                    float(edit.property("upperLimit")),
+                )
+            except ValueError:
+                return
+            clamped = min(max(float(value), lower), upper)
+            edit.setToolTip(
+                tr(
+                    "assembly.properties.allowed_interval",
+                    lower=format_model_float(lower),
+                    upper=format_model_float(upper),
+                )
+            )
+            if abs(clamped - float(value)) > 1.0e-12:
+                blocked = edit.blockSignals(True)
+                edit.setValue(clamped)
+                edit.blockSignals(blocked)
+                value = clamped
+        edit.setProperty("nominalValue", float(value))
+        self._refresh_mate_range_label(row)
+        self.matesSubmitted.emit(self.mate_rows())
+
+    def _refresh_mate_range_label(self, row: int) -> None:
+        if not 0 <= row < len(self.rows):
+            return
+        edit = self.rows[row][3]
+        if not bool(edit.property("rangeEnabled")):
+            edit.setToolTip("")
+            return
+        try:
+            lower, upper = dimension_range_bounds(
+                float(edit.property("lowerLimit")),
+                float(edit.property("upperLimit")),
+            )
+        except (TypeError, ValueError):
+            edit.setToolTip("")
+            return
+        edit.setToolTip(
+            tr(
+                "assembly.properties.allowed_interval",
+                lower=format_model_float(lower),
+                upper=format_model_float(upper),
+            )
+        )
 
     def _independent_flip_rows(self) -> tuple[int, ...]:
         """Return the three plane rows that form independent source/target frames."""
@@ -6871,7 +6948,17 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 "source": source_key,
                 "target": target_key,
                 "type": kind,
-                "offset": previous_value.value(),
+                "nominal_value": float(
+                    previous_value.property("nominalValue")
+                    if previous_value.property("nominalValue") is not None
+                    else previous_value.value()
+                ),
+                "range_enabled": bool(
+                    previous_value.property("rangeEnabled")
+                ),
+                "lower_limit": float(previous_value.property("lowerLimit")),
+                "upper_limit": float(previous_value.property("upperLimit")),
+                "current_value": previous_value.value(),
                 "flip": previous_flip.isChecked(),
             })
         prior_rows = self._with_orientation_roles(prior_rows)
@@ -7028,6 +7115,10 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             flip.blockSignals(True)
             mate_type.setCurrentIndex(max(0, mate_type.findData("plane")))
             offset.setEnabled(True)
+            offset.setProperty("nominalValue", 0.0)
+            offset.setProperty("rangeEnabled", False)
+            offset.setProperty("lowerLimit", 0.0)
+            offset.setProperty("upperLimit", 0.0)
             offset.setValue(0.0)
             flip.setChecked(False)
             offset.blockSignals(False)
@@ -7088,11 +7179,23 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 values.append((
                     source.property("reference"), source.text(),
                     target.property("reference"), target.text(),
-                    str(mate_type.currentData()), offset.value(), flip.isChecked(),
+                    str(mate_type.currentData()), offset.value(),
+                    float(
+                        offset.property("nominalValue")
+                        if offset.property("nominalValue") is not None
+                        else offset.value()
+                    ),
+                    bool(offset.property("rangeEnabled")),
+                    float(offset.property("lowerLimit")),
+                    float(offset.property("upperLimit")),
+                    flip.isChecked(),
                 ))
         for index, (source, target, mate_type, offset, flip) in enumerate(self.rows):
             if index < len(values):
-                source_ref, source_text, target_ref, target_text, kind, shift, flipped = values[index]
+                (
+                    source_ref, source_text, target_ref, target_text, kind,
+                    shift, nominal, range_enabled, lower, upper, flipped,
+                ) = values[index]
                 source.setProperty("reference", source_ref)
                 source.setText(source_text)
                 target.setProperty("reference", target_ref)
@@ -7104,6 +7207,10 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 flip.blockSignals(True)
                 mate_type.setCurrentIndex(max(0, mate_type.findData(kind)))
                 offset.setEnabled(kind != "axis")
+                offset.setProperty("nominalValue", nominal)
+                offset.setProperty("rangeEnabled", range_enabled)
+                offset.setProperty("lowerLimit", lower)
+                offset.setProperty("upperLimit", upper)
                 offset.setValue(shift)
                 flip.setChecked(flipped)
                 offset.blockSignals(False)
@@ -7122,6 +7229,10 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 flip.blockSignals(True)
                 mate_type.setCurrentIndex(max(0, mate_type.findData("plane")))
                 offset.setEnabled(True)
+                offset.setProperty("nominalValue", 0.0)
+                offset.setProperty("rangeEnabled", False)
+                offset.setProperty("lowerLimit", 0.0)
+                offset.setProperty("upperLimit", 0.0)
                 offset.setValue(0.0)
                 flip.setChecked(False)
                 offset.blockSignals(False)
@@ -7350,7 +7461,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                 "source": source.property("reference"),
                 "target": target.property("reference"),
                 "type": str(mate_type.currentData()),
-                "offset": offset.value(),
+                "nominal_value": offset.value(),
+                "range_enabled": bool(offset.property("rangeEnabled")),
+                "lower_limit": float(offset.property("lowerLimit")),
+                "upper_limit": float(offset.property("upperLimit")),
+                "current_value": offset.value(),
                 "flip": (
                     flip.isChecked()
                     if mate_type.currentData() != "axis"
@@ -8812,6 +8927,7 @@ class ParameterEditOverlay(QWidget):
         tolerance_value: str = "",
         upper_deviation: str = "",
         lower_deviation: str = "",
+        tolerance_suffix: str = "",
     ) -> None:
         self._editing = False
         self._selected = False
@@ -8828,9 +8944,9 @@ class ParameterEditOverlay(QWidget):
         self.value_edit.setReadOnly(True)
         self.value_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         inline_tolerance = (
-            f"±{tolerance_value}"
+            f"±{tolerance_value}{tolerance_suffix}"
             if tolerance_mode == "symmetric" and tolerance_value
-            else tolerance_value
+            else f"{tolerance_value}{tolerance_suffix}"
             if tolerance_mode == "single_deviation"
             else ""
         )
@@ -8838,7 +8954,7 @@ class ParameterEditOverlay(QWidget):
         stacked_tolerance = ""
         if tolerance_mode == "deviations":
             stacked_tolerance = "\n".join(
-                value
+                f"{value}{tolerance_suffix}"
                 for value in (upper_deviation, lower_deviation)
                 if value
             )
@@ -9111,12 +9227,13 @@ class DimensionPropertiesDialog(QDialog):
         style: dict[str, Any],
         default_decimal_places: int,
         parent=None,
+        dimension_unit: str = "mm",
     ) -> None:
         super().__init__(parent)
         compact_font = QFont(self.font())
         compact_font.setPixelSize(10)
         self.setFont(compact_font)
-        self._handles_middle_confirmation = True
+        self._handles_middle_confirmation = False
         self.setWindowTitle(tr("dialog.dimension_properties.title"))
         self._title_drag_origin: QPointF | None = None
         self._title_drag_window_origin: QPoint | None = None
@@ -9129,6 +9246,7 @@ class DimensionPropertiesDialog(QDialog):
             self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             self.setAutoFillBackground(True)
         self.setModal(False)
+        self.dimension_unit = str(dimension_unit)
         self.setMinimumSize(460, 300)
         self.resize(540, 360)
         layout = QVBoxLayout(self)
@@ -9214,15 +9332,10 @@ class DimensionPropertiesDialog(QDialog):
                 self.single_tolerance_edit.setText(upper or lower)
         mode_index = self.tolerance_mode_combo.findData(tolerance_mode)
         self.tolerance_mode_combo.setCurrentIndex(max(0, mode_index))
-        self.decimal_places_spin = QSpinBox()
-        self.decimal_places_spin.setRange(0, 12)
         try:
-            decimal_places = int(
-                style.get("decimal_places", default_decimal_places)
-            )
+            self.decimal_places = max(0, min(12, int(default_decimal_places)))
         except (TypeError, ValueError):
-            decimal_places = default_decimal_places
-        self.decimal_places_spin.setValue(decimal_places)
+            self.decimal_places = 3
         self.lock_state_combo = QComboBox()
         self.lock_state_combo.addItem(
             tr("dialog.dimension_properties.locked"),
@@ -9235,9 +9348,53 @@ class DimensionPropertiesDialog(QDialog):
         self.lock_state_combo.setCurrentIndex(
             0 if bool(style.get("locked", False)) else 1
         )
+        def dimension_spin(value: Any) -> PrecisionDoubleSpinBox:
+            spin = PrecisionDoubleSpinBox(self)
+            spin.setRange(-1_000_000_000_000.0, 1_000_000_000_000.0)
+            spin.setDecimals(self.decimal_places)
+            try:
+                spin.setValue(float(value))
+            except (TypeError, ValueError):
+                spin.setValue(0.0)
+            return spin
+
+        self.nominal_value_edit = dimension_spin(
+            style.get("nominal_value", style.get("current_value", 0.0))
+        )
+        self.range_enabled_checkbox = QCheckBox(
+            tr("dialog.dimension_properties.range_enabled")
+        )
+        self.range_enabled_checkbox.setChecked(
+            bool(style.get("range_enabled", False))
+        )
+        # Limits stored while the range is disabled are inactive leftovers,
+        # not an existing range.  The first enable in this dialog therefore
+        # receives the predictable zero-to-nominal default.
+        self._range_limits_initialized = bool(
+            style.get("range_enabled", False)
+        )
+        self.lower_limit_edit = dimension_spin(
+            style.get("lower_limit", style.get("nominal_value", 0.0))
+        )
+        self.upper_limit_edit = dimension_spin(
+            style.get("upper_limit", style.get("nominal_value", 0.0))
+        )
         form.addRow(
             tr("dialog.dimension_properties.lock_state"),
             self.lock_state_combo,
+        )
+        form.addRow(
+            tr("dialog.dimension_properties.nominal_value"),
+            self.nominal_value_edit,
+        )
+        form.addRow("", self.range_enabled_checkbox)
+        form.addRow(
+            tr("dialog.dimension_properties.lower_limit"),
+            self.lower_limit_edit,
+        )
+        form.addRow(
+            tr("dialog.dimension_properties.upper_limit"),
+            self.upper_limit_edit,
         )
         form.addRow(
             tr("dialog.dimension_properties.prefix"),
@@ -9252,31 +9409,36 @@ class DimensionPropertiesDialog(QDialog):
             self.tolerance_mode_combo,
         )
         form.addRow(
-            tr("dialog.dimension_properties.symmetric_tolerance"),
+            self._unit_label("dialog.dimension_properties.symmetric_tolerance"),
             self.symmetric_tolerance_edit,
         )
         form.addRow(
-            tr("dialog.dimension_properties.single_tolerance"),
+            self._unit_label("dialog.dimension_properties.single_tolerance"),
             self.single_tolerance_edit,
         )
         form.addRow(
-            tr("dialog.dimension_properties.upper_deviation"),
+            self._unit_label("dialog.dimension_properties.upper_deviation"),
             self.upper_tolerance_edit,
         )
         form.addRow(
-            tr("dialog.dimension_properties.lower_deviation"),
+            self._unit_label("dialog.dimension_properties.lower_deviation"),
             self.lower_tolerance_edit,
-        )
-        form.addRow(
-            tr("dialog.dimension_properties.decimal_places"),
-            self.decimal_places_spin,
         )
         layout.addLayout(form)
         self._tolerance_form = form
         self.tolerance_mode_combo.currentIndexChanged.connect(
             self._update_tolerance_fields
         )
+        self.range_enabled_checkbox.toggled.connect(
+            self._update_range_fields
+        )
         self._update_tolerance_fields()
+        self._update_range_fields()
+        self.validation_label = QLabel()
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setStyleSheet("color: #c62828;")
+        self.validation_label.hide()
+        layout.addWidget(self.validation_label)
         layout.addStretch(1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -9326,6 +9488,10 @@ class DimensionPropertiesDialog(QDialog):
         layout.addWidget(button)
         return row
 
+    def _unit_label(self, translation_key: str) -> str:
+        label = tr(translation_key)
+        return f"{label} ({self.dimension_unit})" if self.dimension_unit else label
+
     @staticmethod
     def _insert_symbol(edit: QLineEdit, symbol: str) -> None:
         edit.insert(symbol)
@@ -9344,6 +9510,74 @@ class DimensionPropertiesDialog(QDialog):
             label = self._tolerance_form.labelForField(field)
             if label is not None:
                 label.setVisible(visible)
+
+    def _update_range_fields(self, _checked: bool | None = None) -> None:
+        enabled = self.range_enabled_checkbox.isChecked()
+        if enabled and not self._range_limits_initialized:
+            nominal = self._numeric_value(self.nominal_value_edit)
+            self.lower_limit_edit.setValue(min(0.0, nominal))
+            self.upper_limit_edit.setValue(max(0.0, nominal))
+            self._range_limits_initialized = True
+        self.lower_limit_edit.setEnabled(enabled)
+        self.upper_limit_edit.setEnabled(enabled)
+
+    @staticmethod
+    def _numeric_value(edit: PrecisionDoubleSpinBox) -> float:
+        # Clicking OK can happen while the editor still owns focus.  Commit
+        # the text explicitly so validation reads what the user just typed,
+        # not the spinbox's previously accepted value.
+        if not edit.hasAcceptableInput():
+            raise NumericExpressionError(
+                tr("dialog.dimension_properties.range.invalid")
+            )
+        edit.interpretText()
+        value = float(edit.value())
+        if not math.isfinite(value):
+            raise NumericExpressionError("non-finite dimension value")
+        return value
+
+    def range_values(self) -> dict[str, Any]:
+        nominal = self._numeric_value(self.nominal_value_edit)
+        enabled = self.range_enabled_checkbox.isChecked()
+        lower = (
+            self._numeric_value(self.lower_limit_edit)
+            if enabled else nominal
+        )
+        upper = (
+            self._numeric_value(self.upper_limit_edit)
+            if enabled else nominal
+        )
+        values = {
+            "nominal_value": nominal,
+            "range_enabled": enabled,
+            "lower_limit": lower,
+            "upper_limit": upper,
+            "current_value": nominal,
+        }
+        try:
+            validate_dimension_range(values)
+        except ValueError:
+            raise NumericExpressionError(
+                tr(
+                    "dialog.dimension_properties.range.outside",
+                    lower=format_model_float(lower),
+                    upper=format_model_float(upper),
+                )
+            )
+        return values
+
+    def accept(self) -> None:
+        try:
+            self.range_values()
+        except (NumericExpressionError, ValueError) as error:
+            message = str(error).strip() or tr(
+                "dialog.dimension_properties.range.invalid"
+            )
+            self.validation_label.setText(message)
+            self.validation_label.show()
+            return
+        self.validation_label.hide()
+        super().accept()
 
     def eventFilter(self, watched, event) -> bool:
         if watched is getattr(self, "_internal_title_bar", None):
@@ -9439,8 +9673,9 @@ class DimensionPropertiesDialog(QDialog):
             "single_tolerance": self.single_tolerance_edit.text(),
             "upper_tolerance": self.upper_tolerance_edit.text(),
             "lower_tolerance": self.lower_tolerance_edit.text(),
-            "decimal_places": self.decimal_places_spin.value(),
+            "decimal_places": self.decimal_places,
             "locked": bool(self.lock_state_combo.currentData()),
+            **self.range_values(),
         }
 
 
@@ -13646,7 +13881,10 @@ class MainWindow(QMainWindow):
         )
         dialog.referenceActivated.connect(self._activate_point_reference)
         dialog.definitionChanged.connect(
-            lambda: self._preview_solid_dialog(dialog)
+            lambda: QTimer.singleShot(
+                0,
+                lambda target=dialog: self._preview_solid_dialog(target),
+            )
         )
         dialog.finished.connect(self._point_constraint_dialog_finished)
         self.point_constraint_dialog = dialog
@@ -23292,9 +23530,29 @@ class MainWindow(QMainWindow):
         # cannot steal the axis click.
         component_id, separator, source_axis_id = owner_id.partition(":")
         if separator and source_axis_id:
-            descriptor = f"{component_id}:datum_axis:{source_axis_id}"
-            dialog.accept_axis(descriptor)
-            return True
+            component = (
+                self.document.find_entity(component_id)
+                if self.document is not None else None
+            )
+            source_document = (
+                self._component_source_document(component)
+                if component is not None
+                and component.container_type == ContainerType.COMPONENT
+                else None
+            )
+            source_axis = (
+                source_document.find_entity(source_axis_id)
+                if source_document is not None else None
+            )
+            descriptor = None
+            if source_axis is not None and source_axis.kind == EntityKind.ORIGIN:
+                axis_name = {1: "X", 2: "Y", 3: "Z"}.get(edge_index)
+                if axis_name is not None:
+                    descriptor = f"{component_id}:axis:{axis_name}"
+            elif source_axis is not None and source_axis.kind == EntityKind.AXIS:
+                descriptor = f"{component_id}:datum_axis:{source_axis_id}"
+            if descriptor is not None and dialog.accept_axis(descriptor):
+                return True
         provided = getattr(self.native_viewer, "_provided_hover_candidate", None)
         picked = getattr(self, "_assembly_pick_reference", None)
         if provided is not None and provided.reference is not None:
@@ -27903,6 +28161,14 @@ class MainWindow(QMainWindow):
                 or self._external_segment_command_active()
             )
         ):
+            if provided.hover_mesh is None:
+                # Origin and datum/generated axes already live in the main
+                # viewer mesh.  The provider identifies them without a
+                # duplicate hover mesh, so preserve the native orange edge
+                # instead of clearing it and displaying `None`.
+                self.native_viewer.set_source_topology_hover(None)
+                self._set_view_hover("edge", owner_id, edge_index)
+                return
             signals_were_blocked = self.native_viewer.blockSignals(True)
             try:
                 self.native_viewer._set_hovered_edge(None)
@@ -32864,14 +33130,6 @@ class MainWindow(QMainWindow):
         dialog._original_component_results = original_component_results
         dialog._incomplete_original_components = incomplete_original_components
 
-        def commit_mate_value(row_index: int, raw_value: str) -> None:
-            try:
-                value = evaluate_numeric_expression(str(raw_value))
-            except NumericExpressionError:
-                return
-            if 0 <= row_index < len(dialog.rows):
-                dialog.rows[row_index][3].setValue(value)
-
         def clear_mate_dimension_overlays() -> None:
             for key in tuple(self._dimension_overlays):
                 if not key.startswith("assembly_mate_"):
@@ -32981,7 +33239,7 @@ class MainWindow(QMainWindow):
                         float(value)
                         for value in (vertex + middle * radius)
                     ),
-                    sweep_degrees=float(row.get("offset", 0.0)),
+                    sweep_degrees=float(row.get("current_value", 0.0)),
                     plane_normal=angle_plane_normal,
                 )
                 dimensions.append(dimension)
@@ -33034,23 +33292,44 @@ class MainWindow(QMainWindow):
                         ))
                 dimensions = tuple(transformed_dimensions)
             self.native_viewer.set_dimensions(tuple(dimensions))
+            self._dimension_object_id = component.entity_id
             for dimension, row_index, mate_type in dimension_bindings:
+                dialog_row_index = next(
+                    (
+                        index for index, controls in enumerate(dialog.rows)
+                        if controls[0].property("reference")
+                        == rows[row_index].get("source")
+                        and controls[1].property("reference")
+                        == rows[row_index].get("target")
+                        and str(controls[2].currentData()) == mate_type
+                    ),
+                    None,
+                )
+                if dialog_row_index is None:
+                    continue
                 overlay = ParameterEditOverlay(self.native_viewer)
                 self._configure_dimension_overlay(
                     overlay,
                     component,
                     dimension,
-                    dialog.rows[row_index][3].value(),
+                    dialog.rows[dialog_row_index][3].value(),
                 )
+                # A mate dimension is the direct placement control for its
+                # component and must always accept inline editing.
+                overlay.set_locked(False)
                 overlay.valueCommitted.connect(
-                    lambda raw_value, index=row_index:
-                    commit_mate_value(index, raw_value)
+                    lambda raw_value, key=dimension.key:
+                    self._commit_dimension_value(key, raw_value)
                 )
                 overlay.selected.connect(
                     lambda key=dimension.key:
                     self._select_dimension_overlay(key)
                 )
                 self._dimension_overlays[dimension.key] = overlay
+                self._dimension_bindings[dimension.key] = (
+                    "assembly_mate",
+                    dialog_row_index,
+                )
             QTimer.singleShot(0, self._position_dimension_overlays)
             return bool(dimensions)
 
@@ -33497,7 +33776,7 @@ class MainWindow(QMainWindow):
                         )),
                     )
                     desired_angle = dialog._signed_mate_angle(
-                        row["offset"], bool(row.get("flip", False))
+                        row["current_value"], bool(row.get("flip", False))
                     )
                     rotation_delta = axis_rotation(
                         angle_axis,
@@ -33537,7 +33816,7 @@ class MainWindow(QMainWindow):
                     equations.append(desired_normal)
                     values.append(
                         desired_normal @ target_point
-                        + float(row["offset"])
+                        + float(row["current_value"])
                         - desired_normal @ rotated_relative
                     )
             if equations:
@@ -33683,6 +33962,10 @@ class MainWindow(QMainWindow):
         previous_axes_visible = self.show_axes_action.isChecked()
         previous_planes_visible = self.show_planes_action.isChecked()
         if show_dialog:
+            # Component Origin axes are valid mate references.  They must be
+            # present in the viewer mesh before the common hover provider can
+            # offer them; showing planes/standalone axes alone is insufficient.
+            self.show_origins_action.setChecked(True)
             self.show_points_action.setChecked(True)
             self.show_axes_action.setChecked(True)
             self.show_planes_action.setChecked(True)
@@ -50532,6 +50815,7 @@ class MainWindow(QMainWindow):
             "upper_tolerance": "",
             "lower_tolerance": "",
             "locked": False,
+            "range_enabled": False,
         }
         style.update(
             self._dimension_styles(entity).get(dimension.key, {})
@@ -50565,13 +50849,7 @@ class MainWindow(QMainWindow):
         self._dimension_owner_ids[dimension.key] = entity.entity_id
         style = self._dimension_style(entity, dimension)
         overlay.set_locked(bool(style.get("locked", False)))
-        try:
-            decimal_places = max(
-                0,
-                min(12, int(style.get("decimal_places", 3))),
-            )
-        except (TypeError, ValueError):
-            decimal_places = display_decimal_places(self)
+        decimal_places = display_decimal_places(self)
         suffix = str(style.get("suffix", "")) or str(
             getattr(dimension, "value_suffix", "")
         )
@@ -50614,6 +50892,7 @@ class MainWindow(QMainWindow):
             ),
             upper_deviation=upper,
             lower_deviation=lower,
+            tolerance_suffix=("°" if isinstance(dimension, AngularDimension) else ""),
         )
         overlay.contextMenuRequested.connect(
             lambda position, key=dimension.key,
@@ -50902,7 +51181,41 @@ class MainWindow(QMainWindow):
             if dimension is not None
             else styles.get(key, {})
         )
+        current_style = dict(current_style)
+        overlay = self._dimension_overlays.get(key)
+        current_value = current_style.get(
+            "current_value",
+            current_style.get("nominal_value", 0.0),
+        )
+        if overlay is not None:
+            try:
+                current_value = evaluate_numeric_expression(
+                    str(overlay._edit_value)
+                )
+            except (AttributeError, NumericExpressionError):
+                pass
+        # The value shown by the live dimension overlay is authoritative for
+        # the editable nominal dimension.  Styling metadata may contain an
+        # older value and must never make Properties disagree with the view.
+        current_style["nominal_value"] = current_value
+        current_style["current_value"] = current_value
         binding = self._dimension_bindings.get(key)
+        assembly_dialog = self.assembly_component_dialog
+        if (
+            binding is not None
+            and binding[0] == "assembly_mate"
+            and assembly_dialog is not None
+            and assembly_dialog.component is entity
+            and 0 <= int(binding[1]) < len(assembly_dialog.rows)
+        ):
+            mate_edit = assembly_dialog.rows[int(binding[1])][3]
+            current_style.update({
+                "nominal_value": float(mate_edit.value()),
+                "range_enabled": bool(mate_edit.property("rangeEnabled")),
+                "lower_limit": float(mate_edit.property("lowerLimit")),
+                "upper_limit": float(mate_edit.property("upperLimit")),
+                "current_value": float(mate_edit.value()),
+            })
         if entity.kind == EntityKind.SKETCH and binding is not None:
             current_style = dict(current_style)
             if binding[0] == "sketch_distance":
@@ -50945,6 +51258,11 @@ class MainWindow(QMainWindow):
             current_style,
             display_decimal_places(self),
             self,
+            dimension_unit=(
+                "°"
+                if isinstance(dimension, AngularDimension)
+                else str(entity.parameters.get("unit", "mm")).strip() or "mm"
+            ),
         )
         self.dimension_properties_dialog = dialog
 
@@ -50979,16 +51297,54 @@ class MainWindow(QMainWindow):
             self._rebuild_application_toolbar()
 
         def apply_style(style: dict[str, Any]) -> None:
-            styles[key] = style
+            if binding is not None and binding[0] == "assembly_mate":
+                active_dialog = self.assembly_component_dialog
+                row_index = int(binding[1])
+                if (
+                    active_dialog is None
+                    or active_dialog.component is not entity
+                    or not 0 <= row_index < len(active_dialog.rows)
+                ):
+                    return
+                mate_edit = active_dialog.rows[row_index][3]
+                mate_edit.setProperty(
+                    "nominalValue", float(style["nominal_value"])
+                )
+                mate_edit.setProperty(
+                    "rangeEnabled", bool(style["range_enabled"])
+                )
+                mate_edit.setProperty(
+                    "lowerLimit", float(style["lower_limit"])
+                )
+                mate_edit.setProperty(
+                    "upperLimit", float(style["upper_limit"])
+                )
+                active_dialog._refresh_mate_range_label(row_index)
+                styles[key] = {
+                    name: value for name, value in style.items()
+                    if name not in {
+                        "nominal_value", "range_enabled", "lower_limit",
+                        "upper_limit", "current_value",
+                    }
+                }
+            else:
+                styles[key] = style
             entity.parameters["dimension_styles"] = json.dumps(
                 styles,
                 ensure_ascii=False,
             )
-            self._sync_sketch_dimension_lock(
-                entity,
+            if binding is None or binding[0] != "assembly_mate":
+                self._sync_sketch_dimension_lock(
+                    entity,
+                    key,
+                    bool(style.get("locked", False)),
+                )
+            self._commit_dimension_value(
                 key,
-                bool(style.get("locked", False)),
+                format_model_float(float(style["nominal_value"])),
             )
+            if binding is not None and binding[0] == "assembly_mate":
+                return
             self._mark_model_for_regeneration()
             if entity.kind == EntityKind.SKETCH:
                 refresh_sketch_dimension()
@@ -51280,6 +51636,45 @@ class MainWindow(QMainWindow):
                 tr("dimension.invalid_value", value=raw_value)
             )
             return
+        style = self._dimension_styles(entity).get(key, {})
+        if binding[0] == "assembly_mate":
+            assembly_dialog = self.assembly_component_dialog
+            row_index = int(binding[1])
+            if (
+                assembly_dialog is not None
+                and assembly_dialog.component is entity
+                and 0 <= row_index < len(assembly_dialog.rows)
+            ):
+                mate_edit = assembly_dialog.rows[row_index][3]
+                style = {
+                    **style,
+                    "nominal_value": float(
+                        mate_edit.property("nominalValue")
+                        if mate_edit.property("nominalValue") is not None
+                        else mate_edit.value()
+                    ),
+                    "range_enabled": bool(
+                        mate_edit.property("rangeEnabled")
+                    ),
+                    "lower_limit": float(mate_edit.property("lowerLimit")),
+                    "upper_limit": float(mate_edit.property("upperLimit")),
+                }
+        if not dimension_value_in_range(style, value):
+            try:
+                lower, upper = dimension_range_bounds(
+                    float(style.get("lower_limit", value)),
+                    float(style.get("upper_limit", value)),
+                )
+                allowed = (
+                    f"{format_model_float(lower)} .. "
+                    f"{format_model_float(upper)}"
+                )
+            except (TypeError, ValueError):
+                allowed = "?"
+            self.statusBar().showMessage(
+                tr("dimension.range_outside", allowed=allowed)
+            )
+            return
         if (
             not math.isfinite(value)
             or (binding[0] == "parameter" and value < 0.0)
@@ -51327,6 +51722,24 @@ class MainWindow(QMainWindow):
         ):
             self.statusBar().showMessage(
                 tr("dimension.invalid_value", value=raw_value)
+            )
+            return
+        if binding[0] == "assembly_mate":
+            dialog = self.assembly_component_dialog
+            row_index = int(binding[1])
+            if (
+                dialog is None
+                or dialog.component is not entity
+                or not 0 <= row_index < len(dialog.rows)
+            ):
+                return
+            dialog.rows[row_index][3].setValue(value)
+            self.statusBar().showMessage(
+                tr(
+                    "dimension.value_updated",
+                    value=self._format_display_value(value),
+                    unit=unit,
+                )
             )
             return
         if binding[0] == "sketch_point":
@@ -51792,9 +52205,27 @@ class MainWindow(QMainWindow):
                 container.entity_id,
                 format_model_float(value),
             )
+            styles = self._dimension_styles(entity)
+            updated_style = dict(styles.get(key, {}))
+            if bool(updated_style.get("range_enabled", False)):
+                updated_style["current_value"] = value
+                styles[key] = updated_style
+                entity.parameters["dimension_styles"] = json.dumps(
+                    styles,
+                    ensure_ascii=False,
+                )
             return
         else:
             entity.parameters[str(binding[1])] = format_model_float(value)
+        styles = self._dimension_styles(entity)
+        updated_style = dict(styles.get(key, {}))
+        if bool(updated_style.get("range_enabled", False)):
+            updated_style["current_value"] = value
+            styles[key] = updated_style
+            entity.parameters["dimension_styles"] = json.dumps(
+                styles,
+                ensure_ascii=False,
+            )
         self._mark_model_for_regeneration()
         preview_owner = (
             self.document.find_owning_object(entity.entity_id)

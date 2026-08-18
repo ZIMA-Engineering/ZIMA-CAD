@@ -6,6 +6,13 @@ mechanical engineers.
 The roadmap describes the intended development direction. Its order may change
 as the document model, geometric kernel integration and user workflows evolve.
 
+After the remaining foundational Python functionality is completed and its
+contracts are stabilized, development is intended to enter a feature freeze
+and migrate ZIMA-CAD incrementally to a modular C++/Qt implementation. OCCT
+will remain a separately built, dynamically linked solid-modeling kernel behind
+a narrow adapter. The approved direction, module boundaries and migration gates
+are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
+
 ## 1. Core and Parametric Container Model
 
 **Status: In progress**

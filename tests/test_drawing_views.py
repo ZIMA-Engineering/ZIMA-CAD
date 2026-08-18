@@ -9,7 +9,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QMouseEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem, QWidget
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
@@ -23,6 +24,8 @@ from zima_cad.app import (
     AxisConstraintDialog,
     ContainerPropertiesDialog,
     ContainerSummaryDialog,
+    DialogMiddleButtonFilter,
+    DimensionPropertiesDialog,
     DocumentTextInputDialog,
     EdgeTreatmentPropertiesDialog,
     EndTargetCollectionDialog,
@@ -30,6 +33,7 @@ from zima_cad.app import (
     FileSettingsDialog,
     MainWindow,
     MaterialDialog,
+    ParameterEditOverlay,
     PlaneAttachmentDialog,
     PlaneConstraintDialog,
     PointConstraintDialog,
@@ -55,6 +59,12 @@ from zima_cad.topology import (
     assembly_face_descriptor,
 )
 from zima_cad.widgets import PrecisionDoubleSpinBox
+from zima_cad.numeric_expression import NumericExpressionError
+from zima_cad.dimension_range import (
+    dimension_range_bounds,
+    dimension_value_in_range,
+    validate_dimension_range,
+)
 from zima_cad.drawing import (
     DrawingCanvas,
     DrawingWorkspace,
@@ -124,6 +134,311 @@ from zima_cad.viewer_mesh import (
     triangulate_shape,
     topology_subshape,
 )
+
+
+class DialogConfirmationConventionTests(unittest.TestCase):
+    def test_dimension_range_uses_absolute_limits(self) -> None:
+        self.assertEqual(dimension_range_bounds(90.0, 110.0), (90.0, 110.0))
+        self.assertEqual(dimension_range_bounds(-30.0, -10.0), (-30.0, -10.0))
+
+    def test_dimension_range_checks_current_value(self) -> None:
+        style = {
+            "nominal_value": 100.0,
+            "range_enabled": True,
+            "lower_limit": 90.0,
+            "upper_limit": 110.0,
+        }
+        self.assertTrue(dimension_value_in_range(style, 105.0))
+        self.assertFalse(dimension_value_in_range(style, 115.0))
+
+    def test_dimension_range_accepts_two_negative_absolute_limits(self) -> None:
+        validate_dimension_range({
+            "nominal_value": -25.0,
+            "range_enabled": True,
+            "lower_limit": -30.0,
+            "upper_limit": -20.0,
+            "current_value": -22.0,
+        })
+
+    def test_dimension_range_rejects_nominal_outside_absolute_limits(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_dimension_range({
+                "nominal_value": 100.0,
+                "range_enabled": True,
+                "lower_limit": 105.0,
+                "upper_limit": 110.0,
+                "current_value": 105.0,
+            })
+
+    def test_dimension_properties_uses_nominal_as_current_value(self) -> None:
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 100.0,
+                "range_enabled": True,
+                "lower_limit": 90.0,
+                "upper_limit": 110.0,
+                "current_value": 105.0,
+            },
+            3,
+        )
+
+        values = dialog.range_values()
+
+        self.assertEqual(values["nominal_value"], 100.0)
+        self.assertEqual(values["lower_limit"], 90.0)
+        self.assertEqual(values["upper_limit"], 110.0)
+        self.assertEqual(values["current_value"], 100.0)
+        self.assertIsInstance(dialog.nominal_value_edit, PrecisionDoubleSpinBox)
+        self.assertIsInstance(dialog.lower_limit_edit, PrecisionDoubleSpinBox)
+        self.assertIsInstance(dialog.upper_limit_edit, PrecisionDoubleSpinBox)
+        self.assertEqual(dialog.nominal_value_edit.displayDecimals(), 3)
+        self.assertFalse(hasattr(dialog, "current_value_edit"))
+        dialog.close()
+
+    def test_first_range_enable_uses_zero_and_positive_nominal(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        dialog = DimensionPropertiesDialog(
+            {"nominal_value": 20.0, "range_enabled": False},
+            3,
+        )
+
+        dialog.range_enabled_checkbox.setChecked(True)
+
+        self.assertEqual(dialog.lower_limit_edit.value(), 0.0)
+        self.assertEqual(dialog.upper_limit_edit.value(), 20.0)
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_first_range_enable_replaces_inactive_stale_limits(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 20.0,
+                "range_enabled": False,
+                "lower_limit": 20.0,
+                "upper_limit": 20.0,
+            },
+            3,
+        )
+
+        dialog.range_enabled_checkbox.setChecked(True)
+
+        self.assertEqual(dialog.lower_limit_edit.value(), 0.0)
+        self.assertEqual(dialog.upper_limit_edit.value(), 20.0)
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_first_range_enable_orders_negative_nominal_and_zero(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        dialog = DimensionPropertiesDialog(
+            {"nominal_value": -20.0, "range_enabled": False},
+            3,
+        )
+
+        dialog.range_enabled_checkbox.setChecked(True)
+
+        self.assertEqual(dialog.lower_limit_edit.value(), -20.0)
+        self.assertEqual(dialog.upper_limit_edit.value(), 0.0)
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_angular_dimension_tolerances_are_labelled_in_degrees(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        dialog = DimensionPropertiesDialog({}, 3, dimension_unit="°")
+        label = dialog._tolerance_form.labelForField(
+            dialog.symmetric_tolerance_edit
+        )
+        self.assertIsNotNone(label)
+        self.assertIn("°", label.text())
+        dialog.close()
+        self.assertIsNotNone(application)
+
+    def test_angular_overlay_appends_degrees_to_tolerance(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        overlay = ParameterEditOverlay()
+        overlay.show_value(
+            "20",
+            "°",
+            tolerance_mode="symmetric",
+            tolerance_value="1",
+            tolerance_suffix="°",
+        )
+        self.assertEqual(overlay.suffix_label.text(), "°±1°")
+        overlay.close()
+        self.assertIsNotNone(application)
+
+    def test_dimension_properties_rejects_value_outside_range(self) -> None:
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 115.0,
+                "range_enabled": True,
+                "lower_limit": 90.0,
+                "upper_limit": 110.0,
+                "current_value": 115.0,
+            },
+            3,
+        )
+
+        with self.assertRaises(NumericExpressionError):
+            dialog.range_values()
+        dialog.close()
+
+    def test_nominal_change_moves_current_value_with_range(self) -> None:
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 100.0,
+                "range_enabled": True,
+                "lower_limit": 90.0,
+                "upper_limit": 120.0,
+                "current_value": 105.0,
+            },
+            3,
+        )
+        dialog.nominal_value_edit.setValue(110.0)
+
+        values = dialog.range_values()
+
+        self.assertEqual(values["nominal_value"], 110.0)
+        self.assertEqual(values["current_value"], 110.0)
+        dialog.close()
+
+    def test_typed_nominal_is_committed_before_range_validation(self) -> None:
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 100.0,
+                "range_enabled": True,
+                "lower_limit": 90.0,
+                "upper_limit": 110.0,
+            },
+            3,
+        )
+        editor = dialog.nominal_value_edit.lineEdit()
+        editor.setText("105.000")
+        editor.setModified(True)
+
+        values = dialog.range_values()
+
+        self.assertEqual(values["nominal_value"], 105.0)
+        self.assertEqual(values["current_value"], 105.0)
+        dialog.close()
+
+    def test_nominal_change_is_current_value_without_range(self) -> None:
+        dialog = DimensionPropertiesDialog(
+            {
+                "nominal_value": 20.0,
+                "range_enabled": False,
+                "current_value": 20.0,
+            },
+            3,
+        )
+        dialog.nominal_value_edit.setValue(35.0)
+
+        values = dialog.range_values()
+
+        self.assertEqual(values["current_value"], 35.0)
+        dialog.close()
+
+    def test_assembly_mate_commit_obeys_dimension_range(self) -> None:
+        key = "assembly_mate_plane:1"
+        style = {
+            "nominal_value": 20.0,
+            "range_enabled": True,
+            "lower_limit": 20.0,
+            "upper_limit": 30.0,
+            "current_value": 20.0,
+        }
+        component = SimpleNamespace(parameters={
+            "unit": "mm",
+            "dimension_styles": json.dumps({key: style}),
+        })
+
+        class OffsetEdit:
+            def __init__(self) -> None:
+                self.values = []
+                self.properties = {
+                    "nominalValue": 20.0,
+                    "rangeEnabled": True,
+                    "lowerLimit": 20.0,
+                    "upperLimit": 30.0,
+                }
+
+            def setValue(self, value) -> None:
+                self.values.append(value)
+
+            def property(self, name):
+                return self.properties.get(name)
+
+            def setProperty(self, name, value) -> None:
+                self.properties[name] = value
+
+        offset = OffsetEdit()
+        dialog = SimpleNamespace(
+            component=component,
+            rows=[None, (None, None, None, offset, None)],
+            # Double-clicking a component shows dimensions without opening
+            # Component Properties, so its mate controller is intentionally
+            # hidden and must still accept dimension commits.
+            isVisible=lambda: False,
+        )
+        messages = []
+        status_bar = SimpleNamespace(
+            showMessage=lambda message: messages.append(message)
+        )
+
+        class Harness:
+            document = SimpleNamespace(find_entity=lambda _entity_id: component)
+            _dimension_object_id = "component"
+            _dimension_bindings = {key: ("assembly_mate", 1)}
+            _sketch_edit_entity_id = None
+            _dimension_selection_suspended = False
+            assembly_component_dialog = dialog
+            settings = SimpleNamespace(language="en")
+
+            @staticmethod
+            def _dimension_styles(entity):
+                return MainWindow._dimension_styles(entity)
+
+            @staticmethod
+            def _format_display_value(value):
+                return str(value)
+
+            @staticmethod
+            def statusBar():
+                return status_bar
+
+        harness = Harness()
+
+        MainWindow._commit_dimension_value(harness, key, "35")
+        self.assertEqual(offset.values, [])
+        MainWindow._commit_dimension_value(harness, key, "25")
+        self.assertEqual(offset.values, [25.0])
+
+    def test_dimension_properties_middle_double_click_invokes_ok(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        parent.resize(900, 700)
+        dialog = DimensionPropertiesDialog({}, 3, parent)
+        accepted = []
+        dialog.accepted.connect(lambda: accepted.append(True))
+        parent.show()
+        dialog.show()
+        application.processEvents()
+
+        event = QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            QPointF(10.0, 10.0),
+            QPointF(10.0, 10.0),
+            QPointF(10.0, 10.0),
+            Qt.MouseButton.MiddleButton,
+            Qt.MouseButton.MiddleButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        event_filter = DialogMiddleButtonFilter()
+
+        self.assertTrue(event_filter.eventFilter(dialog, event))
+        self.assertEqual(accepted, [True])
+        QTest.qWait(120)
+        parent.close()
 
 
 class DrawingViewConventionTests(unittest.TestCase):
@@ -1652,6 +1967,8 @@ class DrawingViewConventionTests(unittest.TestCase):
             choices,
         )
 
+        self.assertEqual(dialog.reference_list.columnCount(), 6)
+        self.assertEqual(dialog.rows[0][3].displayDecimals(), 3)
         self.assertEqual(
             dialog.coordinate_edits[2].value(),
             7.39922688802,
@@ -3589,6 +3906,8 @@ class DrawingViewConventionTests(unittest.TestCase):
         dialog = SimpleNamespace(
             _reference_frames={},
             _source_frame_keys=set(),
+            source_choices=[],
+            target_choices=[],
         )
         MainWindow._register_lazy_assembly_frame(
             dialog,
@@ -3602,6 +3921,10 @@ class DrawingViewConventionTests(unittest.TestCase):
             {"selected-face": ((1.0, 2.0, 3.0), (0.0, 0.0, 1.0))},
         )
         self.assertEqual(dialog._source_frame_keys, {"selected-face"})
+        self.assertEqual(
+            dialog.source_choices,
+            [("selected-face", "selected-face", (1.0, 2.0, 3.0), (0.0, 0.0, 1.0))],
+        )
 
     def test_assembly_displayed_face_maps_to_original_solid(self) -> None:
         source_document = create_empty_part()
@@ -3849,6 +4172,42 @@ class DrawingViewConventionTests(unittest.TestCase):
             accepted, [f"{component.entity_id}:axis:X"]
         )
 
+    def test_rebound_part_origin_axis_uses_component_origin_descriptor(self) -> None:
+        source_document = create_empty_part()
+        source_origin = next(
+            child for child in source_document.root.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        assembly = create_empty_assembly()
+        component = assembly.create_container(
+            "Component", ContainerType.COMPONENT
+        )
+        accepted = []
+        window = MainWindow.__new__(MainWindow)
+        window.document = assembly
+        window._component_source_document = (
+            lambda candidate: source_document
+            if candidate is component else None
+        )
+
+        def accept_axis(descriptor):
+            accepted.append(descriptor)
+            return True
+
+        window.assembly_component_dialog = SimpleNamespace(
+            isVisible=lambda: True,
+            selection_paused=False,
+            accept_axis=accept_axis,
+        )
+
+        consumed = window._accept_assembly_edge_reference(
+            f"{component.entity_id}:{source_origin.entity_id}",
+            2,
+        )
+
+        self.assertTrue(consumed)
+        self.assertEqual(accepted, [f"{component.entity_id}:axis:Y"])
+
     def test_reference_picker_prefers_axis_over_coincident_body_edge(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         viewer._mesh = SimpleNamespace(
@@ -3880,6 +4239,33 @@ class DrawingViewConventionTests(unittest.TestCase):
             viewer._pick_edge(QPointF(5.0, 0.0)),
             ("component:datum-axis", 2),
         )
+
+    def test_native_assembly_axis_hover_is_not_cleared_without_helper_mesh(self) -> None:
+        cleared = []
+        source_hovers = []
+        view_hovers = []
+        viewer = SimpleNamespace(
+            _provided_hover_candidate=ViewerPickCandidate(
+                "edge", "component:axis", 1, None
+            ),
+            blockSignals=lambda blocked: False,
+            _set_hovered_edge=lambda value: cleared.append(value),
+            set_source_topology_hover=lambda mesh, kind=None: source_hovers.append(
+                (mesh, kind)
+            ),
+        )
+        window = SimpleNamespace(
+            native_viewer=viewer,
+            _set_view_hover=lambda *values: view_hovers.append(values),
+        )
+
+        MainWindow._on_native_edge_hovered(
+            window, "component:axis", 1
+        )
+
+        self.assertEqual(cleared, [])
+        self.assertEqual(source_hovers, [(None, None)])
+        self.assertEqual(view_hovers, [("edge", "component:axis", 1)])
 
     def test_plane_picker_accepts_plane_interior(self) -> None:
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)

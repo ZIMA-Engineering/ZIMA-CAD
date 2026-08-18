@@ -19,6 +19,8 @@ Current documentation:
 - [Sketcher interaction](doc/SKETCHER.md)
 - [Stable topology naming](doc/STABLE_TOPOLOGY_NAMING.md)
 - [Numerical precision and model tolerance](doc/NUMERICAL_PRECISION.md)
+- [Future modular C++ migration](doc/CXX_MIGRATION.md)
+- [Dimension ranges and constrained motion](doc/DIMENSION_RANGES.md)
 
 ## License
 
