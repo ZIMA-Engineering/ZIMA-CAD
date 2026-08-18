@@ -597,6 +597,26 @@ int main() {
                     144.0 * std::numbers::pi) < 1.0e-6,
                 "Two exact Arcs did not form a closed circular profile");
 
+        auto ellipse_profile_document =
+            zima::document::PartDocument::create_default();
+        auto ellipse_profile_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(ellipse_profile_sketch.add_ellipse(
+            0.0, 0.0, 10.0, 0.0, 0.0, 4.0));
+        const auto ellipse_profile_sketch_id = ellipse_profile_sketch.id;
+        ellipse_profile_document.sketches.push_back(
+            std::move(ellipse_profile_sketch));
+        ellipse_profile_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(
+                ellipse_profile_sketch_id));
+        bool ellipse_profile_rejected = false;
+        try {
+            static_cast<void>(ellipse_profile_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            ellipse_profile_rejected = true;
+        }
+        require(ellipse_profile_rejected,
+                "Ellipse profile reached OCCT without an exact kernel contract");
+
         auto revolution_document = zima::document::PartDocument::create_default();
         auto revolution_sketch = zima::sketcher::Sketch::create_default();
         static_cast<void>(revolution_sketch.add_rectangle(

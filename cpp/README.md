@@ -345,6 +345,16 @@ Selecting the Arc exposes the same internal Radius-dimension Properties window
 as Circle. The dimension drives the persisted arc radius, obeys absolute limits,
 participates in solver DOF, and is drawn radially through the middle of the arc.
 
+Ellipse is persisted as a native ZIMA Sketch curve with its own stable ID and
+stable centre, major-axis, and minor-axis point references. Moving its centre
+translates the complete curve without changing either semiaxis. Moving the major
+point changes its radius and rotation while keeping the minor axis perpendicular;
+moving the minor point changes only its radius. The viewer uses a stable
+`ellipse:<id>` curve reference, and the complete geometry round-trips in Sketch
+format version 3. Extrusion and Revolution explicitly reject Ellipse profiles
+until the kernel boundary gains an exact Ellipse loop type; no viewer polyline is
+ever promoted into body geometry.
+
 The Coincident command owns an explicit point-only viewer selection contract.
 Two confirmed stable `point:<id>` candidates create one transactional constraint;
 the solver moves only unfixed coordinates, rejects duplicate or conflicting

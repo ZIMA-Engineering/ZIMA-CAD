@@ -54,6 +54,18 @@ struct SketchArc {
     bool operator==(const SketchArc&) const = default;
 };
 
+struct SketchEllipse {
+    std::string id;
+    std::string center_point_id;
+    std::string major_point_id;
+    std::string minor_point_id;
+    double major_radius{};
+    double minor_radius{};
+    double rotation{};
+    bool construction{};
+    bool operator==(const SketchEllipse&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -95,6 +107,7 @@ public:
     std::vector<SketchSegment> segments;
     std::vector<SketchCircle> circles;
     std::vector<SketchArc> arcs;
+    std::vector<SketchEllipse> ellipses;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -132,6 +145,10 @@ public:
     [[nodiscard]] std::string add_arc(
         double center_x, double center_y, double start_x, double start_y,
         double end_x, double end_y, bool construction = false,
+        double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_ellipse(
+        double center_x, double center_y, double major_x, double major_y,
+        double minor_x, double minor_y, bool construction = false,
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;

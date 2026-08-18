@@ -575,6 +575,35 @@ int main() {
         require(invalid_arc_rejected && arc_sketch.arcs == arc_before_invalid.arcs &&
                     arc_sketch.points == arc_before_invalid.points,
                 "Degenerate arc partially changed the Sketch");
+        auto ellipse_sketch = zima::sketcher::Sketch::create_default();
+        const auto ellipse_id = ellipse_sketch.add_ellipse(
+            0.0, 0.0, 20.0, 0.0, 0.0, 8.0);
+        require(ellipse_sketch.ellipses.size() == 1 &&
+                    ellipse_sketch.points.size() == 3 &&
+                    ellipse_sketch.viewer_mesh().edges.front().reference.semantic_key ==
+                        "ellipse:" + ellipse_id,
+                "Ellipse did not persist stable axis references or viewer identity");
+        const auto ellipse_center = ellipse_sketch.ellipses.front().center_point_id;
+        const auto ellipse_major = ellipse_sketch.ellipses.front().major_point_id;
+        const auto ellipse_minor = ellipse_sketch.ellipses.front().minor_point_id;
+        require(ellipse_sketch.move_point(ellipse_center, 5.0, 4.0) &&
+                    std::abs(ellipse_sketch.ellipses.front().major_radius - 20.0) < 1.0e-9 &&
+                    std::abs(ellipse_sketch.ellipses.front().minor_radius - 8.0) < 1.0e-9 &&
+                    std::abs(ellipse_sketch.find_point(ellipse_major)->x - 25.0) < 1.0e-9 &&
+                    std::abs(ellipse_sketch.find_point(ellipse_minor)->y - 12.0) < 1.0e-9,
+                "Moving an Ellipse center changed its size or failed to translate axes");
+        require(ellipse_sketch.move_point(ellipse_major, 5.0, 34.0) &&
+                    std::abs(ellipse_sketch.ellipses.front().major_radius - 30.0) < 1.0e-9 &&
+                    std::abs(ellipse_sketch.find_point(ellipse_minor)->x + 3.0) < 1.0e-9,
+                "Moving the Ellipse major axis did not rotate its minor axis");
+        const auto loaded_ellipse = zima::sketcher::Sketch::from_serialized(
+            ellipse_sketch.serialized());
+        require(loaded_ellipse.ellipses == ellipse_sketch.ellipses &&
+                    loaded_ellipse.points == ellipse_sketch.points,
+                "Ellipse did not survive current Sketch serialization");
+        ellipse_sketch.remove_geometry(ellipse_id);
+        require(ellipse_sketch.ellipses.empty() && ellipse_sketch.points.empty(),
+                "Ellipse deletion retained orphan axis points");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

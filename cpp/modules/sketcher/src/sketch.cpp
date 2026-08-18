@@ -189,6 +189,32 @@ void Sketch::validate() const {
         }
     }
     ids.clear();
+    for (const auto& ellipse : ellipses) {
+        const auto* center = find_point(ellipse.center_point_id);
+        const auto* major = find_point(ellipse.major_point_id);
+        const auto* minor = find_point(ellipse.minor_point_id);
+        if (ellipse.id.empty() || !ids.insert(ellipse.id).second ||
+            center == nullptr || major == nullptr || minor == nullptr ||
+            ellipse.center_point_id == ellipse.major_point_id ||
+            ellipse.center_point_id == ellipse.minor_point_id ||
+            ellipse.major_point_id == ellipse.minor_point_id ||
+            !std::isfinite(ellipse.major_radius) || ellipse.major_radius <= 0.0 ||
+            !std::isfinite(ellipse.minor_radius) || ellipse.minor_radius <= 0.0 ||
+            !std::isfinite(ellipse.rotation)) {
+            throw std::runtime_error("Sketch ellipse is invalid");
+        }
+        if (std::hypot(
+                major->x - (center->x + ellipse.major_radius * std::cos(ellipse.rotation)),
+                major->y - (center->y + ellipse.major_radius * std::sin(ellipse.rotation))) >
+                1.0e-7 ||
+            std::hypot(
+                minor->x - (center->x - ellipse.minor_radius * std::sin(ellipse.rotation)),
+                minor->y - (center->y + ellipse.minor_radius * std::cos(ellipse.rotation))) >
+                1.0e-7) {
+            throw std::runtime_error("Sketch ellipse axis references are inconsistent");
+        }
+    }
+    ids.clear();
     for (const auto& constraint : constraints) {
         const auto owned_segment = std::find_if(
             segments.begin(), segments.end(), [&](const auto& segment) {
@@ -368,6 +394,36 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             start->y = center->y + radius * std::sin(arc.start_angle);
             end->x = center->x + radius * std::cos(angle);
             end->y = center->y + radius * std::sin(angle);
+        }
+    }
+    for (auto& ellipse : next.ellipses) {
+        auto* center = next.find_point(ellipse.center_point_id);
+        auto* major = next.find_point(ellipse.major_point_id);
+        auto* minor = next.find_point(ellipse.minor_point_id);
+        if (ellipse.center_point_id == point_id) {
+            const double dx = x - original_x;
+            const double dy = y - original_y;
+            if ((major->fixed || minor->fixed) &&
+                (std::abs(dx) > 1.0e-12 || std::abs(dy) > 1.0e-12)) return false;
+            major->x += dx;
+            major->y += dy;
+            minor->x += dx;
+            minor->y += dy;
+        } else if (ellipse.major_point_id == point_id) {
+            const double radius = std::hypot(x - center->x, y - center->y);
+            if (radius <= 1.0e-12 || minor->fixed) return false;
+            ellipse.major_radius = radius;
+            ellipse.rotation = std::atan2(y - center->y, x - center->x);
+            minor->x = center->x - ellipse.minor_radius * std::sin(ellipse.rotation);
+            minor->y = center->y + ellipse.minor_radius * std::cos(ellipse.rotation);
+        } else if (ellipse.minor_point_id == point_id) {
+            const double projected =
+                -(x - center->x) * std::sin(ellipse.rotation) +
+                 (y - center->y) * std::cos(ellipse.rotation);
+            if (std::abs(projected) <= 1.0e-12) return false;
+            ellipse.minor_radius = std::abs(projected);
+            minor->x = center->x - ellipse.minor_radius * std::sin(ellipse.rotation);
+            minor->y = center->y + ellipse.minor_radius * std::cos(ellipse.rotation);
         }
     }
     const auto solved = next.solve();
@@ -559,7 +615,9 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto arc_count = std::erase_if(next.arcs,
         [&](const auto& value) { return value.id == geometry_id; });
-    if (segment_count + circle_count + arc_count != 1) {
+    const auto ellipse_count = std::erase_if(next.ellipses,
+        [&](const auto& value) { return value.id == geometry_id; });
+    if (segment_count + circle_count + arc_count + ellipse_count != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     std::erase_if(next.constraints,
@@ -577,6 +635,11 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             }) || std::any_of(next.arcs.begin(), next.arcs.end(), [&](const auto& value) {
                 return value.center_point_id == point_id ||
                     value.start_point_id == point_id || value.end_point_id == point_id;
+            }) || std::any_of(next.ellipses.begin(), next.ellipses.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == point_id ||
+                        value.major_point_id == point_id ||
+                        value.minor_point_id == point_id;
             }) || std::any_of(next.constraints.begin(), next.constraints.end(),
                 [&](const auto& value) {
                     return value.first_point_id == point_id || value.second_point_id == point_id;
@@ -688,6 +751,49 @@ std::string Sketch::add_arc(
                   start_angle, end_angle, construction};
     const auto id = arc.id;
     next.arcs.push_back(std::move(arc));
+    next.validate();
+    *this = std::move(next);
+    return id;
+}
+
+std::string Sketch::add_ellipse(
+    double center_x, double center_y, double major_x, double major_y,
+    double minor_x, double minor_y, bool construction, double snap_tolerance) {
+    for (const double value : {center_x, center_y, major_x, major_y,
+                               minor_x, minor_y, snap_tolerance}) {
+        require_finite(value, "ellipse parameter");
+    }
+    const double major_radius = std::hypot(major_x - center_x, major_y - center_y);
+    const double rotation = std::atan2(major_y - center_y, major_x - center_x);
+    const double minor_radius = std::abs(
+        -(minor_x - center_x) * std::sin(rotation) +
+          (minor_y - center_y) * std::cos(rotation));
+    if (major_radius <= 1.0e-12 || minor_radius <= 1.0e-12 || snap_tolerance < 0.0) {
+        throw std::invalid_argument("Sketch ellipse axes or snap tolerance are invalid");
+    }
+    auto next = *this;
+    const auto point_id = [&](double x, double y) {
+        const auto found = std::find_if(next.points.begin(), next.points.end(),
+            [&](const auto& point) {
+                return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
+            });
+        if (found != next.points.end()) return found->id;
+        auto point = create_point(x, y);
+        const auto id = point.id;
+        next.points.push_back(std::move(point));
+        return id;
+    };
+    const auto center_id = point_id(center_x, center_y);
+    const auto major_id = point_id(
+        center_x + major_radius * std::cos(rotation),
+        center_y + major_radius * std::sin(rotation));
+    const auto minor_id = point_id(
+        center_x - minor_radius * std::sin(rotation),
+        center_y + minor_radius * std::cos(rotation));
+    SketchEllipse ellipse{make_id(), center_id, major_id, minor_id,
+                          major_radius, minor_radius, rotation, construction};
+    const auto id = ellipse.id;
+    next.ellipses.push_back(std::move(ellipse));
     next.validate();
     *this = std::move(next);
     return id;
@@ -1143,6 +1249,24 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         result.edges.push_back(std::move(edge));
     }
+    for (const auto& ellipse : ellipses) {
+        const auto* center = find_point(ellipse.center_point_id);
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {id, "ellipse:" + ellipse.id, {}};
+        edge.points.reserve(circle_samples + 1);
+        for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
+            const double parameter = 2.0 * 3.14159265358979323846 *
+                static_cast<double>(sample) / static_cast<double>(circle_samples);
+            const double local_x = ellipse.major_radius * std::cos(parameter);
+            const double local_y = ellipse.minor_radius * std::sin(parameter);
+            edge.points.push_back(world_point(
+                center->x + local_x * std::cos(ellipse.rotation) -
+                    local_y * std::sin(ellipse.rotation),
+                center->y + local_x * std::sin(ellipse.rotation) +
+                    local_y * std::cos(ellipse.rotation)));
+        }
+        result.edges.push_back(std::move(edge));
+    }
     for (const auto& arc : arcs) {
         const auto* center = find_point(arc.center_point_id);
         zima::kernel::ViewerEdge edge;
@@ -1296,6 +1420,14 @@ std::string Sketch::serialized() const {
         {"radius", arc.radius},
         {"start_angle", arc.start_angle}, {"end_angle", arc.end_angle},
         {"construction", arc.construction}});
+    nlohmann::json ellipse_values = nlohmann::json::array();
+    for (const auto& ellipse : ellipses) ellipse_values.push_back({
+        {"id", ellipse.id}, {"center", ellipse.center_point_id},
+        {"major_point", ellipse.major_point_id},
+        {"minor_point", ellipse.minor_point_id},
+        {"major_radius", ellipse.major_radius},
+        {"minor_radius", ellipse.minor_radius}, {"rotation", ellipse.rotation},
+        {"construction", ellipse.construction}});
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -1312,12 +1444,13 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 2},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 3},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
         {"circles", std::move(circle_values)},
         {"arcs", std::move(arc_values)},
+        {"ellipses", std::move(ellipse_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
     return root.dump(2);
@@ -1325,7 +1458,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 2) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 3) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -1348,6 +1481,13 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("start").get<std::string>(), value.at("end").get<std::string>(),
         value.at("radius").get<double>(), value.at("start_angle").get<double>(),
         value.at("end_angle").get<double>(), value.at("construction").get<bool>()});
+    for (const auto& value : root.at("ellipses")) sketch.ellipses.push_back({
+        value.at("id").get<std::string>(), value.at("center").get<std::string>(),
+        value.at("major_point").get<std::string>(),
+        value.at("minor_point").get<std::string>(),
+        value.at("major_radius").get<double>(),
+        value.at("minor_radius").get<double>(), value.at("rotation").get<double>(),
+        value.at("construction").get<bool>()});
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),

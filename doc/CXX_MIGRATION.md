@@ -552,6 +552,13 @@ odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytic
 Rozšíření o další křivky přijde až s vlastním jednoznačným datovým kontraktem,
 ne skrytou OCCT rekonstrukcí při editaci.
 
+Skica nyní persistuje také elipsu s vlastním stabilním ID a stabilními body
+středu, hlavní a vedlejší poloosy. Přesun středu pouze přeloží celou elipsu;
+hlavní bod mění velikost a natočení hlavní poloosy a vedlejší bod pouze velikost
+kolmé vedlejší poloosy. Viewer používá `ellipse:<id>`. Vytažení a Rotace elipsu
+zatím výslovně odmítnou před OCCT, protože kernelové rozhraní ještě nemá její
+přesný typ a viewerová polyline se nesmí použít jako modelovací geometrie.
+
 Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou s vnitřním
 kruhovým otvorem R2, symetricky vytažený o 6 mm, musí mít objem `276π mm³` a
 interval `−3…3 mm`. Dva půlkruhové

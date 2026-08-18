@@ -75,6 +75,11 @@ zima::kernel::ExtrusionRequest extrusion_request(
     ExtrusionDirection direction_mode) {
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
+    if (std::any_of(sketch.ellipses.begin(), sketch.ellipses.end(),
+            [](const auto& ellipse) { return !ellipse.construction; })) {
+        throw std::runtime_error(
+            "Ellipse profiles are not yet supported by Extrusion or Revolution");
+    }
     zima::kernel::ExtrusionRequest request;
     request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
         ? zima::kernel::Vec3{0.0, 0.0, height}
