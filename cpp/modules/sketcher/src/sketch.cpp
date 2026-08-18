@@ -287,7 +287,8 @@ void Sketch::validate() const {
         }
         require_finite(dimension.value, "dimension value");
         if ((dimension.kind == DimensionKind::Distance || radial_dimension ||
-             ellipse_dimension) &&
+             dimension.kind == DimensionKind::EllipseMajorRadius ||
+             dimension.kind == DimensionKind::EllipseMinorRadius) &&
             dimension.value < 0.0) {
             throw std::runtime_error("Distance must not be negative");
         }
@@ -332,8 +333,14 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
          (value < -180.0 || value > 180.0)) ||
         (found->lower_limit && value < *found->lower_limit) ||
         (found->upper_limit && value > *found->upper_limit)) return false;
-    found->value = value;
-    return true;
+    auto updated = *found;
+    updated.value = value;
+    try {
+        apply_dimension(std::move(updated));
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 void Sketch::set_point_fixed(const std::string& point_id, bool fixed) {

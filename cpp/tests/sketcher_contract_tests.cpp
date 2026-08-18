@@ -612,6 +612,8 @@ int main() {
         auto ellipse_rotation_dimension =
             ellipse_sketch.create_ellipse_rotation_dimension(ellipse_id);
         ellipse_rotation_dimension.value = 30.0;
+        ellipse_rotation_dimension.lower_limit = -45.0;
+        ellipse_rotation_dimension.upper_limit = 45.0;
         ellipse_sketch.apply_dimension(ellipse_rotation_dimension);
         const auto dimensioned_ellipse_packet = ellipse_sketch.viewer_mesh();
         require(std::abs(ellipse_sketch.ellipses.front().major_radius - 25.0) < 1.0e-9 &&
@@ -623,6 +625,25 @@ int main() {
                     dimensioned_ellipse_packet.dimensions[1].label_prefix == "b=" &&
                     dimensioned_ellipse_packet.dimensions[2].unit_suffix == " °",
                 "Ellipse dimensions did not drive geometry or viewer data");
+        const auto ellipse_before_rotation_limit = ellipse_sketch;
+        auto invalid_ellipse_rotation = ellipse_rotation_dimension;
+        invalid_ellipse_rotation.value = 60.0;
+        bool ellipse_rotation_limit_rejected = false;
+        try {
+            ellipse_sketch.apply_dimension(invalid_ellipse_rotation);
+        } catch (const std::runtime_error&) {
+            ellipse_rotation_limit_rejected = true;
+        }
+        require(ellipse_rotation_limit_rejected &&
+                    ellipse_sketch.ellipses == ellipse_before_rotation_limit.ellipses &&
+                    ellipse_sketch.points == ellipse_before_rotation_limit.points,
+                "Out-of-range Ellipse rotation partially changed geometry");
+        const bool ellipse_rotation_set = ellipse_sketch.set_dimension_value(
+            ellipse_rotation_dimension.id, -30.0);
+        require(ellipse_rotation_set &&
+                    std::abs(ellipse_sketch.ellipses.front().rotation +
+                        3.14159265358979323846 / 6.0) < 1.0e-9,
+                "Generic dimension API did not drive Ellipse rotation");
         const auto loaded_dimensioned_ellipse = zima::sketcher::Sketch::from_serialized(
             ellipse_sketch.serialized());
         require(loaded_dimensioned_ellipse.dimensions == ellipse_sketch.dimensions,

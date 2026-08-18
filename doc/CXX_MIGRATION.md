@@ -572,6 +572,10 @@ Vybraná elipsa nabízí dvě samostatné kóty hlavní poloosy `a` a vedlejší
 řídicí/měřený stav a absolutní dolní/horní meze. Změna hodnoty transakčně upraví
 příslušný osový bod; viewer je zobrazuje jako `a=` a `b=` a serializace zachová
 jejich přesný druh i vlastníka.
+Obecná cesta `set_dimension_value()` nyní neukládá pouze nové číslo, ale
+transakčně spustí stejnou aplikaci kóty a solver jako Properties. Neplatná hodnota,
+mez nebo konflikt nezmění ani kótu, ani geometrii. Záporný úhel je přitom platný
+úhlový parametr a nesmí být zaměněn za zápornou délku.
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné

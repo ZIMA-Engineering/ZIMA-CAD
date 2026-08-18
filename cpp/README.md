@@ -368,6 +368,11 @@ ID, support driving/measured state and absolute lower/upper limits, update their
 axis point transactionally, persist in the current Sketch format, and render as
 pickable `a=` and `b=` dimensions. Editing the tree or viewer dimension reuses the
 same Properties class as every other Sketch dimension.
+The generic `set_dimension_value()` path is transactional as well: a successful
+value change immediately solves and updates the owned points or geometry, while
+invalid values, limits, or solver conflicts leave both dimension and geometry
+unchanged. Negative angular values are valid and are never classified as negative
+lengths.
 Ellipse rotation is a third independent driving/measured dimension in degrees.
 Changing it rotates both persisted axis points about the centre without changing
 either semiaxis; dragging the major point respects an active driving rotation.
