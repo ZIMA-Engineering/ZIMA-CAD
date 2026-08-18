@@ -142,6 +142,13 @@ struct ExtrusionRequest {
     Vec3 direction{0.0, 0.0, 10.0};
 };
 
+struct RevolutionRequest {
+    std::vector<Vec3> profile;
+    Vec3 axis_point;
+    Vec3 axis_direction{1.0, 0.0, 0.0};
+    double angle_degrees{360.0};
+};
+
 enum class BooleanOperation { Add, Subtract };
 
 struct BoxOperation {
@@ -150,7 +157,8 @@ struct BoxOperation {
     BooleanOperation operation{BooleanOperation::Add};
 };
 
-using PrimitiveRequest = std::variant<BoxRequest, CylinderRequest, ExtrusionRequest>;
+using PrimitiveRequest = std::variant<
+    BoxRequest, CylinderRequest, ExtrusionRequest, RevolutionRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -244,7 +252,7 @@ struct BodyResult {
                         primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
-            } else {
+            } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -295,6 +303,20 @@ struct BodyResult {
                 for (const double value : {
                         primitive.direction.x, primitive.direction.y,
                         primitive.direction.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else {
+                u64(primitive.profile.size());
+                for (const auto& point : primitive.profile) {
+                    for (const double value : {point.x, point.y, point.z}) {
+                        u64(std::bit_cast<std::uint64_t>(value));
+                    }
+                }
+                for (const double value : {
+                        primitive.axis_point.x, primitive.axis_point.y,
+                        primitive.axis_point.z, primitive.axis_direction.x,
+                        primitive.axis_direction.y, primitive.axis_direction.z,
+                        primitive.angle_degrees}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             }

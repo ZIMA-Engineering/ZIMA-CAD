@@ -163,6 +163,43 @@ int main(int argc, char* argv[]) {
                         zima::document::ExtrusionDirection::Symmetric,
                 "Extrusion Properties did not preserve its Sketch or height");
 
+        auto revolution_initial =
+            zima::document::PartDocument::create_revolution_container(
+                "sketch-revolution");
+        int revolution_commits = 0;
+        zima::document::HistoryContainer committed_revolution;
+        auto* revolution_dialog = new zima::app::PrimitivePropertiesDialog(
+            revolution_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                ++revolution_commits;
+                committed_revolution = std::move(value);
+            }, &parent);
+        revolution_dialog->show();
+        application.processEvents();
+        auto* revolution_axis =
+            revolution_dialog->findChild<QComboBox*>("revolutionAxis");
+        auto* revolution_angle =
+            revolution_dialog->findChild<QDoubleSpinBox*>("revolutionAngle");
+        require(revolution_axis != nullptr && revolution_angle != nullptr,
+                "Revolution dialog does not expose its axis and angle");
+        require(revolution_dialog->findChildren<QDoubleSpinBox*>(
+                    "primitiveTranslation").empty(),
+                "Revolution dialog exposes an ignored placement");
+        revolution_axis->setCurrentIndex(
+            revolution_axis->findData("sketch_y"));
+        revolution_angle->setValue(225.0);
+        revolution_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(revolution_commits == 1 &&
+                    committed_revolution.feature_kind ==
+                        zima::document::FeatureKind::Revolution &&
+                    committed_revolution.revolution.sketch_id ==
+                        "sketch-revolution" &&
+                    committed_revolution.revolution.axis ==
+                        zima::document::RevolutionAxis::SketchY &&
+                    committed_revolution.revolution.angle_degrees == 225.0,
+                "Revolution Properties did not preserve exact parameters");
+
         zima::kernel::BodyResult component_body;
         auto component = zima::assembly::AssemblyDocument::create_part_occurrence(
             "Komponenta", "source-part", "source.zcp.json", component_body);

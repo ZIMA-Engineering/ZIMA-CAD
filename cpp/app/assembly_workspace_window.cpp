@@ -70,6 +70,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { show_primitive_properties(zima::document::FeatureKind::Cylinder); });
     extrusion_action_ = modeling->addAction(tr("Vytažení…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Extrusion); });
+    revolution_action_ = modeling->addAction(tr("Rotace…"), this,
+        [this] { show_primitive_properties(zima::document::FeatureKind::Revolution); });
     sketch_action_ = modeling->addAction(tr("Skica…"), this,
         [this] { show_sketch_properties(); });
     sketch_segment_action_ = modeling->addAction(tr("Úsečka skici"), this,
@@ -299,6 +301,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_perpendicular_action_->setEnabled(true);
                 sketch_equal_length_action_->setEnabled(true);
                 extrusion_action_->setEnabled(true);
+                revolution_action_->setEnabled(true);
                 sketch_horizontal_action_->setEnabled(false);
                 sketch_vertical_action_->setEnabled(false);
                 sketch_dimension_action_->setEnabled(false);
@@ -665,7 +668,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     if (container_id.empty() &&
-        feature_kind == zima::document::FeatureKind::Extrusion &&
+        (feature_kind == zima::document::FeatureKind::Extrusion ||
+         feature_kind == zima::document::FeatureKind::Revolution) &&
         active_sketch_id_.empty()) {
         QMessageBox::warning(this, tr("Vytažení"),
             tr("Nejprve vyberte zdrojovou skicu ve stromu Partu."));
@@ -694,6 +698,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_cylinder_container()
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(active_sketch_id_)
+        : feature_kind == zima::document::FeatureKind::Revolution
+            ? zima::document::PartDocument::create_revolution_container(active_sketch_id_)
             : zima::document::PartDocument::create_box_container();
     const bool allow_subtract = !document.history.empty() &&
         !(edit_mode && document.history.front().id == initial.id);
@@ -1730,6 +1736,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
         extrusion_action_->setEnabled(!active_sketch_id_.empty());
+        revolution_action_->setEnabled(!active_sketch_id_.empty());
         sketch_action_->setEnabled(true);
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
@@ -1798,6 +1805,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
     extrusion_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
+    revolution_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
     sketch_action_->setEnabled(active_part != nullptr);
     sketch_segment_action_->setEnabled(false);
     sketch_rectangle_action_->setEnabled(false);

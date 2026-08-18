@@ -593,6 +593,122 @@ int main() {
                     144.0 * std::numbers::pi) < 1.0e-6,
                 "Two exact Arcs did not form a closed circular profile");
 
+        auto revolution_document = zima::document::PartDocument::create_default();
+        auto revolution_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(revolution_sketch.add_rectangle(
+            10.0, 5.0, 20.0, 8.0));
+        const auto revolution_sketch_id = revolution_sketch.id;
+        revolution_document.sketches.push_back(std::move(revolution_sketch));
+        auto revolution_container =
+            zima::document::PartDocument::create_revolution_container(
+                revolution_sketch_id);
+        const auto revolution_owner = revolution_container.id;
+        revolution_document.history.push_back(std::move(revolution_container));
+        const auto revolution_results =
+            kernel.evaluate_history(revolution_document.kernel_operations());
+        require(revolution_results.size() == 1 &&
+                    std::abs(revolution_results.front().volume -
+                        390.0 * std::numbers::pi) < 1.0e-6 &&
+                    revolution_results.front().mesh.axes.size() == 1 &&
+                    revolution_results.front().mesh.axes.front().direction.x > 0.999,
+                "Full Sketch Revolution has an incorrect volume or axis");
+        auto half_revolution_document = revolution_document;
+        half_revolution_document.history.front().revolution.angle_degrees = 180.0;
+        const auto half_revolution_results = kernel.evaluate_history(
+            half_revolution_document.kernel_operations());
+        require(std::abs(half_revolution_results.front().volume -
+                    195.0 * std::numbers::pi) < 1.0e-6 &&
+                    half_revolution_results.front().source_fingerprint !=
+                        revolution_results.front().source_fingerprint,
+                "Partial Revolution has an incorrect volume or fingerprint");
+        std::set<std::string> partial_revolution_faces;
+        for (const auto& reference :
+             half_revolution_results.front().mesh.triangle_references) {
+            if (reference.owner_id == revolution_owner) {
+                partial_revolution_faces.insert(reference.semantic_key);
+            }
+        }
+        require(partial_revolution_faces.contains("profile_start") &&
+                    partial_revolution_faces.contains("profile_end"),
+                "Partial Revolution lost its start or end profile face");
+        const auto revolution_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-revolution-contract.zcp.json";
+        half_revolution_document.save(revolution_path, half_revolution_results);
+        std::vector<zima::kernel::BodyResult> loaded_revolution_results;
+        const auto loaded_revolution = zima::document::PartDocument::load(
+            revolution_path, &loaded_revolution_results);
+        std::filesystem::remove(revolution_path);
+        require(loaded_revolution.history.size() == 1 &&
+                    loaded_revolution.history.front().feature_kind ==
+                        zima::document::FeatureKind::Revolution &&
+                    loaded_revolution.history.front().revolution.axis ==
+                        zima::document::RevolutionAxis::SketchX &&
+                    loaded_revolution.history.front().revolution.angle_degrees == 180.0 &&
+                    loaded_revolution_results.size() == 1,
+                "Revolution did not survive save/load");
+        auto unsupported_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto unsupported_revolution_sketch =
+            zima::sketcher::Sketch::create_default();
+        static_cast<void>(unsupported_revolution_sketch.add_circle(
+            10.0, 0.0, 2.0));
+        const auto unsupported_revolution_sketch_id =
+            unsupported_revolution_sketch.id;
+        unsupported_revolution_document.sketches.push_back(
+            std::move(unsupported_revolution_sketch));
+        unsupported_revolution_document.history.push_back(
+            zima::document::PartDocument::create_revolution_container(
+                unsupported_revolution_sketch_id));
+        bool unsupported_revolution_rejected = false;
+        try {
+            static_cast<void>(unsupported_revolution_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            unsupported_revolution_rejected = true;
+        }
+        require(unsupported_revolution_rejected,
+                "Unsupported Revolution profile reached OCCT");
+        auto yz_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto yz_revolution_sketch = zima::sketcher::Sketch::create_default();
+        yz_revolution_sketch.plane = zima::sketcher::SketchPlane::YZ;
+        yz_revolution_sketch.plane_offset = 3.0;
+        static_cast<void>(yz_revolution_sketch.add_rectangle(
+            10.0, 5.0, 20.0, 8.0));
+        const auto yz_revolution_sketch_id = yz_revolution_sketch.id;
+        yz_revolution_document.sketches.push_back(
+            std::move(yz_revolution_sketch));
+        yz_revolution_document.history.push_back(
+            zima::document::PartDocument::create_revolution_container(
+                yz_revolution_sketch_id));
+        const auto yz_revolution_results = kernel.evaluate_history(
+            yz_revolution_document.kernel_operations());
+        require(std::abs(yz_revolution_results.front().volume -
+                    390.0 * std::numbers::pi) < 1.0e-6 &&
+                    yz_revolution_results.front().mesh.axes.front().direction.y > 0.999,
+                "Sketch X Revolution axis was mapped incorrectly on the YZ plane");
+        auto xz_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto xz_revolution_sketch = zima::sketcher::Sketch::create_default();
+        xz_revolution_sketch.plane = zima::sketcher::SketchPlane::XZ;
+        xz_revolution_sketch.plane_offset = -2.0;
+        static_cast<void>(xz_revolution_sketch.add_rectangle(
+            5.0, 10.0, 8.0, 20.0));
+        const auto xz_revolution_sketch_id = xz_revolution_sketch.id;
+        xz_revolution_document.sketches.push_back(
+            std::move(xz_revolution_sketch));
+        auto xz_revolution =
+            zima::document::PartDocument::create_revolution_container(
+                xz_revolution_sketch_id);
+        xz_revolution.revolution.axis =
+            zima::document::RevolutionAxis::SketchY;
+        xz_revolution_document.history.push_back(std::move(xz_revolution));
+        const auto xz_revolution_results = kernel.evaluate_history(
+            xz_revolution_document.kernel_operations());
+        require(std::abs(xz_revolution_results.front().volume -
+                    390.0 * std::numbers::pi) < 1.0e-6 &&
+                    xz_revolution_results.front().mesh.axes.front().direction.z > 0.999,
+                "Sketch Y Revolution axis was mapped incorrectly on the XZ plane");
+
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());
         require(!session.is_dirty() && !session.can_undo(),

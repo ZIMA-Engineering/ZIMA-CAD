@@ -11,8 +11,9 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder, Extrusion };
+enum class FeatureKind { Box, Cylinder, Extrusion, Revolution };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
+enum class RevolutionAxis { SketchX, SketchY };
 
 struct BoxParameters {
     double length{100.0};
@@ -29,6 +30,12 @@ struct ExtrusionParameters {
     std::string sketch_id;
     double height{10.0};
     ExtrusionDirection direction{ExtrusionDirection::Forward};
+};
+
+struct RevolutionParameters {
+    std::string sketch_id;
+    RevolutionAxis axis{RevolutionAxis::SketchX};
+    double angle_degrees{360.0};
 };
 
 struct Placement {
@@ -49,6 +56,7 @@ struct HistoryContainer {
     BoxParameters box;
     CylinderParameters cylinder;
     ExtrusionParameters extrusion;
+    RevolutionParameters revolution;
 };
 
 class PartDocument {
@@ -62,6 +70,8 @@ public:
     [[nodiscard]] static HistoryContainer create_box_container();
     [[nodiscard]] static HistoryContainer create_cylinder_container();
     [[nodiscard]] static HistoryContainer create_extrusion_container(
+        std::string sketch_id);
+    [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;

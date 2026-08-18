@@ -14,6 +14,7 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -137,7 +138,7 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
             return std::vector<ViewerAxis>{
                 transformed_axis(operation.owner_id, "axis", {0.0, 0.0, 1.0},
                                  length, transform)};
-        } else {
+        } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
             const double length = std::sqrt(
                 primitive.direction.x * primitive.direction.x +
                 primitive.direction.y * primitive.direction.y +
@@ -160,6 +161,21 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 origin,
                 {primitive.direction.x / length, primitive.direction.y / length,
                  primitive.direction.z / length},
+                length, {operation.owner_id, "axis"}}};
+        } else {
+            const double length = std::max(10.0, std::sqrt(
+                primitive.axis_direction.x * primitive.axis_direction.x +
+                primitive.axis_direction.y * primitive.axis_direction.y +
+                primitive.axis_direction.z * primitive.axis_direction.z));
+            const double direction_length = std::sqrt(
+                primitive.axis_direction.x * primitive.axis_direction.x +
+                primitive.axis_direction.y * primitive.axis_direction.y +
+                primitive.axis_direction.z * primitive.axis_direction.z);
+            return std::vector<ViewerAxis>{{
+                primitive.axis_point,
+                {primitive.axis_direction.x / direction_length,
+                 primitive.axis_direction.y / direction_length,
+                 primitive.axis_direction.z / direction_length},
                 length, {operation.owner_id, "axis"}}};
         }
     }, operation.primitive);
@@ -549,6 +565,117 @@ PrimitiveData make_extrusion_data(
     return result;
 }
 
+void validate_revolution(const RevolutionRequest& request) {
+    if (request.profile.size() < 3) {
+        throw std::invalid_argument("Revolution profile requires at least three vertices");
+    }
+    for (const auto& point : request.profile) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            !std::isfinite(point.z)) {
+            throw std::invalid_argument("Revolution profile coordinates must be finite");
+        }
+    }
+    const double axis_length = std::sqrt(
+        request.axis_direction.x * request.axis_direction.x +
+        request.axis_direction.y * request.axis_direction.y +
+        request.axis_direction.z * request.axis_direction.z);
+    if (!std::isfinite(request.axis_point.x) ||
+        !std::isfinite(request.axis_point.y) ||
+        !std::isfinite(request.axis_point.z) || !std::isfinite(axis_length) ||
+        axis_length <= 1.0e-12 || !std::isfinite(request.angle_degrees) ||
+        request.angle_degrees <= 0.0 || request.angle_degrees > 360.0) {
+        throw std::invalid_argument("Revolution axis or angle is invalid");
+    }
+}
+
+PrimitiveData make_revolution_data(
+    const RevolutionRequest& request, const std::string& owner_id) {
+    BRepBuilderAPI_MakePolygon polygon;
+    for (const auto& point : request.profile) {
+        polygon.Add(gp_Pnt(point.x, point.y, point.z));
+    }
+    polygon.Close();
+    if (!polygon.IsDone()) {
+        throw std::runtime_error("OCCT Revolution profile wire failed");
+    }
+    const TopoDS_Wire wire = polygon.Wire();
+    BRepBuilderAPI_MakeFace face_builder(wire, true);
+    if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid()) {
+        throw std::runtime_error("OCCT Revolution profile face is invalid");
+    }
+    BRepPrimAPI_MakeRevol revolution(
+        face_builder.Face(),
+        gp_Ax1(gp_Pnt(request.axis_point.x, request.axis_point.y,
+                      request.axis_point.z),
+               gp_Dir(request.axis_direction.x, request.axis_direction.y,
+                      request.axis_direction.z)),
+        request.angle_degrees * std::numbers::pi / 180.0, true);
+    revolution.Build();
+    if (!revolution.IsDone() ||
+        !BRepCheck_Analyzer(revolution.Shape()).IsValid()) {
+        throw std::runtime_error("OCCT Revolution failed or produced an invalid solid");
+    }
+    PrimitiveData result{revolution.Shape(), {}, {}, {}};
+    if (request.angle_degrees < 360.0 - 1.0e-9) {
+        result.faces.push_back(
+            {revolution.FirstShape(), {owner_id, "profile_start"}});
+        result.faces.push_back(
+            {revolution.LastShape(), {owner_id, "profile_end"}});
+    }
+    std::size_t edge_index{};
+    for (TopExp_Explorer explorer(wire, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+        const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+        const auto index = std::to_string(edge_index++);
+        const auto& generated = revolution.Generated(edge);
+        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() == TopAbs_FACE) {
+                result.faces.push_back(
+                    {iterator.Value(), {owner_id, "side:" + index}});
+            }
+        }
+        if (request.angle_degrees < 360.0 - 1.0e-9) {
+            const auto first = revolution.FirstShape(edge);
+            const auto last = revolution.LastShape(edge);
+            if (!first.IsNull()) {
+                result.edges.push_back(
+                    {first, {owner_id, "edge:start:" + index}});
+            }
+            if (!last.IsNull()) {
+                result.edges.push_back(
+                    {last, {owner_id, "edge:end:" + index}});
+            }
+        }
+    }
+    std::size_t vertex_index{};
+    for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
+         explorer.More(); explorer.Next()) {
+        const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
+        const auto index = std::to_string(vertex_index++);
+        const auto& generated = revolution.Generated(vertex);
+        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() == TopAbs_EDGE) {
+                result.edges.push_back(
+                    {iterator.Value(), {owner_id, "edge:revolved:" + index}});
+            }
+        }
+        if (request.angle_degrees < 360.0 - 1.0e-9) {
+            const auto first = revolution.FirstShape(vertex);
+            const auto last = revolution.LastShape(vertex);
+            if (!first.IsNull()) {
+                result.vertices.push_back(
+                    {first, {owner_id, "vertex:start:" + index}});
+            }
+            if (!last.IsNull()) {
+                result.vertices.push_back(
+                    {last, {owner_id, "vertex:end:" + index}});
+            }
+        }
+    }
+    return result;
+}
+
 template <typename Algorithm, typename Owned>
 std::vector<Owned> propagate_topology(
     Algorithm& algorithm,
@@ -715,9 +842,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
                     validate_cylinder(primitive);
                     return make_cylinder_data(primitive, operation.owner_id);
-                } else {
+                } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                     validate_extrusion(primitive);
                     return make_extrusion_data(primitive, operation.owner_id);
+                } else {
+                    validate_revolution(primitive);
+                    return make_revolution_data(primitive, operation.owner_id);
                 }
             }, operation.primitive);
             if (result_shape.IsNull()) {

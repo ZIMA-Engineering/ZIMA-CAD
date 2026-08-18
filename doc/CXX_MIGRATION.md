@@ -526,7 +526,7 @@ Výška vždy znamená celkovou délku: vzhledem k normále persistované roviny
 leží výsledný interval v `0…H`, `−H…0`, nebo `−H/2…H/2`. Směr se persistuje a
 vstupuje do fingerprintu vypočtené historie; změna směru proto nemůže ponechat
 starou cache tělesa jako platnou.
-Part schéma se tím záměrně posouvá na `format_version: 2`; větev pro načítání
+Part schéma se nyní záměrně posouvá na `format_version: 3`; větev pro načítání
 starého prototypového schématu nevzniká, protože kompatibilita starých Part
 souborů není kontraktem migrace.
 
@@ -556,3 +556,19 @@ Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou, sy
 vytažený o 6 mm, musí mít objem `300π mm³` a interval `−3…3 mm`. Dva půlkruhové
 oblouky R4 vytažené o 9 mm musí vytvořit přesný objem `144π mm³`. Tyto kontroly
 zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygon.
+
+## Rotace profilu
+
+Příkaz **Rotace** používá stejný interní Properties a rollback kontrakt jako
+Vytažení. Vstupem je jedna uzavřená smyčka přímých úseček, osa X nebo Y zdrojové
+skici, úhel v intervalu `(0, 360]°` a operace Přičíst/Odečíst. Document Core
+převede lokální osu skici do souřadnic XY/XZ/YZ a do úzkého `RevolutionRequest`
+vloží pouze seřazený profil, bod osy, směr osy a úhel. OCCT se volá až při
+explicitním OK nebo regeneraci.
+
+Částečná rotace persistuje zvlášť počáteční a koncovou profilovou plochu;
+generované rotační plochy drží vlastníka kontejneru Rotace. Osa a úhel vstupují
+do fingerprintu historie. Kontrolní obdélník délky 10 mm mezi poloměry 5 a
+8 mm musí při plné rotaci kolem osy X vytvořit objem `390π mm³`; při úhlu 180°
+přesně `195π mm³` a obě koncové plochy. Kružnice, oblouky a vnitřní smyčky jsou
+v tomto prvním řezu odmítnuty v Document Core před voláním OCCT.

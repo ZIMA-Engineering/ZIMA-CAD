@@ -51,12 +51,12 @@ void validate_placement(const Placement& placement) {
     require_finite(placement.rotation_z, "rotation z");
 }
 
-void require_default_extrusion_placement(const Placement& placement) {
+void require_default_sketch_feature_placement(const Placement& placement) {
     if (placement.x != 0.0 || placement.y != 0.0 || placement.z != 0.0 ||
         placement.rotation_x != 0.0 || placement.rotation_y != 0.0 ||
         placement.rotation_z != 0.0) {
         throw std::runtime_error(
-            "Extrusion placement is defined by its source Sketch");
+            "Sketch feature placement is defined by its source Sketch");
     }
 }
 
@@ -452,6 +452,40 @@ zima::kernel::ExtrusionRequest extrusion_request(
     return finalize(std::move(request));
 }
 
+zima::kernel::RevolutionRequest revolution_request(
+    const zima::sketcher::Sketch& sketch,
+    RevolutionAxis axis, double angle_degrees) {
+    if (!std::isfinite(angle_degrees) || angle_degrees <= 0.0 ||
+        angle_degrees > 360.0) {
+        throw std::runtime_error("Revolution angle must be in (0, 360] degrees");
+    }
+    const auto source = extrusion_request(
+        sketch, 1.0, ExtrusionDirection::Forward);
+    if (!source.inner_profiles.empty() ||
+        !std::holds_alternative<zima::kernel::ExtrusionRequest::PolygonProfile>(
+            source.outer_profile)) {
+        throw std::runtime_error(
+            "Revolution currently requires one straight-segment profile");
+    }
+    zima::kernel::RevolutionRequest request;
+    request.profile = std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
+        source.outer_profile).vertices;
+    request.axis_point = sketch.world_point(0.0, 0.0);
+    if (axis == RevolutionAxis::SketchX) {
+        request.axis_direction = sketch.plane == zima::sketcher::SketchPlane::YZ
+            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+            : zima::kernel::Vec3{1.0, 0.0, 0.0};
+    } else if (axis == RevolutionAxis::SketchY) {
+        request.axis_direction = sketch.plane == zima::sketcher::SketchPlane::XY
+            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+            : zima::kernel::Vec3{0.0, 0.0, 1.0};
+    } else {
+        throw std::runtime_error("Invalid Revolution axis");
+    }
+    request.angle_degrees = angle_degrees;
+    return request;
+}
+
 }  // namespace
 
 PartDocument PartDocument::create_default() {
@@ -481,6 +515,16 @@ HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id)
     container.name = "Vytažení";
     container.feature_kind = FeatureKind::Extrusion;
     container.extrusion.sketch_id = std::move(sketch_id);
+    return container;
+}
+
+HistoryContainer PartDocument::create_revolution_container(std::string sketch_id) {
+    if (sketch_id.empty()) throw std::invalid_argument("Revolution Sketch ID is required");
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = "Rotace";
+    container.feature_kind = FeatureKind::Revolution;
+    container.revolution.sketch_id = std::move(sketch_id);
     return container;
 }
 
@@ -527,8 +571,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             cylinder.translation = translation;
             cylinder.rotation_degrees = rotation;
             primitive = cylinder;
-        } else {
-            require_default_extrusion_placement(container.placement);
+        } else if (container.feature_kind == FeatureKind::Extrusion) {
+            require_default_sketch_feature_placement(container.placement);
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
                 [&](const auto& value) {
                     return value.id == container.extrusion.sketch_id;
@@ -539,6 +583,18 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             primitive = extrusion_request(
                 *sketch, container.extrusion.height,
                 container.extrusion.direction);
+        } else {
+            require_default_sketch_feature_placement(container.placement);
+            const auto sketch = std::find_if(sketches.begin(), sketches.end(),
+                [&](const auto& value) {
+                    return value.id == container.revolution.sketch_id;
+                });
+            if (sketch == sketches.end()) {
+                throw std::runtime_error("Revolution references a missing Sketch");
+            }
+            primitive = revolution_request(
+                *sketch, container.revolution.axis,
+                container.revolution.angle_degrees);
         }
         operations.push_back({
             container.id,
@@ -561,7 +617,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 2) {
+        root.at("format_version").get<int>() != 3) {
         throw std::runtime_error("Unsupported C++ prototype document format");
     }
     PartDocument document;
@@ -574,12 +630,14 @@ PartDocument PartDocument::load(
     std::unordered_set<std::string> container_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
-        if (type != "box" && type != "cylinder" && type != "extrusion") {
+        if (type != "box" && type != "cylinder" && type != "extrusion" &&
+            type != "revolution") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
         container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
-            : type == "extrusion" ? FeatureKind::Extrusion : FeatureKind::Box;
+            : type == "extrusion" ? FeatureKind::Extrusion
+            : type == "revolution" ? FeatureKind::Revolution : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.name = source.at("name").get<std::string>();
         if (container.id.empty() || !container_ids.insert(container.id).second) {
@@ -606,7 +664,7 @@ PartDocument PartDocument::load(
             container.cylinder.height = source.at("height").get<double>();
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
-        } else {
+        } else if (container.feature_kind == FeatureKind::Extrusion) {
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
             container.extrusion.height = source.at("height").get<double>();
             const std::string direction =
@@ -625,6 +683,25 @@ PartDocument PartDocument::load(
             }
             require_positive(container.extrusion.height, "extrusion height");
             validate_extrusion_direction(container.extrusion.direction);
+        } else {
+            container.revolution.sketch_id =
+                source.at("sketch_id").get<std::string>();
+            container.revolution.angle_degrees =
+                source.at("angle_degrees").get<double>();
+            const std::string axis = source.at("axis").get<std::string>();
+            if (axis == "sketch_x") {
+                container.revolution.axis = RevolutionAxis::SketchX;
+            } else if (axis == "sketch_y") {
+                container.revolution.axis = RevolutionAxis::SketchY;
+            } else {
+                throw std::runtime_error("Invalid Revolution axis");
+            }
+            if (container.revolution.sketch_id.empty() ||
+                !std::isfinite(container.revolution.angle_degrees) ||
+                container.revolution.angle_degrees <= 0.0 ||
+                container.revolution.angle_degrees > 360.0) {
+                throw std::runtime_error("Invalid Revolution parameters");
+            }
         }
         if (source.contains("placement")) {
             const auto& placement = source.at("placement");
@@ -636,8 +713,9 @@ PartDocument PartDocument::load(
             container.placement.rotation_z = placement.value("rotation_z", 0.0);
         }
         validate_placement(container.placement);
-        if (container.feature_kind == FeatureKind::Extrusion) {
-            require_default_extrusion_placement(container.placement);
+        if (container.feature_kind == FeatureKind::Extrusion ||
+            container.feature_kind == FeatureKind::Revolution) {
+            require_default_sketch_feature_placement(container.placement);
         }
         document.history.push_back(std::move(container));
     }
@@ -656,6 +734,13 @@ PartDocument PartDocument::load(
                     return sketch.id == container.extrusion.sketch_id;
                 })) {
             throw std::runtime_error("Extrusion references a missing Sketch");
+        }
+        if (container.feature_kind == FeatureKind::Revolution &&
+            std::none_of(document.sketches.begin(), document.sketches.end(),
+                [&](const auto& sketch) {
+                    return sketch.id == container.revolution.sketch_id;
+                })) {
+            throw std::runtime_error("Revolution references a missing Sketch");
         }
     }
     if (!document.history.empty() &&
@@ -734,7 +819,7 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
-        } else {
+        } else if (container.feature_kind == FeatureKind::Extrusion) {
             if (container.extrusion.sketch_id.empty() ||
                 std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                     return sketch.id == container.extrusion.sketch_id;
@@ -743,21 +828,36 @@ void PartDocument::save(
             }
             require_positive(container.extrusion.height, "extrusion height");
             validate_extrusion_direction(container.extrusion.direction);
+        } else {
+            if (container.revolution.sketch_id.empty() ||
+                std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
+                    return sketch.id == container.revolution.sketch_id;
+                }) || (container.revolution.axis != RevolutionAxis::SketchX &&
+                       container.revolution.axis != RevolutionAxis::SketchY) ||
+                !std::isfinite(container.revolution.angle_degrees) ||
+                container.revolution.angle_degrees <= 0.0 ||
+                container.revolution.angle_degrees > 360.0) {
+                throw std::runtime_error("Invalid Revolution parameters");
+            }
         }
         validate_placement(container.placement);
-        if (container.feature_kind == FeatureKind::Extrusion) {
-            require_default_extrusion_placement(container.placement);
+        if (container.feature_kind == FeatureKind::Extrusion ||
+            container.feature_kind == FeatureKind::Revolution) {
+            require_default_sketch_feature_placement(container.placement);
         }
         nlohmann::json serialized = {
             {"id", container.id},
             {"type", container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
-                    ? "cylinder" : "extrusion"},
+                    ? "cylinder"
+                : container.feature_kind == FeatureKind::Extrusion
+                    ? "extrusion" : "revolution"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"},
         };
-        if (container.feature_kind != FeatureKind::Extrusion) {
+        if (container.feature_kind != FeatureKind::Extrusion &&
+            container.feature_kind != FeatureKind::Revolution) {
             serialized["placement"] = {
                 {"x", container.placement.x},
                 {"y", container.placement.y},
@@ -774,7 +874,7 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             serialized["radius"] = container.cylinder.radius;
             serialized["height"] = container.cylinder.height;
-        } else {
+        } else if (container.feature_kind == FeatureKind::Extrusion) {
             serialized["sketch_id"] = container.extrusion.sketch_id;
             serialized["height"] = container.extrusion.height;
             serialized["direction"] =
@@ -782,6 +882,11 @@ void PartDocument::save(
                     ? "forward"
                 : container.extrusion.direction == ExtrusionDirection::Reverse
                     ? "reverse" : "symmetric";
+        } else {
+            serialized["sketch_id"] = container.revolution.sketch_id;
+            serialized["axis"] = container.revolution.axis == RevolutionAxis::SketchX
+                ? "sketch_x" : "sketch_y";
+            serialized["angle_degrees"] = container.revolution.angle_degrees;
         }
         serialized_history.push_back(std::move(serialized));
     }
@@ -815,7 +920,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 2},
+        {"format_version", 3},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

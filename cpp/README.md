@@ -412,6 +412,16 @@ viewer data. Curved profiles do not yet accept inner loops. OCCT returns a
 prism with stable start, end, outer and inner side, edge and vertex references
 owned by the Extrusion history container.
 
+Revolution is the next complete Sketch-to-solid command. It reuses the same
+internal Properties window and transaction/rollback path, with a persisted
+Sketch X or Sketch Y axis and an angle in `(0, 360]°`. The initial contract
+accepts one closed straight-Segment profile without holes. Document Core maps
+the local Sketch axis into XY, XZ, or YZ world coordinates; OCCT receives only
+the ordered profile, explicit axis, and angle during calculation. Partial
+revolutions persist distinct start/end profile faces, all generated side faces
+retain the Revolution owner, and angle/axis participate in the history
+fingerprint.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

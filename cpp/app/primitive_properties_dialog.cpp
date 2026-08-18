@@ -14,7 +14,9 @@ namespace {
 QString primitive_label(zima::document::FeatureKind kind) {
     return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
         : kind == zima::document::FeatureKind::Extrusion
-            ? QObject::tr("vytažení") : QObject::tr("kvádru");
+            ? QObject::tr("vytažení")
+        : kind == zima::document::FeatureKind::Revolution
+            ? QObject::tr("rotace") : QObject::tr("kvádru");
 }
 
 }  // namespace
@@ -31,7 +33,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
               : initial.feature_kind == zima::document::FeatureKind::Cylinder
                   ? tr("Nový válec")
                   : initial.feature_kind == zima::document::FeatureKind::Extrusion
-                      ? tr("Nové vytažení") : tr("Nový kvádr"),
+                      ? tr("Nové vytažení")
+                  : initial.feature_kind == zima::document::FeatureKind::Revolution
+                      ? tr("Nová rotace") : tr("Nový kvádr"),
           parent),
       initial_(initial), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -69,7 +73,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         height_ = dimension(initial.cylinder.height, "cylinderHeight");
         form->addRow(tr("Poloměr"), radius_);
         form->addRow(tr("Výška"), height_);
-    } else {
+    } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion) {
         auto* sketch = new QLabel(QString::fromStdString(initial.extrusion.sketch_id), this);
         sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
         form->addRow(tr("Zdrojová skica"), sketch);
@@ -90,6 +94,27 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         extrusion_direction_->setCurrentIndex(
             extrusion_direction_->findData(direction));
         form->addRow(tr("Směr"), extrusion_direction_);
+    } else {
+        auto* sketch = new QLabel(
+            QString::fromStdString(initial.revolution.sketch_id), this);
+        sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        form->addRow(tr("Zdrojová skica"), sketch);
+        revolution_axis_ = new QComboBox(this);
+        revolution_axis_->setObjectName("revolutionAxis");
+        revolution_axis_->addItem(tr("Osa X skici"), "sketch_x");
+        revolution_axis_->addItem(tr("Osa Y skici"), "sketch_y");
+        revolution_axis_->setCurrentIndex(revolution_axis_->findData(
+            initial.revolution.axis == zima::document::RevolutionAxis::SketchX
+                ? "sketch_x" : "sketch_y"));
+        form->addRow(tr("Osa"), revolution_axis_);
+        angle_ = new QDoubleSpinBox(this);
+        angle_->setRange(0.001, 360.0);
+        angle_->setDecimals(3);
+        angle_->setSingleStep(1.0);
+        angle_->setSuffix("°");
+        angle_->setObjectName("revolutionAngle");
+        angle_->setValue(initial.revolution.angle_degrees);
+        form->addRow(tr("Úhel"), angle_);
     }
 
     const auto placement = [this](double value, bool angular) {
@@ -103,7 +128,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         field->setObjectName(angular ? "primitiveRotation" : "primitiveTranslation");
         return field;
     };
-    if (initial.feature_kind != zima::document::FeatureKind::Extrusion) {
+    if (initial.feature_kind == zima::document::FeatureKind::Box ||
+        initial.feature_kind == zima::document::FeatureKind::Cylinder) {
         translation_ = {
             placement(initial.placement.x, false),
             placement(initial.placement.y, false),
@@ -151,7 +177,7 @@ bool PrimitivePropertiesDialog::submit() {
         result.box = {length_->value(), width_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.cylinder = {radius_->value(), height_->value()};
-    } else {
+    } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.height = height_->value();
         const QString direction =
             extrusion_direction_->currentData().toString();
@@ -160,8 +186,15 @@ bool PrimitivePropertiesDialog::submit() {
             : direction == "symmetric"
                 ? zima::document::ExtrusionDirection::Symmetric
                 : zima::document::ExtrusionDirection::Forward;
+    } else {
+        result.revolution.axis =
+            revolution_axis_->currentData().toString() == "sketch_y"
+                ? zima::document::RevolutionAxis::SketchY
+                : zima::document::RevolutionAxis::SketchX;
+        result.revolution.angle_degrees = angle_->value();
     }
-    if (result.feature_kind != zima::document::FeatureKind::Extrusion) {
+    if (result.feature_kind == zima::document::FeatureKind::Box ||
+        result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.placement = {
             translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
             rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
