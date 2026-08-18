@@ -3943,6 +3943,21 @@ def make_protrusion_shape(
         reverse = evaluated
         parameters["evaluated_length_reverse"] = format_model_float(reverse)
     clipping_operations: list[tuple[str, Any]] = []
+    preserve_curved_target_seams = False
+
+    def clipping_overrun(distance: float) -> float:
+        """Cross a curved target by more than the Boolean fuzzy tolerance.
+
+        The construction prism is discarded after clipping, but it must
+        extend distinctly beyond the target.  A sub-tolerance overrun makes
+        its temporary end cap numerically coincident with the target and can
+        create a false transition face at a periodic surface seam.
+        """
+        return max(
+            1.0e-5,
+            distance * 1.0e-6,
+            model_linear_tolerance(document) * 10.0,
+        )
 
     def stored_end_targets(side: str) -> list[dict[str, Any]]:
         try:
@@ -3991,7 +4006,7 @@ def make_protrusion_shape(
         definition_side: str | None = None,
         absolute: bool = False,
     ) -> float | None:
-        nonlocal up_to_failure
+        nonlocal up_to_failure, preserve_curved_target_seams
         up_to_failure = "up_to_reference_unresolved"
         targets = stored_end_targets(definition_side or side)
         if len(targets) != 1:
@@ -4073,13 +4088,14 @@ def make_protrusion_shape(
                 up_to_failure = "up_to_profile_misses_target"
                 return None
             distances: list[float] = []
+            intersections: list[tuple[float, float]] = []
             direction_sides: set[int] = set()
             for point in samples:
                 directions = (
                     (ray_direction, 1),
                     (tuple(-value for value in ray_direction), -1),
                 ) if absolute else ((ray_direction, 1),)
-                hit: tuple[float, int] | None = None
+                hit: tuple[float, float, int] | None = None
                 for candidate_direction, direction_side in directions:
                     upper = max(
                         sum(
@@ -4100,26 +4116,54 @@ def make_protrusion_shape(
                             1.0e-7,
                             upper + max(1.0, target_span * 1.0e-4),
                         )
-                        candidate_hits = tuple(sorted(
+                        raw_hits = tuple(sorted(
                             float(intersector.WParameter(index))
                             for index in range(1, intersector.NbPnt() + 1)
                             if float(intersector.WParameter(index)) > 1.0e-7
                         ))
                     except (RuntimeError, TypeError, ValueError):
-                        candidate_hits = ()
+                        raw_hits = ()
+                    candidate_hits: list[float] = []
+                    for candidate_hit in raw_hits:
+                        if (
+                            not candidate_hits
+                            or candidate_hit - candidate_hits[-1]
+                            > model_linear_tolerance(document)
+                        ):
+                            candidate_hits.append(candidate_hit)
                     if candidate_hits:
-                        hit = candidate_hits[0], direction_side
+                        hit = (
+                            candidate_hits[0],
+                            candidate_hits[-1],
+                            direction_side,
+                        )
                         break
                 if hit is None:
                     up_to_failure = "up_to_profile_misses_target"
                     return None
                 distances.append(hit[0])
-                direction_sides.add(hit[1])
+                intersections.append((hit[0], hit[1]))
+                direction_sides.add(hit[2])
             if len(direction_sides) != 1:
                 up_to_failure = "up_to_profile_crosses_target"
                 return None
             evaluated = max(distances)
-            margin = max(1.0e-5, evaluated * 1.0e-6)
+            far_intersections = [
+                last for first, last in intersections
+                if last - first > model_linear_tolerance(document)
+            ]
+            if (
+                far_intersections
+                and evaluated
+                >= min(far_intersections) - model_linear_tolerance(document)
+            ):
+                # A single construction prism would pass through one branch
+                # and emerge behind another.  That is not the first-hit
+                # envelope meant by Up-to and must not leave a detached or
+                # partial intermediate solid.
+                up_to_failure = "up_to_profile_misses_target"
+                return None
+            margin = clipping_overrun(evaluated)
             try:
                 halfspace = BRepPrimAPI_MakeHalfSpace(
                     exact_face, gp_Pnt(*profile_origin)
@@ -4129,6 +4173,7 @@ def make_protrusion_shape(
             if halfspace.IsNull():
                 return None
             clipping_operations.append(("common", halfspace))
+            preserve_curved_target_seams = True
             parameters[f"end_targets_{side}"] = json.dumps(
                 targets, ensure_ascii=False, sort_keys=True
             )
@@ -4222,7 +4267,7 @@ def make_protrusion_shape(
                 if evaluated >= far_limit - 1.0e-7:
                     up_to_failure = "up_to_profile_misses_target"
                     return None
-            margin = max(1.0e-5, evaluated * 1.0e-6)
+            margin = clipping_overrun(evaluated)
             evaluated_with_margin = evaluated + margin
             axial_values = [
                 sum(
@@ -4265,6 +4310,7 @@ def make_protrusion_shape(
                 "common" if cylinder_side == "inside" else "cut",
                 clipping_cylinder,
             ))
+            preserve_curved_target_seams = True
             reference_data.update({
                 "fallback_axis_origin": list(axis_origin),
                 "fallback_axis_direction": list(axis_direction),
@@ -4336,7 +4382,7 @@ def make_protrusion_shape(
             ):
                 up_to_failure = "up_to_profile_misses_target"
                 return None
-            margin = max(1.0e-5, evaluated * 1.0e-6)
+            margin = clipping_overrun(evaluated)
             try:
                 clipping_sphere = BRepPrimAPI_MakeSphere(
                     gp_Pnt(*center), radius
@@ -4347,6 +4393,7 @@ def make_protrusion_shape(
                 "common" if target_side == "inside" else "cut",
                 clipping_sphere,
             ))
+            preserve_curved_target_seams = True
             reference_data.update({
                 "fallback_center": list(center),
                 "fallback_radius": radius,
@@ -4472,7 +4519,7 @@ def make_protrusion_shape(
             ):
                 up_to_failure = "up_to_profile_misses_target"
                 return None
-            margin = max(1.0e-5, evaluated * 1.0e-6)
+            margin = clipping_overrun(evaluated)
             maximum_axial += abs(ray_axis) * margin
             cone_height = max(maximum_axial + 1.0, 1.0)
             try:
@@ -4488,6 +4535,7 @@ def make_protrusion_shape(
                 "common" if target_side == "inside" else "cut",
                 clipping_cone,
             ))
+            preserve_curved_target_seams = True
             reference_data.update({
                 "fallback_apex": list(apex),
                 "fallback_axis_direction": list(axis_direction),
@@ -4666,7 +4714,13 @@ def make_protrusion_shape(
             if world_shape is None or world_shape.IsNull():
                 parameters["build_status"] = "up_to_boolean_failed"
                 return None
-            world_shape = _unify_same_domain(world_shape)
+            # A curved/periodic target is legitimately split at its
+            # parameter seam.  UnifySameDomain can glue the two trimmed
+            # patches across that seam and alter the cap by a fuzzy-tolerance
+            # skin.  Keep the split; it is one user-facing surface reference
+            # but two safe B-Rep patches at the calculation boundary.
+            if not preserve_curved_target_seams:
+                world_shape = _unify_same_domain(world_shape)
         generated.append(world_shape)
     # Hole nesting has already been resolved while constructing profile
     # faces.  Comparing every extruded solid with every other solid repeated

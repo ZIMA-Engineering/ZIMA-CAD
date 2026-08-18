@@ -3,17 +3,23 @@ import unittest
 
 from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.BRep import BRep_Tool
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakePrism
+from OCC.Core.BRepBuilderAPI import (
+    BRepBuilderAPI_MakeEdge,
+    BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakeWire,
+)
+from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.GeomAPI import GeomAPI_PointsToBSplineSurface
 from OCC.Core.TColgp import TColgp_Array2OfPnt
-from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt
+from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt, gp_Vec
 
 from zima_cad.app import MainWindow
 from zima_cad.model import (
@@ -30,6 +36,7 @@ from zima_cad.model import (
     sketch_profile_status,
 )
 from zima_cad.sketch_model import SketchModel
+from zima_cad.spline_geometry import interpolated_spline_curve
 from zima_cad.topology import EdgeRef, FaceRef, TopologyRegistry
 
 
@@ -253,6 +260,132 @@ class ProtrusionProfileTests(unittest.TestCase):
             },
             input_registry=registry,
         ))
+
+    def test_general_up_to_preserves_a_periodic_spline_seam(self):
+        curve = interpolated_spline_curve((
+            (0.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 30.0),
+            (-10.0, 20.0),
+            (0.0, 10.0),
+        ))
+        self.assertIsNotNone(curve)
+        edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+        section = BRepBuilderAPI_MakeFace(
+            BRepBuilderAPI_MakeWire(edge).Wire()
+        ).Face()
+        target = BRepPrimAPI_MakePrism(
+            section, gp_Vec(0.0, 0.0, 10.0)
+        ).Shape()
+        target_face = None
+        explorer = TopExp_Explorer(target, TopAbs_FACE)
+        while explorer.More():
+            face = explorer.Current()
+            if BRepAdaptor_Surface(face).GetType() != GeomAbs_Plane:
+                target_face = face
+                break
+            explorer.Next()
+        self.assertIsNotNone(target_face)
+
+        reference = FaceRef("target", "generated", "periodic-spline")
+        registry = TopologyRegistry()
+        registry.register_face(reference, target_face)
+        entities = [
+            {"id": "a", "type": "point", "x": -5.0, "y": 2.0},
+            {"id": "b", "type": "point", "x": 5.0, "y": 2.0},
+            {"id": "c", "type": "point", "x": 5.0, "y": 8.0},
+            {"id": "d", "type": "point", "x": -5.0, "y": 8.0},
+            {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+            {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+            {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+            {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+        ]
+        shape = self._build_profile(
+            entities,
+            end_condition="up_to",
+            end_reference={
+                "kind": "face",
+                "surface_kind": "other",
+                "reference": reference.to_dict(),
+            },
+            input_registry=registry,
+        )
+
+        self.assertHasVolume(shape)
+        # The rectangular profile straddles the first/last parameter of the
+        # closed spline.  The cap must retain its two safe B-Rep patches;
+        # merging them across the periodic seam creates a false transition
+        # skin and changes the calculated volume.
+        face_count = 0
+        explorer = TopExp_Explorer(shape, TopAbs_FACE)
+        while explorer.More():
+            face_count += 1
+            explorer.Next()
+        self.assertEqual(face_count, 7)
+        properties = GProp_GProps()
+        brepgprop.VolumeProperties(shape, properties)
+        self.assertAlmostEqual(
+            abs(float(properties.Mass())),
+            612.8446323146183,
+            delta=0.005,
+        )
+
+        def aligned_profile(seam_offset: float):
+            aligned_entities = [
+                {
+                    "id": "a", "type": "point",
+                    "x": seam_offset, "y": 2.0,
+                },
+                {"id": "b", "type": "point", "x": 5.0, "y": 2.0},
+                {"id": "c", "type": "point", "x": 5.0, "y": 8.0},
+                {
+                    "id": "d", "type": "point",
+                    "x": seam_offset, "y": 8.0,
+                },
+                {"id": "ab", "type": "segment", "point_ids": ["a", "b"]},
+                {"id": "bc", "type": "segment", "point_ids": ["b", "c"]},
+                {"id": "cd", "type": "segment", "point_ids": ["c", "d"]},
+                {"id": "da", "type": "segment", "point_ids": ["d", "a"]},
+            ]
+            aligned_shape = self._build_profile(
+                aligned_entities,
+                end_condition="up_to",
+                end_reference={
+                    "kind": "face",
+                    "surface_kind": "other",
+                    "reference": reference.to_dict(),
+                },
+                input_registry=registry,
+            )
+            self.assertHasVolume(aligned_shape)
+            aligned_properties = GProp_GProps()
+            brepgprop.VolumeProperties(aligned_shape, aligned_properties)
+            return aligned_shape, abs(float(aligned_properties.Mass()))
+
+        aligned_shape, aligned_volume = aligned_profile(0.0)
+
+        # This time one complete side of the projected prism lands exactly
+        # on the first/last parameter line.  It is one geometric hit, not two
+        # target branches, and must remain a valid six-faced prism.
+        aligned_face_count = 0
+        explorer = TopExp_Explorer(aligned_shape, TopAbs_FACE)
+        while explorer.More():
+            aligned_face_count += 1
+            explorer.Next()
+        self.assertEqual(aligned_face_count, 6)
+
+        # The exact case must also be the continuous limit of profiles a
+        # model-tolerance step to either side of the seam.  This detects a
+        # false wedge even when OCCT still reports the result as valid.
+        _left_shape, left_volume = aligned_profile(-0.001)
+        _right_shape, right_volume = aligned_profile(0.001)
+        self.assertGreater(aligned_volume, min(left_volume, right_volume))
+        self.assertLess(aligned_volume, max(left_volume, right_volume))
+        self.assertAlmostEqual(
+            aligned_volume,
+            (left_volume + right_volume) * 0.5,
+            delta=0.005,
+        )
 
     def test_dependent_multi_profile_source_does_not_mark_valid_up_to_red(self):
         document = create_empty_part()
