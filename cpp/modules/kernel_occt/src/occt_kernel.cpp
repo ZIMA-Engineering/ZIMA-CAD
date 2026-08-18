@@ -35,6 +35,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -150,6 +151,9 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                     return profile.vertices.front();
                 } else if constexpr (std::is_same_v<Profile,
                                          ExtrusionRequest::CircleProfile>) {
+                    return profile.center;
+                } else if constexpr (std::is_same_v<Profile,
+                                         ExtrusionRequest::EllipseProfile>) {
                     return profile.center;
                 } else {
                     return std::visit([](const auto& curve) {
@@ -317,8 +321,8 @@ PrimitiveData make_cylinder_data(
 }
 
 void validate_extrusion(const ExtrusionRequest& request) {
-    const auto validate_profile = [](const auto& profile_variant) {
-        std::visit([](const auto& profile) {
+    const auto validate_profile = [&](const auto& profile_variant) {
+        std::visit([&](const auto& profile) {
             using Profile = std::decay_t<decltype(profile)>;
             if constexpr (std::is_same_v<Profile,
                               ExtrusionRequest::PolygonProfile>) {
@@ -341,6 +345,33 @@ void validate_extrusion(const ExtrusionRequest& request) {
                        !std::isfinite(profile.radius) || profile.radius <= 0.0) {
                     throw std::invalid_argument(
                         "Extrusion Circle must have a finite center and positive radius");
+                }
+            } else if constexpr (std::is_same_v<Profile,
+                                     ExtrusionRequest::EllipseProfile>) {
+                const double axis_length = std::sqrt(
+                    profile.major_axis_direction.x * profile.major_axis_direction.x +
+                    profile.major_axis_direction.y * profile.major_axis_direction.y +
+                    profile.major_axis_direction.z * profile.major_axis_direction.z);
+                const double normal_length = std::sqrt(
+                    request.direction.x * request.direction.x +
+                    request.direction.y * request.direction.y +
+                    request.direction.z * request.direction.z);
+                const double orthogonality = std::abs(
+                    profile.major_axis_direction.x * request.direction.x +
+                    profile.major_axis_direction.y * request.direction.y +
+                    profile.major_axis_direction.z * request.direction.z);
+                if (!std::isfinite(profile.center.x) ||
+                    !std::isfinite(profile.center.y) ||
+                    !std::isfinite(profile.center.z) ||
+                    !std::isfinite(axis_length) || axis_length <= 1.0e-12 ||
+                    !std::isfinite(normal_length) || normal_length <= 1.0e-12 ||
+                    orthogonality > 1.0e-9 * axis_length * normal_length ||
+                    !std::isfinite(profile.major_radius) ||
+                    !std::isfinite(profile.minor_radius) ||
+                    profile.major_radius <= 0.0 || profile.minor_radius <= 0.0 ||
+                    profile.major_radius < profile.minor_radius) {
+                    throw std::invalid_argument(
+                        "Extrusion Ellipse must have finite axes and positive ordered radii");
                 }
             } else {
                 if (profile.curves.size() < 2) {
@@ -457,6 +488,26 @@ TopoDS_Wire make_profile_wire(
                 throw std::runtime_error("OCCT circular profile wire failed");
             }
             return circle_wire.Wire();
+        } else if constexpr (std::is_same_v<Profile,
+                                 ExtrusionRequest::EllipseProfile>) {
+            const gp_Dir normal(
+                profile_normal.x, profile_normal.y, profile_normal.z);
+            const gp_Dir major_direction(
+                profile.major_axis_direction.x,
+                profile.major_axis_direction.y,
+                profile.major_axis_direction.z);
+            BRepBuilderAPI_MakeEdge edge(gp_Elips(
+                gp_Ax2(gp_Pnt(profile.center.x, profile.center.y, profile.center.z),
+                       normal, major_direction),
+                profile.major_radius, profile.minor_radius));
+            if (!edge.IsDone()) {
+                throw std::runtime_error("OCCT elliptical profile edge failed");
+            }
+            BRepBuilderAPI_MakeWire ellipse_wire(edge.Edge());
+            if (!ellipse_wire.IsDone()) {
+                throw std::runtime_error("OCCT elliptical profile wire failed");
+            }
+            return ellipse_wire.Wire();
         } else {
             BRepBuilderAPI_MakeWire curved_wire;
             for (const auto& curve : profile.curves) {

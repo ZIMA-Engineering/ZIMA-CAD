@@ -351,9 +351,11 @@ translates the complete curve without changing either semiaxis. Moving the major
 point changes its radius and rotation while keeping the minor axis perpendicular;
 moving the minor point changes only its radius. The viewer uses a stable
 `ellipse:<id>` curve reference, and the complete geometry round-trips in Sketch
-format version 3. Extrusion and Revolution explicitly reject Ellipse profiles
-until the kernel boundary gains an exact Ellipse loop type; no viewer polyline is
-ever promoted into body geometry.
+format version 3. One standalone Ellipse is also an exact shared Extrusion and
+Revolution profile. The kernel boundary carries centre, normalized major-axis
+direction, and both semiaxes; OCCT constructs a true analytic ellipse and never
+promotes the viewer polyline into body geometry. Mixed and nested Ellipse loops
+remain explicitly unsupported until their containment contract is defined.
 
 The Coincident command owns an explicit point-only viewer selection contract.
 Two confirmed stable `point:<id>` candidates create one transactional constraint;

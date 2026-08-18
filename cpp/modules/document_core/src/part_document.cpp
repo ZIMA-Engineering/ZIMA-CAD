@@ -75,11 +75,6 @@ zima::kernel::ExtrusionRequest extrusion_request(
     ExtrusionDirection direction_mode) {
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
-    if (std::any_of(sketch.ellipses.begin(), sketch.ellipses.end(),
-            [](const auto& ellipse) { return !ellipse.construction; })) {
-        throw std::runtime_error(
-            "Ellipse profiles are not yet supported by Extrusion or Revolution");
-    }
     zima::kernel::ExtrusionRequest request;
     request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
         ? zima::kernel::Vec3{0.0, 0.0, height}
@@ -109,6 +104,11 @@ zima::kernel::ExtrusionRequest extrusion_request(
                     }
                 } else if constexpr (std::is_same_v<Profile,
                                          zima::kernel::ExtrusionRequest::CircleProfile>) {
+                    profile.center.x += offset.x;
+                    profile.center.y += offset.y;
+                    profile.center.z += offset.z;
+                } else if constexpr (std::is_same_v<Profile,
+                                         zima::kernel::ExtrusionRequest::EllipseProfile>) {
                     profile.center.x += offset.x;
                     profile.center.y += offset.y;
                     profile.center.z += offset.z;
@@ -147,6 +147,36 @@ zima::kernel::ExtrusionRequest extrusion_request(
     std::vector<const zima::sketcher::SketchArc*> profile_arcs;
     for (const auto& arc : sketch.arcs) {
         if (!arc.construction) profile_arcs.push_back(&arc);
+    }
+    std::vector<const zima::sketcher::SketchEllipse*> profile_ellipses;
+    for (const auto& ellipse : sketch.ellipses) {
+        if (!ellipse.construction) profile_ellipses.push_back(&ellipse);
+    }
+    if (!profile_ellipses.empty()) {
+        if (profile_ellipses.size() != 1 || !profile_segments.empty() ||
+            !profile_circles.empty() || !profile_arcs.empty()) {
+            throw std::runtime_error(
+                "Ellipse profile must currently be one standalone closed loop");
+        }
+        const auto* ellipse = profile_ellipses.front();
+        const auto* center = sketch.find_point(ellipse->center_point_id);
+        const auto* major = sketch.find_point(ellipse->major_point_id);
+        const auto* minor = sketch.find_point(ellipse->minor_point_id);
+        auto center_world = sketch.world_point(center->x, center->y);
+        auto axis_point = ellipse->major_radius >= ellipse->minor_radius
+            ? sketch.world_point(major->x, major->y)
+            : sketch.world_point(minor->x, minor->y);
+        const double major_radius = std::max(
+            ellipse->major_radius, ellipse->minor_radius);
+        const double minor_radius = std::min(
+            ellipse->major_radius, ellipse->minor_radius);
+        request.outer_profile = zima::kernel::ExtrusionRequest::EllipseProfile{
+            center_world,
+            {(axis_point.x - center_world.x) / major_radius,
+             (axis_point.y - center_world.y) / major_radius,
+             (axis_point.z - center_world.z) / major_radius},
+            major_radius, minor_radius};
+        return finalize(std::move(request));
     }
     if (!profile_arcs.empty()) {
         struct CurveRecord {

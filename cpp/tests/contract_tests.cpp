@@ -608,14 +608,36 @@ int main() {
         ellipse_profile_document.history.push_back(
             zima::document::PartDocument::create_extrusion_container(
                 ellipse_profile_sketch_id));
-        bool ellipse_profile_rejected = false;
-        try {
-            static_cast<void>(ellipse_profile_document.kernel_operations());
-        } catch (const std::runtime_error&) {
-            ellipse_profile_rejected = true;
-        }
-        require(ellipse_profile_rejected,
-                "Ellipse profile reached OCCT without an exact kernel contract");
+        const auto ellipse_profile_results = kernel.evaluate_history(
+            ellipse_profile_document.kernel_operations());
+        require(std::abs(ellipse_profile_results.front().volume -
+                    400.0 * std::numbers::pi) < 1.0e-6,
+                "Exact Ellipse extrusion has an incorrect volume");
+        auto ellipse_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto ellipse_revolution_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(ellipse_revolution_sketch.add_ellipse(
+            0.0, 20.0, 10.0, 20.0, 0.0, 24.0));
+        const auto ellipse_revolution_sketch_id = ellipse_revolution_sketch.id;
+        ellipse_revolution_document.sketches.push_back(
+            std::move(ellipse_revolution_sketch));
+        ellipse_revolution_document.history.push_back(
+            zima::document::PartDocument::create_revolution_container(
+                ellipse_revolution_sketch_id));
+        const auto ellipse_revolution_results = kernel.evaluate_history(
+            ellipse_revolution_document.kernel_operations());
+        require(std::abs(ellipse_revolution_results.front().volume -
+                    1600.0 * std::numbers::pi * std::numbers::pi) < 1.0e-6,
+                "Exact Ellipse Revolution has an incorrect toroidal volume");
+        auto resized_ellipse = ellipse_profile_document;
+        resized_ellipse.sketches.front().ellipses.front().minor_radius = 3.0;
+        auto* resized_minor = resized_ellipse.sketches.front().find_point(
+            resized_ellipse.sketches.front().ellipses.front().minor_point_id);
+        resized_minor->y = 3.0;
+        require(zima::kernel::history_fingerprint(
+                    resized_ellipse.kernel_operations(), 1) !=
+                    ellipse_profile_results.front().source_fingerprint,
+                "Ellipse semiaxes are missing from the history fingerprint");
 
         auto revolution_document = zima::document::PartDocument::create_default();
         auto revolution_sketch = zima::sketcher::Sketch::create_default();

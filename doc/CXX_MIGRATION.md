@@ -555,9 +555,13 @@ ne skrytou OCCT rekonstrukcí při editaci.
 Skica nyní persistuje také elipsu s vlastním stabilním ID a stabilními body
 středu, hlavní a vedlejší poloosy. Přesun středu pouze přeloží celou elipsu;
 hlavní bod mění velikost a natočení hlavní poloosy a vedlejší bod pouze velikost
-kolmé vedlejší poloosy. Viewer používá `ellipse:<id>`. Vytažení a Rotace elipsu
-zatím výslovně odmítnou před OCCT, protože kernelové rozhraní ještě nemá její
-přesný typ a viewerová polyline se nesmí použít jako modelovací geometrie.
+kolmé vedlejší poloosy. Viewer používá `ellipse:<id>`. Samostatná elipsa přechází
+do Vytažení i Rotace jako přesný profil se středem, směrem hlavní osy a oběma
+poloosami. OCCT vytvoří analytickou elipsu; viewerová polyline se nikdy nepoužije
+jako modelovací geometrie. Elipsa 10 × 4 mm vytažená o 10 mm musí mít objem
+`400π mm³`. Stejný profil se středem 20 mm od osy rotace musí podle Pappovy věty
+vytvořit objem `1600π² mm³`. Smíšené a vnořené eliptické smyčky zůstávají
+odmítnuté, dokud nebude definován jejich jednoznačný containment kontrakt.
 
 Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou s vnitřním
 kruhovým otvorem R2, symetricky vytažený o 6 mm, musí mít objem `276π mm³` a

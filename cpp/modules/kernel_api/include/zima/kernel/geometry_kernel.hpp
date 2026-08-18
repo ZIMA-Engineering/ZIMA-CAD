@@ -124,6 +124,12 @@ struct ExtrusionRequest {
         Vec3 center;
         double radius{};
     };
+    struct EllipseProfile {
+        Vec3 center;
+        Vec3 major_axis_direction{1.0, 0.0, 0.0};
+        double major_radius{};
+        double minor_radius{};
+    };
     struct LineCurve {
         Vec3 start;
         Vec3 end;
@@ -136,7 +142,8 @@ struct ExtrusionRequest {
     struct CurvedProfile {
         std::vector<std::variant<LineCurve, ArcCurve>> curves;
     };
-    using ProfileLoop = std::variant<PolygonProfile, CircleProfile, CurvedProfile>;
+    using ProfileLoop = std::variant<
+        PolygonProfile, CircleProfile, EllipseProfile, CurvedProfile>;
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     Vec3 direction{0.0, 0.0, 10.0};
@@ -275,6 +282,16 @@ struct BodyResult {
                                     profile.center.z, profile.radius}) {
                                 u64(std::bit_cast<std::uint64_t>(value));
                             }
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::EllipseProfile>) {
+                            for (const double value : {
+                                    profile.center.x, profile.center.y,
+                                    profile.center.z, profile.major_axis_direction.x,
+                                    profile.major_axis_direction.y,
+                                    profile.major_axis_direction.z,
+                                    profile.major_radius, profile.minor_radius}) {
+                                u64(std::bit_cast<std::uint64_t>(value));
+                            }
                         } else {
                             u64(profile.curves.size());
                             for (const auto& curve : profile.curves) {
@@ -326,6 +343,16 @@ struct BodyResult {
                             for (const double value : {
                                     profile.center.x, profile.center.y,
                                     profile.center.z, profile.radius}) {
+                                u64(std::bit_cast<std::uint64_t>(value));
+                            }
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::EllipseProfile>) {
+                            for (const double value : {
+                                    profile.center.x, profile.center.y,
+                                    profile.center.z, profile.major_axis_direction.x,
+                                    profile.major_axis_direction.y,
+                                    profile.major_axis_direction.z,
+                                    profile.major_radius, profile.minor_radius}) {
                                 u64(std::bit_cast<std::uint64_t>(value));
                             }
                         } else {
