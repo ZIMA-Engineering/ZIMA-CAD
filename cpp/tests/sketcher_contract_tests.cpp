@@ -477,16 +477,24 @@ int main() {
         static_cast<void>(shared_centre.add_arc(0.0, 0.0, 4.0, 0.0, 0.0, 4.0));
         shared_centre.remove_geometry(shared_circle_id);
         require(shared_centre.circles.empty() && shared_centre.arcs.size() == 1 &&
-                    shared_centre.points.size() == 1,
+                    shared_centre.points.size() == 3,
                 "Deleting Circle removed a centre still shared by an Arc");
         auto arc_sketch = zima::sketcher::Sketch::create_default();
         const auto arc_id = arc_sketch.add_arc(0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
         require(arc_sketch.arcs.size() == 1 &&
+                    arc_sketch.points.size() == 3 &&
+                    !arc_sketch.arcs.front().start_point_id.empty() &&
+                    !arc_sketch.arcs.front().end_point_id.empty() &&
                     std::abs(arc_sketch.arcs.front().radius - 10.0) < 1.0e-9 &&
                     std::abs(arc_sketch.arcs.front().start_angle) < 1.0e-9 &&
                     std::abs(arc_sketch.arcs.front().end_angle -
                         3.14159265358979323846 / 2.0) < 1.0e-9,
                 "Three-point arc parameters are incorrect");
+        auto joined_arc_sketch = arc_sketch;
+        const auto shared_arc_endpoint = joined_arc_sketch.arcs.front().end_point_id;
+        static_cast<void>(joined_arc_sketch.add_segment(0.0, 10.0, -5.0, 10.0));
+        require(joined_arc_sketch.segments.back().first_point_id == shared_arc_endpoint,
+                "Segment did not reuse the Arc's stable endpoint reference");
         const auto arc_packet = arc_sketch.viewer_mesh();
         require(arc_packet.edges.size() == 1 &&
                     arc_packet.edges.front().points.size() == 25 &&

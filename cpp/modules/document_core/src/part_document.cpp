@@ -144,12 +144,10 @@ zima::kernel::ExtrusionRequest extrusion_request(
         if (!arc.construction) profile_arcs.push_back(&arc);
     }
     if (!profile_arcs.empty()) {
-        if (!profile_circles.empty()) {
-            throw std::runtime_error(
-                "Curved Extrusion profile cannot yet contain circular holes");
-        }
         struct CurveRecord {
             std::string id;
+            std::string start_point_id;
+            std::string end_point_id;
             std::array<double, 2> start;
             std::array<double, 2> end;
             std::variant<zima::kernel::ExtrusionRequest::LineCurve,
@@ -161,7 +159,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
         for (const auto* segment : profile_segments) {
             const auto* first = sketch.find_point(segment->first_point_id);
             const auto* second = sketch.find_point(segment->second_point_id);
-            curves.push_back({segment->id, {first->x, first->y},
+            curves.push_back({segment->id, segment->first_point_id,
+                segment->second_point_id, {first->x, first->y},
                 {second->x, second->y},
                 zima::kernel::ExtrusionRequest::LineCurve{
                     sketch.world_point(first->x, first->y),
@@ -169,38 +168,36 @@ zima::kernel::ExtrusionRequest extrusion_request(
         }
         for (const auto* arc : profile_arcs) {
             const auto* center = sketch.find_point(arc->center_point_id);
+            const auto* start_point = sketch.find_point(arc->start_point_id);
+            const auto* end_point = sketch.find_point(arc->end_point_id);
             const double middle_angle = 0.5 * (arc->start_angle + arc->end_angle);
             const std::array<double, 2> start{
-                center->x + arc->radius * std::cos(arc->start_angle),
-                center->y + arc->radius * std::sin(arc->start_angle)};
+                start_point->x, start_point->y};
             const std::array<double, 2> middle{
                 center->x + arc->radius * std::cos(middle_angle),
                 center->y + arc->radius * std::sin(middle_angle)};
             const std::array<double, 2> end{
-                center->x + arc->radius * std::cos(arc->end_angle),
-                center->y + arc->radius * std::sin(arc->end_angle)};
-            curves.push_back({arc->id, start, end,
+                end_point->x, end_point->y};
+            curves.push_back({arc->id, arc->start_point_id, arc->end_point_id,
+                start, end,
                 zima::kernel::ExtrusionRequest::ArcCurve{
                     sketch.world_point(start[0], start[1]),
                     sketch.world_point(middle[0], middle[1]),
                     sketch.world_point(end[0], end[1])}});
         }
-        std::vector<std::array<double, 2>> nodes;
+        std::vector<std::string> nodes;
         std::vector<std::vector<std::size_t>> incident_curves;
-        const auto node_for = [&](const std::array<double, 2>& point) {
+        const auto node_for = [&](const std::string& point_id) {
             for (std::size_t index = 0; index < nodes.size(); ++index) {
-                if (std::hypot(nodes[index][0] - point[0],
-                               nodes[index][1] - point[1]) <= 1.0e-7) {
-                    return index;
-                }
+                if (nodes[index] == point_id) return index;
             }
-            nodes.push_back(point);
+            nodes.push_back(point_id);
             incident_curves.emplace_back();
             return nodes.size() - 1;
         };
         for (std::size_t index = 0; index < curves.size(); ++index) {
-            curves[index].start_node = node_for(curves[index].start);
-            curves[index].end_node = node_for(curves[index].end);
+            curves[index].start_node = node_for(curves[index].start_point_id);
+            curves[index].end_node = node_for(curves[index].end_point_id);
             incident_curves[curves[index].start_node].push_back(index);
             incident_curves[curves[index].end_node].push_back(index);
         }
@@ -247,6 +244,12 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 "Curved Extrusion profile contains disconnected loops");
         }
         request.outer_profile = std::move(ordered);
+        for (const auto* circle : profile_circles) {
+            const auto* center = sketch.find_point(circle->center_point_id);
+            request.inner_profiles.push_back(
+                zima::kernel::ExtrusionRequest::CircleProfile{
+                    sketch.world_point(center->x, center->y), circle->radius});
+        }
         return finalize(std::move(request));
     }
     const auto circle_profile = [&](const auto* circle) {

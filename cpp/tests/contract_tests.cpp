@@ -546,6 +546,8 @@ int main() {
             0.0, 0.0, 0.0, -10.0, 0.0, 10.0));
         static_cast<void>(arc_profile_sketch.add_segment(
             0.0, 10.0, 0.0, -10.0));
+        static_cast<void>(arc_profile_sketch.add_circle(
+            4.0, 0.0, 2.0));
         const auto arc_profile_sketch_id = arc_profile_sketch.id;
         arc_profile_document.sketches.push_back(std::move(arc_profile_sketch));
         auto arc_profile_extrusion =
@@ -560,10 +562,11 @@ int main() {
             kernel.evaluate_history(arc_profile_document.kernel_operations());
         const auto arc_profile_bounds = z_bounds(arc_profile_results.front());
         require(std::abs(arc_profile_results.front().volume -
-                    300.0 * std::numbers::pi) < 1.0e-6 &&
+                    276.0 * std::numbers::pi) < 1.0e-6 &&
                     std::abs(arc_profile_bounds[0] + 3.0) < 1.0e-7 &&
                     std::abs(arc_profile_bounds[1] - 3.0) < 1.0e-7,
-                "Exact Arc profile has an incorrect volume or symmetric extent");
+                "Exact Arc profile with a circular hole has an incorrect volume "
+                "or symmetric extent");
         std::set<std::string> arc_profile_sides;
         for (const auto& reference :
              arc_profile_results.front().mesh.triangle_references) {
@@ -572,8 +575,9 @@ int main() {
                 arc_profile_sides.insert(reference.semantic_key);
             }
         }
-        require(arc_profile_sides == std::set<std::string>{"side:0", "side:1"},
-                "Arc and closing Segment did not retain stable side ownership");
+        require(arc_profile_sides ==
+                    std::set<std::string>{"side:0", "side:1", "side:2"},
+                "Arc, Segment, and circular hole did not retain stable side ownership");
         auto two_arc_document = zima::document::PartDocument::create_default();
         auto two_arc_sketch = zima::sketcher::Sketch::create_default();
         static_cast<void>(two_arc_sketch.add_arc(
@@ -687,6 +691,34 @@ int main() {
                     arc_torus_results.front().source_fingerprint !=
                         torus_revolution_results.front().source_fingerprint,
                 "Exact Arc Revolution did not preserve the torus geometry");
+
+        auto curved_holed_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto curved_holed_revolution_sketch =
+            zima::sketcher::Sketch::create_default();
+        static_cast<void>(curved_holed_revolution_sketch.add_arc(
+            0.0, 0.0, 0.0, -10.0, 0.0, 10.0));
+        static_cast<void>(curved_holed_revolution_sketch.add_segment(
+            0.0, 10.0, 0.0, -10.0));
+        static_cast<void>(curved_holed_revolution_sketch.add_circle(
+            4.0, 0.0, 2.0));
+        const auto curved_holed_revolution_sketch_id =
+            curved_holed_revolution_sketch.id;
+        curved_holed_revolution_document.sketches.push_back(
+            std::move(curved_holed_revolution_sketch));
+        auto curved_holed_revolution =
+            zima::document::PartDocument::create_revolution_container(
+                curved_holed_revolution_sketch_id);
+        curved_holed_revolution.revolution.axis =
+            zima::document::RevolutionAxis::SketchY;
+        curved_holed_revolution_document.history.push_back(
+            std::move(curved_holed_revolution));
+        const auto curved_holed_revolution_results = kernel.evaluate_history(
+            curved_holed_revolution_document.kernel_operations());
+        require(std::abs(curved_holed_revolution_results.front().volume -
+                    (4000.0 * std::numbers::pi / 3.0 -
+                     32.0 * std::numbers::pi * std::numbers::pi)) < 1.0e-6,
+                "Curved Revolution with a circular hole has an incorrect volume");
 
         auto holed_revolution_document =
             zima::document::PartDocument::create_default();

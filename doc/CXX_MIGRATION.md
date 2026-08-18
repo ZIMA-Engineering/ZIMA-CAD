@@ -561,8 +561,11 @@ zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygo
 
 Příkaz **Rotace** používá stejný interní Properties a rollback kontrakt jako
 Vytažení. Rotace a Vytažení sdílejí jediný přesný profilový kontrakt: polygony,
-kružnice, vnější smyčky kombinující úsečky a oblouky a aktuálně podporované
-vnitřní kruhové smyčky. Křivky se mezi příkazy nekopírují do druhé reprezentace
+kružnice, vnější smyčky kombinující úsečky a oblouky a vnitřní kruhové smyčky.
+Oblouk má vlastní stabilní ID geometrie a persistované reference na stabilní
+středový, počáteční a koncový bod. Navazující geometrie tak sdílí ID bodu a
+nespoléhá jen na shodu souřadnic; změna poloměru současně aktualizuje oba
+referencované koncové body. Křivky se mezi příkazy nekopírují do druhé reprezentace
 a nepřevádějí se na polygon. Dalšími vstupy jsou osa X nebo Y zdrojové skici,
 úhel v intervalu `(0, 360]°` a operace Přičíst/Odečíst. Document Core převede
 lokální osu skici do souřadnic XY/XZ/YZ a do úzkého `RevolutionRequest` vloží

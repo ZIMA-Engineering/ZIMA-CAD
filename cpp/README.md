@@ -404,11 +404,15 @@ classifies outer and inner loops, normalizes polygon orientation, and rejects
 crossing, touching, disjoint, overlapping, or self-intersecting profiles before
 OCCT. Circles cross the kernel boundary as exact centre/radius loops and remain
 true cylindrical faces rather than tessellated polygons. A single outer loop
-may also combine straight Segments and exact Arcs. Document Core orders those
-curves by coincident geometric endpoints; the kernel boundary independently
+may also combine straight Segments and exact Arcs and may contain circular inner
+loops. An Arc owns its stable geometry ID and explicitly references stable
+centre, start, and end Sketch points. Connected geometry therefore shares the
+same persisted endpoint ID instead of relying on coordinate coincidence.
+Document Core orders those curves through the persisted endpoint geometry; the
+kernel boundary independently
 checks connectivity, closure, finite points, and non-collinear Arc definition.
 OCCT additionally validates the exact face and final solid before returning
-viewer data. Curved profiles do not yet accept inner loops. OCCT returns a
+viewer data. OCCT returns a
 prism with stable start, end, outer and inner side, edge and vertex references
 owned by the Extrusion history container.
 

@@ -45,6 +45,8 @@ struct SketchCircle {
 struct SketchArc {
     std::string id;
     std::string center_point_id;
+    std::string start_point_id;
+    std::string end_point_id;
     double radius{};
     double start_angle{};
     double end_angle{};

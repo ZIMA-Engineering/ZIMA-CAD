@@ -164,13 +164,28 @@ void Sketch::validate() const {
     }
     ids.clear();
     for (const auto& arc : arcs) {
+        const auto* center = find_point(arc.center_point_id);
+        const auto* start = find_point(arc.start_point_id);
+        const auto* end = find_point(arc.end_point_id);
         if (arc.id.empty() || !ids.insert(arc.id).second ||
-            find_point(arc.center_point_id) == nullptr ||
+            center == nullptr || start == nullptr || end == nullptr ||
+            arc.center_point_id == arc.start_point_id ||
+            arc.center_point_id == arc.end_point_id ||
+            arc.start_point_id == arc.end_point_id ||
             !std::isfinite(arc.radius) || arc.radius <= 0.0 ||
             !std::isfinite(arc.start_angle) || !std::isfinite(arc.end_angle) ||
             arc.end_angle <= arc.start_angle ||
             arc.end_angle - arc.start_angle >= 2.0 * 3.14159265358979323846) {
             throw std::runtime_error("Sketch arc is invalid");
+        }
+        const auto point_matches = [&](const SketchPoint* point, double angle) {
+            return std::hypot(
+                point->x - (center->x + arc.radius * std::cos(angle)),
+                point->y - (center->y + arc.radius * std::sin(angle))) <= 1.0e-7;
+        };
+        if (!point_matches(start, arc.start_angle) ||
+            !point_matches(end, arc.end_angle)) {
+            throw std::runtime_error("Sketch Arc endpoint references are inconsistent");
         }
     }
     ids.clear();
@@ -494,7 +509,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
                 return value.center_point_id == point_id;
             }) || std::any_of(next.arcs.begin(), next.arcs.end(), [&](const auto& value) {
-                return value.center_point_id == point_id;
+                return value.center_point_id == point_id ||
+                    value.start_point_id == point_id || value.end_point_id == point_id;
             }) || std::any_of(next.constraints.begin(), next.constraints.end(),
                 [&](const auto& value) {
                     return value.first_point_id == point_id || value.second_point_id == point_id;
@@ -588,19 +604,22 @@ std::string Sketch::add_arc(
         throw std::invalid_argument("Sketch arc must have a non-zero sweep");
     }
     auto next = *this;
-    const auto center = std::find_if(next.points.begin(), next.points.end(),
-        [&](const auto& point) {
-            return std::hypot(point.x - center_x, point.y - center_y) <= snap_tolerance;
-        });
-    std::string center_id;
-    if (center == next.points.end()) {
-        auto point = create_point(center_x, center_y);
-        center_id = point.id;
+    const auto point_id = [&](double x, double y) {
+        const auto found = std::find_if(next.points.begin(), next.points.end(),
+            [&](const auto& point) {
+                return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
+            });
+        if (found != next.points.end()) return found->id;
+        auto point = create_point(x, y);
+        const auto id = point.id;
         next.points.push_back(std::move(point));
-    } else {
-        center_id = center->id;
-    }
-    SketchArc arc{make_id(), center_id, radius, start_angle, end_angle, construction};
+        return id;
+    };
+    const auto center_id = point_id(center_x, center_y);
+    const auto start_id = point_id(start_x, start_y);
+    const auto end_id = point_id(end_x, end_y);
+    SketchArc arc{make_id(), center_id, start_id, end_id, radius,
+                  start_angle, end_angle, construction};
     const auto id = arc.id;
     next.arcs.push_back(std::move(arc));
     next.validate();
@@ -711,6 +730,13 @@ void Sketch::apply_dimension(SketchDimension dimension) {
                 throw std::invalid_argument("Radius dimension geometry does not exist");
             }
             arc->radius = dimension_value;
+            const auto* center = next.find_point(arc->center_point_id);
+            auto* start = next.find_point(arc->start_point_id);
+            auto* end = next.find_point(arc->end_point_id);
+            start->x = center->x + arc->radius * std::cos(arc->start_angle);
+            start->y = center->y + arc->radius * std::sin(arc->start_angle);
+            end->x = center->x + arc->radius * std::cos(arc->end_angle);
+            end->y = center->y + arc->radius * std::sin(arc->end_angle);
         }
     }
     next.validate();
@@ -1199,7 +1225,9 @@ std::string Sketch::serialized() const {
         {"radius", circle.radius}, {"construction", circle.construction}});
     nlohmann::json arc_values = nlohmann::json::array();
     for (const auto& arc : arcs) arc_values.push_back({
-        {"id", arc.id}, {"center", arc.center_point_id}, {"radius", arc.radius},
+        {"id", arc.id}, {"center", arc.center_point_id},
+        {"start", arc.start_point_id}, {"end", arc.end_point_id},
+        {"radius", arc.radius},
         {"start_angle", arc.start_angle}, {"end_angle", arc.end_angle},
         {"construction", arc.construction}});
     nlohmann::json constraint_values = nlohmann::json::array();
@@ -1218,7 +1246,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 1},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 2},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -1231,7 +1259,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 1) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 2) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -1251,6 +1279,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("radius").get<double>(), value.at("construction").get<bool>()});
     for (const auto& value : root.at("arcs")) sketch.arcs.push_back({
         value.at("id").get<std::string>(), value.at("center").get<std::string>(),
+        value.at("start").get<std::string>(), value.at("end").get<std::string>(),
         value.at("radius").get<double>(), value.at("start_angle").get<double>(),
         value.at("end_angle").get<double>(), value.at("construction").get<bool>()});
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
