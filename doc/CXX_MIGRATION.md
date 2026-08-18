@@ -562,6 +562,11 @@ jako modelovací geometrie. Elipsa 10 × 4 mm vytažená o 10 mm musí mít obje
 `400π mm³`. Stejný profil se středem 20 mm od osy rotace musí podle Pappovy věty
 vytvořit objem `1600π² mm³`. Smíšené a vnořené eliptické smyčky zůstávají
 odmítnuté, dokud nebude definován jejich jednoznačný containment kontrakt.
+GUI příkaz Elipsa používá tři kliknutí: střed, konec hlavní poloosy a velikost
+vedlejší poloosy. První dva kroky jsou pouze transientní viewer preview; třetí
+platný klik vytvoří jedinou Part revizi. Escape zruší celý rozpracovaný příkaz.
+Potvrzenou elipsu lze vybrat přes její stabilní `SketchCurve` referenci a smazat
+stejnou undoable transakcí jako ostatní geometrie skici.
 
 Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou s vnitřním
 kruhovým otvorem R2, symetricky vytažený o 6 mm, musí mít objem `276π mm³` a

@@ -356,6 +356,12 @@ Revolution profile. The kernel boundary carries centre, normalized major-axis
 direction, and both semiaxes; OCCT constructs a true analytic ellipse and never
 promotes the viewer polyline into body geometry. Mixed and nested Ellipse loops
 remain explicitly unsupported until their containment contract is defined.
+The Modeling menu exposes a three-click Ellipse command: centre, major-axis rim,
+then minor-axis size. Both intermediate states use transient ZIMA viewer edges;
+only the third valid click commits one Part revision. Escape clears the complete
+pending command, and successful creation keeps the tool active for another Ellipse.
+Confirmed Ellipses use the same `SketchCurve` selection and Delete transaction as
+the other persisted Sketch geometry.
 
 The Coincident command owns an explicit point-only viewer selection contract.
 Two confirmed stable `point:<id>` candidates create one transactional constraint;

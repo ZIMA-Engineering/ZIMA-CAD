@@ -82,6 +82,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_circle(); });
     sketch_arc_action_ = modeling->addAction(tr("Oblouk skici"), this,
         [this] { start_sketch_arc(); });
+    sketch_ellipse_action_ = modeling->addAction(tr("Elipsa skici"), this,
+        [this] { start_sketch_ellipse(); });
     sketch_horizontal_action_ = modeling->addAction(tr("Vodorovná úsečka"), this,
         [this] { constrain_selected_segment(zima::sketcher::ConstraintKind::Horizontal); });
     sketch_vertical_action_ = modeling->addAction(tr("Svislá úsečka"), this,
@@ -168,6 +170,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_segment_id_ = candidate.semantic_key.substr(8);
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(true);
             sketch_vertical_action_->setEnabled(true);
@@ -182,6 +185,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                    candidate.semantic_key.starts_with("circle:")) {
             selected_sketch_circle_id_ = candidate.semantic_key.substr(7);
             selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
             selected_sketch_segment_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
@@ -200,6 +204,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_ = candidate.semantic_key.substr(4);
+            selected_sketch_ellipse_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
@@ -211,6 +216,24 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_radius_dimension_action_->setEnabled(true);
             sketch_diameter_dimension_action_->setEnabled(false);
             state_->setText(tr("Vybrán oblouk skici."));
+        } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+                   candidate.owner_id == active_sketch_id_ &&
+                   candidate.semantic_key.starts_with("ellipse:")) {
+            selected_sketch_segment_id_.clear();
+            selected_sketch_circle_id_.clear();
+            selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_ = candidate.semantic_key.substr(8);
+            selected_sketch_point_id_.clear();
+            sketch_horizontal_action_->setEnabled(false);
+            sketch_vertical_action_->setEnabled(false);
+            sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
+            sketch_radius_dimension_action_->setEnabled(false);
+            sketch_diameter_dimension_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
+            state_->setText(tr("Vybrána elipsa skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("point:")) {
@@ -218,6 +241,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
             sketch_dimension_action_->setEnabled(false);
@@ -239,13 +263,15 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (accept_sketch_segment_ray(origin, direction)) return true;
         if (accept_sketch_rectangle_ray(origin, direction)) return true;
         if (accept_sketch_circle_ray(origin, direction)) return true;
-        return accept_sketch_arc_ray(origin, direction);
+        if (accept_sketch_arc_ray(origin, direction)) return true;
+        return accept_sketch_ellipse_ray(origin, direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         preview_sketch_segment_ray(origin, direction);
         preview_sketch_rectangle_ray(origin, direction);
         preview_sketch_circle_ray(origin, direction);
         preview_sketch_arc_ray(origin, direction);
+        preview_sketch_ellipse_ray(origin, direction);
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::SketchDimension &&
@@ -276,6 +302,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
+        selected_sketch_ellipse_id_.clear();
         selected_sketch_point_id_.clear();
         cancel_sketch_segment();
         refresh_scene();
@@ -291,11 +318,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 selected_sketch_point_id_.clear();
                 selected_sketch_circle_id_.clear();
                 selected_sketch_arc_id_.clear();
+                selected_sketch_ellipse_id_.clear();
                 cancel_sketch_segment();
                 sketch_segment_action_->setEnabled(true);
                 sketch_rectangle_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
+                sketch_ellipse_action_->setEnabled(true);
                 sketch_coincident_action_->setEnabled(true);
                 sketch_parallel_action_->setEnabled(true);
                 sketch_perpendicular_action_->setEnabled(true);
@@ -791,6 +820,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment() {
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
     pending_segment_start_.reset();
     viewer_->set_transient_edges({});
     state_->setText(tr("Úsečka skici: určete první bod. Escape příkaz zruší."));
@@ -801,6 +831,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_rectangle_active_ = false;
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
+    sketch_ellipse_active_ = false;
     sketch_coincident_active_ = false;
     sketch_segment_pair_active_ = false;
     pending_segment_start_.reset();
@@ -808,6 +839,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_circle_center_.reset();
     pending_arc_center_.reset();
     pending_arc_start_.reset();
+    pending_ellipse_center_.reset();
+    pending_ellipse_major_.reset();
     pending_coincident_point_id_.clear();
     pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
@@ -829,6 +862,7 @@ void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
     state_->setText(tr("Obdélník skici: určete první roh. Escape příkaz zruší."));
 }
 
@@ -854,6 +888,7 @@ void AssemblyWorkspaceWindow::start_sketch_circle() {
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
     state_->setText(tr("Kružnice skici: určete střed. Escape příkaz zruší."));
 }
 
@@ -879,6 +914,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
     state_->setText(tr("Oblouk skici: určete střed. Escape příkaz zruší."));
 }
 
@@ -886,6 +922,33 @@ void AssemblyWorkspaceWindow::cancel_sketch_arc() {
     sketch_arc_active_ = false;
     pending_arc_center_.reset();
     pending_arc_start_.reset();
+    viewer_->set_transient_edges({});
+}
+
+void AssemblyWorkspaceWindow::start_sketch_ellipse() {
+    if (properties_dialog_ != nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto found = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    if (found == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_ellipse_active_ = true;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    state_->setText(tr("Elipsa skici: určete střed. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
+    sketch_ellipse_active_ = false;
+    pending_ellipse_center_.reset();
+    pending_ellipse_major_.reset();
     viewer_->set_transient_edges({});
 }
 
@@ -1193,12 +1256,13 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-        sketch_arc_active_ || sketch_coincident_active_ ||
+        sketch_arc_active_ || sketch_ellipse_active_ || sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
     const std::string geometry_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
-        : selected_sketch_arc_id_;
+        : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
+        : selected_sketch_ellipse_id_;
     if (geometry_id.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -1213,6 +1277,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
+        selected_sketch_ellipse_id_.clear();
         selected_sketch_point_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -1536,6 +1601,99 @@ void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
     viewer_->set_transient_edges({std::move(preview)});
 }
 
+bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_ellipse_active_) return false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || active_sketch_id_.empty()) return false;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return true;
+    if (!pending_ellipse_center_) {
+        pending_ellipse_center_ = *position;
+        state_->setText(tr("Elipsa skici: určete konec hlavní poloosy."));
+        return true;
+    }
+    if (!pending_ellipse_major_) {
+        if (std::hypot((*position)[0] - (*pending_ellipse_center_)[0],
+                       (*position)[1] - (*pending_ellipse_center_)[1]) <= 1.0e-9) {
+            state_->setText(tr("Hlavní poloosa elipsy musí mít nenulovou délku."));
+            return true;
+        }
+        pending_ellipse_major_ = *position;
+        state_->setText(tr("Elipsa skici: určete délku vedlejší poloosy."));
+        return true;
+    }
+    try {
+        auto next = part->session.document();
+        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (target == next.sketches.end()) return true;
+        static_cast<void>(target->add_ellipse(
+            (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1],
+            (*pending_ellipse_major_)[0], (*pending_ellipse_major_)[1],
+            (*position)[0], (*position)[1]));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        pending_ellipse_center_.reset();
+        pending_ellipse_major_.reset();
+        viewer_->set_transient_edges({});
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Elipsa vytvořena. Kliknutím určete střed další elipsy."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_ellipse_active_ || !pending_ellipse_center_) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return;
+    if (!pending_ellipse_major_) {
+        viewer_->set_transient_edges({{{
+            sketch->world_point((*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1]),
+            sketch->world_point((*position)[0], (*position)[1])}, {}}});
+        return;
+    }
+    const double dx = (*pending_ellipse_major_)[0] - (*pending_ellipse_center_)[0];
+    const double dy = (*pending_ellipse_major_)[1] - (*pending_ellipse_center_)[1];
+    const double major_radius = std::hypot(dx, dy);
+    const double rotation = std::atan2(dy, dx);
+    const double minor_radius = std::abs(
+        -((*position)[0] - (*pending_ellipse_center_)[0]) * std::sin(rotation) +
+         ((*position)[1] - (*pending_ellipse_center_)[1]) * std::cos(rotation));
+    if (major_radius <= 1.0e-9 || minor_radius <= 1.0e-9) return;
+    zima::kernel::ViewerEdge preview;
+    constexpr std::size_t samples = 96;
+    preview.points.reserve(samples + 1);
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double parameter = 2.0 * 3.14159265358979323846 *
+            static_cast<double>(sample) / static_cast<double>(samples);
+        const double local_x = major_radius * std::cos(parameter);
+        const double local_y = minor_radius * std::sin(parameter);
+        preview.points.push_back(sketch->world_point(
+            (*pending_ellipse_center_)[0] + local_x * std::cos(rotation) -
+                local_y * std::sin(rotation),
+            (*pending_ellipse_center_)[1] + local_x * std::sin(rotation) +
+                local_y * std::cos(rotation)));
+    }
+    viewer_->set_transient_edges({std::move(preview)});
+}
+
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Delete && delete_selected_sketch_geometry()) {
         event->accept();
@@ -1543,7 +1701,8 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     }
     if (event->key() == Qt::Key_Escape &&
         (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-         sketch_arc_active_ || sketch_coincident_active_ || sketch_segment_pair_active_)) {
+         sketch_arc_active_ || sketch_ellipse_active_ || sketch_coincident_active_ ||
+         sketch_segment_pair_active_)) {
         cancel_sketch_segment();
         refresh_scene();
         event->accept();
@@ -1742,6 +1901,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
@@ -1811,6 +1971,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_rectangle_action_->setEnabled(false);
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
+    sketch_ellipse_action_->setEnabled(false);
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);
