@@ -41,12 +41,15 @@ int main() {
         mesh.edges = {
             {{{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}}, {"front", "edge-a"}},
             {{{-1.0, 0.0, 10.0}, {1.0, 0.0, 10.0}}, {"back", "edge-b"}},
+            {{{-1.0, 0.0, 7.0}, {1.0, 0.0, 7.0}}, {}},
         };
         const auto edges = zima::viewer::ordered_edge_candidates(
             mesh, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         require(edges.size() == 2 && edges[0].reference.owner_id == "front" &&
                     edges[1].reference.owner_id == "back",
                 "Edge candidates do not use stable owners in depth order");
+        require(mesh.edges.size() == 3,
+                "Viewer packet did not retain an unowned display-only result edge");
         mesh.points = {
             {{0.0, 0.0, 4.0}, {"front", "vertex-a"}},
             {{0.0, 0.0, 9.0}, {"back", "vertex-b"}},
@@ -62,7 +65,7 @@ int main() {
             all_candidates, {zima::viewer::CandidateKind::Edge});
         require(edge_contract.size() == 2 &&
                     edge_contract.front().kind == zima::viewer::CandidateKind::Edge,
-                "Edge selection contract did not filter the common candidate list");
+                "Display-only OCCT edge leaked into the selectable candidate list");
         mesh.axes.push_back({
             {0.0, 0.0, 5.0}, {0.0, 0.0, 1.0}, 10.0,
             {"axis-owner", "axis:z", "4:part"}});

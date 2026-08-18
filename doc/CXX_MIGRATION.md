@@ -12,6 +12,58 @@ Python verze zůstane během migrace referenční implementací. C++ část nesm
 považována za náhradu, dokud nad stejnými vstupy neposkytne stejné persistované
 výstupy, geometrické výsledky, chybové stavy a uživatelské chování.
 
+Stabilní modelové identity vlastní pouze persistované ZIMA skici, kontejnery a
+jejich původní solidy. Výsledné OCCT plochy, vrcholy, osy ani pořadí traversal
+nejsou vlastníky referencí. Viewer packet uchová všechny hrany výsledného OCCT
+tělesa potřebné k vykreslení obrysu a Boolean průsečnic; hrana bez ZIMA vlastníka
+má prázdnou referenci a běžný picker ji nenabídne. Jedinou provozní výjimkou je
+Fillet a Chamfer, které při explicitním výpočtu smějí vybrat hranu skutečného
+vstupního tělesa a zjistit vazbu nových ploch na operaci. Stabilní význam těchto
+ploch následně přiděluje a persistuje jejich ZIMA kontejner.
+
+### Dvojí původ hrany a volba Fillet/Chamfer algoritmu
+
+Fillet a Chamfer mají jeden uživatelský příkaz, ale dvě explicitní interní
+cesty. Uživatel nevolí algoritmus; uložená reference však vždy obsahuje druh
+původu hrany a aplikace jej nesmí odhadovat až při regeneraci:
+
+- `ORIGINAL_ENTITY_EDGE` znamená stabilní hranu původního ZIMA kontejneru nebo
+  solidu. Reference obsahuje vlastníka a sémantický klíč, například horní
+  kruhovou hranu válce. Pokud typ vlastníka a historie před operací splní
+  deklarované podmínky, použije se specializované analytické ZIMA sražení nebo
+  zaoblení. Pro jednoduchý kvádr, válec, kužel nebo známé vytažení tak lze
+  sestavit přesnou upravenou geometrii bez obecného OCCT Fillet/Chamfer
+  algoritmu; OCCT může zůstat pouze konečným solid builderem, nebo u plně
+  podporované analytické konstrukce nemusí být pro samotný lokální přechod
+  potřeba vůbec.
+- `OPERATIONAL_BODY_EDGE` znamená hranu skutečného vstupního tělesa na přesné
+  hranici historie před Filletem nebo Chamferem. Je platná jen uvnitř těchto
+  dvou aktivních příkazů a používá obecný OCCT algoritmus pro Boolean průsečnice
+  a jiné složité případy. Nesmí se stát běžnou referencí vazby, skici, umístění,
+  osy ani bodu.
+
+Viewer vytvoří jeden společný seřazený candidate list a každý hranový kandidát
+v něm nese tento původ. Hover, RMB cycling a LMB potvrzení používají tentýž
+kandidát; geometricky překryté původní a provozní hrany se nesmějí sloučit jen
+podle polohy. Aktivní selection contract běžných příkazů provozní hrany úplně
+odfiltruje. Selection contract Filletu a Chamferu může nabídnout oba druhy a
+uloží přesně ten, který uživatel potvrdil.
+
+Volba rychlé cesty je konzervativní a deterministická. Vyhodnocuje typ původního
+vlastníka, parametry hrany a pouze kontejnery ležící před operací ve stromu.
+Kontejner umístěný za operací rozhodnutí neovlivňuje. Pokud dřívější Protrusion,
+Boolean nebo jiný prvek změnil lokální okolí původní hrany, analytická cesta se
+smí použít jen po jednoznačném geometrickém testu nedotčeného okolí. Jinak se
+použije explicitně uložená provozní hrana a obecná OCCT cesta, nebo operace
+zůstane nevyřešená. Aplikace nikdy potají nepřepne z původní hrany na numericky
+nejbližší hranu výsledného tělesa.
+
+Obě cesty mají stejné Properties, parametry, stromový kontejner a výsledné ZIMA
+identity. Automatická volba je implementační optimalizace a nesmí měnit vzhled
+ovládání ani konstrukční záměr dokumentu. Specializované algoritmy se doplní až
+po stabilizaci základního C++ modelu; před jejich zapnutím se porovnají přesnost,
+objem, hranice platnosti a čas regenerace se stejnou obecnou OCCT operací.
+
 První vertikální řez je v `cpp/`: textový prototyp Part dokumentu, přímý OCCT
 výpočet kvádru, převod na ZIMA `ViewerMesh`, Qt viewer a deterministický test
 objemu, plochy, meshe a save/load. Prototyp používá vlastní příponu `.zcp.json`,

@@ -875,7 +875,6 @@ BodyResult make_result(
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
         const EdgeReference reference =
             reference_for_shape<EdgeReference>(edge, owned_edges);
-        if (!reference.valid()) continue;
         BRepAdaptor_Curve curve(edge);
         const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
         GCPnts_UniformAbscissa samples(curve, sample_count);

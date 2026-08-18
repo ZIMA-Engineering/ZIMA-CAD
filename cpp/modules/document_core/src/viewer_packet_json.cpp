@@ -129,7 +129,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             edge.at("owner").get<std::string>(), edge.at("key").get<std::string>(),
             edge.at("instance_path").get<std::string>()};
         for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));
-        if (!loaded.reference.valid() || loaded.points.size() < 2) {
+        const bool owner_empty = loaded.reference.owner_id.empty();
+        const bool key_empty = loaded.reference.semantic_key.empty();
+        if (owner_empty != key_empty ||
+            (owner_empty && !loaded.reference.instance_path.empty()) ||
+            loaded.points.size() < 2) {
             throw std::runtime_error("Persisted viewer edge is invalid");
         }
         result.mesh.edges.push_back(std::move(loaded));

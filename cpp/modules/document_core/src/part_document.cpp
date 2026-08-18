@@ -874,7 +874,7 @@ PartDocument PartDocument::load(
             validate_reference(reference, true);
         }
         for (const auto& edge : mesh.edges) {
-            validate_reference(edge.reference, false);
+            validate_reference(edge.reference, true);
         }
         for (const auto& point : mesh.points) {
             validate_reference(point.reference, false);

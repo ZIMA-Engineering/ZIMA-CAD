@@ -53,6 +53,17 @@
   original history-solid edge and uses result topology only for a newly picked
   genuine Boolean intersection; apply the same rule to Chamfer and remaining
   persistent clients.
+- After the basic C++ history and selection model is stable, add invisible
+  Fillet/Chamfer algorithm dispatch. Persist edge provenance explicitly as
+  `ORIGINAL_ENTITY_EDGE` or `OPERATIONAL_BODY_EDGE`; never infer it from
+  coincident coordinates during regeneration. Known original Box/Cylinder/
+  Cone/Extrusion edges may use specialized analytic chamfer or fillet builders
+  when all earlier history leaves the required local neighborhood intact.
+  Genuine Boolean/intersection edges use the general OCCT operation at the
+  exact input boundary. Later history cannot affect this decision. Benchmark
+  both paths and enable a specialization only after deterministic geometry,
+  validity-range and performance comparisons pass. The user keeps one command
+  and one Properties contract regardless of the selected internal algorithm.
 - Add central `entity_id -> entity`, `entity_id -> parent` and
   `entity_id -> owning history object` indexes. Replace repeated recursive tree
   searches in visibility, selection, attachment and scene-building hot paths.

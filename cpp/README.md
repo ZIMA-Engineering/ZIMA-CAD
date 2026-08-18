@@ -376,6 +376,16 @@ invalid values, limits, or solver conflicts leave both dimension and geometry
 unchanged. Negative angular values are valid and are never classified as negative
 lengths.
 
+Stable modeling references belong to persisted ZIMA Sketches, containers and
+their original solids. Result-body OCCT faces, vertices, axes and traversal
+indices are not reference owners. The calculated result packet retains every
+OCCT edge needed to draw the final silhouette and Boolean intersections, but an
+edge without a ZIMA owner has an invalid reference and is never offered by the
+ordinary picker. Fillet and Chamfer are the only operational exception: while
+explicitly calculating, they may select an edge of the real input body and map
+generated faces back to that operation; the resulting stable meaning is still
+owned and persisted by the ZIMA container.
+
 B-spline is native ZIMA Sketch geometry with an interactive control-point tool,
 stable curve/control-point IDs, Delete, and one internal Properties editor for
 degree, closure, and coordinates. Sketch format version 5 stores open clamped
