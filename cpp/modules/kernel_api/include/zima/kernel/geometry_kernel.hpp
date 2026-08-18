@@ -124,7 +124,9 @@ struct ExtrusionRequest {
         Vec3 center;
         double radius{};
     };
-    std::variant<PolygonProfile, CircleProfile> profile{PolygonProfile{}};
+    using ProfileLoop = std::variant<PolygonProfile, CircleProfile>;
+    ProfileLoop outer_profile{PolygonProfile{}};
+    std::vector<ProfileLoop> inner_profiles;
     Vec3 direction{0.0, 0.0, 10.0};
 };
 
@@ -231,25 +233,32 @@ struct BodyResult {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else {
-                byte(static_cast<std::uint8_t>(primitive.profile.index()));
-                std::visit([&](const auto& profile) {
-                    using Profile = std::decay_t<decltype(profile)>;
-                    if constexpr (std::is_same_v<Profile,
-                                      ExtrusionRequest::PolygonProfile>) {
-                        u64(profile.vertices.size());
-                        for (const auto& point : profile.vertices) {
-                            for (const double value : {point.x, point.y, point.z}) {
+                const auto append_profile = [&](const auto& profile_variant) {
+                    byte(static_cast<std::uint8_t>(profile_variant.index()));
+                    std::visit([&](const auto& profile) {
+                        using Profile = std::decay_t<decltype(profile)>;
+                        if constexpr (std::is_same_v<Profile,
+                                          ExtrusionRequest::PolygonProfile>) {
+                            u64(profile.vertices.size());
+                            for (const auto& point : profile.vertices) {
+                                for (const double value : {point.x, point.y, point.z}) {
+                                    u64(std::bit_cast<std::uint64_t>(value));
+                                }
+                            }
+                        } else {
+                            for (const double value : {
+                                    profile.center.x, profile.center.y,
+                                    profile.center.z, profile.radius}) {
                                 u64(std::bit_cast<std::uint64_t>(value));
                             }
                         }
-                    } else {
-                        for (const double value : {
-                                profile.center.x, profile.center.y, profile.center.z,
-                                profile.radius}) {
-                            u64(std::bit_cast<std::uint64_t>(value));
-                        }
-                    }
-                }, primitive.profile);
+                    }, profile_variant);
+                };
+                append_profile(primitive.outer_profile);
+                u64(primitive.inner_profiles.size());
+                for (const auto& profile : primitive.inner_profiles) {
+                    append_profile(profile);
+                }
                 for (const double value : {
                         primitive.direction.x, primitive.direction.y,
                         primitive.direction.z}) {

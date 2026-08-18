@@ -522,13 +522,18 @@ skica, kladná výška a operace Přičíst/Odečíst; prostředkem je úzký po
 koncové a bočních ploch, hran a vrcholů. Poloha tělesa vychází výhradně z roviny
 a odsazení zdrojové skici, takže vytažení nemá druhé nezávislé posunutí.
 
-Profilový kontrakt přijímá právě jednu souvislou uzavřenou smyčku
-nekonstrukčních přímých úseček nebo jednu nekonstrukční kružnici. Kružnice
-přechází do adaptéru jako přesný střed a poloměr a vytváří skutečnou válcovou
-plochu, nikoliv polygonovou aproximaci. Otevřený, smíšený či vícenásobný profil
-a oblouky odmítne Document Core ještě před voláním OCCT. Kontrolní obdélník
+Profilový kontrakt přijímá jednu souvislou uzavřenou smyčku nekonstrukčních
+přímých úseček nebo jednu vnější kružnici. Polygon může obsahovat nepřekrývající
+se kruhové otvory a vnější kružnice nepřekrývající se vnitřní kružnice. Document
+Core jednoznačně určí vnější a vnitřní smyčky, normalizuje orientaci polygonu a
+ještě před OCCT odmítne dotyk, křížení, oddělené či překrývající se smyčky a
+samoprotínající obrys. Kružnice přechází do adaptéru jako přesný střed a poloměr
+a vytváří skutečnou válcovou plochu, nikoliv polygonovou aproximaci. Oblouky
+zatím zůstávají mimo tento řez. Kontrolní obdélník
 30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³. Druhá nezávislá kontrola
 odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytický objem
-`16000 − 250π mm³` i stabilní vlastnictví válcové boční plochy. Rozšíření
-profilů přijde až s vlastním jednoznačným datovým kontraktem, ne skrytou OCCT
-rekonstrukcí při editaci.
+`16000 − 250π mm³` i stabilní vlastnictví válcové boční plochy. Profil
+40 × 30 mm s vnitřní kružnicí R5 vytažený o 8 mm musí mít objem
+`(1200 − 25π) × 8 mm³`; kruhový profil R10/R4 vytažený o 5 mm objem `420π mm³`.
+Rozšíření o další křivky přijde až s vlastním jednoznačným datovým kontraktem,
+ne skrytou OCCT rekonstrukcí při editaci.

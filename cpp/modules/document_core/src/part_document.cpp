@@ -4,11 +4,13 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <unordered_set>
@@ -64,8 +66,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
     if (std::any_of(sketch.arcs.begin(), sketch.arcs.end(),
             [](const auto& value) { return !value.construction; })) {
         throw std::runtime_error(
-            "Extrusion currently supports one straight-segment loop or one Circle");
+            "Extrusion profile Arcs are not supported yet");
     }
+    zima::kernel::ExtrusionRequest request;
+    request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
+        ? zima::kernel::Vec3{0.0, 0.0, height}
+        : sketch.plane == zima::sketcher::SketchPlane::XZ
+            ? zima::kernel::Vec3{0.0, -height, 0.0}
+            : zima::kernel::Vec3{height, 0.0, 0.0};
     std::vector<const zima::sketcher::SketchSegment*> profile_segments;
     for (const auto& segment : sketch.segments) {
         if (!segment.construction) profile_segments.push_back(&segment);
@@ -74,20 +82,48 @@ zima::kernel::ExtrusionRequest extrusion_request(
     for (const auto& circle : sketch.circles) {
         if (!circle.construction) profile_circles.push_back(&circle);
     }
-    if (!profile_circles.empty()) {
-        if (!profile_segments.empty() || profile_circles.size() != 1) {
-            throw std::runtime_error(
-                "Extrusion profile must be one straight-segment loop or one Circle");
+    const auto circle_profile = [&](const auto* circle) {
+        const auto* center = sketch.find_point(circle->center_point_id);
+        return zima::kernel::ExtrusionRequest::CircleProfile{
+            sketch.world_point(center->x, center->y), circle->radius};
+    };
+    if (profile_segments.empty()) {
+        if (profile_circles.empty()) {
+            throw std::runtime_error("Extrusion profile has no closed geometry");
         }
-        const auto* center = sketch.find_point(profile_circles.front()->center_point_id);
-        zima::kernel::ExtrusionRequest request;
-        request.profile = zima::kernel::ExtrusionRequest::CircleProfile{
-            sketch.world_point(center->x, center->y), profile_circles.front()->radius};
-        request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
-            ? zima::kernel::Vec3{0.0, 0.0, height}
-            : sketch.plane == zima::sketcher::SketchPlane::XZ
-                ? zima::kernel::Vec3{0.0, -height, 0.0}
-                : zima::kernel::Vec3{height, 0.0, 0.0};
+        const auto outer = *std::max_element(
+            profile_circles.begin(), profile_circles.end(),
+            [](const auto* left, const auto* right) {
+                return left->radius < right->radius;
+            });
+        const auto* outer_center = sketch.find_point(outer->center_point_id);
+        request.outer_profile = circle_profile(outer);
+        std::vector<const zima::sketcher::SketchCircle*> holes;
+        for (const auto* circle : profile_circles) {
+            if (circle == outer) continue;
+            const auto* center = sketch.find_point(circle->center_point_id);
+            const double distance = std::hypot(
+                center->x - outer_center->x, center->y - outer_center->y);
+            if (distance + circle->radius >= outer->radius - 1.0e-9) {
+                throw std::runtime_error(
+                    "Circular extrusion loops must be strictly nested");
+            }
+            holes.push_back(circle);
+            request.inner_profiles.push_back(circle_profile(circle));
+        }
+        for (std::size_t first = 0; first < holes.size(); ++first) {
+            const auto* first_center = sketch.find_point(holes[first]->center_point_id);
+            for (std::size_t second = first + 1; second < holes.size(); ++second) {
+                const auto* second_center =
+                    sketch.find_point(holes[second]->center_point_id);
+                if (std::hypot(first_center->x - second_center->x,
+                               first_center->y - second_center->y) <=
+                    holes[first]->radius + holes[second]->radius + 1.0e-9) {
+                    throw std::runtime_error(
+                        "Extrusion holes must not overlap or contain each other");
+                }
+            }
+        }
         return request;
     }
     if (profile_segments.size() < 3) {
@@ -112,10 +148,12 @@ zima::kernel::ExtrusionRequest extrusion_request(
     const std::string start = current;
     const zima::sketcher::SketchSegment* previous{};
     std::unordered_set<std::string> visited_segments;
-    zima::kernel::ExtrusionRequest request;
+    std::vector<std::array<double, 2>> polygon;
     do {
         const auto* point = sketch.find_point(current);
-        std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(request.profile)
+        polygon.push_back({point->x, point->y});
+        std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
+            request.outer_profile)
             .vertices.push_back(sketch.world_point(point->x, point->y));
         auto candidates = incident.at(current);
         std::sort(candidates.begin(), candidates.end(), [](const auto* left, const auto* right) {
@@ -133,11 +171,117 @@ zima::kernel::ExtrusionRequest extrusion_request(
     if (visited_segments.size() != profile_segments.size()) {
         throw std::runtime_error("Extrusion profile contains disconnected loops");
     }
-    request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
-        ? zima::kernel::Vec3{0.0, 0.0, height}
-        : sketch.plane == zima::sketcher::SketchPlane::XZ
-            ? zima::kernel::Vec3{0.0, -height, 0.0}
-            : zima::kernel::Vec3{height, 0.0, 0.0};
+    const auto orientation = [](const auto& first, const auto& second,
+                                const auto& third) {
+        return (second[0] - first[0]) * (third[1] - first[1]) -
+            (second[1] - first[1]) * (third[0] - first[0]);
+    };
+    const auto lies_on_segment = [](const auto& point, const auto& first,
+                                    const auto& second) {
+        return point[0] >= std::min(first[0], second[0]) - 1.0e-9 &&
+            point[0] <= std::max(first[0], second[0]) + 1.0e-9 &&
+            point[1] >= std::min(first[1], second[1]) - 1.0e-9 &&
+            point[1] <= std::max(first[1], second[1]) + 1.0e-9;
+    };
+    for (std::size_t first = 0; first < polygon.size(); ++first) {
+        const std::size_t first_next = (first + 1) % polygon.size();
+        for (std::size_t second = first + 1; second < polygon.size(); ++second) {
+            const std::size_t second_next = (second + 1) % polygon.size();
+            if (first == second_next || first_next == second) continue;
+            const double first_a = orientation(
+                polygon[first], polygon[first_next], polygon[second]);
+            const double first_b = orientation(
+                polygon[first], polygon[first_next], polygon[second_next]);
+            const double second_a = orientation(
+                polygon[second], polygon[second_next], polygon[first]);
+            const double second_b = orientation(
+                polygon[second], polygon[second_next], polygon[first_next]);
+            const bool proper_crossing =
+                ((first_a > 1.0e-9 && first_b < -1.0e-9) ||
+                 (first_a < -1.0e-9 && first_b > 1.0e-9)) &&
+                ((second_a > 1.0e-9 && second_b < -1.0e-9) ||
+                 (second_a < -1.0e-9 && second_b > 1.0e-9));
+            const bool touching =
+                (std::abs(first_a) <= 1.0e-9 && lies_on_segment(
+                    polygon[second], polygon[first], polygon[first_next])) ||
+                (std::abs(first_b) <= 1.0e-9 && lies_on_segment(
+                    polygon[second_next], polygon[first], polygon[first_next])) ||
+                (std::abs(second_a) <= 1.0e-9 && lies_on_segment(
+                    polygon[first], polygon[second], polygon[second_next])) ||
+                (std::abs(second_b) <= 1.0e-9 && lies_on_segment(
+                    polygon[first_next], polygon[second], polygon[second_next]));
+            if (proper_crossing || touching) {
+                throw std::runtime_error(
+                    "Extrusion outer profile must not self-intersect");
+            }
+        }
+    }
+    double signed_area{};
+    for (std::size_t index = 0; index < polygon.size(); ++index) {
+        const auto& first = polygon[index];
+        const auto& second = polygon[(index + 1) % polygon.size()];
+        signed_area += first[0] * second[1] - second[0] * first[1];
+    }
+    if (std::abs(signed_area) <= 1.0e-12) {
+        throw std::runtime_error("Extrusion outer profile has zero area");
+    }
+    if (signed_area < 0.0) {
+        std::reverse(polygon.begin(), polygon.end());
+        auto& vertices =
+            std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
+                request.outer_profile).vertices;
+        std::reverse(vertices.begin(), vertices.end());
+    }
+    const auto circle_inside_polygon = [&](const auto* circle) {
+        const auto* center = sketch.find_point(circle->center_point_id);
+        bool inside = false;
+        double minimum_edge_distance = std::numeric_limits<double>::infinity();
+        for (std::size_t index = 0; index < polygon.size(); ++index) {
+            const auto& first = polygon[index];
+            const auto& second = polygon[(index + 1) % polygon.size()];
+            if ((first[1] > center->y) != (second[1] > center->y) &&
+                center->x < (second[0] - first[0]) * (center->y - first[1]) /
+                        (second[1] - first[1]) + first[0]) {
+                inside = !inside;
+            }
+            const double dx = second[0] - first[0];
+            const double dy = second[1] - first[1];
+            const double length_squared = dx * dx + dy * dy;
+            if (length_squared <= 1.0e-18) {
+                throw std::runtime_error(
+                    "Extrusion profile contains a zero-length segment");
+            }
+            const double parameter = std::clamp(
+                ((center->x - first[0]) * dx + (center->y - first[1]) * dy) /
+                    length_squared,
+                0.0, 1.0);
+            minimum_edge_distance = std::min(minimum_edge_distance, std::hypot(
+                center->x - (first[0] + parameter * dx),
+                center->y - (first[1] + parameter * dy)));
+        }
+        return inside && minimum_edge_distance > circle->radius + 1.0e-9;
+    };
+    for (const auto* circle : profile_circles) {
+        if (!circle_inside_polygon(circle)) {
+            throw std::runtime_error(
+                "Circular extrusion hole must lie strictly inside the outer loop");
+        }
+        request.inner_profiles.push_back(circle_profile(circle));
+    }
+    for (std::size_t first = 0; first < profile_circles.size(); ++first) {
+        const auto* first_center =
+            sketch.find_point(profile_circles[first]->center_point_id);
+        for (std::size_t second = first + 1; second < profile_circles.size(); ++second) {
+            const auto* second_center =
+                sketch.find_point(profile_circles[second]->center_point_id);
+            if (std::hypot(first_center->x - second_center->x,
+                           first_center->y - second_center->y) <=
+                profile_circles[first]->radius +
+                    profile_circles[second]->radius + 1.0e-9) {
+                throw std::runtime_error("Extrusion holes must not overlap");
+            }
+        }
+    }
     return request;
 }
 

@@ -414,14 +414,97 @@ int main() {
         auto multiple_circle_document = circular_document;
         static_cast<void>(multiple_circle_document.sketches.front().add_circle(
             10.0, 10.0, 2.0));
-        bool multiple_circles_rejected = false;
+        bool disjoint_circles_rejected = false;
         try {
             static_cast<void>(multiple_circle_document.kernel_operations());
         } catch (const std::runtime_error&) {
-            multiple_circles_rejected = true;
+            disjoint_circles_rejected = true;
         }
-        require(multiple_circles_rejected,
-                "Ambiguous multiple-Circle profile reached OCCT");
+        require(disjoint_circles_rejected,
+                "Disjoint circular profile loops reached OCCT");
+
+        auto holed_profile_document = zima::document::PartDocument::create_default();
+        auto holed_profile_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(holed_profile_sketch.add_rectangle(
+            0.0, 0.0, 40.0, 30.0));
+        static_cast<void>(holed_profile_sketch.add_circle(20.0, 15.0, 5.0));
+        const auto holed_profile_sketch_id = holed_profile_sketch.id;
+        holed_profile_document.sketches.push_back(std::move(holed_profile_sketch));
+        auto holed_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                holed_profile_sketch_id);
+        holed_extrusion.extrusion.height = 8.0;
+        const auto holed_extrusion_id = holed_extrusion.id;
+        holed_profile_document.history.push_back(std::move(holed_extrusion));
+        const auto holed_profile_results = kernel.evaluate_history(
+            holed_profile_document.kernel_operations());
+        require(std::abs(holed_profile_results.front().volume -
+                    (1200.0 - 25.0 * std::numbers::pi) * 8.0) < 1.0e-6,
+                "Polygon profile with a circular hole has an incorrect volume");
+        bool hole_side_found = false;
+        for (const auto& reference :
+             holed_profile_results.front().mesh.triangle_references) {
+            if (reference.owner_id == holed_extrusion_id &&
+                reference.semantic_key == "side:4") {
+                hole_side_found = true;
+            }
+        }
+        require(hole_side_found,
+                "Inner profile wall lost its stable Extrusion owner");
+
+        auto annulus_document = zima::document::PartDocument::create_default();
+        auto annulus_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(annulus_sketch.add_circle(0.0, 0.0, 10.0));
+        static_cast<void>(annulus_sketch.add_circle(0.0, 0.0, 4.0));
+        const auto annulus_sketch_id = annulus_sketch.id;
+        annulus_document.sketches.push_back(std::move(annulus_sketch));
+        auto annulus_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                annulus_sketch_id);
+        annulus_extrusion.extrusion.height = 5.0;
+        annulus_document.history.push_back(std::move(annulus_extrusion));
+        const auto annulus_results =
+            kernel.evaluate_history(annulus_document.kernel_operations());
+        require(std::abs(annulus_results.front().volume -
+                    420.0 * std::numbers::pi) < 1.0e-6,
+                "Nested circular profile did not produce an exact annulus");
+
+        auto crossing_hole_document = holed_profile_document;
+        crossing_hole_document.sketches.front().circles.front().radius = 16.0;
+        bool crossing_hole_rejected = false;
+        try {
+            static_cast<void>(crossing_hole_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            crossing_hole_rejected = true;
+        }
+        require(crossing_hole_rejected,
+                "A hole crossing the outer profile reached OCCT");
+
+        auto self_intersecting_document =
+            zima::document::PartDocument::create_default();
+        auto self_intersecting_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(self_intersecting_sketch.add_segment(
+            0.0, 0.0, 20.0, 20.0));
+        static_cast<void>(self_intersecting_sketch.add_segment(
+            20.0, 20.0, 0.0, 20.0));
+        static_cast<void>(self_intersecting_sketch.add_segment(
+            0.0, 20.0, 20.0, 0.0));
+        static_cast<void>(self_intersecting_sketch.add_segment(
+            20.0, 0.0, 0.0, 0.0));
+        const auto self_intersecting_sketch_id = self_intersecting_sketch.id;
+        self_intersecting_document.sketches.push_back(
+            std::move(self_intersecting_sketch));
+        self_intersecting_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(
+                self_intersecting_sketch_id));
+        bool self_intersection_rejected = false;
+        try {
+            static_cast<void>(self_intersecting_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            self_intersection_rejected = true;
+        }
+        require(self_intersection_rejected,
+                "A self-intersecting profile reached OCCT");
 
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());
