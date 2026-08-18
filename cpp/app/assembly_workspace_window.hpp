@@ -46,10 +46,15 @@ private:
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
     QAction* sketch_coincident_action_{};
+    QAction* sketch_parallel_action_{};
+    QAction* sketch_perpendicular_action_{};
+    QAction* sketch_equal_length_action_{};
     QAction* sketch_dimension_action_{};
     QAction* sketch_dimension_x_action_{};
     QAction* sketch_dimension_y_action_{};
+    QAction* sketch_angle_dimension_action_{};
     QAction* sketch_radius_dimension_action_{};
+    QAction* sketch_diameter_dimension_action_{};
     QAction* sketch_fix_point_action_{};
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
@@ -80,6 +85,10 @@ private:
     std::optional<std::array<double, 2>> pending_arc_start_;
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
+    bool sketch_segment_pair_active_{};
+    std::string pending_pair_segment_id_;
+    zima::sketcher::ConstraintKind pending_pair_kind_{
+        zima::sketcher::ConstraintKind::Parallel};
     bool preserve_view_on_refresh_{};
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::string sketch_drag_point_id_;
@@ -135,12 +144,16 @@ private:
     void cancel_sketch_coincident();
     void accept_sketch_coincident_point(
         const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
+    void accept_sketch_segment_pair(
+        const zima::viewer::ViewerCandidate& candidate);
     void toggle_selected_sketch_point_fixed();
     [[nodiscard]] bool begin_sketch_point_drag(
         const zima::viewer::ViewerCandidate& candidate);
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();
+    [[nodiscard]] bool delete_selected_sketch_geometry();
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {},
         zima::sketcher::DimensionKind creation_kind =

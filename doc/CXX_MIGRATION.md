@@ -321,6 +321,35 @@ klik. Pohyb se počítá nad transientním Part dokumentem, solver zachová vazb
 měřené kóty se přepočítají a absolutní meze odmítnou neplatnou polohu. Puštění
 LMB vytvoří nejvýše jednu Part revizi.
 
+Vybraná úsečka může vytvořit také orientační úhlovou kótu vůči kladné ose X
+skici. Podepsaná hodnota i absolutní meze jsou ve stupních v uzavřeném intervalu
+`[-180, 180]`. Solver úsečku otočí bez změny její aktuální délky, měřený úhel se
+při tažení aktualizuje a explicitní jednotka viewer packetu odděluje `°` od
+výchozí přípony délkových kót `mm`.
+
+Potvrzená kružnice může alternativně vlastnit kótu průměru. Průměr je samostatný
+persistovaný typ se solverovým vztahem `D = 2R`, absolutními mezemi v milimetrech,
+celou čárou přes střed a prefixem `Ø` ve vieweru i stromu. Jedna kružnice nesmí
+mít současně řídicí poloměr i průměr. Oblouk průměr nenabízí, protože jeho
+technický význam zůstává poloměrový.
+
+Úsečkové kóty a vodorovné/svislé vazby persistují přesné ID vlastnící geometrie.
+Delete nad potvrzenou úsečkou, kružnicí nebo obloukem odstraní geometrii a jen
+závislosti se stejným stabilním vlastníkem. Následný průchod smaže pouze skutečně
+osiřelé body a zachová sdílené rohy i středy. Celé mazání je jedna vratná Part
+revize; nepoužívá heuristiku shodných bodů ani topologii výsledného tělesa.
+
+Rovnoběžnost a kolmost jsou dvouúsečkové vazby se dvěma explicitními stabilními
+vlastníky geometrie. První potvrzená úsečka je reference a druhá je řízená.
+Deterministický solver natočí řízenou úsečku do nejbližšího platného směru,
+zachová její délku a respektuje fixované konce. Aktivní příkaz používá společný
+viewer kontrakt pouze pro úsečky; smazání kteréhokoli vlastníka vazbu odstraní.
+
+Stejná délka používá tentýž dvouúsečkový vlastnický a příkazový kontrakt. První
+úsečka dodá cílovou délku; solver změní délku druhé přes dostupné konce bez
+změny jejího směru. Fixované konce respektuje a nepohyblivý rozpor odmítne jako
+celou transakci.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se

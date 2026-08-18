@@ -60,6 +60,14 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         upper_enabled_, upper_, initial_.upper_limit.has_value(),
         initial_.upper_limit.value_or(initial_.value),
         "sketchUpperEnabled", "sketchUpperLimit", this));
+    if (initial_.kind == zima::sketcher::DimensionKind::Angle) {
+        value_->setRange(-180.0, 180.0);
+        value_->setSuffix(" °");
+        lower_->setRange(-180.0, 180.0);
+        lower_->setSuffix(" °");
+        upper_->setRange(-180.0, 180.0);
+        upper_->setSuffix(" °");
+    }
     content_layout()->addLayout(form);
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
@@ -88,8 +96,14 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.upper_limit = upper_enabled_->isChecked()
         ? std::optional<double>{upper_->value()} : std::nullopt;
     if ((result.kind == zima::sketcher::DimensionKind::Distance ||
-         result.kind == zima::sketcher::DimensionKind::Radius) && result.value < 0.0) {
+         result.kind == zima::sketcher::DimensionKind::Radius ||
+         result.kind == zima::sketcher::DimensionKind::Diameter) && result.value < 0.0) {
         error_->setText(tr("Délka ani poloměr nesmí být záporný."));
+        return false;
+    }
+    if (result.kind == zima::sketcher::DimensionKind::Angle &&
+        (result.value < -180.0 || result.value > 180.0)) {
+        error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));
         return false;
     }
     if (result.lower_limit && result.upper_limit &&

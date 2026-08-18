@@ -82,6 +82,7 @@ struct ViewerDimension {
     double value{};
     EdgeReference reference;
     std::string label_prefix;
+    std::string unit_suffix{" mm"};
 };
 
 struct ViewerMesh {

@@ -84,6 +84,15 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { constrain_selected_segment(zima::sketcher::ConstraintKind::Vertical); });
     sketch_coincident_action_ = modeling->addAction(tr("Shodnost bodů"), this,
         [this] { start_sketch_coincident(); });
+    sketch_parallel_action_ = modeling->addAction(tr("Rovnoběžnost úseček"), this,
+        [this] { start_sketch_segment_pair(
+            zima::sketcher::ConstraintKind::Parallel); });
+    sketch_perpendicular_action_ = modeling->addAction(tr("Kolmost úseček"), this,
+        [this] { start_sketch_segment_pair(
+            zima::sketcher::ConstraintKind::Perpendicular); });
+    sketch_equal_length_action_ = modeling->addAction(tr("Stejná délka úseček"), this,
+        [this] { start_sketch_segment_pair(
+            zima::sketcher::ConstraintKind::EqualLength); });
     sketch_fix_point_action_ = modeling->addAction(tr("Fixovat/uvolnit bod"), this,
         [this] { toggle_selected_sketch_point_fixed(); });
     sketch_dimension_action_ = modeling->addAction(tr("Kóta délky úsečky…"), this,
@@ -94,8 +103,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_dimension_y_action_ = modeling->addAction(tr("Svislá kóta úsečky…"), this,
         [this] { show_sketch_dimension_properties(active_sketch_id_, {},
             zima::sketcher::DimensionKind::DistanceY); });
+    sketch_angle_dimension_action_ = modeling->addAction(tr("Úhlová kóta úsečky…"), this,
+        [this] { show_sketch_dimension_properties(active_sketch_id_, {},
+            zima::sketcher::DimensionKind::Angle); });
     sketch_radius_dimension_action_ = modeling->addAction(tr("Kóta poloměru…"), this,
         [this] { show_sketch_dimension_properties(active_sketch_id_); });
+    sketch_diameter_dimension_action_ = modeling->addAction(tr("Kóta průměru…"), this,
+        [this] { show_sketch_dimension_properties(active_sketch_id_, {},
+            zima::sketcher::DimensionKind::Diameter); });
     regenerate_part_action_ = modeling->addAction(tr("Regenerovat Part"), this,
         [this] { regenerate_active_part(); });
     auto* assembly = menuBar()->addMenu(tr("Sestava"));
@@ -135,6 +150,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_sketch_coincident_point(candidate);
             return;
         }
+        if (sketch_segment_pair_active_) {
+            accept_sketch_segment_pair(candidate);
+            return;
+        }
         if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
@@ -151,6 +170,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_dimension_action_->setEnabled(true);
             sketch_dimension_x_action_->setEnabled(true);
             sketch_dimension_y_action_->setEnabled(true);
+            sketch_angle_dimension_action_->setEnabled(true);
             sketch_fix_point_action_->setEnabled(false);
             state_->setText(tr("Vybrána úsečka skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
@@ -165,8 +185,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_dimension_action_->setEnabled(false);
             sketch_dimension_x_action_->setEnabled(false);
             sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
             sketch_fix_point_action_->setEnabled(false);
             sketch_radius_dimension_action_->setEnabled(true);
+            sketch_diameter_dimension_action_->setEnabled(true);
             state_->setText(tr("Vybrána kružnice skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
@@ -180,8 +202,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_dimension_action_->setEnabled(false);
             sketch_dimension_x_action_->setEnabled(false);
             sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
             sketch_fix_point_action_->setEnabled(false);
             sketch_radius_dimension_action_->setEnabled(true);
+            sketch_diameter_dimension_action_->setEnabled(false);
             state_->setText(tr("Vybrán oblouk skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                    candidate.owner_id == active_sketch_id_ &&
@@ -195,7 +219,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_dimension_action_->setEnabled(false);
             sketch_dimension_x_action_->setEnabled(false);
             sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
             sketch_radius_dimension_action_->setEnabled(false);
+            sketch_diameter_dimension_action_->setEnabled(false);
             sketch_fix_point_action_->setEnabled(true);
             state_->setText(tr("Vybrán bod skici."));
         }
@@ -266,12 +292,18 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_rectangle_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
+                sketch_coincident_action_->setEnabled(true);
+                sketch_parallel_action_->setEnabled(true);
+                sketch_perpendicular_action_->setEnabled(true);
+                sketch_equal_length_action_->setEnabled(true);
                 sketch_horizontal_action_->setEnabled(false);
                 sketch_vertical_action_->setEnabled(false);
                 sketch_dimension_action_->setEnabled(false);
                 sketch_dimension_x_action_->setEnabled(false);
                 sketch_dimension_y_action_->setEnabled(false);
+                sketch_angle_dimension_action_->setEnabled(false);
                 sketch_radius_dimension_action_->setEnabled(false);
+                sketch_diameter_dimension_action_->setEnabled(false);
                 sketch_fix_point_action_->setEnabled(false);
                 return;
             }
@@ -752,12 +784,14 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
     sketch_coincident_active_ = false;
+    sketch_segment_pair_active_ = false;
     pending_segment_start_.reset();
     pending_rectangle_corner_.reset();
     pending_circle_center_.reset();
     pending_arc_center_.reset();
     pending_arc_start_.reset();
     pending_coincident_point_id_.clear();
+    pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
 }
 
@@ -881,7 +915,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
 void AssemblyWorkspaceWindow::constrain_selected_segment(
     zima::sketcher::ConstraintKind kind) {
     if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-        sketch_arc_active_ || sketch_coincident_active_ ||
+        sketch_arc_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -966,8 +1000,77 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     }
 }
 
+void AssemblyWorkspaceWindow::start_sketch_segment_pair(
+    zima::sketcher::ConstraintKind kind) {
+    if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
+        (kind != zima::sketcher::ConstraintKind::Parallel &&
+         kind != zima::sketcher::ConstraintKind::Perpendicular &&
+         kind != zima::sketcher::ConstraintKind::EqualLength)) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    cancel_sketch_segment();
+    sketch_segment_pair_active_ = true;
+    pending_pair_kind_ = kind;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_point_id_.clear();
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
+    state_->setText(kind == zima::sketcher::ConstraintKind::Parallel
+        ? tr("Rovnoběžnost: vyberte referenční úsečku. Escape příkaz zruší.")
+        : kind == zima::sketcher::ConstraintKind::Perpendicular
+            ? tr("Kolmost: vyberte referenční úsečku. Escape příkaz zruší.")
+            : tr("Stejná délka: vyberte referenční úsečku. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!sketch_segment_pair_active_ ||
+        candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
+        candidate.owner_id != active_sketch_id_ ||
+        !candidate.semantic_key.starts_with("segment:")) return;
+    const auto segment_id = candidate.semantic_key.substr(8);
+    if (pending_pair_segment_id_.empty()) {
+        pending_pair_segment_id_ = segment_id;
+        state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
+            ? tr("Rovnoběžnost: vyberte řízenou úsečku.")
+            : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
+                ? tr("Kolmost: vyberte řízenou úsečku.")
+                : tr("Stejná délka: vyberte řízenou úsečku."));
+        return;
+    }
+    if (segment_id == pending_pair_segment_id_) {
+        state_->setText(tr("Vyberte jinou řízenou úsečku."));
+        return;
+    }
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return;
+        static_cast<void>(sketch->add_segment_pair_constraint(
+            pending_pair_segment_id_, segment_id, pending_pair_kind_));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        pending_pair_segment_id_.clear();
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
+            ? tr("Rovnoběžnost vytvořena. Vyberte další referenční úsečku.")
+            : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
+                ? tr("Kolmost vytvořena. Vyberte další referenční úsečku.")
+                : tr("Stejná délka vytvořena. Vyberte další referenční úsečku."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+}
+
 void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
     if (properties_dialog_ != nullptr || sketch_coincident_active_ ||
+        sketch_segment_pair_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -995,7 +1098,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     const zima::viewer::ViewerCandidate& candidate) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
-        sketch_coincident_active_ || candidate.kind !=
+        sketch_coincident_active_ || sketch_segment_pair_active_ || candidate.kind !=
             zima::viewer::CandidateKind::SketchPoint ||
         candidate.owner_id != active_sketch_id_ ||
         !candidate.semantic_key.starts_with("point:")) return false;
@@ -1069,12 +1172,47 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
                               : tr("Poloha bodu se nezměnila."));
 }
 
+bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
+    if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
+        sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
+        sketch_arc_active_ || sketch_coincident_active_ ||
+        sketch_segment_pair_active_) return false;
+    const std::string geometry_id = !selected_sketch_segment_id_.empty()
+        ? selected_sketch_segment_id_
+        : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
+        : selected_sketch_arc_id_;
+    if (geometry_id.empty()) return false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return false;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return false;
+        sketch->remove_geometry(geometry_id);
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        selected_sketch_segment_id_.clear();
+        selected_sketch_circle_id_.clear();
+        selected_sketch_arc_id_.clear();
+        selected_sketch_point_id_.clear();
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Geometrie skici byla odstraněna. Operaci lze vrátit přes Zpět."));
+        return true;
+    } catch (const std::exception& error) {
+        QMessageBox::warning(this, tr("Geometrii nelze odstranit"), error.what());
+        return true;
+    }
+}
+
 void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     const std::string& sketch_id, const std::string& dimension_id,
     zima::sketcher::DimensionKind creation_kind) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
-        sketch_coincident_active_) return;
+        sketch_coincident_active_ || sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
             workspace_.active_document_id()) return;
@@ -1091,6 +1229,9 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         selected_sketch_circle_id_.empty() && selected_sketch_arc_id_.empty()) return;
     zima::sketcher::SketchDimension initial = edit_mode
         ? *existing
+        : creation_kind == zima::sketcher::DimensionKind::Diameter &&
+              !selected_sketch_circle_id_.empty()
+            ? sketch->create_circle_diameter_dimension(selected_sketch_circle_id_)
         : !selected_sketch_circle_id_.empty()
             ? sketch->create_circle_radius_dimension(selected_sketch_circle_id_)
             : !selected_sketch_arc_id_.empty()
@@ -1378,9 +1519,13 @@ void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
 }
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Delete && delete_selected_sketch_geometry()) {
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Escape &&
         (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-         sketch_arc_active_ || sketch_coincident_active_)) {
+         sketch_arc_active_ || sketch_coincident_active_ || sketch_segment_pair_active_)) {
         cancel_sketch_segment();
         refresh_scene();
         event->accept();
@@ -1519,10 +1664,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 const auto dimension_label = dimension.kind ==
                         zima::sketcher::DimensionKind::Radius
                     ? tr("Poloměr R%1 mm").arg(dimension.value, 0, 'f', 3)
+                    : dimension.kind == zima::sketcher::DimensionKind::Diameter
+                        ? tr("Průměr Ø%1 mm").arg(dimension.value, 0, 'f', 3)
                     : dimension.kind == zima::sketcher::DimensionKind::DistanceX
                         ? tr("Vodorovná kóta X %1 mm").arg(dimension.value, 0, 'f', 3)
                     : dimension.kind == zima::sketcher::DimensionKind::DistanceY
                         ? tr("Svislá kóta Y %1 mm").arg(dimension.value, 0, 'f', 3)
+                    : dimension.kind == zima::sketcher::DimensionKind::Angle
+                        ? tr("Úhlová kóta %1°").arg(dimension.value, 0, 'f', 3)
                         : tr("Kóta %1 mm").arg(dimension.value, 0, 'f', 3);
                 auto* child = new QTreeWidgetItem(item, {
                     dimension_label});
@@ -1535,6 +1684,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         root->setExpanded(true);
         viewer_->set_selection_contract(sketch_coincident_active_
             ? std::vector{zima::viewer::CandidateKind::SketchPoint}
+            : sketch_segment_pair_active_
+                ? std::vector{zima::viewer::CandidateKind::SketchSegment}
             : active_sketch_id_.empty()
             ? std::vector{zima::viewer::CandidateKind::Container}
             : std::vector{zima::viewer::CandidateKind::SketchSegment,
@@ -1574,11 +1725,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_parallel_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_perpendicular_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_equal_length_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimension_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_dimension_x_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_dimension_y_action_->setEnabled(!selected_sketch_segment_id_.empty());
+        sketch_angle_dimension_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_radius_dimension_action_->setEnabled(
             !selected_sketch_circle_id_.empty() || !selected_sketch_arc_id_.empty());
+        sketch_diameter_dimension_action_->setEnabled(
+            !selected_sketch_circle_id_.empty());
         sketch_fix_point_action_->setEnabled(!selected_sketch_point_id_.empty());
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
@@ -1635,10 +1792,15 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);
+    sketch_parallel_action_->setEnabled(false);
+    sketch_perpendicular_action_->setEnabled(false);
+    sketch_equal_length_action_->setEnabled(false);
     sketch_dimension_action_->setEnabled(false);
     sketch_dimension_x_action_->setEnabled(false);
     sketch_dimension_y_action_->setEnabled(false);
+    sketch_angle_dimension_action_->setEnabled(false);
     sketch_radius_dimension_action_->setEnabled(false);
+    sketch_diameter_dimension_action_->setEnabled(false);
     sketch_fix_point_action_->setEnabled(false);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {

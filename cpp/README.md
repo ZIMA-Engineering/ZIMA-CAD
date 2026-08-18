@@ -356,6 +356,37 @@ was hovered and clicked. Motion is evaluated on a transient Part document;
 constraints are solved, measured dimensions are refreshed, and absolute limits
 reject invalid positions. Releasing LMB commits at most one Part revision.
 
+Segment selection also creates an orientation Angle dimension relative to the
+positive Sketch X axis. Its signed value and absolute limits use degrees in the
+closed `[-180, 180]` interval. The solver rotates the segment without changing
+its current length, measured angles update during point drag, and viewer packet
+units explicitly distinguish `°` from the default `mm` dimension suffix.
+
+A confirmed Circle can alternatively own a Diameter dimension. Diameter is a
+distinct persisted kind with the solver relation `D = 2R`, absolute limits in
+millimetres, a full line through the centre, and a `Ø` viewer/tree label. One
+Circle cannot own simultaneous driving Radius and Diameter dimensions. Arcs do
+not offer Diameter because their engineering convention remains Radius.
+
+Segment dimensions and segment-owned Horizontal/Vertical constraints persist
+the exact source geometry ID. Delete on a confirmed Segment, Circle, or Arc
+removes that geometry and only dependencies with the same stable owner. A
+post-pass removes truly orphaned points while preserving shared corners and
+centres. The whole deletion is one undoable Part revision; no point-pair or
+result-topology heuristic is used.
+
+Parallel and Perpendicular are two-Segment constraints with two explicit stable
+geometry owners. The first confirmed Segment is the reference and the second is
+the driven Segment. The deterministic solver rotates the driven Segment toward
+the nearest valid direction while preserving its length and respecting fixed
+endpoints. The active command uses a Segment-only common viewer contract; either
+owner deletion removes the relation.
+
+Equal Length reuses the same two-Segment ownership and command contract. The
+first Segment supplies the target length; the solver scales the second about
+its available endpoints without changing its direction. Fixed endpoints are
+respected, and an immovable mismatch rejects the complete transaction.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

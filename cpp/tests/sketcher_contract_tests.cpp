@@ -22,12 +22,16 @@ int main() {
         const auto second_id = second.id;
         sketch.points.push_back(first);
         sketch.points.push_back(second);
-        sketch.segments.push_back(zima::sketcher::Sketch::create_segment(
-            first_id, second_id));
+        auto initial_segment = zima::sketcher::Sketch::create_segment(first_id, second_id);
+        const auto initial_segment_id = initial_segment.id;
+        sketch.segments.push_back(std::move(initial_segment));
         sketch.constraints.push_back({"horizontal", zima::sketcher::ConstraintKind::Horizontal,
-            first_id, second_id});
-        sketch.dimensions.push_back({"length", zima::sketcher::DimensionKind::DistanceX,
-            first_id, second_id, 20.0, true, false, 10.0, 30.0});
+            first_id, second_id, false, initial_segment_id});
+        zima::sketcher::SketchDimension initial_dimension{
+            "length", zima::sketcher::DimensionKind::DistanceX,
+            first_id, second_id, 20.0, true, false, 10.0, 30.0};
+        initial_dimension.geometry_id = initial_segment_id;
+        sketch.dimensions.push_back(std::move(initial_dimension));
         const auto solved = sketch.solve();
         require(solved.status == zima::sketcher::SolveStatus::Solved &&
                     std::abs(sketch.points.back().x - 20.0) < 1.0e-7 &&
@@ -135,6 +139,45 @@ int main() {
                     std::abs(projected_mesh.dimensions[1].line_first.x -
                         projected_mesh.dimensions[1].line_second.x) < 1.0e-9,
                 "Projected dimensions did not create axis-aligned viewer geometry");
+        auto angled = zima::sketcher::Sketch::create_default();
+        const auto angled_segment = angled.add_segment(0.0, 0.0, 10.0, 0.0);
+        auto angle_dimension = angled.create_segment_dimension(
+            angled_segment, zima::sketcher::DimensionKind::Angle);
+        angle_dimension.lower_limit = -45.0;
+        angle_dimension.upper_limit = 45.0;
+        angle_dimension.value = 30.0;
+        angled.apply_dimension(angle_dimension);
+        const auto* angle_first = angled.find_point(
+            angled.segments.front().first_point_id);
+        const auto* angle_second = angled.find_point(
+            angled.segments.front().second_point_id);
+        require(std::abs(std::atan2(angle_second->y - angle_first->y,
+                                    angle_second->x - angle_first->x) *
+                         180.0 / 3.14159265358979323846 - 30.0) < 1.0e-7 &&
+                    std::abs(std::hypot(angle_second->x - angle_first->x,
+                                        angle_second->y - angle_first->y) - 10.0) < 1.0e-7,
+                "Angle dimension did not rotate the segment while preserving length");
+        const auto angle_mesh = angled.viewer_mesh();
+        require(angle_mesh.dimensions.size() == 1 &&
+                    angle_mesh.dimensions.front().label_prefix == "∠ " &&
+                    angle_mesh.dimensions.front().unit_suffix == "°",
+                "Angle dimension did not produce degree viewer data");
+        const auto angled_before_limit = angled;
+        auto invalid_angle = angled.dimensions.front();
+        invalid_angle.value = 60.0;
+        bool angle_limit_rejected = false;
+        try {
+            angled.apply_dimension(invalid_angle);
+        } catch (const std::runtime_error&) {
+            angle_limit_rejected = true;
+        }
+        require(angle_limit_rejected && angled.points == angled_before_limit.points &&
+                    angled.dimensions == angled_before_limit.dimensions,
+                "Out-of-range angle partially changed the Sketch");
+        const auto loaded_angle = zima::sketcher::Sketch::from_serialized(
+            angled.serialized());
+        require(loaded_angle.dimensions == angled.dimensions,
+                "Angle dimension did not survive serialization");
         auto dragged = zima::sketcher::Sketch::create_default();
         const auto dragged_segment = dragged.add_segment(0.0, 0.0, 10.0, 0.0);
         auto measured = dragged.create_segment_dimension(dragged_segment);
@@ -203,6 +246,83 @@ int main() {
         require(duplicate_coincident_rejected &&
                     coincident.constraints == coincident_before_duplicate.constraints,
                 "Reversed duplicate coincident constraint was accepted");
+        auto parallel = zima::sketcher::Sketch::create_default();
+        const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
+        const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);
+        const double driven_length_before = 5.0;
+        static_cast<void>(parallel.add_segment_pair_constraint(
+            reference_segment, driven_segment,
+            zima::sketcher::ConstraintKind::Parallel));
+        const auto* parallel_c = parallel.find_point(parallel.segments[1].first_point_id);
+        const auto* parallel_d = parallel.find_point(parallel.segments[1].second_point_id);
+        require(std::abs(parallel_d->y - parallel_c->y) < 1.0e-8 &&
+                    std::abs(std::hypot(parallel_d->x - parallel_c->x,
+                                        parallel_d->y - parallel_c->y) -
+                             driven_length_before) < 1.0e-8,
+                "Parallel constraint changed driven length or missed direction");
+        bool reversed_parallel_rejected = false;
+        try {
+            static_cast<void>(parallel.add_segment_pair_constraint(
+                driven_segment, reference_segment,
+                zima::sketcher::ConstraintKind::Parallel));
+        } catch (const std::invalid_argument&) {
+            reversed_parallel_rejected = true;
+        }
+        require(reversed_parallel_rejected,
+                "Reversed duplicate Parallel constraint was accepted");
+        const auto loaded_parallel = zima::sketcher::Sketch::from_serialized(
+            parallel.serialized());
+        require(loaded_parallel.constraints == parallel.constraints,
+                "Segment-pair owners did not survive serialization");
+        parallel.remove_geometry(reference_segment);
+        require(parallel.constraints.empty(),
+                "Deleting one segment retained its pair constraint");
+        auto perpendicular = zima::sketcher::Sketch::create_default();
+        const auto perpendicular_reference =
+            perpendicular.add_segment(0.0, 0.0, 10.0, 0.0);
+        const auto perpendicular_driven =
+            perpendicular.add_segment(4.0, 4.0, 9.0, 6.0);
+        static_cast<void>(perpendicular.add_segment_pair_constraint(
+            perpendicular_reference, perpendicular_driven,
+            zima::sketcher::ConstraintKind::Perpendicular));
+        const auto* perpendicular_c = perpendicular.find_point(
+            perpendicular.segments[1].first_point_id);
+        const auto* perpendicular_d = perpendicular.find_point(
+            perpendicular.segments[1].second_point_id);
+        require(std::abs(perpendicular_d->x - perpendicular_c->x) < 1.0e-8,
+                "Perpendicular constraint did not rotate the driven segment");
+        auto equal_length = zima::sketcher::Sketch::create_default();
+        const auto length_reference = equal_length.add_segment(0.0, 0.0, 10.0, 0.0);
+        const auto length_driven = equal_length.add_segment(0.0, 5.0, 3.0, 9.0);
+        static_cast<void>(equal_length.add_segment_pair_constraint(
+            length_reference, length_driven,
+            zima::sketcher::ConstraintKind::EqualLength));
+        const auto* equal_c = equal_length.find_point(
+            equal_length.segments[1].first_point_id);
+        const auto* equal_d = equal_length.find_point(
+            equal_length.segments[1].second_point_id);
+        const double equal_dx = equal_d->x - equal_c->x;
+        const double equal_dy = equal_d->y - equal_c->y;
+        require(std::abs(std::hypot(equal_dx, equal_dy) - 10.0) < 1.0e-8 &&
+                    std::abs(equal_dx * 4.0 - equal_dy * 3.0) < 1.0e-8,
+                "EqualLength changed driven direction or missed reference length");
+        auto fixed_equal = zima::sketcher::Sketch::create_default();
+        const auto fixed_reference = fixed_equal.add_segment(0.0, 0.0, 10.0, 0.0);
+        const auto fixed_driven = fixed_equal.add_segment(0.0, 5.0, 3.0, 9.0);
+        fixed_equal.find_point(fixed_equal.segments[1].first_point_id)->fixed = true;
+        fixed_equal.find_point(fixed_equal.segments[1].second_point_id)->fixed = true;
+        const auto fixed_equal_before = fixed_equal;
+        bool fixed_equal_rejected = false;
+        try {
+            static_cast<void>(fixed_equal.add_segment_pair_constraint(
+                fixed_reference, fixed_driven,
+                zima::sketcher::ConstraintKind::EqualLength));
+        } catch (const std::runtime_error&) {
+            fixed_equal_rejected = true;
+        }
+        require(fixed_equal_rejected && fixed_equal.points == fixed_equal_before.points &&
+                    fixed_equal.constraints == fixed_equal_before.constraints,
+                "Conflicting fixed EqualLength relation partially changed the Sketch");
         const auto before_collapsing_constraint = connected;
         bool collapsing_constraint_rejected = false;
         try {
@@ -266,6 +386,17 @@ int main() {
         require(flat_rectangle_rejected && rectangle.points == rectangle_before_invalid.points &&
                     rectangle.segments == rectangle_before_invalid.segments,
                 "Degenerate rectangle partially changed the Sketch");
+        auto removable_rectangle = rectangle;
+        auto removable_dimension = removable_rectangle.create_segment_dimension(
+            removable_rectangle.segments.front().id);
+        removable_rectangle.apply_dimension(removable_dimension);
+        const auto removed_segment_id = removable_rectangle.segments.front().id;
+        removable_rectangle.remove_geometry(removed_segment_id);
+        require(removable_rectangle.segments.size() == 3 &&
+                    removable_rectangle.constraints.size() == 3 &&
+                    removable_rectangle.dimensions.empty() &&
+                    removable_rectangle.points.size() == 4,
+                "Segment deletion lost shared corners or retained owned dependencies");
         auto circle_sketch = zima::sketcher::Sketch::create_default();
         const auto circle_id = circle_sketch.add_circle(5.0, 7.0, 10.0);
         auto radius_dimension =
@@ -302,6 +433,52 @@ int main() {
         }
         require(zero_circle_rejected,
                 "Zero-radius circle was accepted");
+        auto diameter_sketch = zima::sketcher::Sketch::create_default();
+        const auto diameter_circle_id = diameter_sketch.add_circle(0.0, 0.0, 10.0);
+        auto diameter_dimension = diameter_sketch.create_circle_diameter_dimension(
+            diameter_circle_id);
+        diameter_dimension.lower_limit = 10.0;
+        diameter_dimension.upper_limit = 40.0;
+        diameter_dimension.value = 30.0;
+        diameter_sketch.apply_dimension(diameter_dimension);
+        require(std::abs(diameter_sketch.circles.front().radius - 15.0) < 1.0e-9 &&
+                    diameter_sketch.dimensions.front().kind ==
+                        zima::sketcher::DimensionKind::Diameter,
+                "Diameter dimension did not drive half its value as circle radius");
+        const auto diameter_packet = diameter_sketch.viewer_mesh();
+        require(diameter_packet.dimensions.size() == 1 &&
+                    diameter_packet.dimensions.front().label_prefix == "Ø" &&
+                    std::abs(diameter_packet.dimensions.front().value - 30.0) < 1.0e-9,
+                "Diameter dimension did not produce stable viewer data");
+        bool second_radial_driver_rejected = false;
+        try {
+            diameter_sketch.apply_dimension(
+                diameter_sketch.create_circle_radius_dimension(diameter_circle_id));
+        } catch (const std::invalid_argument&) {
+            second_radial_driver_rejected = true;
+        }
+        require(second_radial_driver_rejected,
+                "Circle accepted simultaneous driving radius and diameter dimensions");
+        const auto loaded_diameter = zima::sketcher::Sketch::from_serialized(
+            diameter_sketch.serialized());
+        require(loaded_diameter.circles == diameter_sketch.circles &&
+                    loaded_diameter.dimensions == diameter_sketch.dimensions,
+                "Diameter dimension did not survive serialization");
+        auto removable_circle = zima::sketcher::Sketch::create_default();
+        const auto removable_circle_id = removable_circle.add_circle(2.0, 3.0, 5.0);
+        removable_circle.apply_dimension(
+            removable_circle.create_circle_radius_dimension(removable_circle_id));
+        removable_circle.remove_geometry(removable_circle_id);
+        require(removable_circle.circles.empty() && removable_circle.dimensions.empty() &&
+                    removable_circle.points.empty(),
+                "Circle deletion retained its owned dimension or orphan centre");
+        auto shared_centre = zima::sketcher::Sketch::create_default();
+        const auto shared_circle_id = shared_centre.add_circle(0.0, 0.0, 4.0);
+        static_cast<void>(shared_centre.add_arc(0.0, 0.0, 4.0, 0.0, 0.0, 4.0));
+        shared_centre.remove_geometry(shared_circle_id);
+        require(shared_centre.circles.empty() && shared_centre.arcs.size() == 1 &&
+                    shared_centre.points.size() == 1,
+                "Deleting Circle removed a centre still shared by an Arc");
         auto arc_sketch = zima::sketcher::Sketch::create_default();
         const auto arc_id = arc_sketch.add_arc(0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
         require(arc_sketch.arcs.size() == 1 &&

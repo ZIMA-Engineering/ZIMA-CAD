@@ -11,8 +11,10 @@
 namespace zima::sketcher {
 
 enum class SketchPlane { XY, XZ, YZ };
-enum class ConstraintKind { Horizontal, Vertical, Coincident };
-enum class DimensionKind { Distance, DistanceX, DistanceY, Radius };
+enum class ConstraintKind {
+    Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength
+};
+enum class DimensionKind { Distance, DistanceX, DistanceY, Radius, Diameter, Angle };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -56,6 +58,8 @@ struct SketchConstraint {
     std::string first_point_id;
     std::string second_point_id;
     bool suppressed{};
+    std::string geometry_id;
+    std::string second_geometry_id;
     bool operator==(const SketchConstraint&) const = default;
 };
 
@@ -113,6 +117,10 @@ public:
         const std::string& segment_id, ConstraintKind kind);
     [[nodiscard]] std::string add_coincident_constraint(
         const std::string& first_point_id, const std::string& second_point_id);
+    [[nodiscard]] std::string add_segment_pair_constraint(
+        const std::string& first_segment_id, const std::string& second_segment_id,
+        ConstraintKind kind);
+    void remove_geometry(const std::string& geometry_id);
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);
@@ -127,6 +135,8 @@ public:
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
     void apply_dimension(SketchDimension dimension);
     [[nodiscard]] SketchDimension create_circle_radius_dimension(
+        const std::string& circle_id) const;
+    [[nodiscard]] SketchDimension create_circle_diameter_dimension(
         const std::string& circle_id) const;
     [[nodiscard]] SketchDimension create_arc_radius_dimension(
         const std::string& arc_id) const;

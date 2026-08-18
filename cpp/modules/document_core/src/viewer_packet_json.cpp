@@ -83,6 +83,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"line_second", serialize_vec3(dimension.line_second)},
             {"value", dimension.value},
             {"label_prefix", dimension.label_prefix},
+            {"unit_suffix", dimension.unit_suffix},
         });
     }
     return {
@@ -175,6 +176,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.line_second = load_vec3(dimension.at("line_second"));
         loaded.value = dimension.at("value").get<double>();
         loaded.label_prefix = dimension.at("label_prefix").get<std::string>();
+        loaded.unit_suffix = dimension.at("unit_suffix").get<std::string>();
         require_finite(loaded.value, "viewer dimension value");
         if (!loaded.reference.valid()) {
             throw std::runtime_error("Persisted viewer dimension is invalid");

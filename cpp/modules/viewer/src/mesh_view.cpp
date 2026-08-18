@@ -433,7 +433,8 @@ void MeshView::paintGL() {
                     (project(dimension.line_first) + project(dimension.line_second)) * 0.5;
                 painter.drawText(middle + QPointF(4.0, -4.0),
                     QString::fromStdString(dimension.label_prefix) +
-                    QString::number(dimension.value, 'f', 3) + " mm");
+                    QString::number(dimension.value, 'f', 3) +
+                    QString::fromStdString(dimension.unit_suffix));
             }
         }
         if (axes_visible) {
