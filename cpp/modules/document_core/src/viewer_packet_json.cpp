@@ -71,13 +71,26 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"display_length", axis.display_length},
         });
     }
+    nlohmann::json dimensions = nlohmann::json::array();
+    for (const auto& dimension : result.mesh.dimensions) {
+        dimensions.push_back({
+            {"owner", dimension.reference.owner_id},
+            {"key", dimension.reference.semantic_key},
+            {"instance_path", dimension.reference.instance_path},
+            {"witness_first", serialize_vec3(dimension.witness_first)},
+            {"witness_second", serialize_vec3(dimension.witness_second)},
+            {"line_first", serialize_vec3(dimension.line_first)},
+            {"line_second", serialize_vec3(dimension.line_second)},
+            {"value", dimension.value},
+        });
+    }
     return {
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
         {"vertices", std::move(vertices)}, {"triangles", result.mesh.triangles},
         {"triangle_references", std::move(faces)},
         {"edges", std::move(edges)}, {"points", std::move(points)},
-        {"axes", std::move(axes)},
+        {"axes", std::move(axes)}, {"dimensions", std::move(dimensions)},
     };
 }
 
@@ -148,6 +161,23 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             throw std::runtime_error("Persisted viewer axis is invalid");
         }
         result.mesh.axes.push_back(std::move(loaded));
+    }
+    for (const auto& dimension : source.at("dimensions")) {
+        zima::kernel::ViewerDimension loaded;
+        loaded.reference = {
+            dimension.at("owner").get<std::string>(),
+            dimension.at("key").get<std::string>(),
+            dimension.at("instance_path").get<std::string>()};
+        loaded.witness_first = load_vec3(dimension.at("witness_first"));
+        loaded.witness_second = load_vec3(dimension.at("witness_second"));
+        loaded.line_first = load_vec3(dimension.at("line_first"));
+        loaded.line_second = load_vec3(dimension.at("line_second"));
+        loaded.value = dimension.at("value").get<double>();
+        require_finite(loaded.value, "viewer dimension value");
+        if (!loaded.reference.valid()) {
+            throw std::runtime_error("Persisted viewer dimension is invalid");
+        }
+        result.mesh.dimensions.push_back(std::move(loaded));
     }
     return result;
 }

@@ -203,6 +203,24 @@ std::vector<AxisPickCandidate> ordered_axis_candidates(
     return candidates;
 }
 
+std::vector<DimensionPickCandidate> ordered_dimension_candidates(
+    const zima::kernel::ViewerMesh& mesh,
+    const Vec3& ray_origin,
+    const Vec3& ray_direction,
+    double world_tolerance) {
+    zima::kernel::ViewerMesh lines;
+    for (const auto& dimension : mesh.dimensions) {
+        lines.edges.push_back({
+            {dimension.line_first, dimension.line_second}, dimension.reference});
+    }
+    std::vector<DimensionPickCandidate> result;
+    for (const auto& candidate : ordered_edge_candidates(
+            lines, ray_origin, ray_direction, world_tolerance)) {
+        result.push_back({candidate.edge, candidate.distance, candidate.reference});
+    }
+    return result;
+}
+
 std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,
@@ -254,8 +272,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                           axis.reference.owner_id, axis.reference.semantic_key,
                           axis.reference.instance_path});
     }
+    for (const auto& dimension : ordered_dimension_candidates(
+            mesh, ray_origin, ray_direction, world_tolerance)) {
+        result.push_back({CandidateKind::SketchDimension, dimension.distance,
+                          dimension.dimension, dimension.reference.owner_id,
+                          dimension.reference.semantic_key,
+                          dimension.reference.instance_path});
+    }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
+        case CandidateKind::SketchDimension: return 0;
         case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;

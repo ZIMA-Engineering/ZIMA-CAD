@@ -201,8 +201,12 @@ int main() {
         document.sketches.push_back(std::move(part_sketch));
         const auto path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-contract.zcp.json";
-        const auto persisted_boundaries =
+        auto persisted_boundaries =
             kernel.evaluate_history(document.kernel_operations());
+        persisted_boundaries.back().mesh.dimensions.push_back({
+            {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+            {0.0, 5.0, 0.0}, {10.0, 5.0, 0.0}, 10.0,
+            {first.id, "dimension:test"}});
         auto stale_document = document;
         stale_document.history.front().box.length += 1.0;
         bool stale_rejected = false;
@@ -248,6 +252,11 @@ int main() {
                     std::abs(loaded_boundaries.back().volume -
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
+        require(loaded_boundaries.back().mesh.dimensions.size() == 1 &&
+                    loaded_boundaries.back().mesh.dimensions.front().value == 10.0 &&
+                    loaded_boundaries.back().mesh.dimensions.front().reference.owner_id ==
+                        first.id,
+                "Persisted viewer dimension lost geometry, value, or stable owner");
         require(loaded_boundaries.back().mesh.axes.size() ==
                     persisted_boundaries.back().mesh.axes.size() &&
                     loaded_boundaries.back().mesh.axes.front().reference ==

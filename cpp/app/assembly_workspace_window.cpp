@@ -38,6 +38,8 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
     target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
     target.points.insert(target.points.end(), source.points.begin(), source.points.end());
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    target.dimensions.insert(target.dimensions.end(),
+        source.dimensions.begin(), source.dimensions.end());
 }
 
 }  // namespace
@@ -135,6 +137,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         preview_sketch_segment_ray(origin, direction);
+    });
+    viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if (candidate.kind == zima::viewer::CandidateKind::SketchDimension &&
+            candidate.owner_id == active_sketch_id_ &&
+            candidate.semantic_key.starts_with("dimension:")) {
+            show_sketch_dimension_properties(
+                active_sketch_id_, candidate.semantic_key.substr(10));
+        }
     });
     splitter->addWidget(left);
     splitter->addWidget(viewer_);
@@ -909,7 +919,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         viewer_->set_selection_contract(active_sketch_id_.empty()
             ? std::vector{zima::viewer::CandidateKind::Container}
             : std::vector{zima::viewer::CandidateKind::SketchSegment,
-                          zima::viewer::CandidateKind::SketchPoint});
+                          zima::viewer::CandidateKind::SketchPoint,
+                          zima::viewer::CandidateKind::SketchDimension});
         const auto& calculated = part->session.calculated_boundaries();
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {

@@ -297,6 +297,16 @@ Sketch, and commits one Part revision; Cancel, an out-of-range value, or a
 solver conflict commits nothing. Editing retains the stable dimension ID, and
 the dimension remains visible below its owning Sketch in the Part tree.
 
+Sketch dimensions are now first-class ZIMA viewer data rather than tree-only UI
+rows. A dimension packet carries its two witness points, offset dimension line,
+numeric value, stable Sketch owner, semantic dimension key, and occurrence path.
+The OpenGL viewer draws witness/measurement lines and a three-decimal millimetre
+label. Its line contributes a dedicated `SketchDimension` candidate to the same
+ordered picker; double-clicking it opens the identical Properties class used by
+the tree. Viewer-packet JSON validates and persists dimensions, while Assembly
+composition transforms every dimension point and prefixes exact nested instance
+identity without invoking OCCT.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

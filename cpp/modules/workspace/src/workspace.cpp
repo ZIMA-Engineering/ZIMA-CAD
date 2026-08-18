@@ -180,6 +180,9 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     std::erase_if(scene.axes, [&](const auto& axis) {
         return axis.reference.instance_path == target_path;
     });
+    std::erase_if(scene.dimensions, [&](const auto& dimension) {
+        return dimension.reference.instance_path == target_path;
+    });
     const auto offset = static_cast<std::uint32_t>(scene.vertices.size());
     scene.vertices.insert(scene.vertices.end(), calculated_source.mesh.vertices.begin(),
                           calculated_source.mesh.vertices.end());
@@ -195,6 +198,8 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
                         calculated_source.mesh.points.end());
     scene.axes.insert(scene.axes.end(), calculated_source.mesh.axes.begin(),
                       calculated_source.mesh.axes.end());
+    scene.dimensions.insert(scene.dimensions.end(),
+        calculated_source.mesh.dimensions.begin(), calculated_source.mesh.dimensions.end());
     return scene;
 }
 

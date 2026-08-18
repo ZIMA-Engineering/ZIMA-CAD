@@ -266,6 +266,15 @@ jednu Part revizi; Cancel, hodnota mimo rozsah nebo konflikt nepřenesou žádno
 změnu. Editace zachová stabilní ID kóty a kóta zůstává pod vlastní skicou ve
 stromu.
 
+Kóty skici jsou nyní plnohodnotná ZIMA viewer data, nikoliv jen řádky stromu.
+Packet kóty obsahuje dva vynášecí body, odsazenou kótovací čáru, číselnou
+hodnotu, stabilního vlastníka skici, sémantický klíč kóty a instance path.
+Viewer vykreslí vynášecí/kótovací čáry a hodnotu v milimetrech na tři desetinná
+místa. Kótovací čára přidává vlastní `SketchDimension` kandidát do společného
+ordered pickeru; dvojklik otevře stejnou Properties třídu jako strom.
+Viewer-packet JSON kóty validuje a persistuje, zatímco sestava transformuje
+všechny jejich body a prefixuje přesnou identitu vnořeného výskytu bez OCCT.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se

@@ -34,6 +34,8 @@ public:
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
     void set_world_pointer_callback(std::function<void(
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
+    void set_double_confirmation_callback(
+        std::function<void(const ViewerCandidate&)> callback);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
 
@@ -42,6 +44,7 @@ protected:
     void resizeGL(int width, int height) override;
     void paintGL() override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
 

@@ -74,6 +74,15 @@ struct ViewerAxis {
     AxisReference reference;
 };
 
+struct ViewerDimension {
+    Vec3 witness_first;
+    Vec3 witness_second;
+    Vec3 line_first;
+    Vec3 line_second;
+    double value{};
+    EdgeReference reference;
+};
+
 struct ViewerMesh {
     std::vector<Vec3> vertices;
     std::vector<std::uint32_t> triangles;
@@ -83,6 +92,7 @@ struct ViewerMesh {
     std::vector<ViewerEdge> edges;
     std::vector<ViewerPoint> points;
     std::vector<ViewerAxis> axes;
+    std::vector<ViewerDimension> dimensions;
 };
 
 struct BoxRequest {

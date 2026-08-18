@@ -881,6 +881,14 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             axis.direction = transform_direction(axis.direction, component.placement);
             scene.axes.push_back(std::move(axis));
         }
+        for (auto dimension : source_mesh.dimensions) {
+            assign_instance(dimension.reference, path);
+            dimension.witness_first = transform_point(dimension.witness_first, component.placement);
+            dimension.witness_second = transform_point(dimension.witness_second, component.placement);
+            dimension.line_first = transform_point(dimension.line_first, component.placement);
+            dimension.line_second = transform_point(dimension.line_second, component.placement);
+            scene.dimensions.push_back(std::move(dimension));
+        }
     }
     if (scene.triangle_references.size() != scene.triangles.size() / 3) {
         throw std::runtime_error("Assembly triangle references are not aligned");

@@ -455,6 +455,23 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
              project(*find_point(segment.second_point_id))},
             {id, "segment:" + segment.id, {}}});
     }
+    result.dimensions.reserve(dimensions.size());
+    for (const auto& dimension : dimensions) {
+        if (dimension.suppressed) continue;
+        const auto* first = find_point(dimension.first_point_id);
+        const auto* second = find_point(dimension.second_point_id);
+        const double dx = second->x - first->x;
+        const double dy = second->y - first->y;
+        const double magnitude = std::hypot(dx, dy);
+        const double offset = std::clamp(magnitude * 0.15, 5.0, 25.0);
+        const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
+        const double ny = magnitude > 1.0e-12 ? dx / magnitude : 1.0;
+        result.dimensions.push_back({
+            project(*first), project(*second),
+            world_point(first->x + nx * offset, first->y + ny * offset),
+            world_point(second->x + nx * offset, second->y + ny * offset),
+            dimension.value, {id, "dimension:" + dimension.id, {}}});
+    }
     return result;
 }
 

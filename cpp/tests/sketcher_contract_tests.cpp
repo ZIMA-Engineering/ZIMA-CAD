@@ -51,7 +51,7 @@ int main() {
                 "Sketch did not round-trip its stable graph and limits");
         const auto mesh = sketch.viewer_mesh();
         require(mesh.triangles.empty() && mesh.edges.size() == 1 &&
-                    mesh.points.size() == 2 &&
+                    mesh.points.size() == 2 && mesh.dimensions.size() == 1 &&
                     mesh.edges.front().reference.owner_id == sketch.id &&
                     mesh.edges.front().reference.semantic_key.rfind("segment:", 0) == 0,
                 "Sketch viewer packet lost stable point/segment ownership");
@@ -61,6 +61,13 @@ int main() {
             {zima::viewer::CandidateKind::SketchSegment});
         require(candidates.size() == 1 && candidates.front().owner_id == sketch.id,
                 "Sketch edge did not use the common viewer candidate list");
+        const auto dimension_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {12.5, 5.0, 10.0}, {0.0, 0.0, -1.0}, 0.25),
+            {zima::viewer::CandidateKind::SketchDimension});
+        require(dimension_candidates.size() == 1 &&
+                    dimension_candidates.front().semantic_key == "dimension:length",
+                "Sketch dimension did not join the common viewer candidate list");
         const auto xy_hit = sketch.intersect_ray({4.0, 7.0, 10.0}, {0.0, 0.0, -1.0});
         require(xy_hit && std::abs((*xy_hit)[0] - 4.0) < 1.0e-9 &&
                     std::abs((*xy_hit)[1] - 7.0) < 1.0e-9,

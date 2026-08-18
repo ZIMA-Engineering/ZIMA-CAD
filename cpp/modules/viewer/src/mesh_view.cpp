@@ -30,6 +30,7 @@ struct MeshView::Impl {
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
+    std::function<void(const ViewerCandidate&)> double_confirmation_callback;
     std::function<void(const ViewerCandidate&, const QPoint&)> context_menu_callback;
     std::function<bool(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
         world_click_callback;
@@ -156,6 +157,11 @@ void MeshView::set_world_pointer_callback(std::function<void(
     impl_->world_pointer_callback = std::move(callback);
 }
 
+void MeshView::set_double_confirmation_callback(
+    std::function<void(const ViewerCandidate&)> callback) {
+    impl_->double_confirmation_callback = std::move(callback);
+}
+
 void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
     impl_->transient_edges = std::move(edges);
     update();
@@ -173,6 +179,12 @@ void MeshView::fit_all() {
         bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
     }
     for (const auto& point : impl_->mesh.points) bounds.push_back(point.position);
+    for (const auto& dimension : impl_->mesh.dimensions) {
+        bounds.push_back(dimension.witness_first);
+        bounds.push_back(dimension.witness_second);
+        bounds.push_back(dimension.line_first);
+        bounds.push_back(dimension.line_second);
+    }
     if (bounds.empty()) {
         impl_->center = {};
         impl_->radius = 1.0F;
@@ -349,12 +361,15 @@ void MeshView::paintGL() {
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key.starts_with("segment:");
         });
-    if (axes_visible || sketch_geometry_visible || !impl_->transient_edges.empty() ||
+    const bool dimensions_visible = !impl_->mesh.dimensions.empty();
+    if (axes_visible || sketch_geometry_visible || dimensions_visible ||
+        !impl_->transient_edges.empty() ||
         (highlighted && (
             highlighted->kind == CandidateKind::Edge ||
             highlighted->kind == CandidateKind::SketchSegment ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
+            highlighted->kind == CandidateKind::SketchDimension ||
             highlighted->kind == CandidateKind::Axis))) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
@@ -381,6 +396,26 @@ void MeshView::paintGL() {
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }
+            }
+        }
+        if (dimensions_visible) {
+            for (std::size_t index = 0; index < impl_->mesh.dimensions.size(); ++index) {
+                const auto& dimension = impl_->mesh.dimensions[index];
+                const bool selected = highlighted &&
+                    highlighted->kind == CandidateKind::SketchDimension &&
+                    highlighted->geometry_index == index;
+                const QColor color = selected
+                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
+                                                  : QColor(255, 140, 12))
+                    : QColor(245, 205, 80);
+                painter.setPen(QPen(color, selected ? 3.0 : 1.5));
+                painter.drawLine(project(dimension.witness_first), project(dimension.line_first));
+                painter.drawLine(project(dimension.witness_second), project(dimension.line_second));
+                painter.drawLine(project(dimension.line_first), project(dimension.line_second));
+                const QPointF middle =
+                    (project(dimension.line_first) + project(dimension.line_second)) * 0.5;
+                painter.drawText(middle + QPointF(4.0, -4.0),
+                    QString::number(dimension.value, 'f', 3) + " mm");
             }
         }
         if (axes_visible) {
@@ -501,6 +536,15 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
                 next_candidate_index(impl_->active_candidate, impl_->candidates.size());
             update();
         }
+    }
+}
+
+void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() != Qt::LeftButton || !impl_->double_confirmation_callback) return;
+    update_candidates(event->position());
+    if (!impl_->candidates.empty()) {
+        impl_->double_confirmation_callback(impl_->candidates[impl_->active_candidate]);
+        event->accept();
     }
 }
 

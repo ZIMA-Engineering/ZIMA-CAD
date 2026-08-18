@@ -245,6 +245,12 @@ PartDocument PartDocument::load(
         for (const auto& point : mesh.points) {
             validate_reference(point.reference, false);
         }
+        for (const auto& axis : mesh.axes) {
+            validate_reference(axis.reference, false);
+        }
+        for (const auto& dimension : mesh.dimensions) {
+            validate_reference(dimension.reference, false);
+        }
     }
     if (calculated_boundaries != nullptr) {
         *calculated_boundaries = std::move(loaded_boundaries);

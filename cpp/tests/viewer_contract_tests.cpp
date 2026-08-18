@@ -79,6 +79,17 @@ int main() {
                     axis_contract.front().kind == zima::viewer::CandidateKind::Axis &&
                     axis_contract.front().instance_path == "4:part",
                 "Axis selection contract left the common candidate list");
+        mesh.dimensions.push_back({
+            {-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0},
+            {-1.0, 1.0, 5.0}, {1.0, 1.0, 5.0}, 2.0,
+            {"sketch", "dimension:length"}});
+        const auto dimension_contract = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchDimension});
+        require(dimension_contract.size() == 1 &&
+                    dimension_contract.front().owner_id == "sketch",
+                "Dimension selection contract left the common candidate list");
         const auto container_contract = zima::viewer::filter_candidates(
             all_candidates, {zima::viewer::CandidateKind::Container});
         require(container_contract.size() == 2 &&
