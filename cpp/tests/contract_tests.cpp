@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <numbers>
 #include <set>
 
 namespace {
@@ -120,6 +121,36 @@ int main() {
         });
         require(std::abs(separated.volume - 2000.0) < 1e-6,
                 "Placed and rotated boxes produced incorrect union volume");
+        zima::kernel::CylinderRequest cylinder;
+        cylinder.radius = 10.0;
+        cylinder.height = 25.0;
+        const auto cylinder_boundaries = kernel.evaluate_history({
+            {"cylinder", cylinder, zima::kernel::BooleanOperation::Add},
+        });
+        require(cylinder_boundaries.size() == 1 &&
+                    std::abs(cylinder_boundaries.front().volume -
+                             std::numbers::pi * 2500.0) < 1e-5,
+                "Cylinder produced incorrect OCCT volume");
+        std::set<std::string> cylinder_faces;
+        for (const auto& reference :
+             cylinder_boundaries.front().mesh.triangle_references) {
+            require(reference.owner_id == "cylinder",
+                    "Cylinder face lost its stable owner");
+            cylinder_faces.insert(reference.semantic_key);
+        }
+        require(cylinder_faces == std::set<std::string>{"side", "z_max", "z_min"},
+                "Cylinder semantic faces are incomplete");
+        std::set<std::string> cylinder_edges;
+        bool sampled_circle = false;
+        for (const auto& edge : cylinder_boundaries.front().mesh.edges) {
+            cylinder_edges.insert(edge.reference.semantic_key);
+            if (edge.reference.semantic_key.starts_with("circle:")) {
+                sampled_circle = sampled_circle || edge.points.size() > 16;
+            }
+        }
+        require(cylinder_edges == std::set<std::string>{
+                    "circle:z_max", "circle:z_min", "seam"} && sampled_circle,
+                "Cylinder edges are not stable selectable viewer polylines");
 
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
@@ -141,7 +172,7 @@ int main() {
         const auto path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-contract.zcp.json";
         const auto persisted_boundaries =
-            kernel.evaluate_box_boundaries(document.box_operations());
+            kernel.evaluate_history(document.kernel_operations());
         auto stale_document = document;
         stale_document.history.front().box.length += 1.0;
         bool stale_rejected = false;
@@ -183,6 +214,26 @@ int main() {
                     std::abs(loaded_boundaries.back().volume -
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
+        auto cylinder_document = zima::document::PartDocument::create_default();
+        auto cylinder_container =
+            zima::document::PartDocument::create_cylinder_container();
+        cylinder_container.cylinder = {12.0, 34.0};
+        cylinder_document.history.push_back(cylinder_container);
+        const auto cylinder_results =
+            kernel.evaluate_history(cylinder_document.kernel_operations());
+        const auto cylinder_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-cylinder-contract.zcp.json";
+        cylinder_document.save(cylinder_path, cylinder_results);
+        std::vector<zima::kernel::BodyResult> loaded_cylinder_results;
+        const auto loaded_cylinder = zima::document::PartDocument::load(
+            cylinder_path, &loaded_cylinder_results);
+        std::filesystem::remove(cylinder_path);
+        require(loaded_cylinder.history.size() == 1 &&
+                    loaded_cylinder.history.front().feature_kind ==
+                        zima::document::FeatureKind::Cylinder &&
+                    loaded_cylinder.history.front().cylinder.radius == 12.0 &&
+                    loaded_cylinder_results.size() == 1,
+                "Cylinder document did not survive save/load");
 
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());
@@ -191,27 +242,47 @@ int main() {
         auto revision_one = session.document();
         revision_one.history.push_back(
             zima::document::PartDocument::create_box_container());
-        session.commit(std::move(revision_one));
+        zima::kernel::BodyResult revision_one_result;
+        revision_one_result.volume = 1.0;
+        session.commit(std::move(revision_one), {revision_one_result});
         require(session.revision() == 1 && session.is_dirty() && session.can_undo(),
                 "First transaction did not create one dirty revision");
+        require(session.calculated_boundaries().size() == 1 &&
+                    session.calculated_boundaries().front().volume == 1.0,
+                "Document revision did not own its calculated boundary");
         session.mark_saved();
         require(!session.is_dirty(), "Savepoint did not mark current revision clean");
         auto revision_two = session.document();
         revision_two.history.front().name = "Edited";
-        session.commit(std::move(revision_two));
+        zima::kernel::BodyResult revision_two_result;
+        revision_two_result.volume = 2.0;
+        session.commit(std::move(revision_two), {revision_two_result});
         require(session.is_dirty(), "Second transaction did not invalidate savepoint");
         require(session.undo(), "Undo failed");
         require(!session.is_dirty() && session.document().history.front().name == "Kvádr",
                 "Undo did not restore the saved revision");
+        require(session.calculated_boundaries().front().volume == 1.0,
+                "Undo did not restore revision-owned calculated data");
         require(session.redo(), "Redo failed");
         require(session.is_dirty() &&
-                    session.document().history.front().name == "Edited",
+                    session.document().history.front().name == "Edited" &&
+                    session.calculated_boundaries().front().volume == 2.0,
                 "Redo did not restore the edited revision");
         require(session.undo(), "Second Undo failed");
         auto branch = session.document();
         branch.history.front().name = "Branch";
         session.commit(std::move(branch));
         require(!session.can_redo(), "New transaction did not clear the redo branch");
+        zima::document::DocumentSession calculated_session(document);
+        const auto calculation_revision = calculated_session.revision();
+        calculated_session.update_calculated_boundaries(persisted_boundaries);
+        require(calculated_session.revision() == calculation_revision &&
+                    calculated_session.is_dirty() &&
+                    calculated_session.calculated_boundaries().size() == 2,
+                "Regeneration created a model revision or lost calculated data");
+        calculated_session.mark_saved();
+        require(!calculated_session.is_dirty(),
+                "Saving regenerated derived data did not update its savepoint");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

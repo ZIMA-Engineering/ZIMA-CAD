@@ -10,10 +10,16 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
+enum class FeatureKind { Box, Cylinder };
 
 struct BoxParameters {
     double length{100.0};
     double width{80.0};
+    double height{50.0};
+};
+
+struct CylinderParameters {
+    double radius{40.0};
     double height{50.0};
 };
 
@@ -29,9 +35,11 @@ struct Placement {
 struct HistoryContainer {
     std::string id;
     std::string name{"Kvádr"};
+    FeatureKind feature_kind{FeatureKind::Box};
     CombineMode combine_mode{CombineMode::Add};
     Placement placement;
     BoxParameters box;
+    CylinderParameters cylinder;
 };
 
 class PartDocument {
@@ -42,11 +50,12 @@ public:
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();
+    [[nodiscard]] static HistoryContainer create_cylinder_container();
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
     [[nodiscard]] std::optional<std::size_t> history_index(
         const std::string& id) const;
-    [[nodiscard]] std::vector<zima::kernel::BoxOperation> box_operations() const;
+    [[nodiscard]] std::vector<zima::kernel::HistoryOperation> kernel_operations() const;
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
         std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);

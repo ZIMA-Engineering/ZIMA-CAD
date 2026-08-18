@@ -3,10 +3,14 @@
 #include <BRepGProp.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <GProp_GProps.hxx>
+#include <GCPnts_UniformAbscissa.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp_Explorer.hxx>
@@ -60,7 +64,7 @@ using OwnedFace = OwnedTopology<FaceReference>;
 using OwnedEdge = OwnedTopology<EdgeReference>;
 using OwnedVertex = OwnedTopology<VertexReference>;
 
-struct BoxData {
+struct PrimitiveData {
     TopoDS_Shape shape;
     std::vector<OwnedFace> faces;
     std::vector<OwnedEdge> edges;
@@ -110,7 +114,7 @@ std::string semantic_box_face(
         })->second;
 }
 
-BoxData make_box_data(const BoxRequest& request, const std::string& owner_id) {
+PrimitiveData make_box_data(const BoxRequest& request, const std::string& owner_id) {
     const TopoDS_Shape unplaced = BRepPrimAPI_MakeBox(
         request.length, request.width, request.height).Shape();
     constexpr double radians_per_degree = std::numbers::pi / 180.0;
@@ -130,7 +134,7 @@ BoxData make_box_data(const BoxRequest& request, const std::string& owner_id) {
     transform.Multiply(rotation_y);
     transform.Multiply(rotation_x);
     BRepBuilderAPI_Transform transformer(unplaced, transform, true);
-    BoxData result{transformer.Shape(), {}, {}, {}};
+    PrimitiveData result{transformer.Shape(), {}, {}, {}};
     for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face original = TopoDS::Face(explorer.Current());
         const TopoDS_Shape transformed = transformer.ModifiedShape(original);
@@ -156,6 +160,73 @@ BoxData make_box_data(const BoxRequest& request, const std::string& owner_id) {
             result.vertices.push_back({
                 transformed, {owner_id, semantic_box_vertex(original, request)}});
         }
+    }
+    return result;
+}
+
+void validate_cylinder(const CylinderRequest& request) {
+    if (!std::isfinite(request.radius) || !std::isfinite(request.height) ||
+        request.radius <= 0.0 || request.height <= 0.0) {
+        throw std::invalid_argument("Cylinder dimensions must be finite and positive");
+    }
+    for (const double value : {
+            request.translation.x, request.translation.y, request.translation.z,
+            request.rotation_degrees.x, request.rotation_degrees.y,
+            request.rotation_degrees.z}) {
+        if (!std::isfinite(value)) {
+            throw std::invalid_argument("Cylinder placement must be finite");
+        }
+    }
+}
+
+PrimitiveData make_cylinder_data(
+    const CylinderRequest& request, const std::string& owner_id) {
+    const TopoDS_Shape unplaced =
+        BRepPrimAPI_MakeCylinder(request.radius, request.height).Shape();
+    constexpr double radians_per_degree = std::numbers::pi / 180.0;
+    gp_Trsf transform;
+    transform.SetTranslation(gp_Vec(
+        request.translation.x, request.translation.y, request.translation.z));
+    for (const auto& rotation : std::array<std::pair<gp_Dir, double>, 3>{
+            std::pair{gp_Dir(0.0, 0.0, 1.0), request.rotation_degrees.z},
+            std::pair{gp_Dir(0.0, 1.0, 0.0), request.rotation_degrees.y},
+            std::pair{gp_Dir(1.0, 0.0, 0.0), request.rotation_degrees.x}}) {
+        gp_Trsf next;
+        next.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), rotation.first),
+                         rotation.second * radians_per_degree);
+        transform.Multiply(next);
+    }
+    BRepBuilderAPI_Transform transformer(unplaced, transform, true);
+    PrimitiveData result{transformer.Shape(), {}, {}, {}};
+    for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        const TopoDS_Face original = TopoDS::Face(explorer.Current());
+        GProp_GProps properties;
+        BRepGProp::SurfaceProperties(original, properties);
+        const double z = properties.CentreOfMass().Z();
+        const std::string key = std::abs(z) < 1.0e-7 ? "z_min"
+            : std::abs(z - request.height) < 1.0e-7 ? "z_max" : "side";
+        const TopoDS_Shape transformed = transformer.ModifiedShape(original);
+        if (!transformed.IsNull()) result.faces.push_back({transformed, {owner_id, key}});
+    }
+    for (TopExp_Explorer explorer(unplaced, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+        const TopoDS_Edge original = TopoDS::Edge(explorer.Current());
+        TopoDS_Vertex first;
+        TopoDS_Vertex last;
+        TopExp::Vertices(original, first, last);
+        const double first_z = BRep_Tool::Pnt(first).Z();
+        const double last_z = BRep_Tool::Pnt(last).Z();
+        const std::string key = std::abs(first_z - last_z) > 1.0e-7
+            ? "seam" : std::abs(first_z) < 1.0e-7
+                ? "circle:z_min" : "circle:z_max";
+        const TopoDS_Shape transformed = transformer.ModifiedShape(original);
+        if (!transformed.IsNull()) result.edges.push_back({transformed, {owner_id, key}});
+    }
+    for (TopExp_Explorer explorer(unplaced, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
+        const TopoDS_Vertex original = TopoDS::Vertex(explorer.Current());
+        const std::string key = std::abs(BRep_Tool::Pnt(original).Z()) < 1.0e-7
+            ? "seam:z_min" : "seam:z_max";
+        const TopoDS_Shape transformed = transformer.ModifiedShape(original);
+        if (!transformed.IsNull()) result.vertices.push_back({transformed, {owner_id, key}});
     }
     return result;
 }
@@ -250,16 +321,18 @@ BodyResult make_result(
         const EdgeReference reference =
             reference_for_shape<EdgeReference>(edge, owned_edges);
         if (!reference.valid()) continue;
-        TopoDS_Vertex first;
-        TopoDS_Vertex last;
-        TopExp::Vertices(edge, first, last);
-        if (first.IsNull() || last.IsNull()) continue;
-        const gp_Pnt first_point = BRep_Tool::Pnt(first);
-        const gp_Pnt last_point = BRep_Tool::Pnt(last);
-        result.mesh.edges.push_back({{
-            {first_point.X(), first_point.Y(), first_point.Z()},
-            {last_point.X(), last_point.Y(), last_point.Z()},
-        }, reference});
+        BRepAdaptor_Curve curve(edge);
+        const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
+        GCPnts_UniformAbscissa samples(curve, sample_count);
+        if (!samples.IsDone() || samples.NbPoints() < 2) continue;
+        ViewerEdge viewer_edge;
+        viewer_edge.reference = reference;
+        viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
+        for (int index = 1; index <= samples.NbPoints(); ++index) {
+            const gp_Pnt point = curve.Value(samples.Parameter(index));
+            viewer_edge.points.push_back({point.X(), point.Y(), point.Z()});
+        }
+        result.mesh.edges.push_back(std::move(viewer_edge));
     }
     for (TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
         const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
@@ -291,6 +364,16 @@ BodyResult OcctKernel::evaluate_boxes(
 
 std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
     const std::vector<BoxOperation>& operations) const {
+    std::vector<HistoryOperation> history;
+    history.reserve(operations.size());
+    for (const auto& operation : operations) {
+        history.push_back({operation.owner_id, operation.box, operation.operation});
+    }
+    return evaluate_history(history);
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_history(
+    const std::vector<HistoryOperation>& operations) const {
     if (operations.empty()) return {};
     if (operations.front().operation == BooleanOperation::Subtract) {
         throw std::invalid_argument("The first history operation cannot subtract");
@@ -303,11 +386,19 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
         for (const auto& operation : operations) {
-            validate_box(operation.box);
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");
             }
-            const BoxData operand = make_box_data(operation.box, operation.owner_id);
+            const PrimitiveData operand = std::visit([&](const auto& primitive) {
+                using Request = std::decay_t<decltype(primitive)>;
+                if constexpr (std::is_same_v<Request, BoxRequest>) {
+                    validate_box(primitive);
+                    return make_box_data(primitive, operation.owner_id);
+                } else {
+                    validate_cylinder(primitive);
+                    return make_cylinder_data(primitive, operation.owner_id);
+                }
+            }, operation.primitive);
             if (result_shape.IsNull()) {
                 result_shape = operand.shape;
                 owned_faces = operand.faces;
@@ -337,7 +428,7 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
             boundaries.push_back(
                 make_result(result_shape, owned_faces, owned_edges, owned_vertices));
             boundaries.back().source_fingerprint =
-                box_history_fingerprint(operations, boundaries.size());
+                history_fingerprint(operations, boundaries.size());
         }
         return boundaries;
     } catch (const Standard_Failure& failure) {

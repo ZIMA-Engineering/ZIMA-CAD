@@ -1,4 +1,4 @@
-#include "box_properties_dialog.hpp"
+#include "primitive_properties_dialog.hpp"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
 
     try {
         bool cancel_committed = false;
-        auto* cancel_dialog = new zima::app::BoxPropertiesDialog(
+        auto* cancel_dialog = new zima::app::PrimitivePropertiesDialog(
             initial, false, false,
             [&](zima::document::HistoryContainer) { cancel_committed = true; },
             &parent);
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
 
         int ok_commits = 0;
         zima::document::HistoryContainer committed;
-        auto* ok_dialog = new zima::app::BoxPropertiesDialog(
+        auto* ok_dialog = new zima::app::PrimitivePropertiesDialog(
             initial, false, false,
             [&](zima::document::HistoryContainer value) {
                 ++ok_commits;
@@ -49,11 +49,11 @@ int main(int argc, char* argv[]) {
             &parent);
         ok_dialog->show();
         application.processEvents();
-        const auto dimensions = ok_dialog->findChildren<QDoubleSpinBox*>("boxDimension");
-        require(dimensions.size() == 3, "Box dialog must expose three dimensions");
-        dimensions.front()->setValue(125.0);
+        auto* length = ok_dialog->findChild<QDoubleSpinBox*>("boxLength");
+        require(length != nullptr, "Box dialog must expose its length");
+        length->setValue(125.0);
         const auto translations =
-            ok_dialog->findChildren<QDoubleSpinBox*>("boxTranslation");
+            ok_dialog->findChildren<QDoubleSpinBox*>("primitiveTranslation");
         require(translations.size() == 3,
                 "Box dialog must expose three translation coordinates");
         translations.front()->setValue(42.0);
@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
         int middle_commits = 0;
         zima::document::CombineMode middle_operation =
             zima::document::CombineMode::Add;
-        auto* middle_dialog = new zima::app::BoxPropertiesDialog(
+        auto* middle_dialog = new zima::app::PrimitivePropertiesDialog(
             initial, true, true,
             [&](zima::document::HistoryContainer value) {
                 ++middle_commits;
@@ -93,6 +93,33 @@ int main(int argc, char* argv[]) {
                 "Middle-button double-click outside dialog did not invoke OK");
         require(middle_operation == zima::document::CombineMode::Subtract,
                 "Properties dialog did not commit subtract mode");
+
+        auto cylinder_initial =
+            zima::document::PartDocument::create_cylinder_container();
+        int cylinder_commits = 0;
+        zima::document::HistoryContainer committed_cylinder;
+        auto* cylinder_dialog = new zima::app::PrimitivePropertiesDialog(
+            cylinder_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                ++cylinder_commits;
+                committed_cylinder = std::move(value);
+            }, &parent);
+        cylinder_dialog->show();
+        application.processEvents();
+        auto* radius = cylinder_dialog->findChild<QDoubleSpinBox*>("cylinderRadius");
+        auto* height = cylinder_dialog->findChild<QDoubleSpinBox*>("cylinderHeight");
+        require(radius != nullptr && height != nullptr,
+                "Cylinder dialog does not expose its parameters");
+        radius->setValue(17.0);
+        height->setValue(63.0);
+        cylinder_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(cylinder_commits == 1 &&
+                    committed_cylinder.feature_kind ==
+                        zima::document::FeatureKind::Cylinder &&
+                    committed_cylinder.cylinder.radius == 17.0 &&
+                    committed_cylinder.cylinder.height == 63.0,
+                "Cylinder Properties did not commit exact parameters");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

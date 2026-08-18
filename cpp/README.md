@@ -111,6 +111,20 @@ prefix: stable IDs, Boolean modes, dimensions, translations, and rotations.
 Save and Open reject otherwise valid viewer data when that fingerprint belongs
 to different parameters, preventing stale geometry from becoming selectable.
 
+Calculated history boundaries are owned by `DocumentSession`, not by the main
+window. Undo and Redo therefore move model parameters and their matching
+viewer packets as one state. Regenerate updates derived data without creating
+a fake model revision, while still marking the document dirty until that new
+calculated state is saved.
+
+History and kernel requests are no longer Box-only. A common variant-backed
+`HistoryOperation` evaluates mixed Box and Cylinder Boolean sequences. A
+Cylinder persists radius, height, and placement, exposes stable original
+`z_min`, `z_max`, and `side` faces plus semantic circular/seam edges. One
+`PrimitivePropertiesDialog` handles creation and rollback editing for both Box
+and Cylinder; primitive type changes only the parameter fields, not placement,
+transaction, validation, or confirmation code paths.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

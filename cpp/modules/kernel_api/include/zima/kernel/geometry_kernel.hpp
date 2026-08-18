@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <variant>
+#include <type_traits>
 
 namespace zima::kernel {
 
@@ -74,11 +76,26 @@ struct BoxRequest {
     Vec3 rotation_degrees;
 };
 
+struct CylinderRequest {
+    double radius{40.0};
+    double height{50.0};
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
 enum class BooleanOperation { Add, Subtract };
 
 struct BoxOperation {
     std::string owner_id;
     BoxRequest box;
+    BooleanOperation operation{BooleanOperation::Add};
+};
+
+using PrimitiveRequest = std::variant<BoxRequest, CylinderRequest>;
+
+struct HistoryOperation {
+    std::string owner_id;
+    PrimitiveRequest primitive;
     BooleanOperation operation{BooleanOperation::Add};
 };
 
@@ -127,6 +144,59 @@ struct BodyResult {
     return result;
 }
 
+[[nodiscard]] inline std::string history_fingerprint(
+    const std::vector<HistoryOperation>& operations,
+    std::size_t operation_count) {
+    // A dedicated byte stream keeps primitive kind part of the identity while
+    // preserving the established Box fingerprint for existing tests.
+    std::uint64_t hash = 1469598103934665603ULL;
+    const auto byte = [&](std::uint8_t value) {
+        hash ^= value;
+        hash *= 1099511628211ULL;
+    };
+    const auto u64 = [&](std::uint64_t value) {
+        for (unsigned shift = 0; shift < 64; shift += 8) {
+            byte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
+        }
+    };
+    operation_count = std::min(operation_count, operations.size());
+    u64(operation_count);
+    for (std::size_t index = 0; index < operation_count; ++index) {
+        const auto& operation = operations[index];
+        u64(operation.owner_id.size());
+        for (const unsigned char value : operation.owner_id) byte(value);
+        byte(static_cast<std::uint8_t>(operation.operation));
+        byte(static_cast<std::uint8_t>(operation.primitive.index()));
+        std::visit([&](const auto& primitive) {
+            using Request = std::decay_t<decltype(primitive)>;
+            if constexpr (std::is_same_v<Request, BoxRequest>) {
+                for (const double value : {
+                        primitive.length, primitive.width, primitive.height,
+                        primitive.translation.x, primitive.translation.y,
+                        primitive.translation.z, primitive.rotation_degrees.x,
+                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else {
+                for (const double value : {
+                        primitive.radius, primitive.height,
+                        primitive.translation.x, primitive.translation.y,
+                        primitive.translation.z, primitive.rotation_degrees.x,
+                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            }
+        }, operation.primitive);
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result(16, '0');
+    for (int index = 15; index >= 0; --index) {
+        result[static_cast<std::size_t>(index)] = digits[hash & 0xfU];
+        hash >>= 4;
+    }
+    return result;
+}
+
 class GeometryKernel {
 public:
     virtual ~GeometryKernel() = default;
@@ -136,6 +206,8 @@ public:
         const std::vector<BoxOperation>& operations) const = 0;
     [[nodiscard]] virtual std::vector<BodyResult> evaluate_box_boundaries(
         const std::vector<BoxOperation>& operations) const = 0;
+    [[nodiscard]] virtual std::vector<BodyResult> evaluate_history(
+        const std::vector<HistoryOperation>& operations) const = 0;
 };
 
 }  // namespace zima::kernel

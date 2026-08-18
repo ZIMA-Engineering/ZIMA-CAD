@@ -124,6 +124,21 @@ Open porovnají otisk s aktuální historií. Syntakticky validní mesh z jinýc
 parametrů je proto odmítnut místo toho, aby se zobrazil nebo nabídl k výběru
 jako aktuální geometrie.
 
+Vypočtené hranice již nevlastní `MainWindow`, ale přímo stav
+`DocumentSession`. Každá Undo/Redo revize proto cestuje společně se svými
+odpovídajícími viewer packety. Regenerace aktualizuje odvozený stav bez
+vytvoření falešné modelové revize, ale označí dokument jako změněný, dokud se
+nový vypočtený stav neuloží. UI zůstává pouze konzumentem dokumentového stavu.
+
+Historie a kernel API již nejsou pevně svázané s kvádrem. Společný
+`HistoryOperation` nese variantní ZIMA požadavek primitiva a Boolean režim;
+OCCT adaptér nyní ve stejném sledu vyhodnotí kvádr i válec. Válec má
+persistované parametry poloměru, výšky a umístění, stabilní původní plochy
+`z_min`, `z_max`, `side` a sémantické kruhové/seam hrany. Jediný obecný
+`PrimitivePropertiesDialog` slouží pro tvorbu i pozdější editaci kvádru i
+válce. Typ prvku pouze určí zobrazená parametrická pole; umístění, operace,
+rollback, validace, OK/Cancel a MMB potvrzení nemají duplicitní cesty.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce

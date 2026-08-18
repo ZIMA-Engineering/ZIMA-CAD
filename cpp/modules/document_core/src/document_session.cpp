@@ -4,27 +4,46 @@
 
 namespace zima::document {
 
-DocumentSession::DocumentSession(PartDocument document)
-    : current_{std::move(document), 0} {}
+DocumentSession::DocumentSession(
+    PartDocument document,
+    std::vector<zima::kernel::BodyResult> calculated_boundaries)
+    : current_{std::move(document), std::move(calculated_boundaries), 0, false} {}
 
 const PartDocument& DocumentSession::document() const { return current_.document; }
 std::uint64_t DocumentSession::revision() const { return current_.revision; }
-bool DocumentSession::is_dirty() const { return current_.revision != saved_revision_; }
+bool DocumentSession::is_dirty() const {
+    return current_.revision != saved_revision_ || current_.calculated_state_dirty;
+}
 bool DocumentSession::can_undo() const { return !undo_.empty(); }
 bool DocumentSession::can_redo() const { return !redo_.empty(); }
+const std::vector<zima::kernel::BodyResult>&
+DocumentSession::calculated_boundaries() const {
+    return current_.calculated_boundaries;
+}
 
-void DocumentSession::replace(PartDocument document) {
-    current_ = {std::move(document), 0};
+void DocumentSession::replace(
+    PartDocument document,
+    std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    current_ = {std::move(document), std::move(calculated_boundaries), 0, false};
     undo_.clear();
     redo_.clear();
     next_revision_ = 1;
     saved_revision_ = 0;
 }
 
-void DocumentSession::commit(PartDocument document) {
+void DocumentSession::commit(
+    PartDocument document,
+    std::vector<zima::kernel::BodyResult> calculated_boundaries) {
     undo_.push_back(std::move(current_));
-    current_ = {std::move(document), next_revision_++};
+    current_ = {
+        std::move(document), std::move(calculated_boundaries), next_revision_++, false};
     redo_.clear();
+}
+
+void DocumentSession::update_calculated_boundaries(
+    std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    current_.calculated_boundaries = std::move(calculated_boundaries);
+    current_.calculated_state_dirty = true;
 }
 
 bool DocumentSession::undo() {
@@ -43,6 +62,9 @@ bool DocumentSession::redo() {
     return true;
 }
 
-void DocumentSession::mark_saved() { saved_revision_ = current_.revision; }
+void DocumentSession::mark_saved() {
+    saved_revision_ = current_.revision;
+    current_.calculated_state_dirty = false;
+}
 
 }  // namespace zima::document

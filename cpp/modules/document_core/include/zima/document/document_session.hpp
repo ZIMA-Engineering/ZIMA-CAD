@@ -9,16 +9,26 @@ namespace zima::document {
 
 class DocumentSession {
 public:
-    explicit DocumentSession(PartDocument document);
+    explicit DocumentSession(
+        PartDocument document,
+        std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
 
     [[nodiscard]] const PartDocument& document() const;
     [[nodiscard]] std::uint64_t revision() const;
     [[nodiscard]] bool is_dirty() const;
     [[nodiscard]] bool can_undo() const;
     [[nodiscard]] bool can_redo() const;
+    [[nodiscard]] const std::vector<zima::kernel::BodyResult>&
+        calculated_boundaries() const;
 
-    void replace(PartDocument document);
-    void commit(PartDocument document);
+    void replace(
+        PartDocument document,
+        std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
+    void commit(
+        PartDocument document,
+        std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
+    void update_calculated_boundaries(
+        std::vector<zima::kernel::BodyResult> calculated_boundaries);
     bool undo();
     bool redo();
     void mark_saved();
@@ -26,7 +36,9 @@ public:
 private:
     struct State {
         PartDocument document;
+        std::vector<zima::kernel::BodyResult> calculated_boundaries;
         std::uint64_t revision{};
+        bool calculated_state_dirty{};
     };
 
     State current_;

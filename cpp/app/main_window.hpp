@@ -8,7 +8,6 @@
 #include <filesystem>
 #include <cstdint>
 #include <optional>
-#include <unordered_map>
 #include <vector>
 
 class QLabel;
@@ -37,6 +36,11 @@ private:
     void open_document();
     bool save_document();
     void show_box_properties(const std::string& container_id = {});
+    void show_cylinder_properties(const std::string& container_id = {});
+    void show_primitive_properties(
+        zima::document::FeatureKind feature_kind,
+        const std::string& container_id = {});
+    void show_container_properties(const std::string& container_id);
     void undo();
     void redo();
     void regenerate();
@@ -58,13 +62,11 @@ protected:
     QTreeWidget* tree_{};
     zima::viewer::MeshView* viewer_{};
     QLabel* metrics_{};
-    QDialog* box_properties_{};
+    QDialog* properties_dialog_{};
     QAction* undo_action_{};
     QAction* redo_action_{};
     std::string selected_container_id_;
     bool rebuilding_tree_{};
-    std::unordered_map<std::uint64_t, std::vector<zima::kernel::BodyResult>>
-        calculated_boundaries_;
 };
 
 }  // namespace zima::app

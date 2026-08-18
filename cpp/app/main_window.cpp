@@ -1,5 +1,5 @@
 #include "main_window.hpp"
-#include "box_properties_dialog.hpp"
+#include "primitive_properties_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -44,6 +44,7 @@ void MainWindow::create_actions() {
     redo_action_->setShortcut(QKeySequence::Redo);
     auto* modeling = menuBar()->addMenu(tr("Modelování"));
     modeling->addAction(tr("Kvádr…"), this, [this] { show_box_properties(); });
+    modeling->addAction(tr("Válec…"), this, [this] { show_cylinder_properties(); });
     modeling->addAction(tr("Regenerovat"), this, [this] { regenerate(); });
 }
 
@@ -58,7 +59,8 @@ void MainWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemDoubleClicked, this,
             [this](QTreeWidgetItem* item, int) {
                 if (item != nullptr && item->parent() != nullptr) {
-                    show_box_properties(item->data(0, Qt::UserRole).toString().toStdString());
+                    show_container_properties(
+                        item->data(0, Qt::UserRole).toString().toStdString());
                 }
             });
 
@@ -116,9 +118,19 @@ void MainWindow::show_container_context_menu(
     auto* select_parent = menu.addAction(tr("Vybrat nadřazený"));
     const QAction* selected = menu.exec(global_position);
     if (selected == properties) {
-        show_box_properties(container_id);
+        show_container_properties(container_id);
     } else if (selected == select_parent) {
         tree_->setCurrentItem(tree_->topLevelItem(0));
+    }
+}
+
+void MainWindow::show_container_properties(const std::string& container_id) {
+    const auto* container = session_.document().find_container(container_id);
+    if (container == nullptr) return;
+    if (container->feature_kind == zima::document::FeatureKind::Cylinder) {
+        show_cylinder_properties(container_id);
+    } else {
+        show_box_properties(container_id);
     }
 }
 
@@ -183,16 +195,15 @@ void MainWindow::rebuild(std::optional<std::size_t> history_limit,
         return;
     }
 
-    const auto cached = calculated_boundaries_.find(session_.revision());
-    if (cached == calculated_boundaries_.end() ||
-        cached->second.size() < evaluated_count) {
+    const auto& calculated = session_.calculated_boundaries();
+    if (calculated.size() < evaluated_count) {
         metrics_->setText(tr("Model není vypočítán. Použijte Regenerovat."));
         viewer_->set_mesh({});
         restore_container_selection();
         return;
     }
     try {
-        const auto& result = cached->second[evaluated_count - 1];
+        const auto& result = calculated[evaluated_count - 1];
         metrics_->setText(tr("Jádro: %1\nObjem: %2 mm³\nPlocha: %3 mm²\nZdroj: vypočtená cache")
             .arg(QString::fromStdString(kernel_.name()))
             .arg(result.volume, 0, 'f', 3)
@@ -207,23 +218,39 @@ void MainWindow::rebuild(std::optional<std::size_t> history_limit,
 }
 
 void MainWindow::show_box_properties(const std::string& container_id) {
-    if (box_properties_ != nullptr) {
-        box_properties_->raise();
-        box_properties_->activateWindow();
+    show_primitive_properties(zima::document::FeatureKind::Box, container_id);
+}
+
+void MainWindow::show_cylinder_properties(const std::string& container_id) {
+    show_primitive_properties(zima::document::FeatureKind::Cylinder, container_id);
+}
+
+void MainWindow::show_primitive_properties(
+    zima::document::FeatureKind feature_kind,
+    const std::string& container_id) {
+    if (properties_dialog_ != nullptr) {
+        properties_dialog_->raise();
+        properties_dialog_->activateWindow();
         return;
     }
     const auto& document = session_.document();
     const auto* edited = container_id.empty()
         ? nullptr : document.find_container(container_id);
-    if (!container_id.empty() && edited == nullptr) return;
+    if (!container_id.empty() &&
+        (edited == nullptr || edited->feature_kind != feature_kind)) {
+        return;
+    }
     const bool edit_mode = edited != nullptr;
     const auto edit_index = edit_mode
         ? document.history_index(container_id) : std::optional<std::size_t>{};
     const zima::document::HistoryContainer initial = edit_mode
-        ? *edited : zima::document::PartDocument::create_box_container();
+        ? *edited
+        : feature_kind == zima::document::FeatureKind::Cylinder
+            ? zima::document::PartDocument::create_cylinder_container()
+            : zima::document::PartDocument::create_box_container();
     const bool allow_subtract = !document.history.empty() &&
         !(edit_mode && document.history.front().id == initial.id);
-    auto* dialog = new BoxPropertiesDialog(
+    auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, allow_subtract,
         [this, edit_mode](zima::document::HistoryContainer committed) {
             auto next = session_.document();
@@ -235,41 +262,36 @@ void MainWindow::show_box_properties(const std::string& container_id) {
                 next.history.push_back(std::move(committed));
             }
             auto boundaries = calculate_document(next);
-            session_.commit(std::move(next));
-            calculated_boundaries_[session_.revision()] = std::move(boundaries);
+            session_.commit(std::move(next), std::move(boundaries));
         }, this);
-    box_properties_ = dialog;
+    properties_dialog_ = dialog;
     if (edit_index) rebuild(*edit_index, container_id);
     update_document_actions();
     connect(dialog, &QObject::destroyed, this, [this] {
-        box_properties_ = nullptr;
+        properties_dialog_ = nullptr;
         rebuild();
     });
     dialog->show();
 }
 
 void MainWindow::new_document() {
-    if (box_properties_ != nullptr || !confirm_document_replacement()) return;
+    if (properties_dialog_ != nullptr || !confirm_document_replacement()) return;
     session_.replace(zima::document::PartDocument::create_default());
-    calculated_boundaries_.clear();
     file_path_.clear();
     rebuild();
 }
 
 void MainWindow::open_document() {
-    if (box_properties_ != nullptr || !confirm_document_replacement()) return;
+    if (properties_dialog_ != nullptr || !confirm_document_replacement()) return;
     const QString selected = QFileDialog::getOpenFileName(
         this, tr("Otevřít C++ prototyp"), {}, tr("ZIMA-CAD C++ Part (*.zcp.json)"));
     if (selected.isEmpty()) return;
     try {
         std::vector<zima::kernel::BodyResult> loaded_boundaries;
-        session_.replace(zima::document::PartDocument::load(
-            selected.toStdString(), &loaded_boundaries));
-        calculated_boundaries_.clear();
-        if (!loaded_boundaries.empty()) {
-            calculated_boundaries_[session_.revision()] =
-                std::move(loaded_boundaries);
-        }
+        auto loaded_document = zima::document::PartDocument::load(
+            selected.toStdString(), &loaded_boundaries);
+        session_.replace(
+            std::move(loaded_document), std::move(loaded_boundaries));
         file_path_ = selected.toStdString();
         rebuild();
     } catch (const std::exception& error) {
@@ -286,12 +308,8 @@ bool MainWindow::save_document() {
     }
     if (selected.isEmpty()) return false;
     try {
-        const auto calculated = calculated_boundaries_.find(session_.revision());
-        if (calculated == calculated_boundaries_.end()) {
-            session_.document().save(selected.toStdString());
-        } else {
-            session_.document().save(selected.toStdString(), calculated->second);
-        }
+        session_.document().save(
+            selected.toStdString(), session_.calculated_boundaries());
         file_path_ = selected.toStdString();
         session_.mark_saved();
         update_document_actions();
@@ -317,9 +335,9 @@ bool MainWindow::confirm_document_replacement() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    if (box_properties_ != nullptr) {
-        box_properties_->raise();
-        box_properties_->activateWindow();
+    if (properties_dialog_ != nullptr) {
+        properties_dialog_->raise();
+        properties_dialog_->activateWindow();
         event->ignore();
         return;
     }
@@ -331,24 +349,24 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 void MainWindow::undo() {
-    if (box_properties_ == nullptr && session_.undo()) rebuild();
+    if (properties_dialog_ == nullptr && session_.undo()) rebuild();
 }
 
 void MainWindow::redo() {
-    if (box_properties_ == nullptr && session_.redo()) rebuild();
+    if (properties_dialog_ == nullptr && session_.redo()) rebuild();
 }
 
 std::vector<zima::kernel::BodyResult> MainWindow::calculate_document(
     const zima::document::PartDocument& document) const {
-    return kernel_.evaluate_box_boundaries(document.box_operations());
+    return kernel_.evaluate_history(document.kernel_operations());
 }
 
 void MainWindow::regenerate() {
-    if (box_properties_ != nullptr) return;
+    if (properties_dialog_ != nullptr) return;
     const auto started = std::chrono::steady_clock::now();
     try {
-        calculated_boundaries_[session_.revision()] =
-            calculate_document(session_.document());
+        session_.update_calculated_boundaries(
+            calculate_document(session_.document()));
         const auto elapsed = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - started).count();
         rebuild();
@@ -360,8 +378,8 @@ void MainWindow::regenerate() {
 }
 
 void MainWindow::update_document_actions() {
-    undo_action_->setEnabled(box_properties_ == nullptr && session_.can_undo());
-    redo_action_->setEnabled(box_properties_ == nullptr && session_.can_redo());
+    undo_action_->setEnabled(properties_dialog_ == nullptr && session_.can_undo());
+    redo_action_->setEnabled(properties_dialog_ == nullptr && session_.can_redo());
     const QString file_name = file_path_.empty()
         ? tr("Nový díl") : QString::fromStdString(file_path_.filename().string());
     setWindowTitle(tr("ZIMA-CAD C++ – %1%2")

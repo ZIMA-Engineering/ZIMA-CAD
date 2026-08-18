@@ -48,7 +48,7 @@ target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets)
 
 add_executable(zima-cad-cpp
-    app/main.cpp app/main_window.cpp app/box_properties_dialog.cpp)
+    app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_document_core zima_kernel_occt zima_viewer zima_ui
@@ -61,7 +61,7 @@ if(ZIMA_BUILD_TESTS)
         zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
-        tests/ui_contract_tests.cpp app/box_properties_dialog.cpp)
+        tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
         zima_document_core zima_ui Qt6::Widgets)

@@ -12,6 +12,8 @@ public:
         const std::vector<BoxOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_box_boundaries(
         const std::vector<BoxOperation>& operations) const override;
+    [[nodiscard]] std::vector<BodyResult> evaluate_history(
+        const std::vector<HistoryOperation>& operations) const override;
 };
 
 }  // namespace zima::kernel
