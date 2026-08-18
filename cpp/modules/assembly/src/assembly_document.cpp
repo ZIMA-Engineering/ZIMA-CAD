@@ -342,7 +342,7 @@ AssemblyMate AssemblyDocument::create_mate(
         throw std::invalid_argument("Assembly mate definition is invalid");
     }
     return {make_id(), std::move(name), kind, std::move(dependent),
-            std::move(prerequisite), offset, MateStatus::Uncalculated};
+            std::move(prerequisite), offset, MateStatus::Uncalculated, false};
 }
 
 void AssemblyDocument::add_mate(AssemblyMate mate) {
@@ -386,6 +386,39 @@ void AssemblyDocument::add_mate(AssemblyMate mate) {
         throw std::invalid_argument("Assembly mate dependency edge is inconsistent");
     }
     mates.push_back(std::move(mate));
+}
+
+const AssemblyMate* AssemblyDocument::find_mate(const std::string& mate_id) const {
+    const auto found = std::find_if(mates.begin(), mates.end(),
+        [&](const auto& mate) { return mate.mate_id == mate_id; });
+    return found == mates.end() ? nullptr : &*found;
+}
+
+AssemblyMate* AssemblyDocument::find_mate(const std::string& mate_id) {
+    return const_cast<AssemblyMate*>(std::as_const(*this).find_mate(mate_id));
+}
+
+void AssemblyDocument::replace_mate(AssemblyMate mate) {
+    if (find_mate(mate.mate_id) == nullptr) {
+        throw std::invalid_argument("Assembly mate to replace does not exist");
+    }
+    auto replacement = *this;
+    std::erase_if(replacement.mates,
+        [&](const auto& existing) { return existing.mate_id == mate.mate_id; });
+    std::erase_if(replacement.dependencies,
+        [&](const auto& dependency) { return dependency.dependency_id == mate.mate_id; });
+    replacement.add_mate(std::move(mate));
+    *this = std::move(replacement);
+}
+
+void AssemblyDocument::remove_mate(const std::string& mate_id) {
+    if (find_mate(mate_id) == nullptr) {
+        throw std::invalid_argument("Assembly mate to remove does not exist");
+    }
+    std::erase_if(mates,
+        [&](const auto& mate) { return mate.mate_id == mate_id; });
+    std::erase_if(dependencies,
+        [&](const auto& dependency) { return dependency.dependency_id == mate_id; });
 }
 
 PlaneResolution AssemblyDocument::resolve_plane(
@@ -553,15 +586,19 @@ void AssemblyDocument::calculate_mates() {
         mate.status = MateStatus::Valid;
     };
     for (auto& mate : mates) {
-        if (mate.kind == MateKind::AxisCoincident) calculate_axis(mate);
+        if (!mate.suppressed && mate.kind == MateKind::AxisCoincident) {
+            calculate_axis(mate);
+        }
     }
     for (auto& mate : mates) {
-        if (mate.kind == MateKind::PlaneCoincident) calculate_plane(mate);
+        if (!mate.suppressed && mate.kind == MateKind::PlaneCoincident) {
+            calculate_plane(mate);
+        }
     }
     std::vector<bool> conflicts(mates.size(), false);
     for (std::size_t index = 0; index < mates.size(); ++index) {
         const auto& mate = mates[index];
-        if (mate.status != MateStatus::Valid) continue;
+        if (mate.suppressed || mate.status != MateStatus::Valid) continue;
         if (mate.kind == MateKind::AxisCoincident) {
             const auto dependent = resolve_axis(mate.dependent);
             const auto prerequisite = resolve_axis(mate.prerequisite);
@@ -613,6 +650,7 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
         if (component.suppressed) result.insert(component.occurrence_id);
     }
     for (const auto& mate : mates) {
+        if (mate.suppressed) continue;
         if (mate.status == MateStatus::MissingReference ||
             mate.status == MateStatus::UnsupportedGeometry) {
             result.insert(mate.dependent.instance_path.occurrence_ids.front());
@@ -622,6 +660,8 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
     while (changed) {
         changed = false;
         for (const auto& dependency : dependencies) {
+            const auto* owning_mate = find_mate(dependency.dependency_id);
+            if (owning_mate != nullptr && owning_mate->suppressed) continue;
             if (result.contains(dependency.prerequisite_occurrence_id) &&
                 result.insert(dependency.dependent_occurrence_id).second) {
                 changed = true;
@@ -802,6 +842,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         mate.prerequisite = load_reference(source.at("prerequisite"));
         mate.offset = source.at("offset").get<double>();
         mate.status = mate_status_from_name(source.at("status").get<std::string>());
+        mate.suppressed = source.at("suppressed").get<bool>();
         document.add_mate(std::move(mate));
     }
     static_cast<void>(document.build_scene());
@@ -861,6 +902,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"dependent", serialize_reference(mate.dependent)},
             {"prerequisite", serialize_reference(mate.prerequisite)},
             {"offset", mate.offset}, {"status", mate_status_name(mate.status)},
+            {"suppressed", mate.suppressed},
         });
     }
     const nlohmann::json root = {

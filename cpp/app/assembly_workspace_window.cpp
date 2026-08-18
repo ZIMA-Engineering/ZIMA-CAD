@@ -123,7 +123,12 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemDoubleClicked, this,
         [this](QTreeWidgetItem* item) {
             if (item == nullptr || item->parent() == nullptr) return;
-            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") {
+                show_mate_properties(
+                    item->data(0, Qt::UserRole + 4).toString().toStdString(),
+                    item->data(0, Qt::UserRole).toString().toStdString());
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 show_primitive_properties(
                     workspace_.open_part(workspace_.active_document_id())
@@ -148,7 +153,13 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this](const QPoint& position) {
             auto* item = tree_->itemAt(position);
             if (item == nullptr || item->parent() == nullptr) return;
-            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") {
+                show_mate_context_menu(
+                    item->data(0, Qt::UserRole + 4).toString().toStdString(),
+                    item->data(0, Qt::UserRole).toString().toStdString(),
+                    tree_->viewport()->mapToGlobal(position));
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -612,29 +623,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const auto& document = assembly->session.document();
     auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
     add_assembly_tree_children(root, document.document_id, {});
-    if (!document.mates.empty()) {
-        auto* mates_root = new QTreeWidgetItem(root, {tr("Vazby")});
-        for (const auto& mate : document.mates) {
-            QString label = QString::fromStdString(mate.name);
-            if (mate.status == zima::assembly::MateStatus::Uncalculated) {
-                label += tr(" [nevypočtená]");
-            } else if (mate.status == zima::assembly::MateStatus::MissingReference) {
-                label += tr(" [chybí reference]");
-            } else if (mate.status ==
-                       zima::assembly::MateStatus::UnsupportedGeometry) {
-                label += tr(" [nepodporovaná geometrie]");
-            }
-            auto* item = new QTreeWidgetItem(mates_root, {label});
-            item->setData(0, Qt::UserRole, QString::fromStdString(mate.mate_id));
-            item->setData(0, Qt::UserRole + 3, "assembly-mate");
-            if (mate.status == zima::assembly::MateStatus::MissingReference ||
-                mate.status == zima::assembly::MateStatus::UnsupportedGeometry) {
-                item->setForeground(0, QBrush(QColor(205, 65, 65)));
-            } else if (mate.status == zima::assembly::MateStatus::Uncalculated) {
-                item->setForeground(0, QBrush(QColor(155, 105, 55)));
-            }
-        }
-        mates_root->setExpanded(true);
+    if (document.document_id == workspace_.active_document_id()) {
+        add_mate_tree_children(root, document.document_id);
     }
     root->setExpanded(true);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
@@ -745,6 +735,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
                     item, active_source->session.document().occurrence_snapshot(),
                     component.source_document_id, path,
                     suppressed || !component.visible);
+                add_mate_tree_children(item, component.source_document_id);
             } else {
                 add_snapshot_tree_children(
                     item, component.children, component.source_document_id, path,
@@ -753,6 +744,40 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             item->setExpanded(true);
         }
     }
+}
+
+void AssemblyWorkspaceWindow::add_mate_tree_children(
+    QTreeWidgetItem* parent,
+    const std::string& owner_assembly_document_id) {
+    const auto* assembly = workspace_.open_assembly(owner_assembly_document_id);
+    if (assembly == nullptr || assembly->session.document().mates.empty()) return;
+    auto* mates_root = new QTreeWidgetItem(parent, {tr("Vazby")});
+    for (const auto& mate : assembly->session.document().mates) {
+        QString label = QString::fromStdString(mate.name);
+        if (mate.suppressed) {
+            label += tr(" [potlačeno]");
+        } else if (mate.status == zima::assembly::MateStatus::Uncalculated) {
+            label += tr(" [nevypočtená]");
+        } else if (mate.status == zima::assembly::MateStatus::MissingReference) {
+            label += tr(" [chybí reference]");
+        } else if (mate.status == zima::assembly::MateStatus::UnsupportedGeometry) {
+            label += tr(" [nepodporovaná geometrie]");
+        }
+        auto* item = new QTreeWidgetItem(mates_root, {label});
+        item->setData(0, Qt::UserRole, QString::fromStdString(mate.mate_id));
+        item->setData(0, Qt::UserRole + 3, "assembly-mate");
+        item->setData(0, Qt::UserRole + 4,
+                      QString::fromStdString(owner_assembly_document_id));
+        if (mate.suppressed) {
+            item->setForeground(0, QBrush(QColor(125, 125, 125)));
+        } else if (mate.status == zima::assembly::MateStatus::MissingReference ||
+                   mate.status == zima::assembly::MateStatus::UnsupportedGeometry) {
+            item->setForeground(0, QBrush(QColor(205, 65, 65)));
+        } else if (mate.status == zima::assembly::MateStatus::Uncalculated) {
+            item->setForeground(0, QBrush(QColor(155, 105, 55)));
+        }
+    }
+    mates_root->setExpanded(true);
 }
 
 void AssemblyWorkspaceWindow::select_container(const std::string& container_id) {
@@ -860,6 +885,74 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     if (found == next.components.end()) return;
     if (selected == visibility) found->visible = !found->visible;
     if (selected == suppression) found->suppressed = !found->suppressed;
+    assembly->session.commit(std::move(next));
+    refresh_tabs();
+    refresh_scene();
+}
+
+void AssemblyWorkspaceWindow::show_mate_properties(
+    const std::string& assembly_document_id,
+    const std::string& mate_id) {
+    if (properties_dialog_ != nullptr ||
+        assembly_document_id != workspace_.active_document_id()) return;
+    auto* assembly = workspace_.open_assembly(assembly_document_id);
+    const auto* mate = assembly == nullptr
+        ? nullptr : assembly->session.document().find_mate(mate_id);
+    if (mate == nullptr) return;
+    auto* dialog = new MatePropertiesDialog(
+        *mate,
+        [this, assembly_document_id](zima::assembly::AssemblyMate committed) {
+            auto* target = workspace_.open_assembly(assembly_document_id);
+            if (target == nullptr) throw std::runtime_error("Assembly is no longer open");
+            auto next = target->session.document();
+            next.replace_mate(std::move(committed));
+            next.calculate_mates();
+            target->session.commit(std::move(next));
+        }, this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this] {
+        properties_dialog_ = nullptr;
+        refresh_tabs();
+        refresh_scene();
+    });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::show_mate_context_menu(
+    const std::string& assembly_document_id,
+    const std::string& mate_id,
+    const QPoint& global_position) {
+    if (properties_dialog_ != nullptr ||
+        assembly_document_id != workspace_.active_document_id()) return;
+    auto* assembly = workspace_.open_assembly(assembly_document_id);
+    const auto* mate = assembly == nullptr
+        ? nullptr : assembly->session.document().find_mate(mate_id);
+    if (mate == nullptr) return;
+    QMenu menu(this);
+    auto* properties = menu.addAction(tr("Vlastnosti"));
+    auto* suppression = menu.addAction(
+        mate->suppressed ? tr("Obnovit") : tr("Potlačit"));
+    auto* remove = menu.addAction(tr("Smazat"));
+    const QAction* selected = menu.exec(global_position);
+    if (selected == properties) {
+        show_mate_properties(assembly_document_id, mate_id);
+        return;
+    }
+    if (selected != suppression && selected != remove) return;
+    if (selected == remove && QMessageBox::question(
+            this, tr("Smazat vazbu"), tr("Opravdu chcete vazbu smazat?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+    auto next = assembly->session.document();
+    if (selected == remove) {
+        next.remove_mate(mate_id);
+    } else {
+        auto* edited = next.find_mate(mate_id);
+        if (edited == nullptr) return;
+        edited->suppressed = !edited->suppressed;
+        next.calculate_mates();
+    }
     assembly->session.commit(std::move(next));
     refresh_tabs();
     refresh_scene();

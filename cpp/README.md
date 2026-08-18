@@ -229,6 +229,21 @@ Non-parallel axes await the rotational solver. The GUI reuses the two-reference
 workflow and internal Properties window, with offset disabled because axial
 translation is intentionally unconstrained.
 
+Mates now have a complete editing lifecycle. Creation and double-click editing
+reuse the same internal `MatePropertiesDialog`; OK replaces the mate, rebuilds
+its dependency edge, recalculates, and commits one revision. The RMB menu offers
+Properties, Suppress/Restore, and confirmed Delete. A suppressed mate remains
+persisted but neither drives placement nor propagates suppression. Delete
+atomically removes the mate and its edge, and Undo/Redo restores the complete
+mate, placement, status, and graph state.
+
+Only the exact active Assembly exposes editable mate items. When a subassembly
+occurrence is activated, its live mates appear below that green branch while
+top-level and repeated passive occurrences remain read-only snapshots. Broken
+mates remain editable without forcing a successful calculation in the dialog;
+their references may become valid only after a later model change and explicit
+Regenerate.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

@@ -260,6 +260,21 @@ GUI používá stejný dvoukrokový výběr a interní Properties okno; u osa–
 nezobrazuje editovatelný offset, protože posun podél společné osy zůstává
 stupněm volnosti.
 
+Vazby mají nyní celý editační životní cyklus. Stejný `MatePropertiesDialog`
+slouží pro tvorbu i dvojklikovou editaci; OK nahradí vazbu, přestaví její
+dependency edge, znovu vypočítá sestavu a vytvoří jednu revizi. RMB nabízí
+Vlastnosti, Potlačit/Obnovit a potvrzené Smazat. Potlačená vazba zůstává
+persistovaná, ale nepočítá placement ani nešíří potlačení přes svou edge.
+Smazání odstraní vazbu i její edge atomicky. Undo/Redo obnovuje kompletní stav
+včetně placementu, statusu a dependency grafu.
+
+Strom zobrazuje editovatelné vazby jen pro přesnou aktivní Assembly. Při
+aktivaci podsestavy jsou pod její zelenou occurrence vloženy její živé vazby;
+vazby top-level parentu ani jiných opakovaných výskytů se tím nestanou
+zapisovatelné. Chybnou vazbu lze otevřít a upravit bez nuceného úspěšného
+výpočtu, protože její přesné reference mohou být opravitelné až následnou
+změnou modelu a explicitní regenerací.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce

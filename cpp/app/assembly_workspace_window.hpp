@@ -88,11 +88,20 @@ private:
         const std::string& owner_assembly_document_id,
         const zima::assembly::InstancePath& parent_path,
         bool ancestor_suppressed = false);
+    void add_mate_tree_children(
+        QTreeWidgetItem* parent,
+        const std::string& owner_assembly_document_id);
     void select_occurrence(const std::string& instance_path);
     void select_container(const std::string& container_id);
     void show_component_properties(const std::string& instance_path);
     void show_component_context_menu(
         const std::string& instance_path, const QPoint& global_position);
+    void show_mate_properties(
+        const std::string& assembly_document_id, const std::string& mate_id);
+    void show_mate_context_menu(
+        const std::string& assembly_document_id,
+        const std::string& mate_id,
+        const QPoint& global_position);
     [[nodiscard]] std::optional<std::string> resolve_active_occurrence(
         const std::string& part_document_id) const;
 };

@@ -91,6 +91,7 @@ struct AssemblyMate {
     MateReference prerequisite;
     double offset{};
     MateStatus status{MateStatus::Uncalculated};
+    bool suppressed{};
     bool operator==(const AssemblyMate&) const = default;
 };
 
@@ -155,6 +156,10 @@ public:
         MateReference prerequisite,
         double offset = 0.0);
     void add_mate(AssemblyMate mate);
+    [[nodiscard]] const AssemblyMate* find_mate(const std::string& mate_id) const;
+    [[nodiscard]] AssemblyMate* find_mate(const std::string& mate_id);
+    void replace_mate(AssemblyMate mate);
+    void remove_mate(const std::string& mate_id);
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;
     [[nodiscard]] AxisResolution resolve_axis(

@@ -192,6 +192,49 @@ int main() {
         require(loaded_mates.mates == mated_assembly.mates &&
                     loaded_mates.dependencies == mated_assembly.dependencies,
                 "Assembly mate reference or dependency did not survive save/load");
+        auto lifecycle = loaded_mates;
+        lifecycle.mates.front().suppressed = true;
+        lifecycle.components.front().suppressed = true;
+        lifecycle.calculate_mates();
+        const auto suppressed_lifecycle =
+            lifecycle.effectively_suppressed_occurrences();
+        require(suppressed_lifecycle.contains(first_id) &&
+                    !suppressed_lifecycle.contains(second_id),
+                "Suppressed mate continued propagating through its dependency edge");
+        lifecycle.components.front().suppressed = false;
+        auto edited_mate = lifecycle.mates.front();
+        edited_mate.suppressed = false;
+        edited_mate.offset = 7.0;
+        lifecycle.replace_mate(edited_mate);
+        lifecycle.calculate_mates();
+        require(lifecycle.mates.size() == 1 && lifecycle.dependencies.size() == 1 &&
+                    lifecycle.mates.front().offset == 7.0 &&
+                    lifecycle.mates.front().status == zima::assembly::MateStatus::Valid,
+                "Replacing a mate lost its identity, dependency, or calculation");
+        lifecycle.remove_mate(edited_mate.mate_id);
+        require(lifecycle.mates.empty() && lifecycle.dependencies.empty(),
+                "Removing a mate left its dependency edge behind");
+        zima::assembly::AssemblySession mate_session(mated_assembly);
+        auto suppressed_revision = mate_session.document();
+        suppressed_revision.mates.front().suppressed = true;
+        suppressed_revision.calculate_mates();
+        mate_session.commit(std::move(suppressed_revision));
+        require(mate_session.revision() == 1 &&
+                    mate_session.document().mates.front().suppressed &&
+                    mate_session.undo() &&
+                    !mate_session.document().mates.front().suppressed &&
+                    mate_session.redo() &&
+                    mate_session.document().mates.front().suppressed,
+                "Mate suppression did not behave as one Undo/Redo revision");
+        auto removed_revision = mate_session.document();
+        removed_revision.remove_mate(plane_mate_id);
+        mate_session.commit(std::move(removed_revision));
+        require(mate_session.document().mates.empty() &&
+                    mate_session.document().dependencies.empty() &&
+                    mate_session.undo() &&
+                    mate_session.document().mates.size() == 1 &&
+                    mate_session.document().dependencies.size() == 1,
+                "Mate removal did not restore its dependency through Undo");
         auto combined_mates = loaded;
         combined_mates.components.back().placement.x = 20.0;
         combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
