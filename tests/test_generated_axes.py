@@ -18,6 +18,46 @@ from zima_cad.viewer_scene import build_document_viewer_scene_data
 
 
 class GeneratedAxisTests(unittest.TestCase):
+    def test_protrusion_circle_axis_includes_profile_plane_offset(self):
+        document = create_empty_part()
+        container = document.create_container(
+            "Offset cylinder", ContainerType.PROTRUSION
+        )
+        sketch = ZimaEntity(
+            "Sketch",
+            EntityKind.SKETCH,
+            parameters={"plane": "xz"},
+        )
+        container.add_child(sketch)
+        model = SketchModel()
+        model.add_point(SketchPoint("center", 4.0, 6.0))
+        model.add_geometry(SketchGeometry(
+            "circle001", GeometryType.CIRCLE, ("center",), {"radius": 3.0}
+        ))
+        sketch.parameters["sketch_data"] = json.dumps(model.to_dict())
+        feature = ZimaEntity(
+            "Protrusion",
+            EntityKind.PROTRUSION,
+            parameters={
+                "sketch_id": sketch.entity_id,
+                "length_forward": "20",
+                "extent_mode": "one_side",
+                "direction": "forward",
+                "profile_offset": "30",
+            },
+        )
+        container.add_child(feature)
+
+        document.sync_generated_axes_for_object(container)
+
+        axis = next(
+            child for child in feature.children
+            if child.parameters.get("generated_axis") == "true"
+        )
+        self.assertEqual(float(axis.parameters["origin_x"]), 4.0)
+        self.assertEqual(float(axis.parameters["origin_y"]), 40.0)
+        self.assertEqual(float(axis.parameters["origin_z"]), 6.0)
+
     def test_uncommitted_container_coordinate_system_is_previewed(self):
         document = create_empty_part()
 

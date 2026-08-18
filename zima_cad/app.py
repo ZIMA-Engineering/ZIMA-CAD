@@ -17693,17 +17693,13 @@ class MainWindow(QMainWindow):
         self.open_document_action.setIcon(resource_icon("open"))
         self.open_document_action.triggered.connect(self.open_document)
 
-        import_step_action = file_menu.addAction(
-            tr("menu.file.import_step")
-        )
-        import_step_action.setIcon(resource_icon("open"))
-        import_step_action.triggered.connect(self.import_step_into_part)
+        self.import_model_action = file_menu.addAction(tr("menu.file.import"))
+        self.import_model_action.setIcon(resource_icon("open"))
+        self.import_model_action.triggered.connect(self.import_model)
 
-        export_step_action = file_menu.addAction(
-            tr("menu.file.export_step")
-        )
-        export_step_action.setIcon(resource_icon("save"))
-        export_step_action.triggered.connect(self.export_model_to_step)
+        self.export_model_action = file_menu.addAction(tr("menu.file.export"))
+        self.export_model_action.setIcon(resource_icon("save"))
+        self.export_model_action.triggered.connect(self.export_model)
 
         close_action = file_menu.addAction(tr("menu.file.close"))
         close_action.triggered.connect(self.close_document)
@@ -20450,25 +20446,47 @@ class MainWindow(QMainWindow):
             self._install_opened_document(document, canonical_path)
         self.statusBar().clearMessage()
 
-    def import_step_into_part(self) -> None:
-        if self.document is None or self._document_type(self.document) != "part":
-            QMessageBox.information(
-                self,
-                tr("menu.file.import_step"),
-                tr("step.import.part_required"),
-            )
-            return
-        file_name, _ = QFileDialog.getOpenFileName(
+    def import_model(self) -> None:
+        """Choose an external file and route it to its format importer."""
+        file_name, _ = get_zima_open_file_name(
             self,
-            tr("menu.file.import_step"),
+            tr("menu.file.import"),
             str(self.working_directory),
-            tr("file.filter.step"),
+            tr("file.filter.import"),
         )
         if not file_name:
             return
+        path = Path(file_name)
+        if path.suffix.casefold() in {".step", ".stp"}:
+            self.import_step_into_part(path)
+            return
+        QMessageBox.information(
+            self,
+            tr("menu.file.import"),
+            tr("file.import.unsupported", suffix=path.suffix or path.name),
+        )
+
+    def import_step_into_part(self, file_path: str | Path | None = None) -> None:
+        if self.document is None or self._document_type(self.document) != "part":
+            QMessageBox.information(
+                self,
+                tr("menu.file.import"),
+                tr("step.import.part_required"),
+            )
+            return
+        if file_path is None:
+            file_name, _ = get_zima_open_file_name(
+                self,
+                tr("menu.file.import"),
+                str(self.working_directory),
+                tr("file.filter.step"),
+            )
+            if not file_name:
+                return
+            file_path = file_name
         if self._step_import_future is not None:
             return
-        path = Path(file_name)
+        path = Path(file_path)
         self.statusBar().showMessage(
             tr("step.import.loading", name=path.name)
         )
@@ -20492,13 +20510,14 @@ class MainWindow(QMainWindow):
         self._step_import_document = self.document
         poll_timer.start()
 
-    def export_model_to_step(self) -> None:
+    def export_model(self) -> None:
+        """Choose an external file and route it to its format exporter."""
         document = self.document
         document_type = self._document_type(document)
         if document is None or document_type not in ("part", "assembly"):
             QMessageBox.information(
                 self,
-                tr("menu.file.export_step"),
+                tr("menu.file.export"),
                 tr("step.export.model_required"),
             )
             return
@@ -20507,22 +20526,60 @@ class MainWindow(QMainWindow):
             if self.current_file_path is not None
             else document.root.name
         )
-        file_name, _ = QFileDialog.getSaveFileName(
+        file_name, _ = get_zima_save_file_name(
             self,
-            tr("menu.file.export_step"),
+            tr("menu.file.export"),
             str(self.working_directory / f"{source_stem}.step"),
-            tr("file.filter.step"),
+            tr("file.filter.export"),
+            default_suffix="step",
         )
         if not file_name:
             return
+        path = Path(file_name)
+        if path.suffix.casefold() not in {".step", ".stp"}:
+            QMessageBox.information(
+                self,
+                tr("menu.file.export"),
+                tr("file.export.unsupported", suffix=path.suffix or path.name),
+            )
+            return
+        self.export_model_to_step(path)
+
+    def export_model_to_step(self, file_path: str | Path | None = None) -> None:
+        document = self.document
+        document_type = self._document_type(document)
+        if document is None or document_type not in ("part", "assembly"):
+            QMessageBox.information(
+                self,
+                tr("menu.file.export"),
+                tr("step.export.model_required"),
+            )
+            return
+        if file_path is None:
+            source_stem = (
+                self.current_file_path.stem
+                if self.current_file_path is not None
+                else document.root.name
+            )
+            file_name, _ = get_zima_save_file_name(
+                self,
+                tr("menu.file.export"),
+                str(self.working_directory / f"{source_stem}.step"),
+                tr("file.filter.step"),
+                default_suffix="step",
+            )
+            if not file_name:
+                return
+            file_path = file_name
+        file_path = Path(file_path)
         self.statusBar().showMessage(
-            tr("step.export.writing", name=Path(file_name).name)
+            tr("step.export.writing", name=file_path.name)
         )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = export_step_shape(
                 document.build_active_shape(),
-                Path(file_name),
+                file_path,
             )
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             QMessageBox.critical(

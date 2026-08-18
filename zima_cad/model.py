@@ -1345,8 +1345,12 @@ class PartDocument:
                         else 1.0
                     )
                     span = max(forward + reverse, 1.0)
+                    profile_offset = float(
+                        feature.parameters.get("profile_offset", 0.0)
+                    )
                     axial_center = (
-                        direction_sign * (forward - reverse) / 2.0
+                        profile_offset
+                        + direction_sign * (forward - reverse) / 2.0
                     )
                     for geometry_id, geometry in sketch_model.geometry.items():
                         if geometry.geometry_type.value != "circle" or not geometry.point_ids:
