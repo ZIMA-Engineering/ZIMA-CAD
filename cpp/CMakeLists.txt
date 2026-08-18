@@ -67,8 +67,12 @@ add_library(zima_ui modules/ui/src/properties_subwindow.cpp)
 target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets)
 
-add_library(zima_interchange modules/interchange/src/interchange.cpp)
+add_library(zima_interchange modules/interchange/src/interchange.cpp
+    modules/interchange/src/dxf.cpp modules/interchange/src/planar_face.cpp
+    modules/interchange/src/step.cpp)
 target_include_directories(zima_interchange PUBLIC modules/interchange/include)
+target_link_libraries(zima_interchange PUBLIC zima_sketcher
+    PRIVATE TKDESTEP TKXSBase TKBRep TKGeomBase)
 
 add_executable(zima-cad-cpp
     app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp

@@ -331,6 +331,34 @@ void Sketch::validate() const {
             throw std::runtime_error("Dimension value lies outside its absolute limits");
         }
     }
+    std::unordered_set<std::string> block_ids;
+    std::unordered_set<std::string> grouped_geometry;
+    const auto geometry_exists = [&](const std::string& geometry_id) {
+        return std::ranges::any_of(segments, [&](const auto& value) { return value.id == geometry_id; }) ||
+            std::ranges::any_of(circles, [&](const auto& value) { return value.id == geometry_id; }) ||
+            std::ranges::any_of(arcs, [&](const auto& value) { return value.id == geometry_id; }) ||
+            std::ranges::any_of(ellipses, [&](const auto& value) { return value.id == geometry_id; }) ||
+            std::ranges::any_of(bsplines, [&](const auto& value) { return value.id == geometry_id; });
+    };
+    for (const auto& block : import_blocks) {
+        if (block.id.empty() || block.name.empty() ||
+            !block_ids.insert(block.id).second || block.geometry_ids.empty() ||
+            block.point_ids.empty() || !std::isfinite(block.translation_x) ||
+            !std::isfinite(block.translation_y) || !std::isfinite(block.rotation)) {
+            throw std::runtime_error("Sketch import block is invalid");
+        }
+        for (const auto& geometry_id : block.geometry_ids) {
+            if (!geometry_exists(geometry_id) ||
+                !grouped_geometry.insert(geometry_id).second) {
+                throw std::runtime_error("Import block geometry is missing or shared");
+            }
+        }
+        for (const auto& point_id : block.point_ids) {
+            if (find_point(point_id) == nullptr) {
+                throw std::runtime_error("Import block point is missing");
+            }
+        }
+    }
 }
 
 bool Sketch::set_dimension_value(const std::string& dimension_id, double value) {
@@ -894,6 +922,64 @@ std::string Sketch::add_bspline(
     next.validate();
     *this = std::move(next);
     return id;
+}
+
+std::string Sketch::add_import_block(
+    std::string name, std::string source_path,
+    std::vector<std::string> geometry_ids,
+    std::vector<std::string> point_ids) {
+    if (name.empty() || geometry_ids.empty() || point_ids.empty()) {
+        throw std::invalid_argument("Import block identity or contents are empty");
+    }
+    SketchImportBlock block{make_id(), std::move(name), std::move(source_path),
+        std::move(geometry_ids), std::move(point_ids)};
+    const auto id = block.id;
+    auto next = *this;
+    next.import_blocks.push_back(std::move(block));
+    next.validate();
+    *this = std::move(next);
+    return id;
+}
+
+void Sketch::transform_import_block(
+    const std::string& block_id, double translation_x,
+    double translation_y, double rotation) {
+    for (const double value : {translation_x, translation_y, rotation}) {
+        require_finite(value, "import block transform");
+    }
+    auto next = *this;
+    auto block = std::find_if(next.import_blocks.begin(), next.import_blocks.end(),
+        [&](const auto& value) { return value.id == block_id; });
+    if (block == next.import_blocks.end()) {
+        throw std::invalid_argument("Sketch import block does not exist");
+    }
+    const double angle = rotation - block->rotation;
+    const double cosine = std::cos(angle);
+    const double sine = std::sin(angle);
+    for (const auto& point_id : block->point_ids) {
+        auto* point = next.find_point(point_id);
+        if (point == nullptr) throw std::runtime_error("Import block point is missing");
+        const double local_x = point->x - block->translation_x;
+        const double local_y = point->y - block->translation_y;
+        point->x = cosine * local_x - sine * local_y + translation_x;
+        point->y = sine * local_x + cosine * local_y + translation_y;
+    }
+    for (auto& arc : next.arcs) {
+        if (std::ranges::find(block->geometry_ids, arc.id) != block->geometry_ids.end()) {
+            arc.start_angle += angle;
+            arc.end_angle += angle;
+        }
+    }
+    for (auto& ellipse : next.ellipses) {
+        if (std::ranges::find(block->geometry_ids, ellipse.id) != block->geometry_ids.end()) {
+            ellipse.rotation += angle;
+        }
+    }
+    block->translation_x = translation_x;
+    block->translation_y = translation_y;
+    block->rotation = rotation;
+    next.validate();
+    *this = std::move(next);
 }
 
 SketchDimension Sketch::create_segment_dimension(
@@ -1766,6 +1852,12 @@ std::string Sketch::serialized() const {
         {"id", spline.id}, {"control_points", spline.control_point_ids},
         {"degree", spline.degree}, {"closed", spline.closed},
         {"construction", spline.construction}});
+    nlohmann::json import_block_values = nlohmann::json::array();
+    for (const auto& block : import_blocks) import_block_values.push_back({
+        {"id", block.id}, {"name", block.name}, {"source_path", block.source_path},
+        {"geometry_ids", block.geometry_ids}, {"point_ids", block.point_ids},
+        {"translation_x", block.translation_x},
+        {"translation_y", block.translation_y}, {"rotation", block.rotation}});
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -1782,7 +1874,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 5},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 6},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -1790,6 +1882,7 @@ std::string Sketch::serialized() const {
         {"arcs", std::move(arc_values)},
         {"ellipses", std::move(ellipse_values)},
         {"bsplines", std::move(spline_values)},
+        {"import_blocks", std::move(import_block_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
     return root.dump(2);
@@ -1797,7 +1890,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 5) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 6) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -1832,6 +1925,13 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("control_points").get<std::vector<std::string>>(),
         value.at("degree").get<unsigned>(), value.at("closed").get<bool>(),
         value.at("construction").get<bool>()});
+    for (const auto& value : root.at("import_blocks")) sketch.import_blocks.push_back({
+        value.at("id").get<std::string>(), value.at("name").get<std::string>(),
+        value.at("source_path").get<std::string>(),
+        value.at("geometry_ids").get<std::vector<std::string>>(),
+        value.at("point_ids").get<std::vector<std::string>>(),
+        value.at("translation_x").get<double>(),
+        value.at("translation_y").get<double>(), value.at("rotation").get<double>()});
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),

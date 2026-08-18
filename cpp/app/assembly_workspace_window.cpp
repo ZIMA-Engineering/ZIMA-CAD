@@ -8,6 +8,7 @@
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/interchange/interchange.hpp>
+#include <zima/interchange/dxf.hpp>
 
 #include <QAction>
 #include <QBrush>
@@ -843,6 +844,31 @@ void AssemblyWorkspaceWindow::import_file() {
                 format, zima::interchange::Direction::Import, context)));
         return;
     }
+    if (format == zima::interchange::Format::Dxf) {
+        auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (part == nullptr || active_sketch_id_.empty()) {
+            QMessageBox::information(this, tr("Umístění DXF"),
+                tr("Nejprve vytvořte nebo aktivujte skicu, která určí rovinu DXF."));
+            return;
+        }
+        try {
+            auto next = part->session.document();
+            auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+                [&](const auto& value) { return value.id == active_sketch_id_; });
+            if (sketch == next.sketches.end()) return;
+            const auto imported = zima::interchange::import_dxf(
+                path.toStdString(), *sketch);
+            part->session.commit(std::move(next), part->session.calculated_boundaries());
+            refresh_tabs();
+            refresh_scene();
+            state_->setText(tr("DXF importováno: %1 entit, blok %2")
+                .arg(imported.imported_entities)
+                .arg(QString::fromStdString(imported.import_block_id)));
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Import DXF selhal"), error.what());
+        }
+        return;
+    }
     state_->setText(tr("Importní soubor připraven: %1").arg(path));
 }
 
@@ -860,6 +886,22 @@ void AssemblyWorkspaceWindow::export_file() {
         QMessageBox::warning(this, tr("Export nelze provést"), QString::fromStdString(
             zima::interchange::unsupported_reason(
                 format, zima::interchange::Direction::Export, context)));
+        return;
+    }
+    if (format == zima::interchange::Format::Dxf) {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (part == nullptr) return;
+        const auto sketch = std::find_if(
+            part->session.document().sketches.begin(),
+            part->session.document().sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == part->session.document().sketches.end()) return;
+        try {
+            zima::interchange::export_dxf(path.toStdString(), *sketch);
+            state_->setText(tr("Aktivní skica exportována do DXF: %1").arg(path));
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Export DXF selhal"), error.what());
+        }
         return;
     }
     state_->setText(tr("Exportní soubor připraven: %1").arg(path));

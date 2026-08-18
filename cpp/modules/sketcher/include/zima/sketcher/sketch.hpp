@@ -78,6 +78,18 @@ struct SketchBSpline {
     bool operator==(const SketchBSpline&) const = default;
 };
 
+struct SketchImportBlock {
+    std::string id;
+    std::string name;
+    std::string source_path;
+    std::vector<std::string> geometry_ids;
+    std::vector<std::string> point_ids;
+    double translation_x{};
+    double translation_y{};
+    double rotation{};
+    bool operator==(const SketchImportBlock&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -121,6 +133,7 @@ public:
     std::vector<SketchArc> arcs;
     std::vector<SketchEllipse> ellipses;
     std::vector<SketchBSpline> bsplines;
+    std::vector<SketchImportBlock> import_blocks;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -167,6 +180,13 @@ public:
         const std::vector<std::array<double, 2>>& control_points,
         unsigned degree = 3, bool closed = false, bool construction = false,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_import_block(
+        std::string name, std::string source_path,
+        std::vector<std::string> geometry_ids,
+        std::vector<std::string> point_ids);
+    void transform_import_block(
+        const std::string& block_id, double translation_x,
+        double translation_y, double rotation);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
     void apply_dimension(SketchDimension dimension);
