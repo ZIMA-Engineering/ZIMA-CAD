@@ -1,5 +1,6 @@
 #include "assembly_workspace_window.hpp"
 #include "component_properties_dialog.hpp"
+#include "mate_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -55,6 +56,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { insert_active_component(); });
     regenerate_action_ = assembly->addAction(tr("Regenerovat"), this,
         [this] { regenerate_assembly(); });
+    plane_mate_action_ = assembly->addAction(tr("Vazba plocha–plocha…"), this,
+        [this] { start_plane_mate(); });
 }
 
 void AssemblyWorkspaceWindow::create_layout() {
@@ -75,6 +78,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_ = new zima::viewer::MeshView(splitter);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if (mate_selection_active_) {
+            accept_mate_face(candidate);
+            return;
+        }
         if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
@@ -102,6 +109,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this](QTreeWidgetItem* item) {
             if (item == nullptr || item->parent() == nullptr) return;
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 viewer_->confirm_container(
                     item->data(0, Qt::UserRole).toString().toStdString());
@@ -113,6 +121,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemDoubleClicked, this,
         [this](QTreeWidgetItem* item) {
             if (item == nullptr || item->parent() == nullptr) return;
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 show_primitive_properties(
                     workspace_.open_part(workspace_.active_document_id())
@@ -137,6 +146,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this](const QPoint& position) {
             auto* item = tree_->itemAt(position);
             if (item == nullptr || item->parent() == nullptr) return;
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -239,6 +249,88 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
         refresh_scene();
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Regenerace selhala"), error.what());
+    }
+}
+
+void AssemblyWorkspaceWindow::start_plane_mate() {
+    if (properties_dialog_ != nullptr ||
+        workspace_.open_assembly(workspace_.active_document_id()) == nullptr ||
+        workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
+    pending_mate_reference_.reset();
+    mate_selection_active_ = true;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    state_->setText(tr("Vyberte pohyblivou rovinnou plochu."));
+}
+
+std::optional<zima::assembly::MateReference>
+AssemblyWorkspaceWindow::local_mate_reference(
+    const zima::viewer::ViewerCandidate& candidate) const {
+    if (candidate.kind != zima::viewer::CandidateKind::Face ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) return std::nullopt;
+    auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+    if (!active_occurrence_path_.empty()) {
+        const auto prefix = zima::assembly::InstancePath::decode(active_occurrence_path_);
+        if (path.occurrence_ids.size() <= prefix.occurrence_ids.size() ||
+            !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                        path.occurrence_ids.begin())) return std::nullopt;
+        path.occurrence_ids.erase(
+            path.occurrence_ids.begin(),
+            path.occurrence_ids.begin() +
+                static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+    }
+    return zima::assembly::MateReference{
+        zima::assembly::MateReferenceKind::Face, std::move(path),
+        candidate.owner_id, candidate.semantic_key};
+}
+
+void AssemblyWorkspaceWindow::accept_mate_face(
+    const zima::viewer::ViewerCandidate& candidate) {
+    auto reference = local_mate_reference(candidate);
+    if (!reference) {
+        state_->setText(tr("Plocha nepatří do aktivní sestavy."));
+        return;
+    }
+    if (!pending_mate_reference_) {
+        pending_mate_reference_ = std::move(reference);
+        state_->setText(tr("Vyberte pevnou referenční rovinnou plochu."));
+        return;
+    }
+    try {
+        auto mate = zima::assembly::AssemblyDocument::create_mate(
+            "Plocha na plochu", zima::assembly::MateKind::PlaneCoincident,
+            std::move(*pending_mate_reference_), std::move(*reference));
+        pending_mate_reference_.reset();
+        mate_selection_active_ = false;
+        auto* dialog = new MatePropertiesDialog(
+            std::move(mate),
+            [this, assembly_id = workspace_.active_document_id()]
+            (zima::assembly::AssemblyMate committed) {
+                auto* assembly = workspace_.open_assembly(assembly_id);
+                if (assembly == nullptr) throw std::runtime_error("Assembly is no longer open");
+                auto next = assembly->session.document();
+                next.add_mate(std::move(committed));
+                next.calculate_mates();
+                if (next.mates.back().status != zima::assembly::MateStatus::Valid) {
+                    throw std::runtime_error(
+                        "Vybrané plochy nejsou dvě dostupné rovnoběžné roviny");
+                }
+                assembly->session.commit(std::move(next));
+            }, this);
+        properties_dialog_ = dialog;
+        connect(dialog, &QObject::destroyed, this, [this] {
+            properties_dialog_ = nullptr;
+            pending_mate_reference_.reset();
+            mate_selection_active_ = false;
+            refresh_tabs();
+            refresh_scene();
+        });
+        dialog->show();
+    } catch (const std::exception& error) {
+        pending_mate_reference_.reset();
+        mate_selection_active_ = false;
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+        QMessageBox::warning(this, tr("Vazbu nelze vytvořit"), error.what());
+        refresh_scene();
     }
 }
 
@@ -483,6 +575,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             QString::fromStdString(document.name)));
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
+        plane_mate_action_->setEnabled(false);
         save_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
@@ -494,6 +587,30 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const auto& document = assembly->session.document();
     auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
     add_assembly_tree_children(root, document.document_id, {});
+    if (!document.mates.empty()) {
+        auto* mates_root = new QTreeWidgetItem(root, {tr("Vazby")});
+        for (const auto& mate : document.mates) {
+            QString label = QString::fromStdString(mate.name);
+            if (mate.status == zima::assembly::MateStatus::Uncalculated) {
+                label += tr(" [nevypočtená]");
+            } else if (mate.status == zima::assembly::MateStatus::MissingReference) {
+                label += tr(" [chybí reference]");
+            } else if (mate.status ==
+                       zima::assembly::MateStatus::UnsupportedGeometry) {
+                label += tr(" [nepodporovaná geometrie]");
+            }
+            auto* item = new QTreeWidgetItem(mates_root, {label});
+            item->setData(0, Qt::UserRole, QString::fromStdString(mate.mate_id));
+            item->setData(0, Qt::UserRole + 3, "assembly-mate");
+            if (mate.status == zima::assembly::MateStatus::MissingReference ||
+                mate.status == zima::assembly::MateStatus::UnsupportedGeometry) {
+                item->setForeground(0, QBrush(QColor(205, 65, 65)));
+            } else if (mate.status == zima::assembly::MateStatus::Uncalculated) {
+                item->setForeground(0, QBrush(QColor(155, 105, 55)));
+            }
+        }
+        mates_root->setExpanded(true);
+    }
     root->setExpanded(true);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
     if (part_rollback_ && !part_rollback_->instance_path.empty()) {
@@ -522,6 +639,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_.active_document_id() != workspace_.displayed_document_id() &&
         workspace_.find(workspace_.active_document_id()) != nullptr);
     regenerate_action_->setEnabled(true);
+    plane_mate_action_->setEnabled(
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());
     box_action_->setEnabled(active_part != nullptr);

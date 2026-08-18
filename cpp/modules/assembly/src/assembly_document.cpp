@@ -9,9 +9,11 @@
 #include <iomanip>
 #include <fstream>
 #include <random>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 
 namespace zima::assembly {
 namespace {
@@ -80,6 +82,44 @@ ComponentDependencyKind dependency_kind_from_name(const std::string& name) {
         return ComponentDependencyKind::ExternalSketchReference;
     }
     throw std::runtime_error("Unknown component dependency kind");
+}
+
+const char* mate_reference_kind_name(MateReferenceKind kind) {
+    return kind == MateReferenceKind::Face ? "face" : "axis";
+}
+
+MateReferenceKind mate_reference_kind_from_name(const std::string& name) {
+    if (name == "face") return MateReferenceKind::Face;
+    if (name == "axis") return MateReferenceKind::Axis;
+    throw std::runtime_error("Unknown Assembly mate reference kind");
+}
+
+const char* mate_kind_name(MateKind kind) {
+    return kind == MateKind::PlaneCoincident ? "plane_coincident" : "axis_coincident";
+}
+
+MateKind mate_kind_from_name(const std::string& name) {
+    if (name == "plane_coincident") return MateKind::PlaneCoincident;
+    if (name == "axis_coincident") return MateKind::AxisCoincident;
+    throw std::runtime_error("Unknown Assembly mate kind");
+}
+
+const char* mate_status_name(MateStatus status) {
+    switch (status) {
+    case MateStatus::Uncalculated: return "uncalculated";
+    case MateStatus::Valid: return "valid";
+    case MateStatus::MissingReference: return "missing_reference";
+    case MateStatus::UnsupportedGeometry: return "unsupported_geometry";
+    }
+    throw std::invalid_argument("Unknown Assembly mate status");
+}
+
+MateStatus mate_status_from_name(const std::string& name) {
+    if (name == "uncalculated") return MateStatus::Uncalculated;
+    if (name == "valid") return MateStatus::Valid;
+    if (name == "missing_reference") return MateStatus::MissingReference;
+    if (name == "unsupported_geometry") return MateStatus::UnsupportedGeometry;
+    throw std::runtime_error("Unknown Assembly mate status");
 }
 
 nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
@@ -240,6 +280,10 @@ const PartOccurrence* AssemblyDocument::find_occurrence(
     return found == components.end() ? nullptr : &*found;
 }
 
+PartOccurrence* AssemblyDocument::find_occurrence(const std::string& occurrence_id) {
+    return const_cast<PartOccurrence*>(std::as_const(*this).find_occurrence(occurrence_id));
+}
+
 ComponentDependency AssemblyDocument::create_dependency(
     std::string dependent_occurrence_id,
     std::string prerequisite_occurrence_id,
@@ -276,11 +320,178 @@ void AssemblyDocument::add_dependency(ComponentDependency dependency) {
     dependencies.push_back(std::move(dependency));
 }
 
+AssemblyMate AssemblyDocument::create_mate(
+    std::string name,
+    MateKind kind,
+    MateReference dependent,
+    MateReference prerequisite,
+    double offset) {
+    if (name.empty() || dependent.instance_path.occurrence_ids.empty() ||
+        prerequisite.instance_path.occurrence_ids.empty() ||
+        dependent.owner_id.empty() || dependent.semantic_key.empty() ||
+        prerequisite.owner_id.empty() || prerequisite.semantic_key.empty() ||
+        !std::isfinite(offset)) {
+        throw std::invalid_argument("Assembly mate definition is invalid");
+    }
+    return {make_id(), std::move(name), kind, std::move(dependent),
+            std::move(prerequisite), offset, MateStatus::Uncalculated};
+}
+
+void AssemblyDocument::add_mate(AssemblyMate mate) {
+    if (mate.mate_id.empty() || mate.name.empty() || !std::isfinite(mate.offset) ||
+        mate.dependent.instance_path.occurrence_ids.empty() ||
+        mate.prerequisite.instance_path.occurrence_ids.empty() ||
+        mate.dependent.instance_path.occurrence_ids.front() ==
+            mate.prerequisite.instance_path.occurrence_ids.front() ||
+        find_occurrence(mate.dependent.instance_path.occurrence_ids.front()) == nullptr ||
+        find_occurrence(mate.prerequisite.instance_path.occurrence_ids.front()) == nullptr) {
+        throw std::invalid_argument("Assembly mate ownership is invalid");
+    }
+    if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
+            return existing.mate_id == mate.mate_id;
+        })) {
+        throw std::invalid_argument("Assembly mate ID must be unique");
+    }
+    if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
+            return existing.dependent.instance_path.occurrence_ids.front() ==
+                mate.dependent.instance_path.occurrence_ids.front();
+        })) {
+        throw std::invalid_argument(
+            "A component may currently own only one calculated placement mate");
+    }
+    ComponentDependency dependency{
+        mate.mate_id, mate.dependent.instance_path.occurrence_ids.front(),
+        mate.prerequisite.instance_path.occurrence_ids.front(),
+        ComponentDependencyKind::PlacementReference};
+    const auto existing_dependency = std::find_if(
+        dependencies.begin(), dependencies.end(), [&](const auto& existing) {
+            return existing.dependency_id == mate.mate_id;
+        });
+    if (existing_dependency == dependencies.end()) {
+        add_dependency(std::move(dependency));
+    } else if (existing_dependency->dependent_occurrence_id !=
+                   dependency.dependent_occurrence_id ||
+               existing_dependency->prerequisite_occurrence_id !=
+                   dependency.prerequisite_occurrence_id ||
+               existing_dependency->kind != ComponentDependencyKind::PlacementReference) {
+        throw std::invalid_argument("Assembly mate dependency edge is inconsistent");
+    }
+    mates.push_back(std::move(mate));
+}
+
+PlaneResolution AssemblyDocument::resolve_plane(
+    const MateReference& reference) const {
+    if (reference.kind != MateReferenceKind::Face) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const auto scene = build_scene();
+    const std::string path = reference.instance_path.encoded();
+    constexpr double epsilon = 1.0e-10;
+    constexpr double planar_tolerance = 1.0e-7;
+    std::optional<ResolvedPlane> result;
+    std::vector<zima::kernel::Vec3> points;
+    for (std::size_t triangle = 0;
+         triangle < scene.triangle_references.size(); ++triangle) {
+        const auto& candidate = scene.triangle_references[triangle];
+        if (candidate.instance_path != path || candidate.owner_id != reference.owner_id ||
+            candidate.semantic_key != reference.semantic_key) continue;
+        const auto first = scene.triangles[triangle * 3];
+        const auto second = scene.triangles[triangle * 3 + 1];
+        const auto third = scene.triangles[triangle * 3 + 2];
+        const auto& a = scene.vertices[first];
+        const auto& b = scene.vertices[second];
+        const auto& c = scene.vertices[third];
+        points.insert(points.end(), {a, b, c});
+        if (!result) {
+            const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
+            const zima::kernel::Vec3 ac{c.x - a.x, c.y - a.y, c.z - a.z};
+            zima::kernel::Vec3 normal{
+                ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z,
+                ab.x * ac.y - ab.y * ac.x};
+            const double magnitude = std::sqrt(
+                normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+            if (magnitude > epsilon) {
+                normal = {normal.x / magnitude, normal.y / magnitude,
+                          normal.z / magnitude};
+                result = ResolvedPlane{a, normal};
+            }
+        }
+    }
+    if (!result) return {MateStatus::MissingReference, {}};
+    for (const auto& point : points) {
+        const double distance =
+            (point.x - result->point.x) * result->normal.x +
+            (point.y - result->point.y) * result->normal.y +
+            (point.z - result->point.z) * result->normal.z;
+        if (std::abs(distance) > planar_tolerance) {
+            return {MateStatus::UnsupportedGeometry, {}};
+        }
+    }
+    return {MateStatus::Valid, *result};
+}
+
+void AssemblyDocument::calculate_mates() {
+    constexpr double parallel_tolerance = 1.0e-7;
+    for (auto& mate : mates) mate.status = MateStatus::Uncalculated;
+    for (auto& mate : mates) {
+        if (mate.kind != MateKind::PlaneCoincident ||
+            mate.dependent.kind != MateReferenceKind::Face ||
+            mate.prerequisite.kind != MateReferenceKind::Face) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            continue;
+        }
+        const auto dependent_plane = resolve_plane(mate.dependent);
+        const auto prerequisite_plane = resolve_plane(mate.prerequisite);
+        if (dependent_plane.status != MateStatus::Valid) {
+            mate.status = dependent_plane.status;
+            continue;
+        }
+        if (prerequisite_plane.status != MateStatus::Valid) {
+            mate.status = prerequisite_plane.status;
+            continue;
+        }
+        const auto& dependent_normal = dependent_plane.plane.normal;
+        const auto& prerequisite_normal = prerequisite_plane.plane.normal;
+        const double alignment =
+            dependent_normal.x * prerequisite_normal.x +
+            dependent_normal.y * prerequisite_normal.y +
+            dependent_normal.z * prerequisite_normal.z;
+        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            continue;
+        }
+        const auto& dependent_point = dependent_plane.plane.point;
+        const auto& prerequisite_point = prerequisite_plane.plane.point;
+        const double current_offset =
+            (dependent_point.x - prerequisite_point.x) * prerequisite_normal.x +
+            (dependent_point.y - prerequisite_point.y) * prerequisite_normal.y +
+            (dependent_point.z - prerequisite_point.z) * prerequisite_normal.z;
+        const double correction = mate.offset - current_offset;
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            continue;
+        }
+        occurrence->placement.x += prerequisite_normal.x * correction;
+        occurrence->placement.y += prerequisite_normal.y * correction;
+        occurrence->placement.z += prerequisite_normal.z * correction;
+        mate.status = MateStatus::Valid;
+    }
+}
+
 std::unordered_set<std::string>
 AssemblyDocument::effectively_suppressed_occurrences() const {
     std::unordered_set<std::string> result;
     for (const auto& component : components) {
         if (component.suppressed) result.insert(component.occurrence_id);
+    }
+    for (const auto& mate : mates) {
+        if (mate.status == MateStatus::MissingReference ||
+            mate.status == MateStatus::UnsupportedGeometry) {
+            result.insert(mate.dependent.instance_path.occurrence_ids.front());
+        }
     }
     bool changed = true;
     while (changed) {
@@ -444,6 +655,24 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         dependency.kind = dependency_kind_from_name(source.at("kind").get<std::string>());
         document.add_dependency(std::move(dependency));
     }
+    for (const auto& source : root.at("mates")) {
+        const auto load_reference = [](const nlohmann::json& value) {
+            return MateReference{
+                mate_reference_kind_from_name(value.at("kind").get<std::string>()),
+                InstancePath::decode(value.at("instance_path").get<std::string>()),
+                value.at("owner_id").get<std::string>(),
+                value.at("semantic_key").get<std::string>()};
+        };
+        AssemblyMate mate;
+        mate.mate_id = source.at("mate_id").get<std::string>();
+        mate.name = source.at("name").get<std::string>();
+        mate.kind = mate_kind_from_name(source.at("kind").get<std::string>());
+        mate.dependent = load_reference(source.at("dependent"));
+        mate.prerequisite = load_reference(source.at("prerequisite"));
+        mate.offset = source.at("offset").get<double>();
+        mate.status = mate_status_from_name(source.at("status").get<std::string>());
+        document.add_mate(std::move(mate));
+    }
     static_cast<void>(document.build_scene());
     return document;
 }
@@ -486,11 +715,29 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"kind", dependency_kind_name(dependency.kind)},
         });
     }
+    const auto serialize_reference = [](const MateReference& reference) {
+        return nlohmann::json{
+            {"kind", mate_reference_kind_name(reference.kind)},
+            {"instance_path", reference.instance_path.encoded()},
+            {"owner_id", reference.owner_id},
+            {"semantic_key", reference.semantic_key}};
+    };
+    nlohmann::json mates_json = nlohmann::json::array();
+    for (const auto& mate : mates) {
+        mates_json.push_back({
+            {"mate_id", mate.mate_id}, {"name", mate.name},
+            {"kind", mate_kind_name(mate.kind)},
+            {"dependent", serialize_reference(mate.dependent)},
+            {"prerequisite", serialize_reference(mate.prerequisite)},
+            {"offset", mate.offset}, {"status", mate_status_name(mate.status)},
+        });
+    }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"}, {"format_version", 1},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},
+        {"mates", std::move(mates_json)},
     };
     const auto temporary = path.string() + ".tmp";
     {

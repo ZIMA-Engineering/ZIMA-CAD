@@ -4,6 +4,7 @@
 #include <zima/viewer/picking.hpp>
 
 #include <iostream>
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <stdexcept>
@@ -109,6 +110,82 @@ int main() {
         }
         require(loaded_paths == instance_paths,
                 "Assembly save/load changed stable occurrence paths");
+        auto mated_assembly = loaded;
+        auto plane_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Plocha na plochu",
+            zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"}, 2.5);
+        const std::string plane_mate_id = plane_mate.mate_id;
+        mated_assembly.add_mate(std::move(plane_mate));
+        require(mated_assembly.mates.size() == 1 &&
+                    mated_assembly.dependencies.size() == 1 &&
+                    mated_assembly.dependencies.front().dependency_id == plane_mate_id &&
+                    mated_assembly.dependencies.front().dependent_occurrence_id == second_id,
+                "Assembly mate did not create its explicit dependency edge");
+        const auto dependent_plane = mated_assembly.resolve_plane(
+            mated_assembly.mates.front().dependent);
+        const auto prerequisite_plane = mated_assembly.resolve_plane(
+            mated_assembly.mates.front().prerequisite);
+        require(dependent_plane.status == zima::assembly::MateStatus::Valid &&
+                    prerequisite_plane.status == zima::assembly::MateStatus::Valid &&
+                    std::abs(dependent_plane.plane.point.z - 30.0) < 1.0e-7 &&
+                    std::abs(prerequisite_plane.plane.point.z - 15.0) < 1.0e-7,
+                "Persisted viewer packet did not resolve the selected planes");
+        auto missing_reference = mated_assembly.mates.front().dependent;
+        missing_reference.semantic_key = "missing-face";
+        require(mated_assembly.resolve_plane(missing_reference).status ==
+                    zima::assembly::MateStatus::MissingReference,
+                "Missing persisted face reference was not detected");
+        mated_assembly.calculate_mates();
+        const auto calculated_dependent = mated_assembly.resolve_plane(
+            mated_assembly.mates.front().dependent);
+        const auto calculated_prerequisite = mated_assembly.resolve_plane(
+            mated_assembly.mates.front().prerequisite);
+        const auto& calculated_normal = calculated_prerequisite.plane.normal;
+        const double calculated_offset =
+            (calculated_dependent.plane.point.x - calculated_prerequisite.plane.point.x) *
+                calculated_normal.x +
+            (calculated_dependent.plane.point.y - calculated_prerequisite.plane.point.y) *
+                calculated_normal.y +
+            (calculated_dependent.plane.point.z - calculated_prerequisite.plane.point.z) *
+                calculated_normal.z;
+        const auto calculated_placement = mated_assembly.components.back().placement;
+        mated_assembly.calculate_mates();
+        require(mated_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(calculated_offset - 2.5) < 1.0e-7 &&
+                    mated_assembly.components.back().placement.x == calculated_placement.x &&
+                    mated_assembly.components.back().placement.y == calculated_placement.y &&
+                    mated_assembly.components.back().placement.z == calculated_placement.z,
+                "Plane mate did not calculate its offset idempotently");
+        auto broken_mate_assembly = mated_assembly;
+        broken_mate_assembly.mates.front().dependent.semantic_key = "missing-face";
+        broken_mate_assembly.calculate_mates();
+        require(broken_mate_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::MissingReference &&
+                    broken_mate_assembly.effectively_suppressed_occurrences()
+                        .contains(second_id),
+                "Broken mate did not suppress its dependent component");
+        broken_mate_assembly.mates.front().dependent.semantic_key = "z_min";
+        broken_mate_assembly.calculate_mates();
+        require(broken_mate_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    !broken_mate_assembly.effectively_suppressed_occurrences()
+                        .contains(second_id),
+                "Repaired mate remained trapped in its previous error suppression");
+        const auto mate_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-mate-contract.zca.json";
+        mated_assembly.save(mate_path);
+        const auto loaded_mates = zima::assembly::AssemblyDocument::load(mate_path);
+        std::filesystem::remove(mate_path);
+        require(loaded_mates.mates == mated_assembly.mates &&
+                    loaded_mates.dependencies == mated_assembly.dependencies,
+                "Assembly mate reference or dependency did not survive save/load");
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.back().visible = false;

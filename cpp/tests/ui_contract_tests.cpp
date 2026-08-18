@@ -1,5 +1,6 @@
 #include "primitive_properties_dialog.hpp"
 #include "component_properties_dialog.hpp"
+#include "mate_properties_dialog.hpp"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -146,6 +147,33 @@ int main(int argc, char* argv[]) {
         require(component_commits == 1 && committed_component.placement.x == 88.0 &&
                     committed_component.source_document_id == source_id,
                 "Component Properties changed source ownership or lost placement");
+
+        auto mate = zima::assembly::AssemblyDocument::create_mate(
+            "Vazba", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "z_max"});
+        int mate_commits = 0;
+        zima::assembly::AssemblyMate committed_mate;
+        auto* mate_dialog = new zima::app::MatePropertiesDialog(
+            mate,
+            [&](zima::assembly::AssemblyMate value) {
+                ++mate_commits;
+                committed_mate = std::move(value);
+            }, &parent);
+        mate_dialog->show();
+        application.processEvents();
+        auto* mate_offset = mate_dialog->findChild<QDoubleSpinBox*>("mateOffset");
+        require(mate_offset != nullptr,
+                "Mate Properties does not expose its offset");
+        mate_offset->setValue(12.5);
+        mate_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(mate_commits == 1 && committed_mate.offset == 12.5 &&
+                    committed_mate.dependent == mate.dependent &&
+                    committed_mate.prerequisite == mate.prerequisite,
+                "Mate Properties changed references or lost its offset");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

@@ -197,6 +197,25 @@ and suppression are committed to the immediate owner. Nested Part rollback
 replaces only the exact leaf geometry in the cached top-level scene, preserving
 passive siblings and avoiding parent regeneration.
 
+The first Assembly-mate slice persists two exact endpoints (instance path,
+container owner, and semantic key), mate kind, signed offset, calculation
+status, and its directed dependency edge. A planar face is resolved and fully
+checked from persisted ZIMA viewer triangles only; selection and mate
+calculation never query OCCT.
+
+Plane-to-plane currently solves the deliberately bounded case of two already
+parallel planes by translating the dependent immediate component to the signed
+offset. One calculated placement mate per dependent component avoids pretending
+that a general solver exists. Missing and unsupported references turn the mate
+red and suppress its dependent branch; explicit Regenerate clears the old
+error state before retrying, so repaired references recover. Axis references
+and axis-coincident mates are persisted but remain explicitly unsupported until
+ZIMA viewer data owns stable axes.
+
+The GUI command selects both faces through the common viewer candidate list,
+then uses the shared internal Properties SubWindow with OK/Cancel to edit name
+and offset. OK calculates and commits one Assembly revision.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

@@ -14,7 +14,7 @@ class QTabBar;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-namespace zima::viewer { class MeshView; }
+namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::app {
 
@@ -37,6 +37,7 @@ private:
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* regenerate_part_action_{};
+    QAction* plane_mate_action_{};
     QDialog* properties_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
@@ -45,6 +46,8 @@ private:
     };
     std::optional<PartRollbackContext> part_rollback_;
     std::string active_occurrence_path_;
+    std::optional<zima::assembly::MateReference> pending_mate_reference_;
+    bool mate_selection_active_{};
 
     void create_layout();
     void create_actions();
@@ -54,6 +57,10 @@ private:
     void open_assembly();
     void insert_active_component();
     void regenerate_assembly();
+    void start_plane_mate();
+    void accept_mate_face(const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] std::optional<zima::assembly::MateReference>
+        local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();
     void save_active_document();
     void show_primitive_properties(

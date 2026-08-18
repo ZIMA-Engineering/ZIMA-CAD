@@ -221,6 +221,27 @@ strukturální snapshot. Rollback vnořeného Partu nahradí v cached top-level
 scéně jen geometrii přesné listové cesty a zachová všechny pasivní sourozence
 bez implicitní regenerace parentu.
 
+První řez sestavových vazeb persistuje dva přesné konce reference
+(`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
+výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se
+řeší výhradně z persistovaných trojúhelníků ZIMA viewer packetu a ověřuje se
+rovinnost celé sémantické plochy; OCCT se při výběru ani výpočtu reference
+nevolá.
+
+Deterministická vazba plocha–plocha zatím řeší právě ten rozsah, pro který je
+prostá transformace správným prostředkem: dvě již rovnoběžné roviny a translaci
+pohyblivé bezprostřední komponenty na zadané podepsané odsazení. Jedna
+komponenta smí nyní vlastnit jednu vypočítávanou polohovací vazbu; nerovnoběžné
+roviny a osa–osa se označí jako nepodporovaná geometrie místo předstírání
+obecného solveru. Chybějící nebo nepodporovaná reference zčervená ve stromu a
+potlačí závislou větev. Po opravě reference další explicitní Regenerate starý
+chybový stav nejprve uvolní a komponentu může obnovit.
+
+GUI příkaz `Vazba plocha–plocha` používá společný viewer candidate list. První
+potvrzená plocha určuje pohyblivou komponentu, druhá pevnou referenci. Název a
+odsazení se zadávají ve sdíleném interním Properties SubWindow pouze s OK a
+Cancel; OK vazbu vypočítá a vytvoří jednu Assembly revizi.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce
