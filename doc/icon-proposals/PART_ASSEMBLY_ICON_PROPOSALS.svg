@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title description">
+  <title id="title">ZIMA-CAD — návrhy ikon pro díl a sestavu</title>
+  <desc id="description">Porovnání současných ikon a tří návrhových směrů včetně náhledu ve skutečné velikosti 18 pixelů.</desc>
+
+  <defs>
+    <style>
+      .ui { font-family: "Noto Sans", "DejaVu Sans", sans-serif; }
+      .title { font-size: 42px; font-weight: 700; fill: #f4f6f7; }
+      .subtitle { font-size: 19px; fill: #aeb8c0; }
+      .section { font-size: 18px; font-weight: 700; fill: #80aa1a; letter-spacing: 1.5px; }
+      .card-title { font-size: 26px; font-weight: 700; fill: #f4f6f7; }
+      .body { font-size: 17px; fill: #b7c0c7; }
+      .small { font-size: 14px; fill: #8f9aa3; }
+      .icon-label { font-size: 16px; font-weight: 650; fill: #dde3e7; }
+      .tree-dark { font-size: 16px; fill: #eef1f3; }
+      .tree-light { font-size: 16px; fill: #20262b; }
+      .badge { font-size: 13px; font-weight: 750; fill: #11170d; letter-spacing: .8px; }
+    </style>
+
+    <!-- Současná sada -->
+    <symbol id="current-part" viewBox="0 0 24 24">
+      <g fill="none" stroke="inherit" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 7l7-4 7 4-7 4-7-4z"/>
+        <path d="M5 7v9l7 4 7-4V7"/>
+        <path d="M12 11v9"/>
+      </g>
+    </symbol>
+    <symbol id="current-assembly" viewBox="0 0 24 24">
+      <g fill="none" stroke="inherit" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l4 2.3-4 2.3-4-2.3L12 3z"/>
+        <path d="M8 5.3v4.5l4 2.3 4-2.3V5.3"/>
+        <path d="M6 12l4 2.3-4 2.3-4-2.3L6 12z"/>
+        <path d="M2 14.3v4.5L6 21l4-2.2v-4.5"/>
+        <path d="M18 12l4 2.3-4 2.3-4-2.3L18 12z"/>
+        <path d="M14 14.3v4.5L18 21l4-2.2v-4.5"/>
+      </g>
+    </symbol>
+
+    <!-- A: jedna souvislá silueta versus dvě velká tělesa -->
+    <symbol id="a-part" viewBox="0 0 24 24">
+      <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4z" fill="#80aa1a"/>
+      <g fill="none" stroke="inherit" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4-7.7-4.4z"/>
+        <path d="M4.3 7.3v9.1L12 21l7.7-4.6V7.3"/>
+        <path d="M12 11.7V21"/>
+      </g>
+    </symbol>
+    <symbol id="a-assembly" viewBox="0 0 24 24">
+      <path d="M2.3 5.8 8.3 2.5l6 3.3-6 3.5z" fill="#80aa1a"/>
+      <path d="M2.3 5.8v7.1l6 3.5V9.3z" fill="#6f9918"/>
+      <g fill="none" stroke="inherit" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.3 5.8 8.3 2.5l6 3.3-6 3.5-6-3.5z"/>
+        <path d="M2.3 5.8v7.1l6 3.5 6-3.5V5.8"/>
+        <path d="M8.3 9.3v7.1"/>
+        <path d="M9.7 12.1 15.7 8.7l6 3.4-6 3.4-6-3.4z" fill="#242b30"/>
+        <path d="M9.7 12.1v7l6 3.5 6-3.5v-7"/>
+        <path d="M15.7 15.5v7.1"/>
+      </g>
+      <path d="M12.1 10.7l1.4 1.4" fill="none" stroke="#a6d332" stroke-width="2.4" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- B: stejné těleso, ale sestava má zřetelnou exploded mezeru -->
+    <symbol id="b-part" viewBox="0 0 24 24">
+      <path d="M4.5 7.1 12 3l7.5 4.1-7.5 4.2z" fill="#80aa1a"/>
+      <path d="M4.5 7.1v9.4L12 21v-9.7z" fill="#6f9918"/>
+      <g fill="none" stroke="inherit" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 7.1 12 3l7.5 4.1-7.5 4.2-7.5-4.2z"/>
+        <path d="M4.5 7.1v9.4L12 21l7.5-4.5V7.1"/>
+        <path d="M12 11.3V21"/>
+      </g>
+    </symbol>
+    <symbol id="b-assembly" viewBox="0 0 24 24">
+      <path d="M5 5.1 12 1.6l7 3.5-7 3.5z" fill="#80aa1a"/>
+      <g fill="none" stroke="inherit" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 5.1 12 1.6l7 3.5-7 3.5-7-3.5z"/>
+        <path d="M5 5.1v3.6l7 3.5 7-3.5V5.1"/>
+        <path d="M12 8.6v3.6"/>
+        <path d="M5 14.4 12 10.9l7 3.5-7 3.6-7-3.6z"/>
+        <path d="M5 14.4v4l7 4 7-4v-4"/>
+        <path d="M12 18v4.4"/>
+      </g>
+      <path d="M9.9 12.7h4.2" fill="none" stroke="#a6d332" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- C: Assembly jako dokumentová hierarchie -->
+    <symbol id="c-part" viewBox="0 0 24 24">
+      <path d="M4.5 7.2 12 3l7.5 4.2-7.5 4.3z" fill="#80aa1a"/>
+      <g fill="none" stroke="inherit" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 7.2 12 3l7.5 4.2-7.5 4.3-7.5-4.3z"/>
+        <path d="M4.5 7.2v9.2L12 21l7.5-4.6V7.2"/>
+        <path d="M12 11.5V21"/>
+      </g>
+    </symbol>
+    <symbol id="c-assembly" viewBox="0 0 24 24">
+      <path d="M8.2 4.2 12 2l3.8 2.2L12 6.4z" fill="#80aa1a"/>
+      <g fill="none" stroke="inherit" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8.2 4.2 12 2l3.8 2.2L12 6.4 8.2 4.2z"/>
+        <path d="M8.2 4.2v4L12 10.5l3.8-2.3v-4"/>
+        <path d="M12 6.4v4.1"/>
+        <path d="M12 11.1v2.3M5.5 13.4h13M5.5 13.4v2.1M18.5 13.4v2.1" stroke="#a6d332"/>
+        <path d="M2.2 17.2 5.5 15.3l3.3 1.9-3.3 1.9-3.3-1.9z"/>
+        <path d="M2.2 17.2v3L5.5 22l3.3-1.8v-3M5.5 19.1V22"/>
+        <path d="M15.2 17.2l3.3-1.9 3.3 1.9-3.3 1.9-3.3-1.9z"/>
+        <path d="M15.2 17.2v3l3.3 1.8 3.3-1.8v-3M18.5 19.1V22"/>
+      </g>
+    </symbol>
+  </defs>
+
+  <rect width="1600" height="1120" fill="#111518"/>
+  <rect x="0" y="0" width="12" height="1120" fill="#80aa1a"/>
+
+  <g class="ui">
+    <text x="68" y="72" class="title">Part × Assembly</text>
+    <text x="68" y="108" class="subtitle">Tři směry pro rychlé rozlišení dokumentů v tree a v záložkách ZIMA-CAD</text>
+
+    <rect x="60" y="142" width="1480" height="132" rx="16" fill="#1b2125" stroke="#30383e"/>
+    <text x="88" y="177" class="section">SOUČASNÝ STAV — 18 PX</text>
+    <g stroke="#f2f2f2">
+      <rect x="88" y="194" width="286" height="52" rx="7" fill="#151a1e"/>
+      <use href="#current-part" transform="translate(107 211) scale(.75)"/>
+      <text x="140" y="226" class="tree-dark">Díl / Part</text>
+      <rect x="392" y="194" width="310" height="52" rx="7" fill="#151a1e"/>
+      <use href="#current-assembly" transform="translate(411 211) scale(.75)"/>
+      <text x="444" y="226" class="tree-dark">Sestava / Assembly</text>
+    </g>
+    <path d="M754 183v51" stroke="#3a444b"/>
+    <text x="790" y="207" class="body">Problém: tři assembly kostky mají v 18 px každá jen asi 5 px.</text>
+    <text x="790" y="234" class="small">Obrys se slévá; rozdíl je vidět až po vědomém zaostření.</text>
+
+    <!-- Card A -->
+    <rect x="60" y="306" width="460" height="708" rx="18" fill="#1a2024" stroke="#80aa1a" stroke-width="2"/>
+    <rect x="82" y="326" width="164" height="27" rx="13.5" fill="#9bc729"/>
+    <text x="102" y="345" class="badge">DOPORUČENÍ A</text>
+    <text x="88" y="392" class="card-title">Jedno × dvě tělesa</text>
+    <text x="88" y="422" class="body">Nejrychlejší rozdíl v siluetě.</text>
+    <text x="88" y="446" class="small">Assembly používá jen dvě velké části.</text>
+    <g stroke="#f2f2f2">
+      <use href="#a-part" transform="translate(112 478) scale(4.6667)"/>
+      <use href="#a-assembly" transform="translate(344 478) scale(4.6667)"/>
+    </g>
+    <text x="137" y="616" class="icon-label">PART</text>
+    <text x="348" y="616" class="icon-label">ASSEMBLY</text>
+
+    <text x="88" y="661" class="section">TREE — TMAVÝ</text>
+    <rect x="88" y="677" width="404" height="83" rx="8" fill="#111619" stroke="#2c353b"/>
+    <g stroke="#f2f2f2">
+      <use href="#a-part" transform="translate(106 690) scale(.75)"/>
+      <use href="#a-assembly" transform="translate(106 727) scale(.75)"/>
+    </g>
+    <text x="140" y="705" class="tree-dark">Příruba.prtz</text>
+    <text x="140" y="742" class="tree-dark">Pohon.asmz</text>
+
+    <text x="88" y="797" class="section">TREE — SVĚTLÝ</text>
+    <rect x="88" y="813" width="404" height="83" rx="8" fill="#edf0f2"/>
+    <g stroke="#1e2428">
+      <use href="#a-part" transform="translate(106 826) scale(.75)"/>
+      <use href="#a-assembly" transform="translate(106 863) scale(.75)"/>
+    </g>
+    <text x="140" y="841" class="tree-light">Příruba.prtz</text>
+    <text x="140" y="878" class="tree-light">Pohon.asmz</text>
+    <text x="88" y="940" class="body">✓ Rozdíl funguje i bez barvy</text>
+    <text x="88" y="970" class="small">✓ Nejméně detailů, nejlepší periferní čtení</text>
+
+    <!-- Card B -->
+    <rect x="570" y="306" width="460" height="708" rx="18" fill="#1a2024" stroke="#343e45"/>
+    <text x="598" y="349" class="section">VARIANTA B</text>
+    <text x="598" y="392" class="card-title">Kompaktní × exploded</text>
+    <text x="598" y="422" class="body">Assembly poznáme podle mezery.</text>
+    <text x="598" y="446" class="small">Velmi kontrastní, ale méně neutrální význam.</text>
+    <g stroke="#f2f2f2">
+      <use href="#b-part" transform="translate(622 478) scale(4.6667)"/>
+      <use href="#b-assembly" transform="translate(854 478) scale(4.6667)"/>
+    </g>
+    <text x="647" y="616" class="icon-label">PART</text>
+    <text x="858" y="616" class="icon-label">ASSEMBLY</text>
+
+    <text x="598" y="661" class="section">TREE — TMAVÝ</text>
+    <rect x="598" y="677" width="404" height="83" rx="8" fill="#111619" stroke="#2c353b"/>
+    <g stroke="#f2f2f2">
+      <use href="#b-part" transform="translate(616 690) scale(.75)"/>
+      <use href="#b-assembly" transform="translate(616 727) scale(.75)"/>
+    </g>
+    <text x="650" y="705" class="tree-dark">Příruba.prtz</text>
+    <text x="650" y="742" class="tree-dark">Pohon.asmz</text>
+
+    <text x="598" y="797" class="section">TREE — SVĚTLÝ</text>
+    <rect x="598" y="813" width="404" height="83" rx="8" fill="#edf0f2"/>
+    <g stroke="#1e2428">
+      <use href="#b-part" transform="translate(616 826) scale(.75)"/>
+      <use href="#b-assembly" transform="translate(616 863) scale(.75)"/>
+    </g>
+    <text x="650" y="841" class="tree-light">Příruba.prtz</text>
+    <text x="650" y="878" class="tree-light">Pohon.asmz</text>
+    <text x="598" y="940" class="body">✓ Největší geometrický kontrast</text>
+    <text x="598" y="970" class="small">△ Může připomínat exploded-view příkaz</text>
+
+    <!-- Card C -->
+    <rect x="1080" y="306" width="460" height="708" rx="18" fill="#1a2024" stroke="#343e45"/>
+    <text x="1108" y="349" class="section">VARIANTA C</text>
+    <text x="1108" y="392" class="card-title">Těleso × hierarchie</text>
+    <text x="1108" y="422" class="body">Assembly vyjadřuje strom komponent.</text>
+    <text x="1108" y="446" class="small">Významově přesné, ale kresba je jemnější.</text>
+    <g stroke="#f2f2f2">
+      <use href="#c-part" transform="translate(1132 478) scale(4.6667)"/>
+      <use href="#c-assembly" transform="translate(1364 478) scale(4.6667)"/>
+    </g>
+    <text x="1157" y="616" class="icon-label">PART</text>
+    <text x="1368" y="616" class="icon-label">ASSEMBLY</text>
+
+    <text x="1108" y="661" class="section">TREE — TMAVÝ</text>
+    <rect x="1108" y="677" width="404" height="83" rx="8" fill="#111619" stroke="#2c353b"/>
+    <g stroke="#f2f2f2">
+      <use href="#c-part" transform="translate(1126 690) scale(.75)"/>
+      <use href="#c-assembly" transform="translate(1126 727) scale(.75)"/>
+    </g>
+    <text x="1160" y="705" class="tree-dark">Příruba.prtz</text>
+    <text x="1160" y="742" class="tree-dark">Pohon.asmz</text>
+
+    <text x="1108" y="797" class="section">TREE — SVĚTLÝ</text>
+    <rect x="1108" y="813" width="404" height="83" rx="8" fill="#edf0f2"/>
+    <g stroke="#1e2428">
+      <use href="#c-part" transform="translate(1126 826) scale(.75)"/>
+      <use href="#c-assembly" transform="translate(1126 863) scale(.75)"/>
+    </g>
+    <text x="1160" y="841" class="tree-light">Příruba.prtz</text>
+    <text x="1160" y="878" class="tree-light">Pohon.asmz</text>
+    <text x="1108" y="940" class="body">✓ Přesně říká „obsahuje komponenty“</text>
+    <text x="1108" y="970" class="small">△ V 16–18 px je blízko současné složitosti</text>
+
+    <rect x="60" y="1040" width="1480" height="48" rx="12" fill="#20282d"/>
+    <circle cx="88" cy="1064" r="7" fill="#80aa1a"/>
+    <text x="108" y="1071" class="body">Doporučení: A — dva velké, překryté díly dávají Assembly jinou siluetu bez nové metafory a zůstávají čitelné i monochromaticky.</text>
+  </g>
+</svg>

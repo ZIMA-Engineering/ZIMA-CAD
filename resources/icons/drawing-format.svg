@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
-  <title id="title">Part</title>
+  <title id="title">Drawing frame</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4-7.7-4.4z"/>
-    <path d="M4.3 7.3v9.1L12 21l7.7-4.6V7.3"/>
-    <path d="M12 11.7V21"/>
+    <path d="M2.5 4.5h19v15h-19z"/>
+    <path d="M5 7h14v10H5z" stroke="#80AA1A"/>
+    <path d="M8 4.5v1.2M12 4.5v1.2M16 4.5v1.2M8 18.3v1.2M12 18.3v1.2M16 18.3v1.2"/>
   </g>
 </svg>

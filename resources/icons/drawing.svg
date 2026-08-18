@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Drawing</title>
+  <path d="M14 3v5.5h5.5z" fill="#80AA1A"/>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-
-    <path d="M5 3.5h9l5 5V20H5z"/>
-    <path d="M14 3.5V9h5"/>
-    <path d="M8 16l3-1.7 3 1.7-3 1.7-3-1.7z"/>
-    <path d="M8 16v-3.5l3-1.7 3 1.7V16"/>
-
+    <path d="M4.5 3h9.5l5.5 5.5V21h-15z"/>
+    <path d="M14 3v5.5h5.5"/>
+    <circle cx="9" cy="13.2" r="2.4" stroke="#3E82C4"/>
+    <path d="M13.4 11h3.2v4.4h-3.2z" stroke="#D99B2B"/>
+    <path d="M7 18h10M7 16.8v2.4M17 16.8v2.4" stroke="#80AA1A"/>
   </g>
 </svg>

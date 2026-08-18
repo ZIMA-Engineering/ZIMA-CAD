@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Assembly — overlapping components proposal</title>
+  <path d="M10.5 5.5 16 2.4l5.5 3.1L16 8.6z" fill="#A6D332"/>
+  <path d="M10.5 5.5v6l5.5 3V8.6z" fill="#6F9918"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.5 5.5 16 2.4l5.5 3.1L16 8.6l-5.5-3.1z"/>
+    <path d="M10.5 5.5v6l5.5 3 5.5-3v-6M16 8.6v5.9"/>
+  </g>
+  <path d="M2.5 9.5 10.5 5l8 4.5-8 4.5z" fill="#80AA1A"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 9.5 10.5 5l8 4.5-8 4.5-8-4.5z"/>
+    <path d="M2.5 9.5v7.8l8 4.5 8-4.5V9.5M10.5 14v7.8"/>
+  </g>
+  <path d="m17.9 12.3 1.7-1" fill="none" stroke="#A6D332" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

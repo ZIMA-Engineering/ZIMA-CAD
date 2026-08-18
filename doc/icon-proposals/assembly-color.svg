@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
-  <title id="title">Part</title>
+  <title id="title">Assembly — three yellow faces</title>
+  <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4z" fill="#FFD45A"/>
+  <path d="M4.3 7.3v9.1L12 21v-9.3z" fill="#D59A1F"/>
+  <path d="M19.7 7.3v9.1L12 21v-9.3z" fill="#F0B82D"/>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4-7.7-4.4z"/>
     <path d="M4.3 7.3v9.1L12 21l7.7-4.6V7.3"/>

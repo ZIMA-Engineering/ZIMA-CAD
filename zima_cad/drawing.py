@@ -48,7 +48,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -61,6 +60,7 @@ from PySide6.QtWidgets import (
 
 from zima_cad.drawing_format import load_drawing_format
 from zima_cad.drawing_style import drawing_font_family, load_drawing_style
+from zima_cad.file_dialogs import get_zima_open_file_name
 from zima_cad.localization import tr
 from zima_cad.model import PartDocument
 from zima_cad.title_block import load_title_block, resolve_title_block_text
@@ -3138,7 +3138,7 @@ class DrawingWorkspace(QWidget):
         )
 
     def _choose_format(self) -> None:
-        file_name, _selected_filter = QFileDialog.getOpenFileName(
+        file_name, _selected_filter = get_zima_open_file_name(
             self,
             tr("drawing.file.select_format"),
             str(self.formats_directory),
@@ -3171,7 +3171,7 @@ class DrawingWorkspace(QWidget):
         )
 
     def _choose_title_block(self) -> None:
-        file_name, _selected_filter = QFileDialog.getOpenFileName(
+        file_name, _selected_filter = get_zima_open_file_name(
             self,
             tr("drawing.file.select_title_block"),
             str(self.title_blocks_directory),

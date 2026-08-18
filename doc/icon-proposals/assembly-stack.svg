@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Assembly — stacked components proposal</title>
+  <path d="M4 4.8 12 1.3l8 3.5-8 3.5z" fill="#A6D332"/>
+  <path d="M4 14.2 12 10.7l8 3.5-8 3.5z" fill="#80AA1A"/>
+  <path d="M4 14.2v4.6l8 3.9v-5z" fill="#6F9918"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 4.8 12 1.3l8 3.5-8 3.5-8-3.5z"/>
+    <path d="M4 4.8v2.6l8 3.8 8-3.8V4.8M12 8.3v2.9"/>
+    <path d="M4 14.2 12 10.7l8 3.5-8 3.5-8-3.5z"/>
+    <path d="M4 14.2v4.6l8 3.9 8-3.9v-4.6M12 17.7v5"/>
+  </g>
+</svg>

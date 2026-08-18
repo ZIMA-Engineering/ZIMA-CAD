@@ -1,13 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Assembly</title>
+  <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4z" fill="#FFD45A"/>
+  <path d="M4.3 7.3v9.1L12 21v-9.3z" fill="#D59A1F"/>
+  <path d="M19.7 7.3v9.1L12 21v-9.3z" fill="#F0B82D"/>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-
-    <path d="M12 3l4 2.3-4 2.3-4-2.3L12 3z"/>
-    <path d="M8 5.3v4.5l4 2.3 4-2.3V5.3"/>
-    <path d="M6 12l4 2.3-4 2.3-4-2.3L6 12z"/>
-    <path d="M2 14.3v4.5L6 21l4-2.2v-4.5"/>
-    <path d="M18 12l4 2.3-4 2.3-4-2.3L18 12z"/>
-    <path d="M14 14.3v4.5L18 21l4-2.2v-4.5"/>
-
+    <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4-7.7-4.4z"/>
+    <path d="M4.3 7.3v9.1L12 21l7.7-4.6V7.3"/>
+    <path d="M12 11.7V21"/>
   </g>
 </svg>

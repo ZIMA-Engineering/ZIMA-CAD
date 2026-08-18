@@ -32,7 +32,17 @@ Modelování:
 `sweep.svg`, `blend.svg`
 
 Dokumenty:
-`part.svg`, `assembly.svg`, `drawing.svg`
+`part.svg`, `assembly.svg`, `drawing.svg`, `drawing-format.svg`,
+`title-block.svg`
+
+Dokumentové ikony používají jednu společnou významovou sadu v záložkách,
+stromech, dialogu Nový dokument a v Qt file-dialogu:
+
+- Part je prázdná obrysová krychle.
+- Assembly má všechny tři plochy vyplněné odstíny žluté.
+- Drawing používá list s pohledy a kótovací čárou.
+- Drawing Format používá list s vnitřním rámečkem.
+- Title Block používá tabulkové razítko.
 
 Základní GUI:
 `new.svg`, `open.svg`, `save.svg`, `undo.svg`, `redo.svg`,

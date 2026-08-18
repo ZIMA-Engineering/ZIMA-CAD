@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Assembly — wide pair proposal</title>
+  <path d="M1.2 6.4 6.5 3.4l5.3 3-5.3 3.1z" fill="#80AA1A"/>
+  <path d="M12.2 9.4 17.5 6.3l5.3 3.1-5.3 3z" fill="#A6D332"/>
+  <path d="M1.2 6.4v7l5.3 3.2V9.5z" fill="#6F9918"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1.2 6.4 6.5 3.4l5.3 3-5.3 3.1-5.3-3.1z"/>
+    <path d="M1.2 6.4v7l5.3 3.2 5.3-3.2v-7M6.5 9.5v7.1"/>
+    <path d="M12.2 9.4 17.5 6.3l5.3 3.1-5.3 3-5.3-3z"/>
+    <path d="M12.2 9.4v7.1l5.3 3.1 5.3-3.1V9.4M17.5 12.4v7.2"/>
+  </g>
+  <path d="m10.7 10.4 2.6 1.5" fill="none" stroke="#A6D332" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

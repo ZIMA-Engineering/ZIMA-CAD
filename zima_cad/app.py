@@ -65,7 +65,6 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -301,8 +300,12 @@ from zima_cad.step_import import (
     import_step_file,
 )
 from zima_cad.step_export import export_step_shape
+from zima_cad.file_dialogs import (
+    get_zima_open_file_name,
+    get_zima_save_file_name,
+)
+from zima_cad.icons import document_type_icon_name, resource_icon
 
-_RESOURCE_ICON_CACHE: dict[tuple[str, str], QIcon] = {}
 FEATURE_PREVIEW_COLOR = "#00D1FF"
 FEATURE_PREVIEW_RGB = (0.0, 0.82, 1.0)
 
@@ -376,36 +379,6 @@ def display_decimal_places(
     except (AttributeError, TypeError, ValueError):
         value = 3
     return max(0, min(12, value))
-
-
-def resource_icon(name: str) -> QIcon:
-    application = QApplication.instance()
-    if application is None:
-        return QIcon(str(app_path("resources", "icons", f"{name}.svg")))
-
-    # Qt does not consistently resolve SVG currentColor against the widget
-    # palette. Render the icon with an explicit palette colour so transparent
-    # SVG artwork remains legible in both light and dark themes.
-    color = application.palette().color(QPalette.ColorRole.WindowText).name()
-    cache_key = (name, color)
-    if cache_key in _RESOURCE_ICON_CACHE:
-        return _RESOURCE_ICON_CACHE[cache_key]
-    path = app_path("resources", "icons", f"{name}.svg")
-    svg = path.read_text(encoding="utf-8").replace("currentColor", color)
-    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-    if not renderer.isValid():
-        return QIcon(str(path))
-
-    icon = QIcon()
-    for size in (16, 20, 24, 32, 48):
-        pixmap = QPixmap(QSize(size, size))
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
-        icon.addPixmap(pixmap)
-    _RESOURCE_ICON_CACHE[cache_key] = icon
-    return icon
 
 
 TREE_ICON_NAMES = {
@@ -1217,8 +1190,8 @@ class NewDocumentDialog(QDialog):
         self.part_radio.setIcon(resource_icon("part"))
         self.assembly_radio.setIcon(resource_icon("assembly"))
         self.drawing_radio.setIcon(resource_icon("drawing"))
-        self.drawing_format_radio.setIcon(resource_icon("drawing"))
-        self.title_block_radio.setIcon(resource_icon("sketch"))
+        self.drawing_format_radio.setIcon(resource_icon("drawing-format"))
+        self.title_block_radio.setIcon(resource_icon("title-block"))
         self.part_radio.setChecked(True)
 
         layout.addWidget(self.part_radio)
@@ -20154,7 +20127,7 @@ class MainWindow(QMainWindow):
         self._enter_sketch_edit(sketch_id)
 
     def open_document(self) -> None:
-        file_name, _ = QFileDialog.getOpenFileName(
+        file_name, _ = get_zima_open_file_name(
             self,
             tr("file.open_document"),
             str(self.working_directory),
@@ -20569,13 +20542,14 @@ class MainWindow(QMainWindow):
             else "drawing.drwz" if is_drawing else "assembly.asmz" if is_assembly
             else "part.prtz"
         )
-        file_name, _ = QFileDialog.getSaveFileName(
+        file_name, _ = get_zima_save_file_name(
             self,
             tr("file.save_format" if is_format else "file.save_title_block" if is_title_block
                else "file.save_drawing" if is_drawing else "file.save_assembly" if is_assembly else "file.save_part"),
             str(default_path),
             tr("drawing.file.filter.format" if is_format else "drawing.file.filter.title_block" if is_title_block
                else "file.filter.drawing" if is_drawing else "file.filter.assembly" if is_assembly else "file.filter.part"),
+            default_suffix=extension,
         )
         if not file_name:
             return False
@@ -21423,10 +21397,7 @@ class MainWindow(QMainWindow):
 
     def _document_tab_icon(self, document: PartDocument | None) -> QIcon:
         document_type = self._document_type(document)
-        return resource_icon(
-            "sketch" if document_type in ("drawing_format", "title_block")
-            else document_type
-        )
+        return resource_icon(document_type_icon_name(document_type))
 
     def _document_tree_header(self, document: PartDocument) -> str:
         document_type = self._document_type(document)
@@ -21847,7 +21818,7 @@ class MainWindow(QMainWindow):
             return canonical_document_path(
                 candidates[labels.index(label)].file_path
             )
-        file_name, _ = QFileDialog.getOpenFileName(
+        file_name, _ = get_zima_open_file_name(
             self,
             tr("drawing.source.title"),
             str(self.working_directory),
@@ -31828,7 +31799,7 @@ class MainWindow(QMainWindow):
             or self.document.document_settings.get("type") != "assembly"
         ):
             return
-        file_name, _ = QFileDialog.getOpenFileName(
+        file_name, _ = get_zima_open_file_name(
             self,
             tr("assembly.insert.title"),
             str(self.working_directory),

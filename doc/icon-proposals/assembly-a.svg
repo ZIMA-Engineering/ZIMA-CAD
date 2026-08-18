@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Assembly — proposal A</title>
+  <path d="M2.3 5.8 8.3 2.5l6 3.3-6 3.5z" fill="#80AA1A"/>
+  <path d="M2.3 5.8v7.1l6 3.5V9.3z" fill="#6F9918"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.3 5.8 8.3 2.5l6 3.3-6 3.5-6-3.5z"/>
+    <path d="M2.3 5.8v7.1l6 3.5 6-3.5V5.8"/>
+    <path d="M8.3 9.3v7.1"/>
+    <path d="M9.7 12.1 15.7 8.7l6 3.4-6 3.4-6-3.4z" fill="#242B30"/>
+    <path d="M9.7 12.1v7l6 3.5 6-3.5v-7"/>
+    <path d="M15.7 15.5v7.1"/>
+  </g>
+  <path d="m12.1 10.7 1.4 1.4" fill="none" stroke="#A6D332" stroke-width="2.4" stroke-linecap="round"/>
+</svg>
