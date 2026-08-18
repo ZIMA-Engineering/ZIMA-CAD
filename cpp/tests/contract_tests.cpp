@@ -540,6 +540,59 @@ int main() {
         require(self_intersection_rejected,
                 "A self-intersecting profile reached OCCT");
 
+        auto arc_profile_document = zima::document::PartDocument::create_default();
+        auto arc_profile_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(arc_profile_sketch.add_arc(
+            0.0, 0.0, 0.0, -10.0, 0.0, 10.0));
+        static_cast<void>(arc_profile_sketch.add_segment(
+            0.0, 10.0, 0.0, -10.0));
+        const auto arc_profile_sketch_id = arc_profile_sketch.id;
+        arc_profile_document.sketches.push_back(std::move(arc_profile_sketch));
+        auto arc_profile_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                arc_profile_sketch_id);
+        arc_profile_extrusion.extrusion.height = 6.0;
+        arc_profile_extrusion.extrusion.direction =
+            zima::document::ExtrusionDirection::Symmetric;
+        const auto arc_profile_owner = arc_profile_extrusion.id;
+        arc_profile_document.history.push_back(std::move(arc_profile_extrusion));
+        const auto arc_profile_results =
+            kernel.evaluate_history(arc_profile_document.kernel_operations());
+        const auto arc_profile_bounds = z_bounds(arc_profile_results.front());
+        require(std::abs(arc_profile_results.front().volume -
+                    300.0 * std::numbers::pi) < 1.0e-6 &&
+                    std::abs(arc_profile_bounds[0] + 3.0) < 1.0e-7 &&
+                    std::abs(arc_profile_bounds[1] - 3.0) < 1.0e-7,
+                "Exact Arc profile has an incorrect volume or symmetric extent");
+        std::set<std::string> arc_profile_sides;
+        for (const auto& reference :
+             arc_profile_results.front().mesh.triangle_references) {
+            if (reference.owner_id == arc_profile_owner &&
+                reference.semantic_key.starts_with("side:")) {
+                arc_profile_sides.insert(reference.semantic_key);
+            }
+        }
+        require(arc_profile_sides == std::set<std::string>{"side:0", "side:1"},
+                "Arc and closing Segment did not retain stable side ownership");
+        auto two_arc_document = zima::document::PartDocument::create_default();
+        auto two_arc_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(two_arc_sketch.add_arc(
+            0.0, 0.0, 0.0, -4.0, 0.0, 4.0));
+        static_cast<void>(two_arc_sketch.add_arc(
+            0.0, 0.0, 0.0, 4.0, 0.0, -4.0));
+        const auto two_arc_sketch_id = two_arc_sketch.id;
+        two_arc_document.sketches.push_back(std::move(two_arc_sketch));
+        auto two_arc_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                two_arc_sketch_id);
+        two_arc_extrusion.extrusion.height = 9.0;
+        two_arc_document.history.push_back(std::move(two_arc_extrusion));
+        const auto two_arc_results =
+            kernel.evaluate_history(two_arc_document.kernel_operations());
+        require(std::abs(two_arc_results.front().volume -
+                    144.0 * std::numbers::pi) < 1.0e-6,
+                "Two exact Arcs did not form a closed circular profile");
+
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());
         require(!session.is_dirty() && !session.can_undo(),

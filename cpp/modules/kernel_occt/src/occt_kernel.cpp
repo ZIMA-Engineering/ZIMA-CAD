@@ -9,12 +9,15 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Standard_Failure.hxx>
@@ -39,6 +42,7 @@
 #include <cmath>
 #include <array>
 #include <numbers>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -143,8 +147,13 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 if constexpr (std::is_same_v<Profile,
                                   ExtrusionRequest::PolygonProfile>) {
                     return profile.vertices.front();
-                } else {
+                } else if constexpr (std::is_same_v<Profile,
+                                         ExtrusionRequest::CircleProfile>) {
                     return profile.center;
+                } else {
+                    return std::visit([](const auto& curve) {
+                        return curve.start;
+                    }, profile.curves.front());
                 }
             }, primitive.outer_profile);
             return std::vector<ViewerAxis>{{
@@ -308,12 +317,84 @@ void validate_extrusion(const ExtrusionRequest& request) {
                             "Extrusion profile coordinates must be finite");
                     }
                 }
-            } else if (!std::isfinite(profile.center.x) ||
+            } else if constexpr (std::is_same_v<Profile,
+                                     ExtrusionRequest::CircleProfile>) {
+                if (!std::isfinite(profile.center.x) ||
                        !std::isfinite(profile.center.y) ||
                        !std::isfinite(profile.center.z) ||
                        !std::isfinite(profile.radius) || profile.radius <= 0.0) {
-                throw std::invalid_argument(
-                    "Extrusion Circle must have a finite center and positive radius");
+                    throw std::invalid_argument(
+                        "Extrusion Circle must have a finite center and positive radius");
+                }
+            } else {
+                if (profile.curves.size() < 2) {
+                    throw std::invalid_argument(
+                        "Curved Extrusion profile requires at least two curves");
+                }
+                const auto finite = [](const Vec3& point) {
+                    return std::isfinite(point.x) && std::isfinite(point.y) &&
+                        std::isfinite(point.z);
+                };
+                const auto distance = [](const Vec3& first, const Vec3& second) {
+                    return std::sqrt(
+                        (first.x - second.x) * (first.x - second.x) +
+                        (first.y - second.y) * (first.y - second.y) +
+                        (first.z - second.z) * (first.z - second.z));
+                };
+                std::optional<Vec3> first_start;
+                std::optional<Vec3> previous_end;
+                for (const auto& curve : profile.curves) {
+                    std::visit([&](const auto& exact_curve) {
+                        if (!finite(exact_curve.start) || !finite(exact_curve.end)) {
+                            throw std::invalid_argument(
+                                "Extrusion curve coordinates must be finite");
+                        }
+                        if constexpr (std::is_same_v<
+                                          std::decay_t<decltype(exact_curve)>,
+                                          ExtrusionRequest::ArcCurve>) {
+                            if (!finite(exact_curve.middle)) {
+                                throw std::invalid_argument(
+                                    "Extrusion Arc coordinates must be finite");
+                            }
+                            const Vec3 first_vector{
+                                exact_curve.middle.x - exact_curve.start.x,
+                                exact_curve.middle.y - exact_curve.start.y,
+                                exact_curve.middle.z - exact_curve.start.z};
+                            const Vec3 second_vector{
+                                exact_curve.end.x - exact_curve.start.x,
+                                exact_curve.end.y - exact_curve.start.y,
+                                exact_curve.end.z - exact_curve.start.z};
+                            const Vec3 cross{
+                                first_vector.y * second_vector.z -
+                                    first_vector.z * second_vector.y,
+                                first_vector.z * second_vector.x -
+                                    first_vector.x * second_vector.z,
+                                first_vector.x * second_vector.y -
+                                    first_vector.y * second_vector.x};
+                            if (std::sqrt(cross.x * cross.x + cross.y * cross.y +
+                                          cross.z * cross.z) <= 1.0e-12) {
+                                throw std::invalid_argument(
+                                    "Extrusion Arc points must not be collinear");
+                            }
+                        }
+                        if (distance(exact_curve.start, exact_curve.end) <= 1.0e-12) {
+                            throw std::invalid_argument(
+                                "Extrusion curve must have distinct endpoints");
+                        }
+                        if (!first_start) first_start = exact_curve.start;
+                        if (previous_end &&
+                            distance(*previous_end, exact_curve.start) > 1.0e-7) {
+                            throw std::invalid_argument(
+                                "Extrusion Curved profile is not connected");
+                        }
+                        previous_end = exact_curve.end;
+                    }, curve);
+                }
+                if (!first_start || !previous_end ||
+                    distance(*previous_end, *first_start) > 1.0e-7) {
+                    throw std::invalid_argument(
+                        "Extrusion Curved profile is not closed");
+                }
             }
         }, profile_variant);
     };
@@ -344,7 +425,8 @@ PrimitiveData make_extrusion_data(
                     throw std::runtime_error("OCCT polygon profile wire failed");
                 }
                 return polygon.Wire();
-            } else {
+            } else if constexpr (std::is_same_v<Profile,
+                                     ExtrusionRequest::CircleProfile>) {
                 const gp_Dir normal(
                     request.direction.x, request.direction.y, request.direction.z);
                 BRepBuilderAPI_MakeEdge edge(gp_Circ(
@@ -359,6 +441,38 @@ PrimitiveData make_extrusion_data(
                     throw std::runtime_error("OCCT circular profile wire failed");
                 }
                 return circle_wire.Wire();
+            } else {
+                BRepBuilderAPI_MakeWire curved_wire;
+                for (const auto& curve : profile.curves) {
+                    const TopoDS_Edge edge = std::visit([](const auto& exact_curve) {
+                        using Curve = std::decay_t<decltype(exact_curve)>;
+                        if constexpr (std::is_same_v<Curve,
+                                          ExtrusionRequest::LineCurve>) {
+                            return BRepBuilderAPI_MakeEdge(
+                                gp_Pnt(exact_curve.start.x, exact_curve.start.y,
+                                       exact_curve.start.z),
+                                gp_Pnt(exact_curve.end.x, exact_curve.end.y,
+                                       exact_curve.end.z)).Edge();
+                        } else {
+                            GC_MakeArcOfCircle arc(
+                                gp_Pnt(exact_curve.start.x, exact_curve.start.y,
+                                       exact_curve.start.z),
+                                gp_Pnt(exact_curve.middle.x, exact_curve.middle.y,
+                                       exact_curve.middle.z),
+                                gp_Pnt(exact_curve.end.x, exact_curve.end.y,
+                                       exact_curve.end.z));
+                            if (!arc.IsDone()) {
+                                throw std::runtime_error("OCCT profile Arc failed");
+                            }
+                            return BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+                        }
+                    }, curve);
+                    curved_wire.Add(edge);
+                }
+                if (!curved_wire.IsDone()) {
+                    throw std::runtime_error("OCCT curved profile wire failed");
+                }
+                return curved_wire.Wire();
             }
         }, profile_variant);
     };
@@ -372,10 +486,15 @@ PrimitiveData make_extrusion_data(
     }
     if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
     const TopoDS_Face face = face_builder.Face();
+    if (!BRepCheck_Analyzer(face).IsValid()) {
+        throw std::runtime_error("OCCT profile face is invalid");
+    }
     BRepPrimAPI_MakePrism prism(face, gp_Vec(
         request.direction.x, request.direction.y, request.direction.z), true, true);
     prism.Build();
-    if (!prism.IsDone()) throw std::runtime_error("OCCT extrusion failed");
+    if (!prism.IsDone() || !BRepCheck_Analyzer(prism.Shape()).IsValid()) {
+        throw std::runtime_error("OCCT extrusion failed or produced an invalid solid");
+    }
     PrimitiveData result{prism.Shape(), {}, {}, {}};
     result.faces.push_back({prism.FirstShape(), {owner_id, "profile_start"}});
     result.faces.push_back({prism.LastShape(), {owner_id, "profile_end"}});

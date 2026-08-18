@@ -537,7 +537,13 @@ Core jednoznačně určí vnější a vnitřní smyčky, normalizuje orientaci p
 ještě před OCCT odmítne dotyk, křížení, oddělené či překrývající se smyčky a
 samoprotínající obrys. Kružnice přechází do adaptéru jako přesný střed a poloměr
 a vytváří skutečnou válcovou plochu, nikoliv polygonovou aproximaci. Oblouky
-zatím zůstávají mimo tento řez. Kontrolní obdélník
+se mohou s přímými úsečkami skládat do jedné vnější uzavřené smyčky. Document
+Core je deterministicky seřadí podle geometricky shodných koncových bodů;
+kernelové rozhraní nezávisle znovu ověří návaznost, uzavření, konečné souřadnice
+a nekolineární trojici bodů každého přesného oblouku. Vnitřní smyčky kombinované
+s oblouky zatím tento řez nepřijímá. OCCT adaptér před vrácením viewer dat
+deterministicky ověří platnost přesné profilové plochy i výsledného solidu.
+Kontrolní obdélník
 30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³. Druhá nezávislá kontrola
 odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytický objem
 `16000 − 250π mm³` i stabilní vlastnictví válcové boční plochy. Profil
@@ -545,3 +551,8 @@ odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytic
 `(1200 − 25π) × 8 mm³`; kruhový profil R10/R4 vytažený o 5 mm objem `420π mm³`.
 Rozšíření o další křivky přijde až s vlastním jednoznačným datovým kontraktem,
 ne skrytou OCCT rekonstrukcí při editaci.
+
+Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou, symetricky
+vytažený o 6 mm, musí mít objem `300π mm³` a interval `−3…3 mm`. Dva půlkruhové
+oblouky R4 vytažené o 9 mm musí vytvořit přesný objem `144π mm³`. Tyto kontroly
+zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygon.

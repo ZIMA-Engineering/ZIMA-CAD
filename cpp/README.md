@@ -403,9 +403,14 @@ Circle may contain non-overlapping inner Circles. Document Core explicitly
 classifies outer and inner loops, normalizes polygon orientation, and rejects
 crossing, touching, disjoint, overlapping, or self-intersecting profiles before
 OCCT. Circles cross the kernel boundary as exact centre/radius loops and remain
-true cylindrical faces rather than tessellated polygons. Arcs remain outside
-this slice. OCCT returns a prism with stable start, end, outer and inner side,
-edge and vertex references owned by the Extrusion history container.
+true cylindrical faces rather than tessellated polygons. A single outer loop
+may also combine straight Segments and exact Arcs. Document Core orders those
+curves by coincident geometric endpoints; the kernel boundary independently
+checks connectivity, closure, finite points, and non-collinear Arc definition.
+OCCT additionally validates the exact face and final solid before returning
+viewer data. Curved profiles do not yet accept inner loops. OCCT returns a
+prism with stable start, end, outer and inner side, edge and vertex references
+owned by the Extrusion history container.
 
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model

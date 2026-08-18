@@ -124,7 +124,19 @@ struct ExtrusionRequest {
         Vec3 center;
         double radius{};
     };
-    using ProfileLoop = std::variant<PolygonProfile, CircleProfile>;
+    struct LineCurve {
+        Vec3 start;
+        Vec3 end;
+    };
+    struct ArcCurve {
+        Vec3 start;
+        Vec3 middle;
+        Vec3 end;
+    };
+    struct CurvedProfile {
+        std::vector<std::variant<LineCurve, ArcCurve>> curves;
+    };
+    using ProfileLoop = std::variant<PolygonProfile, CircleProfile, CurvedProfile>;
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     Vec3 direction{0.0, 0.0, 10.0};
@@ -245,11 +257,32 @@ struct BodyResult {
                                     u64(std::bit_cast<std::uint64_t>(value));
                                 }
                             }
-                        } else {
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::CircleProfile>) {
                             for (const double value : {
                                     profile.center.x, profile.center.y,
                                     profile.center.z, profile.radius}) {
                                 u64(std::bit_cast<std::uint64_t>(value));
+                            }
+                        } else {
+                            u64(profile.curves.size());
+                            for (const auto& curve : profile.curves) {
+                                byte(static_cast<std::uint8_t>(curve.index()));
+                                std::visit([&](const auto& exact_curve) {
+                                    const auto append_point = [&](const Vec3& point) {
+                                        for (const double value : {
+                                                point.x, point.y, point.z}) {
+                                            u64(std::bit_cast<std::uint64_t>(value));
+                                        }
+                                    };
+                                    append_point(exact_curve.start);
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::ArcCurve>) {
+                                        append_point(exact_curve.middle);
+                                    }
+                                    append_point(exact_curve.end);
+                                }, curve);
                             }
                         }
                     }, profile_variant);
