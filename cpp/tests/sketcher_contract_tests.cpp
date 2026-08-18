@@ -675,6 +675,21 @@ int main() {
         require(loaded_spline.bsplines == spline_sketch.bsplines &&
                     loaded_spline.points == spline_sketch.points,
                 "B-spline did not survive current Sketch serialization");
+        auto periodic_spline = zima::sketcher::Sketch::create_default();
+        const auto periodic_id = periodic_spline.add_bspline({
+            {-20.0, 0.0}, {-15.0, 15.0}, {0.0, 22.0}, {15.0, 15.0},
+            {20.0, 0.0}, {10.0, -18.0}, {-10.0, -18.0}}, 3, true);
+        const auto periodic_packet = periodic_spline.viewer_mesh();
+        require(periodic_spline.bsplines.front().closed &&
+                    periodic_packet.edges.front().reference.semantic_key ==
+                        "bspline:" + periodic_id &&
+                    periodic_packet.edges.front().points.front().x ==
+                        periodic_packet.edges.front().points.back().x &&
+                    periodic_packet.edges.front().points.front().y ==
+                        periodic_packet.edges.front().points.back().y &&
+                    zima::sketcher::Sketch::from_serialized(
+                        periodic_spline.serialized()).bsplines == periodic_spline.bsplines,
+                "Closed periodic B-spline did not close or survive serialization");
         spline_sketch.remove_geometry(spline_id);
         require(spline_sketch.bsplines.empty() && spline_sketch.points.empty(),
                 "B-spline deletion retained orphan control points");

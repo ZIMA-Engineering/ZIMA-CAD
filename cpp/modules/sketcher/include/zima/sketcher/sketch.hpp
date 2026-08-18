@@ -73,6 +73,7 @@ struct SketchBSpline {
     std::string id;
     std::vector<std::string> control_point_ids;
     unsigned degree{3};
+    bool closed{};
     bool construction{};
     bool operator==(const SketchBSpline&) const = default;
 };
@@ -164,7 +165,7 @@ public:
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_bspline(
         const std::vector<std::array<double, 2>>& control_points,
-        unsigned degree = 3, bool construction = false,
+        unsigned degree = 3, bool closed = false, bool construction = false,
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;

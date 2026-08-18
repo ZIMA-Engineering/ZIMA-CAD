@@ -433,6 +433,14 @@ prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze u
 poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
 rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
 
+V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
+řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.
+Dvojklikem na hotovou křivku se otevřou interní **Vlastnosti B-spline**, kde
+lze změnit stupeň, souřadnice řídicích bodů a přepnout uzavřenou periodickou
+křivku. `Delete`
+odstraní vybranou spline. Uzavřená spline může tvořit přesný profil Vytažení
+nebo Rotace; výpočet používá přesnou OCCT B-spline, nikoli čárový náhled.
+
 Při kreslení úsečky směrem k lokální ose X nebo Y se přichycení k ose kombinuje
 s nabízenou vodorovnou nebo svislou vazbou. Koncový bod proto skončí přesně na
 ose a úsečka se současně srovná v nabízeném směru; nevznikne pouze přibližná

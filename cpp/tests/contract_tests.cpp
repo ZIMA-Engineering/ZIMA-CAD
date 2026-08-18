@@ -655,6 +655,48 @@ int main() {
         }
         require(open_spline_rejected,
                 "Open B-spline reached solid calculation without a closed exact profile");
+        auto closed_spline_document = zima::document::PartDocument::create_default();
+        auto closed_spline_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(closed_spline_sketch.add_bspline({
+            {-20.0, 0.0}, {-15.0, 15.0}, {0.0, 22.0}, {15.0, 15.0},
+            {20.0, 0.0}, {10.0, -18.0}, {-10.0, -18.0}}, 3, true));
+        const auto closed_spline_sketch_id = closed_spline_sketch.id;
+        closed_spline_document.sketches.push_back(std::move(closed_spline_sketch));
+        closed_spline_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(
+                closed_spline_sketch_id));
+        const auto closed_spline_results = kernel.evaluate_history(
+            closed_spline_document.kernel_operations());
+        require(closed_spline_results.size() == 1 &&
+                    closed_spline_results.front().volume > 1.0,
+                "Exact closed B-spline Extrusion did not produce a solid");
+        auto changed_closed_spline = closed_spline_document;
+        auto* changed_pole = changed_closed_spline.sketches.front().find_point(
+            changed_closed_spline.sketches.front().bsplines.front().control_point_ids[1]);
+        changed_pole->y += 1.0;
+        require(zima::kernel::history_fingerprint(
+                    changed_closed_spline.kernel_operations(), 1) !=
+                    closed_spline_results.front().source_fingerprint,
+                "B-spline poles are missing from the history fingerprint");
+
+        auto mixed_spline_document = zima::document::PartDocument::create_default();
+        auto mixed_spline_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(mixed_spline_sketch.add_bspline({
+            {-20.0, 0.0}, {-8.0, 18.0}, {8.0, 18.0}, {20.0, 0.0}}));
+        static_cast<void>(mixed_spline_sketch.add_segment(
+            20.0, 0.0, 0.0, -20.0));
+        static_cast<void>(mixed_spline_sketch.add_segment(
+            0.0, -20.0, -20.0, 0.0));
+        const auto mixed_spline_sketch_id = mixed_spline_sketch.id;
+        mixed_spline_document.sketches.push_back(std::move(mixed_spline_sketch));
+        mixed_spline_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(
+                mixed_spline_sketch_id));
+        const auto mixed_spline_results = kernel.evaluate_history(
+            mixed_spline_document.kernel_operations());
+        require(mixed_spline_results.size() == 1 &&
+                    mixed_spline_results.front().volume > 1.0,
+                "Mixed line/B-spline Extrusion did not produce a solid");
 
         auto revolution_document = zima::document::PartDocument::create_default();
         auto revolution_sketch = zima::sketcher::Sketch::create_default();

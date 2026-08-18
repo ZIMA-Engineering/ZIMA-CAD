@@ -862,7 +862,7 @@ std::string Sketch::add_ellipse(
 
 std::string Sketch::add_bspline(
     const std::vector<std::array<double, 2>>& control_points,
-    unsigned degree, bool construction, double snap_tolerance) {
+    unsigned degree, bool closed, bool construction, double snap_tolerance) {
     if (degree < 1 || control_points.size() < static_cast<std::size_t>(degree) + 1 ||
         !std::isfinite(snap_tolerance) || snap_tolerance < 0.0) {
         throw std::invalid_argument("Sketch B-spline degree or control points are invalid");
@@ -871,6 +871,7 @@ std::string Sketch::add_bspline(
     SketchBSpline spline;
     spline.id = make_id();
     spline.degree = degree;
+    spline.closed = closed;
     spline.construction = construction;
     for (const auto& coordinate : control_points) {
         require_finite(coordinate[0], "B-spline control point x");
@@ -1466,6 +1467,47 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& spline : bsplines) {
         const std::size_t count = spline.control_point_ids.size();
         const std::size_t degree = spline.degree;
+        if (spline.closed) {
+            std::vector<std::array<double, 2>> controls;
+            controls.reserve(count + degree);
+            for (std::size_t index = 0; index < count + degree; ++index) {
+                const auto* point = find_point(spline.control_point_ids[index % count]);
+                controls.push_back({point->x, point->y});
+            }
+            zima::kernel::ViewerEdge edge;
+            edge.reference = {id, "bspline:" + spline.id, {}};
+            constexpr std::size_t samples = 128;
+            edge.points.reserve(samples + 1);
+            for (std::size_t sample = 0; sample <= samples; ++sample) {
+                const double parameter = static_cast<double>(degree) +
+                    static_cast<double>(count) * static_cast<double>(sample) /
+                    static_cast<double>(samples);
+                const std::size_t span = sample == samples
+                    ? count + degree - 1
+                    : static_cast<std::size_t>(std::floor(parameter));
+                std::vector<std::array<double, 2>> values(degree + 1);
+                for (std::size_t index = 0; index <= degree; ++index) {
+                    values[index] = controls[span - degree + index];
+                }
+                for (std::size_t level = 1; level <= degree; ++level) {
+                    for (std::size_t index = degree; index >= level; --index) {
+                        const auto knot_index = span - degree + index;
+                        const double denominator = static_cast<double>(degree - level + 1);
+                        const double weight = (parameter -
+                            static_cast<double>(knot_index)) / denominator;
+                        values[index][0] = (1.0 - weight) * values[index - 1][0] +
+                            weight * values[index][0];
+                        values[index][1] = (1.0 - weight) * values[index - 1][1] +
+                            weight * values[index][1];
+                        if (index == level) break;
+                    }
+                }
+                edge.points.push_back(world_point(values[degree][0], values[degree][1]));
+            }
+            edge.points.back() = edge.points.front();
+            result.edges.push_back(std::move(edge));
+            continue;
+        }
         std::vector<double> knots(count + degree + 1, 1.0);
         for (std::size_t index = 0; index <= degree; ++index) knots[index] = 0.0;
         const std::size_t spans = count - degree;
@@ -1722,7 +1764,8 @@ std::string Sketch::serialized() const {
     nlohmann::json spline_values = nlohmann::json::array();
     for (const auto& spline : bsplines) spline_values.push_back({
         {"id", spline.id}, {"control_points", spline.control_point_ids},
-        {"degree", spline.degree}, {"construction", spline.construction}});
+        {"degree", spline.degree}, {"closed", spline.closed},
+        {"construction", spline.construction}});
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -1739,7 +1782,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 4},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 5},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -1754,7 +1797,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 4) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 5) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -1787,7 +1830,8 @@ Sketch Sketch::from_serialized(const std::string& value) {
     for (const auto& value : root.at("bsplines")) sketch.bsplines.push_back({
         value.at("id").get<std::string>(),
         value.at("control_points").get<std::vector<std::string>>(),
-        value.at("degree").get<unsigned>(), value.at("construction").get<bool>()});
+        value.at("degree").get<unsigned>(), value.at("closed").get<bool>(),
+        value.at("construction").get<bool>()});
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),

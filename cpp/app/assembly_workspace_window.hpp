@@ -7,6 +7,7 @@
 
 #include <optional>
 #include <array>
+#include <vector>
 
 class QAction;
 class QDialog;
@@ -46,6 +47,7 @@ private:
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
     QAction* sketch_ellipse_action_{};
+    QAction* sketch_bspline_action_{};
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
     QAction* sketch_coincident_action_{};
@@ -80,6 +82,7 @@ private:
     std::string selected_sketch_circle_id_;
     std::string selected_sketch_arc_id_;
     std::string selected_sketch_ellipse_id_;
+    std::string selected_sketch_bspline_id_;
     std::string selected_sketch_point_id_;
     std::optional<std::array<double, 2>> pending_segment_start_;
     bool sketch_segment_active_{};
@@ -93,6 +96,8 @@ private:
     bool sketch_ellipse_active_{};
     std::optional<std::array<double, 2>> pending_ellipse_center_;
     std::optional<std::array<double, 2>> pending_ellipse_major_;
+    bool sketch_bspline_active_{};
+    std::vector<std::array<double, 2>> pending_bspline_points_;
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
     bool sketch_segment_pair_active_{};
@@ -125,6 +130,8 @@ private:
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
     void show_sketch_properties(const std::string& sketch_id = {});
+    void show_sketch_bspline_properties(
+        const std::string& sketch_id, const std::string& bspline_id);
     void start_sketch_segment();
     void cancel_sketch_segment();
     void start_sketch_rectangle();
@@ -135,6 +142,9 @@ private:
     void cancel_sketch_arc();
     void start_sketch_ellipse();
     void cancel_sketch_ellipse();
+    void start_sketch_bspline();
+    void cancel_sketch_bspline();
+    bool finish_sketch_bspline();
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_segment_ray(
@@ -154,6 +164,10 @@ private:
     bool accept_sketch_ellipse_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_ellipse_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_bspline_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void preview_sketch_bspline_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void constrain_selected_segment(zima::sketcher::ConstraintKind kind);
     void start_sketch_coincident();

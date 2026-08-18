@@ -19,6 +19,10 @@
 #include <GCPnts_UniformAbscissa.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Standard_Failure.hxx>
@@ -374,7 +378,12 @@ void validate_extrusion(const ExtrusionRequest& request) {
                         "Extrusion Ellipse must have finite axes and positive ordered radii");
                 }
             } else {
-                if (profile.curves.size() < 2) {
+                const bool single_periodic_spline = profile.curves.size() == 1 &&
+                    std::holds_alternative<ExtrusionRequest::BSplineCurve>(
+                        profile.curves.front()) &&
+                    std::get<ExtrusionRequest::BSplineCurve>(
+                        profile.curves.front()).periodic;
+                if (profile.curves.size() < 2 && !single_periodic_spline) {
                     throw std::invalid_argument(
                         "Curved Extrusion profile requires at least two curves");
                 }
@@ -424,7 +433,22 @@ void validate_extrusion(const ExtrusionRequest& request) {
                                     "Extrusion Arc points must not be collinear");
                             }
                         }
-                        if (distance(exact_curve.start, exact_curve.end) <= 1.0e-12) {
+                        if constexpr (std::is_same_v<
+                                          std::decay_t<decltype(exact_curve)>,
+                                          ExtrusionRequest::BSplineCurve>) {
+                            if (exact_curve.degree < 1 ||
+                                exact_curve.control_points.size() <
+                                    static_cast<std::size_t>(exact_curve.degree) + 1 ||
+                                std::any_of(exact_curve.control_points.begin(),
+                                    exact_curve.control_points.end(),
+                                    [&](const auto& point) { return !finite(point); })) {
+                                throw std::invalid_argument(
+                                    "Extrusion B-spline definition is invalid");
+                            }
+                        }
+                        if (distance(exact_curve.start, exact_curve.end) <= 1.0e-12 &&
+                            !std::is_same_v<std::decay_t<decltype(exact_curve)>,
+                                ExtrusionRequest::BSplineCurve>) {
                             throw std::invalid_argument(
                                 "Extrusion curve must have distinct endpoints");
                         }
@@ -520,7 +544,8 @@ TopoDS_Wire make_profile_wire(
                                    exact_curve.start.z),
                             gp_Pnt(exact_curve.end.x, exact_curve.end.y,
                                    exact_curve.end.z)).Edge();
-                    } else {
+                    } else if constexpr (std::is_same_v<Curve,
+                                             ExtrusionRequest::ArcCurve>) {
                         GC_MakeArcOfCircle arc(
                             gp_Pnt(exact_curve.start.x, exact_curve.start.y,
                                    exact_curve.start.z),
@@ -532,6 +557,36 @@ TopoDS_Wire make_profile_wire(
                             throw std::runtime_error("OCCT profile Arc failed");
                         }
                         return BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+                    } else {
+                        const Standard_Integer pole_count =
+                            static_cast<Standard_Integer>(exact_curve.control_points.size());
+                        TColgp_Array1OfPnt poles(1, pole_count);
+                        for (Standard_Integer index = 1; index <= pole_count; ++index) {
+                            const auto& point = exact_curve.control_points[
+                                static_cast<std::size_t>(index - 1)];
+                            poles.SetValue(index, gp_Pnt(point.x, point.y, point.z));
+                        }
+                        const Standard_Integer knot_count = exact_curve.periodic
+                            ? pole_count + 1 : pole_count -
+                                static_cast<Standard_Integer>(exact_curve.degree) + 1;
+                        TColStd_Array1OfReal knots(1, knot_count);
+                        TColStd_Array1OfInteger multiplicities(1, knot_count);
+                        for (Standard_Integer index = 1; index <= knot_count; ++index) {
+                            knots.SetValue(index, static_cast<double>(index - 1));
+                            multiplicities.SetValue(index, exact_curve.periodic ? 1
+                                : (index == 1 || index == knot_count)
+                                    ? static_cast<Standard_Integer>(exact_curve.degree) + 1
+                                    : 1);
+                        }
+                        Handle(Geom_BSplineCurve) bspline = new Geom_BSplineCurve(
+                            poles, knots, multiplicities,
+                            static_cast<Standard_Integer>(exact_curve.degree),
+                            exact_curve.periodic);
+                        BRepBuilderAPI_MakeEdge edge(bspline);
+                        if (!edge.IsDone()) {
+                            throw std::runtime_error("OCCT profile B-spline failed");
+                        }
+                        return edge.Edge();
                     }
                 }, curve);
                 curved_wire.Add(edge);

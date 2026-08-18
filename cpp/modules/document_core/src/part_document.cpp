@@ -75,11 +75,6 @@ zima::kernel::ExtrusionRequest extrusion_request(
     ExtrusionDirection direction_mode) {
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
-    if (std::any_of(sketch.bsplines.begin(), sketch.bsplines.end(),
-            [](const auto& spline) { return !spline.construction; })) {
-        throw std::runtime_error(
-            "B-spline profiles require an exact kernel contract before solid calculation");
-    }
     zima::kernel::ExtrusionRequest request;
     request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
         ? zima::kernel::Vec3{0.0, 0.0, height}
@@ -131,6 +126,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
                                               zima::kernel::ExtrusionRequest::ArcCurve>) {
                                 shift_point(exact_curve.middle);
                             }
+                            if constexpr (std::is_same_v<
+                                              std::decay_t<decltype(exact_curve)>,
+                                              zima::kernel::ExtrusionRequest::BSplineCurve>) {
+                                for (auto& point : exact_curve.control_points) {
+                                    shift_point(point);
+                                }
+                            }
                             shift_point(exact_curve.end);
                         }, curve);
                     }
@@ -156,6 +158,43 @@ zima::kernel::ExtrusionRequest extrusion_request(
     std::vector<const zima::sketcher::SketchEllipse*> profile_ellipses;
     for (const auto& ellipse : sketch.ellipses) {
         if (!ellipse.construction) profile_ellipses.push_back(&ellipse);
+    }
+    std::vector<const zima::sketcher::SketchBSpline*> profile_splines;
+    for (const auto& spline : sketch.bsplines) {
+        if (!spline.construction) profile_splines.push_back(&spline);
+    }
+    const auto exact_spline = [&](const auto& spline) {
+        zima::kernel::ExtrusionRequest::BSplineCurve curve;
+        curve.degree = spline.degree;
+        curve.periodic = spline.closed;
+        for (const auto& point_id : spline.control_point_ids) {
+            const auto* point = sketch.find_point(point_id);
+            curve.control_points.push_back(sketch.world_point(point->x, point->y));
+        }
+        curve.start = curve.control_points.front();
+        curve.end = spline.closed ? curve.start : curve.control_points.back();
+        return curve;
+    };
+    const auto closed_spline = std::find_if(profile_splines.begin(), profile_splines.end(),
+        [](const auto* spline) { return spline->closed; });
+    if (closed_spline != profile_splines.end()) {
+        if (std::count_if(profile_splines.begin(), profile_splines.end(),
+                [](const auto* spline) { return spline->closed; }) != 1 ||
+            profile_splines.size() != 1 || !profile_segments.empty() ||
+            !profile_arcs.empty() || !profile_ellipses.empty()) {
+            throw std::runtime_error(
+                "Closed B-spline profile must be one standalone outer loop");
+        }
+        zima::kernel::ExtrusionRequest::CurvedProfile outer;
+        outer.curves.push_back(exact_spline(**closed_spline));
+        request.outer_profile = std::move(outer);
+        for (const auto* circle : profile_circles) {
+            const auto* center = sketch.find_point(circle->center_point_id);
+            request.inner_profiles.push_back(
+                zima::kernel::ExtrusionRequest::CircleProfile{
+                    sketch.world_point(center->x, center->y), circle->radius});
+        }
+        return finalize(std::move(request));
     }
     if (!profile_ellipses.empty()) {
         if (profile_ellipses.size() != 1 || !profile_segments.empty() ||
@@ -183,7 +222,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
             major_radius, minor_radius};
         return finalize(std::move(request));
     }
-    if (!profile_arcs.empty()) {
+    if (!profile_arcs.empty() || !profile_splines.empty()) {
         struct CurveRecord {
             std::string id;
             std::string start_point_id;
@@ -191,7 +230,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
             std::array<double, 2> start;
             std::array<double, 2> end;
             std::variant<zima::kernel::ExtrusionRequest::LineCurve,
-                         zima::kernel::ExtrusionRequest::ArcCurve> curve;
+                         zima::kernel::ExtrusionRequest::ArcCurve,
+                         zima::kernel::ExtrusionRequest::BSplineCurve> curve;
             std::size_t start_node{};
             std::size_t end_node{};
         };
@@ -224,6 +264,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
                     sketch.world_point(start[0], start[1]),
                     sketch.world_point(middle[0], middle[1]),
                     sketch.world_point(end[0], end[1])}});
+        }
+        for (const auto* spline : profile_splines) {
+            const auto* first = sketch.find_point(spline->control_point_ids.front());
+            const auto* last = sketch.find_point(spline->control_point_ids.back());
+            curves.push_back({spline->id, spline->control_point_ids.front(),
+                spline->control_point_ids.back(), {first->x, first->y},
+                {last->x, last->y}, exact_spline(*spline)});
         }
         std::vector<std::string> nodes;
         std::vector<std::vector<std::size_t>> incident_curves;
@@ -271,7 +318,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
             auto exact_curve = curves[next].curve;
             const bool forward = curves[next].start_node == current_node;
             if (!forward) {
-                std::visit([](auto& curve) { std::swap(curve.start, curve.end); },
+                std::visit([](auto& curve) {
+                    std::swap(curve.start, curve.end);
+                    if constexpr (std::is_same_v<std::decay_t<decltype(curve)>,
+                                      zima::kernel::ExtrusionRequest::BSplineCurve>) {
+                        std::reverse(curve.control_points.begin(),
+                                     curve.control_points.end());
+                    }
+                },
                            exact_curve);
             }
             ordered.curves.push_back(std::move(exact_curve));

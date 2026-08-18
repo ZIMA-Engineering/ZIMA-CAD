@@ -139,8 +139,15 @@ struct ExtrusionRequest {
         Vec3 middle;
         Vec3 end;
     };
+    struct BSplineCurve {
+        Vec3 start;
+        Vec3 end;
+        std::vector<Vec3> control_points;
+        unsigned degree{3};
+        bool periodic{};
+    };
     struct CurvedProfile {
-        std::vector<std::variant<LineCurve, ArcCurve>> curves;
+        std::vector<std::variant<LineCurve, ArcCurve, BSplineCurve>> curves;
     };
     using ProfileLoop = std::variant<
         PolygonProfile, CircleProfile, EllipseProfile, CurvedProfile>;
@@ -309,6 +316,16 @@ struct BodyResult {
                                                       ExtrusionRequest::ArcCurve>) {
                                         append_point(exact_curve.middle);
                                     }
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.degree);
+                                        byte(exact_curve.periodic);
+                                        u64(exact_curve.control_points.size());
+                                        for (const auto& point : exact_curve.control_points) {
+                                            append_point(point);
+                                        }
+                                    }
                                     append_point(exact_curve.end);
                                 }, curve);
                             }
@@ -371,6 +388,16 @@ struct BodyResult {
                                                       std::decay_t<decltype(exact_curve)>,
                                                       ExtrusionRequest::ArcCurve>) {
                                         point(exact_curve.middle);
+                                    }
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.degree);
+                                        byte(exact_curve.periodic);
+                                        u64(exact_curve.control_points.size());
+                                        for (const auto& control : exact_curve.control_points) {
+                                            point(control);
+                                        }
                                     }
                                     point(exact_curve.end);
                                 }, curve);

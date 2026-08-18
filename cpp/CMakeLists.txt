@@ -78,6 +78,7 @@ add_executable(zima-cad-workspace-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
+    app/sketch_bspline_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-workspace-cpp PRIVATE app)
 target_link_libraries(zima-cad-workspace-cpp PRIVATE

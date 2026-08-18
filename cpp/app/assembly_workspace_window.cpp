@@ -3,6 +3,7 @@
 #include "mate_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
+#include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -84,6 +85,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_arc(); });
     sketch_ellipse_action_ = modeling->addAction(tr("Elipsa skici"), this,
         [this] { start_sketch_ellipse(); });
+    sketch_bspline_action_ = modeling->addAction(tr("B-spline skici"), this,
+        [this] { start_sketch_bspline(); });
     sketch_horizontal_action_ = modeling->addAction(tr("Vodorovná úsečka"), this,
         [this] { constrain_selected_segment(zima::sketcher::ConstraintKind::Horizontal); });
     sketch_vertical_action_ = modeling->addAction(tr("Svislá úsečka"), this,
@@ -186,6 +189,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(true);
             sketch_vertical_action_->setEnabled(true);
@@ -201,6 +205,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_ = candidate.semantic_key.substr(7);
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_bspline_id_.clear();
             selected_sketch_segment_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
@@ -220,6 +225,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_ = candidate.semantic_key.substr(4);
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
@@ -238,6 +244,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_ = candidate.semantic_key.substr(8);
+            selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
@@ -252,6 +259,25 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_ellipse_rotation_dimension_action_->setEnabled(true);
             sketch_fix_point_action_->setEnabled(false);
             state_->setText(tr("Vybrána elipsa skici."));
+        } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+                   candidate.owner_id == active_sketch_id_ &&
+                   candidate.semantic_key.starts_with("bspline:")) {
+            selected_sketch_segment_id_.clear();
+            selected_sketch_circle_id_.clear();
+            selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
+            selected_sketch_bspline_id_ = candidate.semantic_key.substr(8);
+            selected_sketch_point_id_.clear();
+            sketch_horizontal_action_->setEnabled(false);
+            sketch_vertical_action_->setEnabled(false);
+            sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
+            sketch_radius_dimension_action_->setEnabled(false);
+            sketch_diameter_dimension_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
+            state_->setText(tr("Vybrána B-spline skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("point:")) {
@@ -260,6 +286,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_bspline_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
             sketch_dimension_action_->setEnabled(false);
@@ -282,7 +309,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (accept_sketch_rectangle_ray(origin, direction)) return true;
         if (accept_sketch_circle_ray(origin, direction)) return true;
         if (accept_sketch_arc_ray(origin, direction)) return true;
-        return accept_sketch_ellipse_ray(origin, direction);
+        if (accept_sketch_ellipse_ray(origin, direction)) return true;
+        return accept_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         preview_sketch_segment_ray(origin, direction);
@@ -290,6 +318,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_circle_ray(origin, direction);
         preview_sketch_arc_ray(origin, direction);
         preview_sketch_ellipse_ray(origin, direction);
+        preview_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::SketchDimension &&
@@ -297,6 +326,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             candidate.semantic_key.starts_with("dimension:")) {
             show_sketch_dimension_properties(
                 active_sketch_id_, candidate.semantic_key.substr(10));
+        } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+                   candidate.owner_id == active_sketch_id_ &&
+                   candidate.semantic_key.starts_with("bspline:")) {
+            show_sketch_bspline_properties(
+                active_sketch_id_, candidate.semantic_key.substr(8));
         }
     });
     viewer_->set_candidate_drag_callbacks(
@@ -343,6 +377,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
                 sketch_ellipse_action_->setEnabled(true);
+                sketch_bspline_action_->setEnabled(true);
                 sketch_coincident_action_->setEnabled(true);
                 sketch_parallel_action_->setEnabled(true);
                 sketch_perpendicular_action_->setEnabled(true);
@@ -822,6 +857,72 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     dialog->show();
 }
 
+void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
+    const std::string& sketch_id, const std::string& bspline_id) {
+    if (properties_dialog_ != nullptr || sketch_bspline_active_) return;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == sketch_id; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto spline = std::find_if(sketch->bsplines.begin(), sketch->bsplines.end(),
+        [&](const auto& value) { return value.id == bspline_id; });
+    if (spline == sketch->bsplines.end()) return;
+    std::vector<std::array<double, 2>> points;
+    points.reserve(spline->control_point_ids.size());
+    for (const auto& point_id : spline->control_point_ids) {
+        const auto* point = sketch->find_point(point_id);
+        if (point == nullptr) return;
+        points.push_back({point->x, point->y});
+    }
+    const auto part_id = part->session.document().document_id;
+    auto* dialog = new SketchBSplinePropertiesDialog(
+        spline->degree, spline->closed, std::move(points),
+        [this, part_id, sketch_id, bspline_id](
+            unsigned degree, bool closed,
+            const std::vector<std::array<double, 2>>& values) {
+            auto* target_part = workspace_.open_part(part_id);
+            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
+            auto next = target_part->session.document();
+            const auto target_sketch = std::find_if(
+                next.sketches.begin(), next.sketches.end(),
+                [&](const auto& value) { return value.id == sketch_id; });
+            if (target_sketch == next.sketches.end()) {
+                throw std::runtime_error("Sketch no longer exists");
+            }
+            const auto target_spline = std::find_if(
+                target_sketch->bsplines.begin(), target_sketch->bsplines.end(),
+                [&](const auto& value) { return value.id == bspline_id; });
+            if (target_spline == target_sketch->bsplines.end() ||
+                values.size() != target_spline->control_point_ids.size()) {
+                throw std::runtime_error("B-spline no longer exists");
+            }
+            target_spline->degree = degree;
+            target_spline->closed = closed;
+            for (std::size_t index = 0; index < values.size(); ++index) {
+                auto* point = target_sketch->find_point(
+                    target_spline->control_point_ids[index]);
+                if (point == nullptr) throw std::runtime_error("Missing B-spline control point");
+                point->x = values[index][0];
+                point->y = values[index][1];
+            }
+            target_sketch->validate();
+            target_part->session.commit(
+                std::move(next), target_part->session.calculated_boundaries());
+        }, this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this] {
+        properties_dialog_ = nullptr;
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+    });
+    dialog->show();
+}
+
 void AssemblyWorkspaceWindow::start_sketch_segment() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -839,6 +940,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
     pending_segment_start_.reset();
     viewer_->set_transient_edges({});
     state_->setText(tr("Úsečka skici: určete první bod. Escape příkaz zruší."));
@@ -850,6 +952,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
     sketch_ellipse_active_ = false;
+    sketch_bspline_active_ = false;
     sketch_coincident_active_ = false;
     sketch_segment_pair_active_ = false;
     pending_segment_start_.reset();
@@ -859,6 +962,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_arc_start_.reset();
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
+    pending_bspline_points_.clear();
     pending_coincident_point_id_.clear();
     pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
@@ -881,6 +985,7 @@ void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
     state_->setText(tr("Obdélník skici: určete první roh. Escape příkaz zruší."));
 }
 
@@ -907,6 +1012,7 @@ void AssemblyWorkspaceWindow::start_sketch_circle() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
     state_->setText(tr("Kružnice skici: určete střed. Escape příkaz zruší."));
 }
 
@@ -933,6 +1039,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
     state_->setText(tr("Oblouk skici: určete střed. Escape příkaz zruší."));
 }
 
@@ -960,6 +1067,7 @@ void AssemblyWorkspaceWindow::start_sketch_ellipse() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
     state_->setText(tr("Elipsa skici: určete střed. Escape příkaz zruší."));
 }
 
@@ -968,6 +1076,126 @@ void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
     viewer_->set_transient_edges({});
+}
+
+void AssemblyWorkspaceWindow::start_sketch_bspline() {
+    if (properties_dialog_ != nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto found = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    if (found == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_bspline_active_ = true;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    state_->setText(tr("B-spline: přidávejte řídicí body; Enter dokončí, Escape zruší."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
+    sketch_bspline_active_ = false;
+    pending_bspline_points_.clear();
+    viewer_->set_transient_edges({});
+}
+
+bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (!sketch_bspline_active_ || part == nullptr || active_sketch_id_.empty() ||
+        workspace_.displayed_document_id() != workspace_.active_document_id()) return false;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return true;
+    if (!pending_bspline_points_.empty()) {
+        const auto& previous = pending_bspline_points_.back();
+        if (std::hypot((*position)[0] - previous[0], (*position)[1] - previous[1]) <=
+            1.0e-9) {
+            state_->setText(tr("Řídicí body B-spline musí být navzájem odlišné."));
+            return true;
+        }
+    }
+    pending_bspline_points_.push_back(*position);
+    state_->setText(pending_bspline_points_.size() >= 4
+        ? tr("B-spline: %1 řídicích bodů; Enter dokončí.")
+              .arg(pending_bspline_points_.size())
+        : tr("B-spline: %1 řídicích bodů; pro kubickou křivku jsou potřeba alespoň 4.")
+              .arg(pending_bspline_points_.size()));
+    return true;
+}
+
+bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
+    if (!sketch_bspline_active_) return false;
+    if (pending_bspline_points_.size() < 4) {
+        state_->setText(tr("Kubická B-spline vyžaduje alespoň 4 řídicí body."));
+        return true;
+    }
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return true;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return true;
+        static_cast<void>(sketch->add_bspline(pending_bspline_points_));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        pending_bspline_points_.clear();
+        viewer_->set_transient_edges({});
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("B-spline vytvořena. Klikáním můžete vytvořit další."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_bspline_active_ || pending_bspline_points_.empty()) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) {
+        viewer_->set_transient_edges({});
+        return;
+    }
+    auto preview_points = pending_bspline_points_;
+    preview_points.push_back(*position);
+    if (preview_points.size() < 4) {
+        zima::kernel::ViewerEdge preview;
+        for (const auto& point : preview_points) {
+            preview.points.push_back(sketch->world_point(point[0], point[1]));
+        }
+        viewer_->set_transient_edges({std::move(preview)});
+        return;
+    }
+    auto preview_sketch = *sketch;
+    const auto preview_id = preview_sketch.add_bspline(preview_points);
+    auto mesh = preview_sketch.viewer_mesh();
+    const auto edge = std::find_if(mesh.edges.rbegin(), mesh.edges.rend(),
+        [&](const auto& value) {
+            return value.reference.semantic_key == "bspline:" + preview_id;
+        });
+    viewer_->set_transient_edges(edge == mesh.edges.rend()
+        ? std::vector<zima::kernel::ViewerEdge>{}
+        : std::vector<zima::kernel::ViewerEdge>{*edge});
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
@@ -1274,13 +1502,15 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-        sketch_arc_active_ || sketch_ellipse_active_ || sketch_coincident_active_ ||
+        sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
+        sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
     const std::string geometry_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
         : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
-        : selected_sketch_ellipse_id_;
+        : !selected_sketch_ellipse_id_.empty() ? selected_sketch_ellipse_id_
+        : selected_sketch_bspline_id_;
     if (geometry_id.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -1296,6 +1526,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
         selected_sketch_ellipse_id_.clear();
+        selected_sketch_bspline_id_.clear();
         selected_sketch_point_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -1726,9 +1957,15 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
+    if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) &&
+        finish_sketch_bspline()) {
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Escape &&
         (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-         sketch_arc_active_ || sketch_ellipse_active_ || sketch_coincident_active_ ||
+         sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
+         sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
         cancel_sketch_segment();
         refresh_scene();
@@ -1935,6 +2172,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
@@ -2011,6 +2249,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
     sketch_ellipse_action_->setEnabled(false);
+    sketch_bspline_action_->setEnabled(false);
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);
