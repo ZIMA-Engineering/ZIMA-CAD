@@ -140,19 +140,27 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         auto* extrusion_height =
             extrusion_dialog->findChild<QDoubleSpinBox*>("extrusionHeight");
+        auto* extrusion_direction =
+            extrusion_dialog->findChild<QComboBox*>("extrusionDirection");
         require(extrusion_height != nullptr,
                 "Extrusion dialog does not expose its height");
+        require(extrusion_direction != nullptr,
+                "Extrusion dialog does not expose its direction");
         require(extrusion_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty(),
                 "Extrusion dialog exposes an ignored placement");
         extrusion_height->setValue(48.0);
+        extrusion_direction->setCurrentIndex(
+            extrusion_direction->findData("symmetric"));
         extrusion_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(extrusion_commits == 1 &&
                     committed_extrusion.feature_kind ==
                         zima::document::FeatureKind::Extrusion &&
                     committed_extrusion.extrusion.sketch_id == "sketch-profile" &&
-                    committed_extrusion.extrusion.height == 48.0,
+                    committed_extrusion.extrusion.height == 48.0 &&
+                    committed_extrusion.extrusion.direction ==
+                        zima::document::ExtrusionDirection::Symmetric,
                 "Extrusion Properties did not preserve its Sketch or height");
 
         zima::kernel::BodyResult component_body;

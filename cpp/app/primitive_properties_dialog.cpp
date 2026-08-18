@@ -74,7 +74,22 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
         form->addRow(tr("Zdrojová skica"), sketch);
         height_ = dimension(initial.extrusion.height, "extrusionHeight");
-        form->addRow(tr("Výška"), height_);
+        form->addRow(tr("Celková délka"), height_);
+        extrusion_direction_ = new QComboBox(this);
+        extrusion_direction_->setObjectName("extrusionDirection");
+        extrusion_direction_->addItem(tr("Dopředu"), "forward");
+        extrusion_direction_->addItem(tr("Obráceně"), "reverse");
+        extrusion_direction_->addItem(tr("Symetricky"), "symmetric");
+        const char* direction =
+            initial.extrusion.direction ==
+                    zima::document::ExtrusionDirection::Forward
+                ? "forward"
+            : initial.extrusion.direction ==
+                    zima::document::ExtrusionDirection::Reverse
+                ? "reverse" : "symmetric";
+        extrusion_direction_->setCurrentIndex(
+            extrusion_direction_->findData(direction));
+        form->addRow(tr("Směr"), extrusion_direction_);
     }
 
     const auto placement = [this](double value, bool angular) {
@@ -138,6 +153,13 @@ bool PrimitivePropertiesDialog::submit() {
         result.cylinder = {radius_->value(), height_->value()};
     } else {
         result.extrusion.height = height_->value();
+        const QString direction =
+            extrusion_direction_->currentData().toString();
+        result.extrusion.direction = direction == "reverse"
+            ? zima::document::ExtrusionDirection::Reverse
+            : direction == "symmetric"
+                ? zima::document::ExtrusionDirection::Symmetric
+                : zima::document::ExtrusionDirection::Forward;
     }
     if (result.feature_kind != zima::document::FeatureKind::Extrusion) {
         result.placement = {

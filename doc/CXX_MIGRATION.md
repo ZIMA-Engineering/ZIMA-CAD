@@ -521,6 +521,14 @@ skica, kladná výška a operace Přičíst/Odečíst; prostředkem je úzký po
 `ExtrusionRequest`; výstupem je hranol s persistovanými referencemi počáteční,
 koncové a bočních ploch, hran a vrcholů. Poloha tělesa vychází výhradně z roviny
 a odsazení zdrojové skici, takže vytažení nemá druhé nezávislé posunutí.
+Stejná interní Properties třída nabízí směr Dopředu, Obráceně a Symetricky.
+Výška vždy znamená celkovou délku: vzhledem k normále persistované roviny skici
+leží výsledný interval v `0…H`, `−H…0`, nebo `−H/2…H/2`. Směr se persistuje a
+vstupuje do fingerprintu vypočtené historie; změna směru proto nemůže ponechat
+starou cache tělesa jako platnou.
+Part schéma se tím záměrně posouvá na `format_version: 2`; větev pro načítání
+starého prototypového schématu nevzniká, protože kompatibilita starých Part
+souborů není kontraktem migrace.
 
 Profilový kontrakt přijímá jednu souvislou uzavřenou smyčku nekonstrukčních
 přímých úseček nebo jednu vnější kružnici. Polygon může obsahovat nepřekrývající

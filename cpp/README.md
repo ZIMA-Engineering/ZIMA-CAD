@@ -392,7 +392,11 @@ respected, and an immovable mismatch rejects the complete transaction.
 Extrusion is the first Sketch-to-solid vertical slice. The Modeling command is
 enabled only for a selected persisted Sketch and reuses one internal Properties
 window for creation and editing. OK explicitly evaluates the body; Cancel and
-history rollback remain transient. The current profile contract deliberately
+history rollback remain transient. The same Properties window selects Forward,
+Reverse, or Symmetric direction. Height is always the total extrusion length:
+Forward spans `0…H`, Reverse `−H…0`, and Symmetric `−H/2…H/2` along the persisted
+Sketch normal. Direction is persisted and included in the calculated-history
+fingerprint. The current profile contract deliberately
 accepts one connected closed loop of non-construction straight Segments or one
 outer Circle. A polygon may contain non-overlapping circular holes; an outer
 Circle may contain non-overlapping inner Circles. Document Core explicitly

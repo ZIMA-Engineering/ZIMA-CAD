@@ -3,8 +3,10 @@
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <cmath>
+#include <array>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <set>
 
@@ -314,9 +316,39 @@ int main() {
                         "axis" &&
                     extrusion_results.front().mesh.axes.front().direction.z > 0.999,
                 "Extrusion did not persist its normal axis");
+        const auto z_bounds = [](const zima::kernel::BodyResult& result) {
+            double minimum = std::numeric_limits<double>::infinity();
+            double maximum = -std::numeric_limits<double>::infinity();
+            for (const auto& point : result.mesh.vertices) {
+                minimum = std::min(minimum, point.z);
+                maximum = std::max(maximum, point.z);
+            }
+            return std::array<double, 2>{minimum, maximum};
+        };
+        auto reverse_extrusion_document = extrusion_document;
+        reverse_extrusion_document.history.front().extrusion.direction =
+            zima::document::ExtrusionDirection::Reverse;
+        const auto reverse_extrusion_results = kernel.evaluate_history(
+            reverse_extrusion_document.kernel_operations());
+        const auto reverse_bounds = z_bounds(reverse_extrusion_results.front());
+        require(std::abs(reverse_bounds[0] + 10.0) < 1.0e-7 &&
+                    std::abs(reverse_bounds[1]) < 1.0e-7,
+                "Reverse Extrusion is not located behind the Sketch plane");
+        auto symmetric_extrusion_document = extrusion_document;
+        symmetric_extrusion_document.history.front().extrusion.direction =
+            zima::document::ExtrusionDirection::Symmetric;
+        const auto symmetric_extrusion_results = kernel.evaluate_history(
+            symmetric_extrusion_document.kernel_operations());
+        const auto symmetric_bounds = z_bounds(symmetric_extrusion_results.front());
+        require(std::abs(symmetric_bounds[0] + 5.0) < 1.0e-7 &&
+                    std::abs(symmetric_bounds[1] - 5.0) < 1.0e-7 &&
+                    symmetric_extrusion_results.front().source_fingerprint !=
+                        extrusion_results.front().source_fingerprint,
+                "Symmetric Extrusion is not centered on the Sketch plane");
         const auto extrusion_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-extrusion-contract.zcp.json";
-        extrusion_document.save(extrusion_path, extrusion_results);
+        symmetric_extrusion_document.save(
+            extrusion_path, symmetric_extrusion_results);
         std::vector<zima::kernel::BodyResult> loaded_extrusion_results;
         const auto loaded_extrusion = zima::document::PartDocument::load(
             extrusion_path, &loaded_extrusion_results);
@@ -326,6 +358,8 @@ int main() {
                         zima::document::FeatureKind::Extrusion &&
                     loaded_extrusion.history.front().extrusion.sketch_id ==
                         extrusion_sketch_id &&
+                    loaded_extrusion.history.front().extrusion.direction ==
+                        zima::document::ExtrusionDirection::Symmetric &&
                     loaded_extrusion_results.size() == 1,
                 "Extrusion document did not survive save/load");
         auto misplaced_extrusion = extrusion_document;

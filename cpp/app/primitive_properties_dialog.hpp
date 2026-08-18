@@ -36,6 +36,7 @@ private:
     QDoubleSpinBox* width_{};
     QDoubleSpinBox* height_{};
     QDoubleSpinBox* radius_{};
+    QComboBox* extrusion_direction_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};

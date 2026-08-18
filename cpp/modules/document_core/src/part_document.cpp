@@ -60,9 +60,21 @@ void require_default_extrusion_placement(const Placement& placement) {
     }
 }
 
+void validate_extrusion_direction(ExtrusionDirection direction) {
+    switch (direction) {
+        case ExtrusionDirection::Forward:
+        case ExtrusionDirection::Reverse:
+        case ExtrusionDirection::Symmetric:
+            return;
+    }
+    throw std::runtime_error("Invalid Extrusion direction");
+}
+
 zima::kernel::ExtrusionRequest extrusion_request(
-    const zima::sketcher::Sketch& sketch, double height) {
+    const zima::sketcher::Sketch& sketch, double height,
+    ExtrusionDirection direction_mode) {
     require_positive(height, "extrusion height");
+    validate_extrusion_direction(direction_mode);
     if (std::any_of(sketch.arcs.begin(), sketch.arcs.end(),
             [](const auto& value) { return !value.construction; })) {
         throw std::runtime_error(
@@ -74,6 +86,38 @@ zima::kernel::ExtrusionRequest extrusion_request(
         : sketch.plane == zima::sketcher::SketchPlane::XZ
             ? zima::kernel::Vec3{0.0, -height, 0.0}
             : zima::kernel::Vec3{height, 0.0, 0.0};
+    if (direction_mode == ExtrusionDirection::Reverse) {
+        request.direction.x = -request.direction.x;
+        request.direction.y = -request.direction.y;
+        request.direction.z = -request.direction.z;
+    }
+    const auto finalize = [&](zima::kernel::ExtrusionRequest value) {
+        if (direction_mode != ExtrusionDirection::Symmetric) return value;
+        const zima::kernel::Vec3 offset{
+            -0.5 * value.direction.x,
+            -0.5 * value.direction.y,
+            -0.5 * value.direction.z};
+        const auto shift = [&](auto& profile_variant) {
+            std::visit([&](auto& profile) {
+                using Profile = std::decay_t<decltype(profile)>;
+                if constexpr (std::is_same_v<Profile,
+                                  zima::kernel::ExtrusionRequest::PolygonProfile>) {
+                    for (auto& point : profile.vertices) {
+                        point.x += offset.x;
+                        point.y += offset.y;
+                        point.z += offset.z;
+                    }
+                } else {
+                    profile.center.x += offset.x;
+                    profile.center.y += offset.y;
+                    profile.center.z += offset.z;
+                }
+            }, profile_variant);
+        };
+        shift(value.outer_profile);
+        for (auto& profile : value.inner_profiles) shift(profile);
+        return value;
+    };
     std::vector<const zima::sketcher::SketchSegment*> profile_segments;
     for (const auto& segment : sketch.segments) {
         if (!segment.construction) profile_segments.push_back(&segment);
@@ -124,7 +168,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 }
             }
         }
-        return request;
+        return finalize(std::move(request));
     }
     if (profile_segments.size() < 3) {
         throw std::runtime_error("Extrusion profile requires at least three segments");
@@ -282,7 +326,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
             }
         }
     }
-    return request;
+    return finalize(std::move(request));
 }
 
 }  // namespace
@@ -369,7 +413,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             if (sketch == sketches.end()) {
                 throw std::runtime_error("Extrusion references a missing Sketch");
             }
-            primitive = extrusion_request(*sketch, container.extrusion.height);
+            primitive = extrusion_request(
+                *sketch, container.extrusion.height,
+                container.extrusion.direction);
         }
         operations.push_back({
             container.id,
@@ -392,7 +438,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 1) {
+        root.at("format_version").get<int>() != 2) {
         throw std::runtime_error("Unsupported C++ prototype document format");
     }
     PartDocument document;
@@ -440,10 +486,22 @@ PartDocument PartDocument::load(
         } else {
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
             container.extrusion.height = source.at("height").get<double>();
+            const std::string direction =
+                source.at("direction").get<std::string>();
+            if (direction == "forward") {
+                container.extrusion.direction = ExtrusionDirection::Forward;
+            } else if (direction == "reverse") {
+                container.extrusion.direction = ExtrusionDirection::Reverse;
+            } else if (direction == "symmetric") {
+                container.extrusion.direction = ExtrusionDirection::Symmetric;
+            } else {
+                throw std::runtime_error("Invalid Extrusion direction");
+            }
             if (container.extrusion.sketch_id.empty()) {
                 throw std::runtime_error("Extrusion Sketch ID is required");
             }
             require_positive(container.extrusion.height, "extrusion height");
+            validate_extrusion_direction(container.extrusion.direction);
         }
         if (source.contains("placement")) {
             const auto& placement = source.at("placement");
@@ -561,6 +619,7 @@ void PartDocument::save(
                 throw std::runtime_error("Extrusion references a missing Sketch");
             }
             require_positive(container.extrusion.height, "extrusion height");
+            validate_extrusion_direction(container.extrusion.direction);
         }
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Extrusion) {
@@ -595,6 +654,11 @@ void PartDocument::save(
         } else {
             serialized["sketch_id"] = container.extrusion.sketch_id;
             serialized["height"] = container.extrusion.height;
+            serialized["direction"] =
+                container.extrusion.direction == ExtrusionDirection::Forward
+                    ? "forward"
+                : container.extrusion.direction == ExtrusionDirection::Reverse
+                    ? "reverse" : "symmetric";
         }
         serialized_history.push_back(std::move(serialized));
     }
@@ -628,7 +692,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 1},
+        {"format_version", 2},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

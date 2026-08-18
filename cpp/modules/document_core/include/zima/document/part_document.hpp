@@ -12,6 +12,7 @@ namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
 enum class FeatureKind { Box, Cylinder, Extrusion };
+enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 
 struct BoxParameters {
     double length{100.0};
@@ -27,6 +28,7 @@ struct CylinderParameters {
 struct ExtrusionParameters {
     std::string sketch_id;
     double height{10.0};
+    ExtrusionDirection direction{ExtrusionDirection::Forward};
 };
 
 struct Placement {
