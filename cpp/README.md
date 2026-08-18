@@ -205,10 +205,12 @@ status, and its directed dependency edge. A planar face is resolved and fully
 checked from persisted ZIMA viewer triangles only; selection and mate
 calculation never query OCCT.
 
-Plane-to-plane currently solves the deliberately bounded case of two already
-parallel planes by translating the dependent immediate component to the signed
-offset. One calculated mate of each kind per dependent component avoids
-pretending that a general solver exists. Missing and unsupported references turn the mate
+Plane-to-plane solves the deliberately bounded deterministic plane alignment
+and signed offset of the dependent immediate component. A component may own
+multiple Plane mates and multiple Axis mates. They are applied in deterministic
+order and then all active constraints are re-evaluated from persisted viewer
+geometry; any incompatible set restores the component's complete original
+placement rather than retaining a partial solution. Missing and unsupported references turn the mate
 red and suppress its dependent branch; explicit Regenerate clears the old
 error state before retrying, so repaired references recover.
 

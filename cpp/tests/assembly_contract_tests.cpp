@@ -352,6 +352,45 @@ int main() {
                     std::abs(combined_axis_dependent.axis.point.y -
                              combined_axis_prerequisite.axis.point.y) < 1.0e-7,
                 "Axis and plane mates did not preserve their independent constraints");
+        auto two_plane_mates = loaded;
+        two_plane_mates.components.back().placement = {23.0, 9.0, 14.0, 0.0, 0.0, 0.0};
+        two_plane_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Doraz Z", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"}));
+        two_plane_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Doraz X", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "x_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "x_max"}));
+        two_plane_mates.calculate_mates();
+        require(two_plane_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
+                    two_plane_mates.mates[1].status == zima::assembly::MateStatus::Valid,
+                "Two independent Plane mates on one component were not preserved");
+        auto two_axis_mates = loaded;
+        two_axis_mates.components.back().placement = {23.0, 9.0, 14.0, 0.0, 0.0, 0.0};
+        for (const auto* axis : {"axis:z", "axis:x"}) {
+            two_axis_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+                std::string("Souosost ") + axis,
+                zima::assembly::MateKind::AxisCoincident,
+                {zima::assembly::MateReferenceKind::Axis,
+                 zima::assembly::InstancePath{}.child(second_id),
+                 "same-source-container", axis},
+                {zima::assembly::MateReferenceKind::Axis,
+                 zima::assembly::InstancePath{}.child(first_id),
+                 "same-source-container", axis}));
+        }
+        two_axis_mates.calculate_mates();
+        require(two_axis_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
+                    two_axis_mates.mates[1].status == zima::assembly::MateStatus::Valid,
+                "Two independent Axis mates on one component were not preserved");
         auto conflicting_mates = loaded;
         conflicting_mates.components.back().placement.x = 17.0;
         const auto placement_before_conflict = conflicting_mates.components.back().placement;

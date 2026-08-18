@@ -357,12 +357,13 @@ výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se
 rovinnost celé sémantické plochy; OCCT se při výběru ani výpočtu reference
 nevolá.
 
-Deterministická vazba plocha–plocha zatím řeší právě ten rozsah, pro který je
-prostá transformace správným prostředkem: dvě již rovnoběžné roviny a translaci
-pohyblivé bezprostřední komponenty na zadané podepsané odsazení. Jedna
-komponenta smí nyní vlastnit jednu vypočítávanou vazbu každého typu;
-nerovnoběžné roviny se označí jako nepodporovaná geometrie místo předstírání
-obecného solveru. Chybějící nebo nepodporovaná reference zčervená ve stromu a
+Komponenta může vlastnit více rovinných i více osových vazeb stejného typu.
+Solver je aplikuje v deterministickém pořadí a potom všechny aktivní podmínky
+znovu změří z persistované viewer geometrie. Dvě kolmé rovinné vazby nebo dvě
+kolmé osové vazby tak mohou společně odebrat nezávislé stupně volnosti. Pokud
+nová transformace poruší dřívější vazbu, celý placement komponenty se vrátí do
+stavu před výpočtem a všechny její aktivní vazby se označí jako nepodporované;
+žádné částečné ustavení nezůstane. Chybějící nebo nepodporovaná reference zčervená ve stromu a
 potlačí závislou větev. Po opravě reference další explicitní Regenerate starý
 chybový stav nejprve uvolní a komponentu může obnovit.
 

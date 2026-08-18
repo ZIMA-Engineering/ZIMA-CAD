@@ -471,14 +471,6 @@ void AssemblyDocument::add_mate(AssemblyMate mate) {
         })) {
         throw std::invalid_argument("Assembly mate ID must be unique");
     }
-    if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
-            return existing.dependent.instance_path.occurrence_ids.front() ==
-                mate.dependent.instance_path.occurrence_ids.front() &&
-                existing.kind == mate.kind;
-        })) {
-        throw std::invalid_argument(
-            "A component may currently own only one calculated mate of each kind");
-    }
     ComponentDependency dependency{
         mate.mate_id, mate.dependent.instance_path.occurrence_ids.front(),
         mate.prerequisite.instance_path.occurrence_ids.front(),
