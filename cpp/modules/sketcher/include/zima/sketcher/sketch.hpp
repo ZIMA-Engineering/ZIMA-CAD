@@ -40,6 +40,16 @@ struct SketchCircle {
     bool operator==(const SketchCircle&) const = default;
 };
 
+struct SketchArc {
+    std::string id;
+    std::string center_point_id;
+    double radius{};
+    double start_angle{};
+    double end_angle{};
+    bool construction{};
+    bool operator==(const SketchArc&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -78,6 +88,7 @@ public:
     std::vector<SketchPoint> points;
     std::vector<SketchSegment> segments;
     std::vector<SketchCircle> circles;
+    std::vector<SketchArc> arcs;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -97,17 +108,25 @@ public:
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_segment_constraint(
         const std::string& segment_id, ConstraintKind kind);
+    [[nodiscard]] std::string add_coincident_constraint(
+        const std::string& first_point_id, const std::string& second_point_id);
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_circle(
         double center_x, double center_y, double radius,
         bool construction = false, double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_arc(
+        double center_x, double center_y, double start_x, double start_y,
+        double end_x, double end_y, bool construction = false,
+        double snap_tolerance = 1.0e-6);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
     void apply_dimension(SketchDimension dimension);
     [[nodiscard]] SketchDimension create_circle_radius_dimension(
         const std::string& circle_id) const;
+    [[nodiscard]] SketchDimension create_arc_radius_dimension(
+        const std::string& arc_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(

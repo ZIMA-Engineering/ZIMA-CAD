@@ -330,6 +330,19 @@ stored radius transactionally, contributes radius DOF to the Jacobian, and is
 rendered/picked with an `R` prefix. Circle geometry and its Radius dimension
 round-trip in the current Sketch format without OCCT.
 
+Arc is entered by three clicks: centre, start and end. It persists a stable
+centre point, radius and counter-clockwise angular interval. The adaptive
+viewer polyline owns a stable `arc:<id>` `SketchCurve` reference, so both the
+creation preview and later picking stay within ZIMA-CAD data.
+Selecting the Arc exposes the same internal Radius-dimension Properties window
+as Circle. The dimension drives the persisted arc radius, obeys absolute limits,
+participates in solver DOF, and is drawn radially through the middle of the arc.
+
+The Coincident command owns an explicit point-only viewer selection contract.
+Two confirmed stable `point:<id>` candidates create one transactional constraint;
+the solver moves only unfixed coordinates, rejects duplicate or conflicting
+relations, and Escape restores the ordinary Sketch candidate contract.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

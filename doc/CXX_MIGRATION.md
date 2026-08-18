@@ -295,6 +295,19 @@ kružnice, nevytváří pomocný bod obvodu, transakčně řídí uložený polo
 přispívá stupněm volnosti do Jacobiánu a ve vieweru má prefix `R`. Kružnice i
 její kóta poloměru se ukládají bez OCCT.
 
+Tříbodový nástroj oblouku zadává střed, začátek a konec. Oblouk persistuje
+stabilní středový bod, poloměr a protisměrný úhlový interval. Adaptivní viewer
+křivka i picking používají klíč `arc:<id>` a samostatný `SketchCurve` kontrakt,
+nikoli OCCT hranu výsledného tělesa.
+Vybraný oblouk používá stejnou interní Properties třídu kóty poloměru jako
+kružnice. Kóta řídí persistovaný poloměr v absolutních mezích, vstupuje do
+solveru a zobrazuje se radiálně přes střed úhlového intervalu oblouku.
+
+Příkaz Shodnost bodů vlastní explicitní výběrový kontrakt pouze pro Sketch body.
+Dva potvrzené kandidáty `point:<id>` vytvoří jednu transakční vazbu; solver
+pohybuje jen nefixovanými souřadnicemi, odmítá duplicitu i konflikt a Escape
+vrátí běžný výběr geometrie skici.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se

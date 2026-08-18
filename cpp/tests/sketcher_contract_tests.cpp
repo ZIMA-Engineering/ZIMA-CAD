@@ -120,6 +120,32 @@ int main() {
         }
         require(duplicate_constraint_rejected,
                 "Duplicate segment constraint was accepted");
+        auto coincident = zima::sketcher::Sketch::create_default();
+        auto coincident_first = zima::sketcher::Sketch::create_point(0.0, 0.0);
+        auto coincident_second = zima::sketcher::Sketch::create_point(8.0, 6.0);
+        const auto coincident_first_id = coincident_first.id;
+        const auto coincident_second_id = coincident_second.id;
+        coincident.points.push_back(std::move(coincident_first));
+        coincident.points.push_back(std::move(coincident_second));
+        static_cast<void>(coincident.add_coincident_constraint(
+            coincident_first_id, coincident_second_id));
+        require(coincident.constraints.size() == 1 &&
+                    coincident.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::Coincident &&
+                    std::hypot(coincident.points[0].x - coincident.points[1].x,
+                               coincident.points[0].y - coincident.points[1].y) < 1.0e-8,
+                "Coincident point constraint did not solve through the model API");
+        const auto coincident_before_duplicate = coincident;
+        bool duplicate_coincident_rejected = false;
+        try {
+            static_cast<void>(coincident.add_coincident_constraint(
+                coincident_second_id, coincident_first_id));
+        } catch (const std::invalid_argument&) {
+            duplicate_coincident_rejected = true;
+        }
+        require(duplicate_coincident_rejected &&
+                    coincident.constraints == coincident_before_duplicate.constraints,
+                "Reversed duplicate coincident constraint was accepted");
         const auto before_collapsing_constraint = connected;
         bool collapsing_constraint_rejected = false;
         try {
@@ -195,6 +221,9 @@ int main() {
                     std::abs(circle_sketch.circles.front().radius - 15.0) < 1.0e-9 &&
                     circle_sketch.dimensions.front().geometry_id == circle_id,
                 "Radius dimension did not drive its stable circle");
+        require(!circle_sketch.set_dimension_value(
+                    circle_sketch.dimensions.front().id, -1.0),
+                "Negative radius dimension was accepted by the data model");
         const auto circle_packet = circle_sketch.viewer_mesh();
         require(circle_packet.edges.size() == 1 &&
                     circle_packet.edges.front().points.size() == 97 &&
@@ -216,6 +245,59 @@ int main() {
         }
         require(zero_circle_rejected,
                 "Zero-radius circle was accepted");
+        auto arc_sketch = zima::sketcher::Sketch::create_default();
+        const auto arc_id = arc_sketch.add_arc(0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
+        require(arc_sketch.arcs.size() == 1 &&
+                    std::abs(arc_sketch.arcs.front().radius - 10.0) < 1.0e-9 &&
+                    std::abs(arc_sketch.arcs.front().start_angle) < 1.0e-9 &&
+                    std::abs(arc_sketch.arcs.front().end_angle -
+                        3.14159265358979323846 / 2.0) < 1.0e-9,
+                "Three-point arc parameters are incorrect");
+        const auto arc_packet = arc_sketch.viewer_mesh();
+        require(arc_packet.edges.size() == 1 &&
+                    arc_packet.edges.front().points.size() == 25 &&
+                    arc_packet.edges.front().reference.semantic_key == "arc:" + arc_id,
+                "Arc did not produce an adaptive stable viewer curve");
+        auto arc_radius = arc_sketch.create_arc_radius_dimension(arc_id);
+        arc_radius.lower_limit = 5.0;
+        arc_radius.upper_limit = 25.0;
+        arc_radius.value = 18.0;
+        arc_sketch.apply_dimension(arc_radius);
+        require(std::abs(arc_sketch.arcs.front().radius - 18.0) < 1.0e-9 &&
+                    arc_sketch.dimensions.front().geometry_id == arc_id,
+                "Radius dimension did not drive its stable arc");
+        const auto dimensioned_arc_packet = arc_sketch.viewer_mesh();
+        require(dimensioned_arc_packet.dimensions.size() == 1 &&
+                    dimensioned_arc_packet.dimensions.front().label_prefix == "R" &&
+                    std::abs(dimensioned_arc_packet.dimensions.front().value - 18.0) < 1.0e-9,
+                "Arc radius dimension did not produce stable viewer data");
+        const auto arc_before_limit_error = arc_sketch;
+        auto invalid_arc_radius = arc_sketch.dimensions.front();
+        invalid_arc_radius.value = 30.0;
+        bool arc_limit_rejected = false;
+        try {
+            arc_sketch.apply_dimension(invalid_arc_radius);
+        } catch (const std::runtime_error&) {
+            arc_limit_rejected = true;
+        }
+        require(arc_limit_rejected && arc_sketch.arcs == arc_before_limit_error.arcs &&
+                    arc_sketch.dimensions == arc_before_limit_error.dimensions,
+                "Out-of-range arc radius partially changed the Sketch");
+        const auto loaded_arc = zima::sketcher::Sketch::from_serialized(
+            arc_sketch.serialized());
+        require(loaded_arc.arcs == arc_sketch.arcs &&
+                    loaded_arc.dimensions == arc_sketch.dimensions,
+                "Arc and radius dimension did not survive serialization");
+        const auto arc_before_invalid = arc_sketch;
+        bool invalid_arc_rejected = false;
+        try {
+            static_cast<void>(arc_sketch.add_arc(0.0, 0.0, 0.0, 0.0, 1.0, 0.0));
+        } catch (const std::invalid_argument&) {
+            invalid_arc_rejected = true;
+        }
+        require(invalid_arc_rejected && arc_sketch.arcs == arc_before_invalid.arcs &&
+                    arc_sketch.points == arc_before_invalid.points,
+                "Degenerate arc partially changed the Sketch");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

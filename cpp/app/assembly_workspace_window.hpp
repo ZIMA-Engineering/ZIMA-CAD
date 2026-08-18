@@ -42,8 +42,10 @@ private:
     QAction* sketch_segment_action_{};
     QAction* sketch_rectangle_action_{};
     QAction* sketch_circle_action_{};
+    QAction* sketch_arc_action_{};
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
+    QAction* sketch_coincident_action_{};
     QAction* sketch_dimension_action_{};
     QAction* sketch_radius_dimension_action_{};
     QAction* regenerate_part_action_{};
@@ -62,12 +64,18 @@ private:
     std::string active_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
+    std::string selected_sketch_arc_id_;
     std::optional<std::array<double, 2>> pending_segment_start_;
     bool sketch_segment_active_{};
     bool sketch_rectangle_active_{};
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
     bool sketch_circle_active_{};
     std::optional<std::array<double, 2>> pending_circle_center_;
+    bool sketch_arc_active_{};
+    std::optional<std::array<double, 2>> pending_arc_center_;
+    std::optional<std::array<double, 2>> pending_arc_start_;
+    bool sketch_coincident_active_{};
+    std::string pending_coincident_point_id_;
     bool preserve_view_on_refresh_{};
     zima::assembly::MateKind pending_mate_kind_{
         zima::assembly::MateKind::PlaneCoincident};
@@ -97,6 +105,8 @@ private:
     void cancel_sketch_rectangle();
     void start_sketch_circle();
     void cancel_sketch_circle();
+    void start_sketch_arc();
+    void cancel_sketch_arc();
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_segment_ray(
@@ -109,7 +119,15 @@ private:
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_circle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_arc_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void preview_sketch_arc_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void constrain_selected_segment(zima::sketcher::ConstraintKind kind);
+    void start_sketch_coincident();
+    void cancel_sketch_coincident();
+    void accept_sketch_coincident_point(
+        const zima::viewer::ViewerCandidate& candidate);
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {});
     void regenerate_active_part();

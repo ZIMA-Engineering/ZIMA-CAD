@@ -254,7 +254,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
         const auto kind = edge.reference.semantic_key.starts_with("segment:")
             ? CandidateKind::SketchSegment
-            : edge.reference.semantic_key.starts_with("circle:")
+            : edge.reference.semantic_key.starts_with("circle:") ||
+              edge.reference.semantic_key.starts_with("arc:")
                 ? CandidateKind::SketchCurve : CandidateKind::Edge;
         result.push_back({kind, edge.distance, edge.edge,
                           edge.reference.owner_id, edge.reference.semantic_key,
