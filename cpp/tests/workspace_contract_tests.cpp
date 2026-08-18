@@ -80,6 +80,13 @@ int main() {
             topassembly_id, subassembly_id, "Vložená podsestava");
         const std::string direct_part_occurrence = workspace.insert_open_part(
             topassembly_id, part_id, "Přímý kontextový díl");
+        const auto* inserted_subassembly = workspace.open_assembly(topassembly_id)
+            ->session.document().find_occurrence(subassembly_occurrence);
+        require(inserted_subassembly != nullptr &&
+                    inserted_subassembly->nested_snapshot.size() == 1 &&
+                    inserted_subassembly->nested_snapshot.front().name ==
+                        "Vnitřní díl",
+                "Assembly insertion did not capture its structural snapshot");
         const auto nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
         const std::string expected_nested_path =
@@ -125,6 +132,15 @@ int main() {
         require(maximum_y(workspace.open_assembly(topassembly_id)
                     ->session.document().build_scene()) == old_nested_maximum_y,
                 "Nested Part edit implicitly regenerated a top-level Assembly");
+        auto renamed_subassembly = workspace.open_assembly(subassembly_id)
+            ->session.document();
+        renamed_subassembly.components.front().name = "Přejmenovaný vnitřní díl";
+        workspace.open_assembly(subassembly_id)->session.commit(
+            std::move(renamed_subassembly));
+        require(workspace.open_assembly(topassembly_id)->session.document()
+                    .find_occurrence(subassembly_occurrence)
+                    ->nested_snapshot.front().name == "Vnitřní díl",
+                "Source Assembly edit leaked into parent structural snapshot");
         workspace.regenerate_assembly_from_open_dependencies(topassembly_id);
         const auto regenerated_nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
@@ -132,6 +148,21 @@ int main() {
                     regenerated_nested_scene.triangle_references.front().instance_path ==
                         expected_nested_path,
                 "Top-level Regenerate did not pull nested geometry or preserve identity");
+        require(workspace.open_assembly(topassembly_id)->session.document()
+                    .find_occurrence(subassembly_occurrence)
+                    ->nested_snapshot.front().name == "Přejmenovaný vnitřní díl",
+                "Top-level Regenerate did not refresh nested structural snapshot");
+        const auto nested_save_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-nested-snapshot-contract.zca.json";
+        workspace.open_assembly(topassembly_id)->session.document().save(
+            nested_save_path);
+        const auto loaded_nested = zima::assembly::AssemblyDocument::load(
+            nested_save_path);
+        std::filesystem::remove(nested_save_path);
+        require(loaded_nested.find_occurrence(subassembly_occurrence)
+                    ->nested_snapshot.front().name ==
+                        "Přejmenovaný vnitřní díl",
+                "Nested structural snapshot did not survive save/load");
         bool assembly_cycle_rejected = false;
         try {
             static_cast<void>(workspace.insert_open_assembly(

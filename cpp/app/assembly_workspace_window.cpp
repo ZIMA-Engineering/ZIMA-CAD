@@ -547,13 +547,22 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     bool ancestor_suppressed) {
     const auto* assembly = workspace_.open_assembly(assembly_document_id);
     if (assembly == nullptr) return;
-    const auto& document = assembly->session.document();
-    const auto effectively_suppressed = document.effectively_suppressed_occurrences();
-    for (const auto& component : document.components) {
+    add_snapshot_tree_children(
+        parent, assembly->session.document().occurrence_snapshot(),
+        assembly_document_id, parent_path, ancestor_suppressed);
+}
+
+void AssemblyWorkspaceWindow::add_snapshot_tree_children(
+    QTreeWidgetItem* parent,
+    const std::vector<zima::assembly::OccurrenceSnapshot>& snapshots,
+    const std::string& owner_assembly_document_id,
+    const zima::assembly::InstancePath& parent_path,
+    bool ancestor_suppressed) {
+    for (const auto& component : snapshots) {
         const bool suppressed = ancestor_suppressed ||
-            effectively_suppressed.contains(component.occurrence_id);
+            component.manually_suppressed || component.dependency_suppressed;
         QString label = QString::fromStdString(component.name);
-        if (component.suppressed) label += tr(" [potlačeno]");
+        if (component.manually_suppressed) label += tr(" [potlačeno]");
         else if (suppressed) {
             label += tr(" [potlačeno závislostí]");
         }
@@ -568,8 +577,13 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             component.source_kind == zima::assembly::ComponentSourceKind::Assembly
                 ? "assembly-occurrence" : "part-occurrence");
         item->setData(0, Qt::UserRole + 4,
-                      QString::fromStdString(assembly_document_id));
-        if (part_rollback_ && path.encoded() == part_rollback_->instance_path) {
+                      QString::fromStdString(owner_assembly_document_id));
+        const bool active_assembly_occurrence =
+            component.source_kind == zima::assembly::ComponentSourceKind::Assembly &&
+            path.encoded() == active_occurrence_path_ &&
+            component.source_document_id == workspace_.active_document_id();
+        if ((part_rollback_ && path.encoded() == part_rollback_->instance_path) ||
+            active_assembly_occurrence) {
             item->setForeground(0, QBrush(QColor(70, 190, 95)));
             QFont font = item->font(0);
             font.setBold(true);
@@ -577,11 +591,19 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
         } else if (suppressed || !component.visible) {
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
         }
-        if (component.source_kind == zima::assembly::ComponentSourceKind::Assembly &&
-            workspace_.open_assembly(component.source_document_id) != nullptr) {
-            add_assembly_tree_children(
-                item, component.source_document_id, path,
-                suppressed || !component.visible);
+        if (component.source_kind == zima::assembly::ComponentSourceKind::Assembly) {
+            const auto* active_source = active_assembly_occurrence
+                ? workspace_.open_assembly(component.source_document_id) : nullptr;
+            if (active_source != nullptr) {
+                add_snapshot_tree_children(
+                    item, active_source->session.document().occurrence_snapshot(),
+                    component.source_document_id, path,
+                    suppressed || !component.visible);
+            } else {
+                add_snapshot_tree_children(
+                    item, component.children, component.source_document_id, path,
+                    suppressed || !component.visible);
+            }
             item->setExpanded(true);
         }
     }

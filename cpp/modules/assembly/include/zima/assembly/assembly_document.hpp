@@ -33,6 +33,18 @@ enum class ComponentSourceKind {
     Assembly,
 };
 
+struct OccurrenceSnapshot {
+    std::string occurrence_id;
+    std::string name;
+    std::string source_document_id;
+    ComponentSourceKind source_kind{ComponentSourceKind::Part};
+    bool manually_suppressed{};
+    bool dependency_suppressed{};
+    bool visible{true};
+    std::vector<OccurrenceSnapshot> children;
+    bool operator==(const OccurrenceSnapshot&) const = default;
+};
+
 struct PartOccurrence {
     std::string occurrence_id;
     std::string name;
@@ -43,6 +55,7 @@ struct PartOccurrence {
     bool suppressed{};
     bool visible{true};
     zima::kernel::BodyResult calculated_source;
+    std::vector<OccurrenceSnapshot> nested_snapshot;
 };
 
 enum class ComponentDependencyKind {
@@ -74,10 +87,11 @@ public:
         std::string name,
         std::string source_document_id,
         std::filesystem::path source_path,
-        zima::kernel::ViewerMesh calculated_scene);
+        const AssemblyDocument& calculated_document);
     [[nodiscard]] const PartOccurrence* find_occurrence(
         const std::string& occurrence_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
+    [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& occurrence_id,
         zima::kernel::BodyResult calculated_source) const;

@@ -71,6 +71,12 @@ private:
         const std::string& assembly_document_id,
         const zima::assembly::InstancePath& parent_path,
         bool ancestor_suppressed = false);
+    void add_snapshot_tree_children(
+        QTreeWidgetItem* parent,
+        const std::vector<zima::assembly::OccurrenceSnapshot>& snapshots,
+        const std::string& owner_assembly_document_id,
+        const zima::assembly::InstancePath& parent_path,
+        bool ancestor_suppressed = false);
     void select_occurrence(const std::string& instance_path);
     void select_container(const std::string& container_id);
     void show_component_properties(const std::string& instance_path);

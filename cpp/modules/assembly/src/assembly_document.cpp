@@ -82,6 +82,58 @@ ComponentDependencyKind dependency_kind_from_name(const std::string& name) {
     throw std::runtime_error("Unknown component dependency kind");
 }
 
+nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
+    nlohmann::json children = nlohmann::json::array();
+    for (const auto& child : snapshot.children) children.push_back(serialize_snapshot(child));
+    return {
+        {"occurrence_id", snapshot.occurrence_id}, {"name", snapshot.name},
+        {"source_document_id", snapshot.source_document_id},
+        {"source_kind", source_kind_name(snapshot.source_kind)},
+        {"manually_suppressed", snapshot.manually_suppressed},
+        {"dependency_suppressed", snapshot.dependency_suppressed},
+        {"visible", snapshot.visible}, {"children", std::move(children)},
+    };
+}
+
+OccurrenceSnapshot load_snapshot(const nlohmann::json& source) {
+    OccurrenceSnapshot snapshot;
+    snapshot.occurrence_id = source.at("occurrence_id").get<std::string>();
+    snapshot.name = source.at("name").get<std::string>();
+    snapshot.source_document_id = source.at("source_document_id").get<std::string>();
+    snapshot.source_kind = source_kind_from_name(source.at("source_kind").get<std::string>());
+    snapshot.manually_suppressed = source.at("manually_suppressed").get<bool>();
+    snapshot.dependency_suppressed = source.at("dependency_suppressed").get<bool>();
+    snapshot.visible = source.at("visible").get<bool>();
+    if (snapshot.occurrence_id.empty() || snapshot.name.empty() ||
+        snapshot.source_document_id.empty()) {
+        throw std::runtime_error("Nested Assembly snapshot identity is invalid");
+    }
+    for (const auto& child : source.at("children")) {
+        snapshot.children.push_back(load_snapshot(child));
+    }
+    if (snapshot.source_kind == ComponentSourceKind::Part &&
+        !snapshot.children.empty()) {
+        throw std::runtime_error("Part snapshot must not contain child occurrences");
+    }
+    return snapshot;
+}
+
+void validate_snapshot_list(const std::vector<OccurrenceSnapshot>& snapshots) {
+    std::unordered_set<std::string> ids;
+    for (const auto& snapshot : snapshots) {
+        if (snapshot.occurrence_id.empty() || snapshot.name.empty() ||
+            snapshot.source_document_id.empty() ||
+            !ids.insert(snapshot.occurrence_id).second) {
+            throw std::runtime_error("Nested Assembly snapshot identity is invalid");
+        }
+        if (snapshot.source_kind == ComponentSourceKind::Part &&
+            !snapshot.children.empty()) {
+            throw std::runtime_error("Part snapshot must not contain child occurrences");
+        }
+        validate_snapshot_list(snapshot.children);
+    }
+}
+
 }  // namespace
 
 InstancePath InstancePath::child(const std::string& occurrence_id) const {
@@ -147,7 +199,7 @@ PartOccurrence AssemblyDocument::create_part_occurrence(
     return {
         make_id(), std::move(name), std::move(source_document_id),
         std::move(source_path), ComponentSourceKind::Part, {}, false, true,
-        std::move(calculated_source),
+        std::move(calculated_source), {},
     };
 }
 
@@ -155,12 +207,28 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
     std::string name,
     std::string source_document_id,
     std::filesystem::path source_path,
-    zima::kernel::ViewerMesh calculated_scene) {
+    const AssemblyDocument& calculated_document) {
     auto occurrence = create_part_occurrence(
         std::move(name), std::move(source_document_id), std::move(source_path), {});
     occurrence.source_kind = ComponentSourceKind::Assembly;
-    occurrence.calculated_source.mesh = std::move(calculated_scene);
+    occurrence.calculated_source.mesh = calculated_document.build_scene();
+    occurrence.nested_snapshot = calculated_document.occurrence_snapshot();
     return occurrence;
+}
+
+std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
+    const auto effectively_suppressed = effectively_suppressed_occurrences();
+    std::vector<OccurrenceSnapshot> result;
+    result.reserve(components.size());
+    for (const auto& component : components) {
+        result.push_back({
+            component.occurrence_id, component.name, component.source_document_id,
+            component.source_kind, component.suppressed,
+            !component.suppressed &&
+                effectively_suppressed.contains(component.occurrence_id),
+            component.visible, component.nested_snapshot});
+    }
+    return result;
 }
 
 const PartOccurrence* AssemblyDocument::find_occurrence(
@@ -350,6 +418,14 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         }
         component.calculated_source =
             zima::document::load_body_result(source.at("calculated_source"));
+        for (const auto& snapshot : source.at("nested_snapshot")) {
+            component.nested_snapshot.push_back(load_snapshot(snapshot));
+        }
+        validate_snapshot_list(component.nested_snapshot);
+        if (component.source_kind == ComponentSourceKind::Part &&
+            !component.nested_snapshot.empty()) {
+            throw std::runtime_error("Part occurrence must not contain an Assembly snapshot");
+        }
         for (const auto& reference : component.calculated_source.mesh.triangle_references) {
             if (component.source_kind == ComponentSourceKind::Part &&
                 !reference.instance_path.empty()) {
@@ -376,6 +452,11 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
     static_cast<void>(build_scene());
     nlohmann::json components_json = nlohmann::json::array();
     for (const auto& component : components) {
+        validate_snapshot_list(component.nested_snapshot);
+        nlohmann::json nested_snapshot = nlohmann::json::array();
+        for (const auto& snapshot : component.nested_snapshot) {
+            nested_snapshot.push_back(serialize_snapshot(snapshot));
+        }
         components_json.push_back({
             {"occurrence_id", component.occurrence_id},
             {"name", component.name},
@@ -393,6 +474,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             }},
             {"calculated_source",
              zima::document::serialize_body_result(component.calculated_source)},
+            {"nested_snapshot", std::move(nested_snapshot)},
         });
     }
     nlohmann::json dependencies_json = nlohmann::json::array();

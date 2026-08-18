@@ -179,19 +179,23 @@ dependants; visibility never propagates. Restoring a prerequisite restores
 dependency-suppressed components while preserving their own manual
 suppression. Cyclic edges are rejected.
 
-An occurrence may also source an Assembly snapshot. Scene composition prefixes
-the parent occurrence segment to existing leaf instance paths instead of
-flattening or replacing them, while placement remains owned by the immediate
-parent. Explicit top-level Regenerate recursively consumes open in-memory
-subassemblies and Parts. Insertion rejects direct and indirect document cycles.
+An occurrence may also source an Assembly snapshot. It persists both the scene
+and a recursive structural tree of stable IDs, names, source kinds, and
+component states. Scene composition prefixes the parent occurrence segment to
+existing leaf instance paths instead of flattening or replacing them, while
+placement remains owned by the immediate parent. Explicit top-level Regenerate
+recursively consumes open in-memory subassemblies and Parts and atomically
+refreshes both snapshots. Insertion rejects direct and indirect document cycles.
 
 The Workspace strictly decodes the full length-prefixed instance path to
 resolve a leaf occurrence and its immediate owning Assembly. The GUI tree uses
-those same paths recursively, so viewer confirmation and context actions stay
-exact for repeated nested sources. Properties, visibility, and suppression are
-committed to the immediate owner. Nested Part rollback replaces only the exact
-leaf geometry in the cached top-level scene, preserving passive siblings and
-avoiding parent regeneration.
+the persisted snapshot and those same paths recursively, so viewer confirmation
+and context actions stay exact for repeated nested sources. Only the exact
+activated subassembly occurrence substitutes its branch with live editable
+state; all other occurrences remain passive snapshots. Properties, visibility,
+and suppression are committed to the immediate owner. Nested Part rollback
+replaces only the exact leaf geometry in the cached top-level scene, preserving
+passive siblings and avoiding parent regeneration.
 
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model

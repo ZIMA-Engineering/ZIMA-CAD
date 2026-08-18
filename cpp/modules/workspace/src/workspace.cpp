@@ -254,7 +254,7 @@ std::string Workspace::insert_open_assembly(
     auto next = owner->session.document();
     auto occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
         std::move(occurrence_name), source_assembly_document_id, source->path,
-        source->session.document().build_scene());
+        source->session.document());
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -282,6 +282,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                     occurrence.source_document_id, recursion_stack);
                 occurrence.calculated_source = {};
                 occurrence.calculated_source.mesh = nested.build_scene();
+                occurrence.nested_snapshot = nested.occurrence_snapshot();
                 occurrence.source_path = open_assembly(
                     occurrence.source_document_id)->path;
             }

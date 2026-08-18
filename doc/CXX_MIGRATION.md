@@ -201,19 +201,23 @@ komponenty, zatímco jejich vlastní ruční potlačení zůstává zachované. 
 je odmítnut už při vložení vazby.
 
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
-vnitřní instance paths a parent k nim při skládání pouze přidá vlastní stabilní
-segment; opakované vložení stejné podsestavy proto nesloučí identity listových
-Partů. Umístění podsestavy vlastní výhradně její bezprostřední parent.
+vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
+ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní
+stabilní segment; opakované vložení stejné podsestavy proto nesloučí identity
+listových Partů. Umístění podsestavy vlastní výhradně její bezprostřední parent.
 Explicitní Regenerate top-level sestavy projde otevřené podsestavy až k
 autoritativním in-memory Partům, aniž by editace zdroje sama změnila parent.
 Vložení, které by uzavřelo přímý nebo nepřímý dokumentový cyklus, je odmítnuto.
 
 `InstancePath` má striktní obousměrný délkově kódovaný formát. Workspace podle
 celé cesty určí konkrétní occurrence, jeho source dokument i bezprostředně
-vlastnící Assembly. Strom GUI zobrazuje otevřené podsestavy rekurzivně a nese
-stejnou plnou cestu jako viewer candidate; výběr se proto synchronizuje i pro
-opakované hluboce vnořené zdroje. Vlastnosti, Skrýt a Potlačit se zapisují do
-bezprostředního owneru. Rollback vnořeného Partu nahradí v cached top-level
+vlastnící Assembly. Strom GUI zobrazuje persistovaný strukturální snapshot a
+nese stejnou plnou cestu jako viewer candidate; výběr se proto synchronizuje i
+pro opakované hluboce vnořené zdroje. Pouze přesná aktivovaná occurrence
+podsestavy nahradí svou větev živým editovatelným stavem, zatímco ostatní
+výskyty a parent zůstávají pasivní. Vlastnosti, Skrýt a Potlačit se zapisují do
+bezprostředního owneru. Explicitní Regenerate atomicky obnoví geometrický i
+strukturální snapshot. Rollback vnořeného Partu nahradí v cached top-level
 scéně jen geometrii přesné listové cesty a zachová všechny pasivní sourozence
 bez implicitní regenerace parentu.
 

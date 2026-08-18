@@ -161,6 +161,12 @@ int main() {
                     branch_suppressed.contains(second_id) &&
                     branch_suppressed.contains(third_id),
                 "Component suppression propagated against dependency direction");
+        const auto dependency_snapshot = dependent_assembly.occurrence_snapshot();
+        require(dependency_snapshot.size() == 3 &&
+                    !dependency_snapshot[0].dependency_suppressed &&
+                    dependency_snapshot[1].manually_suppressed &&
+                    dependency_snapshot[2].dependency_suppressed,
+                "Occurrence snapshot lost manual/dependency suppression distinction");
         bool component_cycle_rejected = false;
         try {
             dependent_assembly.add_dependency(
