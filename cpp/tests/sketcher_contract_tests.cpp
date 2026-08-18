@@ -609,13 +609,20 @@ int main() {
             ellipse_sketch.create_ellipse_radius_dimension(ellipse_id, false);
         ellipse_minor_dimension.value = 6.0;
         ellipse_sketch.apply_dimension(ellipse_minor_dimension);
+        auto ellipse_rotation_dimension =
+            ellipse_sketch.create_ellipse_rotation_dimension(ellipse_id);
+        ellipse_rotation_dimension.value = 30.0;
+        ellipse_sketch.apply_dimension(ellipse_rotation_dimension);
         const auto dimensioned_ellipse_packet = ellipse_sketch.viewer_mesh();
         require(std::abs(ellipse_sketch.ellipses.front().major_radius - 25.0) < 1.0e-9 &&
                     std::abs(ellipse_sketch.ellipses.front().minor_radius - 6.0) < 1.0e-9 &&
-                    dimensioned_ellipse_packet.dimensions.size() == 2 &&
+                    std::abs(ellipse_sketch.ellipses.front().rotation -
+                        3.14159265358979323846 / 6.0) < 1.0e-9 &&
+                    dimensioned_ellipse_packet.dimensions.size() == 3 &&
                     dimensioned_ellipse_packet.dimensions[0].label_prefix == "a=" &&
-                    dimensioned_ellipse_packet.dimensions[1].label_prefix == "b=",
-                "Ellipse semiaxis dimensions did not drive geometry or viewer data");
+                    dimensioned_ellipse_packet.dimensions[1].label_prefix == "b=" &&
+                    dimensioned_ellipse_packet.dimensions[2].unit_suffix == " °",
+                "Ellipse dimensions did not drive geometry or viewer data");
         const auto loaded_dimensioned_ellipse = zima::sketcher::Sketch::from_serialized(
             ellipse_sketch.serialized());
         require(loaded_dimensioned_ellipse.dimensions == ellipse_sketch.dimensions,

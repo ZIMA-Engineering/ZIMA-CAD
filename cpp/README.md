@@ -368,6 +368,11 @@ ID, support driving/measured state and absolute lower/upper limits, update their
 axis point transactionally, persist in the current Sketch format, and render as
 pickable `a=` and `b=` dimensions. Editing the tree or viewer dimension reuses the
 same Properties class as every other Sketch dimension.
+Ellipse rotation is a third independent driving/measured dimension in degrees.
+Changing it rotates both persisted axis points about the centre without changing
+either semiaxis; dragging the major point respects an active driving rotation.
+The viewer and tree expose the same stable dimension ID, degree suffix, absolute
+limits, and shared internal Properties editing contract.
 
 The Coincident command owns an explicit point-only viewer selection contract.
 Two confirmed stable `point:<id>` candidates create one transactional constraint;

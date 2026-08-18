@@ -16,7 +16,7 @@ enum class ConstraintKind {
 };
 enum class DimensionKind {
     Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
-    EllipseMajorRadius, EllipseMinorRadius
+    EllipseMajorRadius, EllipseMinorRadius, EllipseRotation
 };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
@@ -164,6 +164,8 @@ public:
         const std::string& arc_id) const;
     [[nodiscard]] SketchDimension create_ellipse_radius_dimension(
         const std::string& ellipse_id, bool major) const;
+    [[nodiscard]] SketchDimension create_ellipse_rotation_dimension(
+        const std::string& ellipse_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(

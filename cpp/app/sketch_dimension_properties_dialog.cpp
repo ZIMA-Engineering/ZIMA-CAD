@@ -60,7 +60,8 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         upper_enabled_, upper_, initial_.upper_limit.has_value(),
         initial_.upper_limit.value_or(initial_.value),
         "sketchUpperEnabled", "sketchUpperLimit", this));
-    if (initial_.kind == zima::sketcher::DimensionKind::Angle) {
+    if (initial_.kind == zima::sketcher::DimensionKind::Angle ||
+        initial_.kind == zima::sketcher::DimensionKind::EllipseRotation) {
         value_->setRange(-180.0, 180.0);
         value_->setSuffix(" °");
         lower_->setRange(-180.0, 180.0);
@@ -104,7 +105,8 @@ bool SketchDimensionPropertiesDialog::submit() {
         error_->setText(tr("Délka ani poloměr nesmí být záporný."));
         return false;
     }
-    if (result.kind == zima::sketcher::DimensionKind::Angle &&
+    if ((result.kind == zima::sketcher::DimensionKind::Angle ||
+         result.kind == zima::sketcher::DimensionKind::EllipseRotation) &&
         (result.value < -180.0 || result.value > 180.0)) {
         error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));
         return false;

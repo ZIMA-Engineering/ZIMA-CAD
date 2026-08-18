@@ -125,6 +125,10 @@ void AssemblyWorkspaceWindow::create_actions() {
         tr("Kóta vedlejší poloosy elipsy…"), this,
         [this] { show_sketch_dimension_properties(active_sketch_id_, {},
             zima::sketcher::DimensionKind::EllipseMinorRadius); });
+    sketch_ellipse_rotation_dimension_action_ = modeling->addAction(
+        tr("Kóta natočení elipsy…"), this,
+        [this] { show_sketch_dimension_properties(active_sketch_id_, {},
+            zima::sketcher::DimensionKind::EllipseRotation); });
     regenerate_part_action_ = modeling->addAction(tr("Regenerovat Part"), this,
         [this] { regenerate_active_part(); });
     auto* assembly = menuBar()->addMenu(tr("Sestava"));
@@ -170,6 +174,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         sketch_ellipse_major_dimension_action_->setEnabled(false);
         sketch_ellipse_minor_dimension_action_->setEnabled(false);
+        sketch_ellipse_rotation_dimension_action_->setEnabled(false);
         if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
@@ -244,6 +249,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_diameter_dimension_action_->setEnabled(false);
             sketch_ellipse_major_dimension_action_->setEnabled(true);
             sketch_ellipse_minor_dimension_action_->setEnabled(true);
+            sketch_ellipse_rotation_dimension_action_->setEnabled(true);
             sketch_fix_point_action_->setEnabled(false);
             state_->setText(tr("Vybrána elipsa skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
@@ -1333,10 +1339,13 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
             : !selected_sketch_arc_id_.empty()
                 ? sketch->create_arc_radius_dimension(selected_sketch_arc_id_)
             : !selected_sketch_ellipse_id_.empty()
-                ? sketch->create_ellipse_radius_dimension(
-                    selected_sketch_ellipse_id_,
-                    creation_kind ==
-                        zima::sketcher::DimensionKind::EllipseMajorRadius)
+                ? creation_kind == zima::sketcher::DimensionKind::EllipseRotation
+                    ? sketch->create_ellipse_rotation_dimension(
+                        selected_sketch_ellipse_id_)
+                    : sketch->create_ellipse_radius_dimension(
+                        selected_sketch_ellipse_id_,
+                        creation_kind ==
+                            zima::sketcher::DimensionKind::EllipseMajorRadius)
                 : sketch->create_segment_dimension(
                     selected_sketch_segment_id_, creation_kind);
     const std::string part_id = part->session.document().document_id;
@@ -1871,6 +1880,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         ? tr("Hlavní poloosa a=%1 mm").arg(dimension.value, 0, 'f', 3)
                     : dimension.kind == zima::sketcher::DimensionKind::EllipseMinorRadius
                         ? tr("Vedlejší poloosa b=%1 mm").arg(dimension.value, 0, 'f', 3)
+                    : dimension.kind == zima::sketcher::DimensionKind::EllipseRotation
+                        ? tr("Natočení elipsy %1°").arg(dimension.value, 0, 'f', 3)
                         : tr("Kóta %1 mm").arg(dimension.value, 0, 'f', 3);
                 auto* child = new QTreeWidgetItem(item, {
                     dimension_label});
@@ -1942,6 +1953,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             !selected_sketch_ellipse_id_.empty());
         sketch_ellipse_minor_dimension_action_->setEnabled(
             !selected_sketch_ellipse_id_.empty());
+        sketch_ellipse_rotation_dimension_action_->setEnabled(
+            !selected_sketch_ellipse_id_.empty());
         sketch_fix_point_action_->setEnabled(!selected_sketch_point_id_.empty());
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
@@ -2012,6 +2025,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_diameter_dimension_action_->setEnabled(false);
     sketch_ellipse_major_dimension_action_->setEnabled(false);
     sketch_ellipse_minor_dimension_action_->setEnabled(false);
+    sketch_ellipse_rotation_dimension_action_->setEnabled(false);
     sketch_fix_point_action_->setEnabled(false);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {
