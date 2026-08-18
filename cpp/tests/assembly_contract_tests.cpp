@@ -235,6 +235,93 @@ int main() {
                     mate_session.document().mates.size() == 1 &&
                     mate_session.document().dependencies.size() == 1,
                 "Mate removal did not restore its dependency through Undo");
+        auto rotated_axis_mate = loaded;
+        rotated_axis_mate.components.back().placement.x = 25.0;
+        rotated_axis_mate.components.back().placement.rotation_x = 90.0;
+        rotated_axis_mate.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Natočená osa", zima::assembly::MateKind::AxisCoincident,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "axis:z"}));
+        rotated_axis_mate.calculate_mates();
+        const auto rotated_axis_dependent = rotated_axis_mate.resolve_axis(
+            rotated_axis_mate.mates.front().dependent);
+        const auto rotated_axis_prerequisite = rotated_axis_mate.resolve_axis(
+            rotated_axis_mate.mates.front().prerequisite);
+        const double rotated_axis_alignment =
+            rotated_axis_dependent.axis.direction.x *
+                rotated_axis_prerequisite.axis.direction.x +
+            rotated_axis_dependent.axis.direction.y *
+                rotated_axis_prerequisite.axis.direction.y +
+            rotated_axis_dependent.axis.direction.z *
+                rotated_axis_prerequisite.axis.direction.z;
+        const auto rotated_axis_placement = rotated_axis_mate.components.back().placement;
+        rotated_axis_mate.calculate_mates();
+        require(rotated_axis_mate.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(std::abs(rotated_axis_alignment) - 1.0) < 1.0e-7 &&
+                    std::abs(rotated_axis_mate.components.back().placement.rotation_x -
+                             rotated_axis_placement.rotation_x) < 1.0e-7 &&
+                    std::abs(rotated_axis_mate.components.back().placement.rotation_y -
+                             rotated_axis_placement.rotation_y) < 1.0e-7 &&
+                    std::abs(rotated_axis_mate.components.back().placement.rotation_z -
+                             rotated_axis_placement.rotation_z) < 1.0e-7,
+                "Axis mate did not rotate a perpendicular axis idempotently");
+        const auto rotated_mate_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-rotated-mate-contract.zca.json";
+        rotated_axis_mate.save(rotated_mate_path);
+        const auto loaded_rotated_mate =
+            zima::assembly::AssemblyDocument::load(rotated_mate_path);
+        std::filesystem::remove(rotated_mate_path);
+        require(std::abs(loaded_rotated_mate.components.back().placement.rotation_x -
+                         rotated_axis_placement.rotation_x) < 1.0e-7 &&
+                    std::abs(loaded_rotated_mate.components.back().placement.rotation_y -
+                             rotated_axis_placement.rotation_y) < 1.0e-7 &&
+                    std::abs(loaded_rotated_mate.components.back().placement.rotation_z -
+                             rotated_axis_placement.rotation_z) < 1.0e-7 &&
+                    loaded_rotated_mate.mates.front().status ==
+                        zima::assembly::MateStatus::Valid,
+                "Calculated rotational mate placement did not survive save/load");
+        auto rotated_plane_mate = loaded;
+        rotated_plane_mate.components.back().placement.rotation_y = 90.0;
+        rotated_plane_mate.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Natočená plocha", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"}, 4.0));
+        rotated_plane_mate.calculate_mates();
+        const auto rotated_plane_dependent = rotated_plane_mate.resolve_plane(
+            rotated_plane_mate.mates.front().dependent);
+        const auto rotated_plane_prerequisite = rotated_plane_mate.resolve_plane(
+            rotated_plane_mate.mates.front().prerequisite);
+        const double rotated_plane_alignment =
+            rotated_plane_dependent.plane.normal.x *
+                rotated_plane_prerequisite.plane.normal.x +
+            rotated_plane_dependent.plane.normal.y *
+                rotated_plane_prerequisite.plane.normal.y +
+            rotated_plane_dependent.plane.normal.z *
+                rotated_plane_prerequisite.plane.normal.z;
+        const double rotated_plane_offset =
+            (rotated_plane_dependent.plane.point.x -
+             rotated_plane_prerequisite.plane.point.x) *
+                rotated_plane_prerequisite.plane.normal.x +
+            (rotated_plane_dependent.plane.point.y -
+             rotated_plane_prerequisite.plane.point.y) *
+                rotated_plane_prerequisite.plane.normal.y +
+            (rotated_plane_dependent.plane.point.z -
+             rotated_plane_prerequisite.plane.point.z) *
+                rotated_plane_prerequisite.plane.normal.z;
+        require(rotated_plane_mate.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(std::abs(rotated_plane_alignment) - 1.0) < 1.0e-7 &&
+                    std::abs(rotated_plane_offset - 4.0) < 1.0e-7,
+                "Plane mate did not rotate and offset a perpendicular plane");
         auto combined_mates = loaded;
         combined_mates.components.back().placement.x = 20.0;
         combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
@@ -265,6 +352,43 @@ int main() {
                     std::abs(combined_axis_dependent.axis.point.y -
                              combined_axis_prerequisite.axis.point.y) < 1.0e-7,
                 "Axis and plane mates did not preserve their independent constraints");
+        auto conflicting_mates = loaded;
+        conflicting_mates.components.back().placement.x = 17.0;
+        const auto placement_before_conflict = conflicting_mates.components.back().placement;
+        conflicting_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Osa Z", zima::assembly::MateKind::AxisCoincident,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "axis:z"}));
+        conflicting_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Plocha Z na X", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "x_max"}));
+        conflicting_mates.calculate_mates();
+        require(conflicting_mates.mates[0].status ==
+                    zima::assembly::MateStatus::UnsupportedGeometry &&
+                    conflicting_mates.mates[1].status ==
+                    zima::assembly::MateStatus::UnsupportedGeometry &&
+                    conflicting_mates.components.back().placement.x ==
+                        placement_before_conflict.x &&
+                    conflicting_mates.components.back().placement.y ==
+                        placement_before_conflict.y &&
+                    conflicting_mates.components.back().placement.z ==
+                        placement_before_conflict.z &&
+                    conflicting_mates.components.back().placement.rotation_x ==
+                        placement_before_conflict.rotation_x &&
+                    conflicting_mates.components.back().placement.rotation_y ==
+                        placement_before_conflict.rotation_y &&
+                    conflicting_mates.components.back().placement.rotation_z ==
+                        placement_before_conflict.rotation_z,
+                "Conflicting rotational mates damaged the previous placement");
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.back().visible = false;

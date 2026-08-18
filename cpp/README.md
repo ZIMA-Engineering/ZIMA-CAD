@@ -221,13 +221,19 @@ nested instance-path prefixing, rollback, picking, and highlighting then consume
 only ZIMA data. Axis candidates join the common ordered list and become visibly
 selectable only under an explicit Axis selection contract.
 
-Axis-coincident solves the bounded parallel-axis case by removing perpendicular
-line distance while deliberately leaving translation and rotation along the
-axis free. It can combine with one plane mate on the same component; both
-constraints are verified after calculation and conflicts stay unsupported.
-Non-parallel axes await the rotational solver. The GUI reuses the two-reference
-workflow and internal Properties window, with offset disabled because axial
-translation is intentionally unconstrained.
+Axis-coincident rotates an arbitrarily oriented dependent axis onto the nearest
+equivalent direction of the prerequisite axis and then removes perpendicular
+line distance. Translation and rotation along the common axis deliberately
+remain free. Plane-coincident uses the same shortest world-space rotation about
+the selected dependent point before applying its signed offset. Parallel and
+antiparallel references are therefore both stable and do not cause an arbitrary
+180-degree flip.
+
+Every calculated mate is verified again from persisted ZIMA geometry. Compatible
+axis and plane mates may drive one component together. If their final orientation
+or position conflicts, the component placement is restored to its exact
+pre-calculation state and all affected mates remain explicitly unsupported rather
+than leaving a partial transform behind.
 
 Mates now have a complete editing lifecycle. Creation and double-click editing
 reuse the same internal `MatePropertiesDialog`; OK replaces the mate, rebuilds

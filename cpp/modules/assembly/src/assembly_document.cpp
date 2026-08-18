@@ -58,6 +58,117 @@ zima::kernel::Vec3 transform_direction(
     return transform_point(source, placement);
 }
 
+struct RotationMatrix {
+    double value[3][3]{};
+};
+
+double dot(const zima::kernel::Vec3& a, const zima::kernel::Vec3& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+zima::kernel::Vec3 cross(const zima::kernel::Vec3& a, const zima::kernel::Vec3& b) {
+    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x};
+}
+
+double length(const zima::kernel::Vec3& value) {
+    return std::sqrt(dot(value, value));
+}
+
+zima::kernel::Vec3 multiply(
+    const RotationMatrix& matrix, const zima::kernel::Vec3& value) {
+    return {
+        matrix.value[0][0] * value.x + matrix.value[0][1] * value.y +
+            matrix.value[0][2] * value.z,
+        matrix.value[1][0] * value.x + matrix.value[1][1] * value.y +
+            matrix.value[1][2] * value.z,
+        matrix.value[2][0] * value.x + matrix.value[2][1] * value.y +
+            matrix.value[2][2] * value.z};
+}
+
+RotationMatrix multiply(const RotationMatrix& left, const RotationMatrix& right) {
+    RotationMatrix result;
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; column < 3; ++column) {
+            for (int index = 0; index < 3; ++index) {
+                result.value[row][column] +=
+                    left.value[row][index] * right.value[index][column];
+            }
+        }
+    }
+    return result;
+}
+
+RotationMatrix placement_rotation(const ComponentPlacement& placement) {
+    constexpr double radians = 3.14159265358979323846 / 180.0;
+    const double cx = std::cos(placement.rotation_x * radians);
+    const double sx = std::sin(placement.rotation_x * radians);
+    const double cy = std::cos(placement.rotation_y * radians);
+    const double sy = std::sin(placement.rotation_y * radians);
+    const double cz = std::cos(placement.rotation_z * radians);
+    const double sz = std::sin(placement.rotation_z * radians);
+    return {{{cy * cz, cz * sx * sy - cx * sz, sx * sz + cx * cz * sy},
+             {cy * sz, cx * cz + sx * sy * sz, cx * sy * sz - cz * sx},
+             {-sy, cy * sx, cx * cy}}};
+}
+
+RotationMatrix shortest_rotation(
+    const zima::kernel::Vec3& source, zima::kernel::Vec3 target) {
+    constexpr double epsilon = 1.0e-12;
+    if (dot(source, target) < 0.0) {
+        target = {-target.x, -target.y, -target.z};
+    }
+    const auto axis = cross(source, target);
+    const double sine = length(axis);
+    const double cosine = std::clamp(dot(source, target), -1.0, 1.0);
+    if (sine < epsilon) return {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
+    const zima::kernel::Vec3 unit{axis.x / sine, axis.y / sine, axis.z / sine};
+    const double one_minus_cosine = 1.0 - cosine;
+    return {{{
+        cosine + unit.x * unit.x * one_minus_cosine,
+        unit.x * unit.y * one_minus_cosine - unit.z * sine,
+        unit.x * unit.z * one_minus_cosine + unit.y * sine}, {
+        unit.y * unit.x * one_minus_cosine + unit.z * sine,
+        cosine + unit.y * unit.y * one_minus_cosine,
+        unit.y * unit.z * one_minus_cosine - unit.x * sine}, {
+        unit.z * unit.x * one_minus_cosine - unit.y * sine,
+        unit.z * unit.y * one_minus_cosine + unit.x * sine,
+        cosine + unit.z * unit.z * one_minus_cosine}}};
+}
+
+void set_placement_rotation(ComponentPlacement& placement, const RotationMatrix& rotation) {
+    constexpr double degrees = 180.0 / 3.14159265358979323846;
+    const double y = std::asin(std::clamp(-rotation.value[2][0], -1.0, 1.0));
+    const double cy = std::cos(y);
+    double x{};
+    double z{};
+    if (std::abs(cy) > 1.0e-10) {
+        x = std::atan2(rotation.value[2][1], rotation.value[2][2]);
+        z = std::atan2(rotation.value[1][0], rotation.value[0][0]);
+    } else {
+        x = 0.0;
+        z = std::atan2(-rotation.value[0][1], rotation.value[1][1]);
+    }
+    placement.rotation_x = x * degrees;
+    placement.rotation_y = y * degrees;
+    placement.rotation_z = z * degrees;
+}
+
+void rotate_occurrence_about(
+    PartOccurrence& occurrence, const RotationMatrix& world_rotation,
+    const zima::kernel::Vec3& fixed_point) {
+    const zima::kernel::Vec3 translation{
+        occurrence.placement.x, occurrence.placement.y, occurrence.placement.z};
+    const auto rotated_translation = multiply(world_rotation, translation);
+    const auto rotated_fixed = multiply(world_rotation, fixed_point);
+    occurrence.placement.x = rotated_translation.x + fixed_point.x - rotated_fixed.x;
+    occurrence.placement.y = rotated_translation.y + fixed_point.y - rotated_fixed.y;
+    occurrence.placement.z = rotated_translation.z + fixed_point.z - rotated_fixed.z;
+    set_placement_rotation(
+        occurrence.placement,
+        multiply(world_rotation, placement_rotation(occurrence.placement)));
+}
+
 template <typename Reference>
 void assign_instance(Reference& reference, const std::string& instance_path) {
     if (reference.valid()) reference.instance_path = instance_path + reference.instance_path;
@@ -492,6 +603,10 @@ AxisResolution AssemblyDocument::resolve_axis(
 
 void AssemblyDocument::calculate_mates() {
     constexpr double parallel_tolerance = 1.0e-7;
+    std::unordered_map<std::string, ComponentPlacement> original_placements;
+    for (const auto& component : components) {
+        original_placements.emplace(component.occurrence_id, component.placement);
+    }
     for (auto& mate : mates) mate.status = MateStatus::Uncalculated;
     const auto calculate_plane = [&](AssemblyMate& mate) {
         if (mate.dependent.kind != MateReferenceKind::Face ||
@@ -515,23 +630,29 @@ void AssemblyDocument::calculate_mates() {
             dependent_normal.x * prerequisite_normal.x +
             dependent_normal.y * prerequisite_normal.y +
             dependent_normal.z * prerequisite_normal.z;
-        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto& dependent_point = dependent_plane.plane.point;
-        const auto& prerequisite_point = prerequisite_plane.plane.point;
-        const double current_offset =
-            (dependent_point.x - prerequisite_point.x) * prerequisite_normal.x +
-            (dependent_point.y - prerequisite_point.y) * prerequisite_normal.y +
-            (dependent_point.z - prerequisite_point.z) * prerequisite_normal.z;
-        const double correction = mate.offset - current_offset;
         auto* occurrence = find_occurrence(
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
             mate.status = MateStatus::MissingReference;
             return;
         }
+        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
+            rotate_occurrence_about(*occurrence,
+                shortest_rotation(dependent_normal, prerequisite_normal),
+                dependent_plane.plane.point);
+        }
+        const auto aligned_dependent = resolve_plane(mate.dependent);
+        if (aligned_dependent.status != MateStatus::Valid) {
+            mate.status = aligned_dependent.status;
+            return;
+        }
+        const auto& dependent_point = aligned_dependent.plane.point;
+        const auto& prerequisite_point = prerequisite_plane.plane.point;
+        const double current_offset =
+            (dependent_point.x - prerequisite_point.x) * prerequisite_normal.x +
+            (dependent_point.y - prerequisite_point.y) * prerequisite_normal.y +
+            (dependent_point.z - prerequisite_point.z) * prerequisite_normal.z;
+        const double correction = mate.offset - current_offset;
         occurrence->placement.x += prerequisite_normal.x * correction;
         occurrence->placement.y += prerequisite_normal.y * correction;
         occurrence->placement.z += prerequisite_normal.z * correction;
@@ -558,14 +679,26 @@ void AssemblyDocument::calculate_mates() {
             dependent.axis.direction.x * prerequisite.axis.direction.x +
             dependent.axis.direction.y * prerequisite.axis.direction.y +
             dependent.axis.direction.z * prerequisite.axis.direction.z;
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            return;
+        }
         if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
-            mate.status = MateStatus::UnsupportedGeometry;
+            rotate_occurrence_about(*occurrence,
+                shortest_rotation(dependent.axis.direction, prerequisite.axis.direction),
+                dependent.axis.point);
+        }
+        const auto aligned_dependent = resolve_axis(mate.dependent);
+        if (aligned_dependent.status != MateStatus::Valid) {
+            mate.status = aligned_dependent.status;
             return;
         }
         const zima::kernel::Vec3 delta{
-            prerequisite.axis.point.x - dependent.axis.point.x,
-            prerequisite.axis.point.y - dependent.axis.point.y,
-            prerequisite.axis.point.z - dependent.axis.point.z};
+            prerequisite.axis.point.x - aligned_dependent.axis.point.x,
+            prerequisite.axis.point.y - aligned_dependent.axis.point.y,
+            prerequisite.axis.point.z - aligned_dependent.axis.point.z};
         const double axial =
             delta.x * prerequisite.axis.direction.x +
             delta.y * prerequisite.axis.direction.y +
@@ -574,12 +707,6 @@ void AssemblyDocument::calculate_mates() {
             delta.x - axial * prerequisite.axis.direction.x,
             delta.y - axial * prerequisite.axis.direction.y,
             delta.z - axial * prerequisite.axis.direction.z};
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
         occurrence->placement.x += correction.x;
         occurrence->placement.y += correction.y;
         occurrence->placement.z += correction.z;
@@ -619,7 +746,11 @@ void AssemblyDocument::calculate_mates() {
                 delta.x - axial * prerequisite.axis.direction.x,
                 delta.y - axial * prerequisite.axis.direction.y,
                 delta.z - axial * prerequisite.axis.direction.z};
-            conflicts[index] = std::sqrt(
+            const double alignment = dot(
+                dependent.axis.direction, prerequisite.axis.direction);
+            conflicts[index] =
+                std::abs(std::abs(alignment) - 1.0) > parallel_tolerance ||
+                std::sqrt(
                 radial.x * radial.x + radial.y * radial.y + radial.z * radial.z) >
                 parallel_tolerance;
         } else {
@@ -635,11 +766,31 @@ void AssemblyDocument::calculate_mates() {
                 (dependent.plane.point.x - prerequisite.plane.point.x) * normal.x +
                 (dependent.plane.point.y - prerequisite.plane.point.y) * normal.y +
                 (dependent.plane.point.z - prerequisite.plane.point.z) * normal.z;
-            conflicts[index] = std::abs(offset - mate.offset) > parallel_tolerance;
+            const double alignment = dot(
+                dependent.plane.normal, prerequisite.plane.normal);
+            conflicts[index] =
+                std::abs(std::abs(alignment) - 1.0) > parallel_tolerance ||
+                std::abs(offset - mate.offset) > parallel_tolerance;
         }
     }
+    std::unordered_set<std::string> conflicted_occurrences;
     for (std::size_t index = 0; index < mates.size(); ++index) {
-        if (conflicts[index]) mates[index].status = MateStatus::UnsupportedGeometry;
+        if (conflicts[index]) {
+            mates[index].status = MateStatus::UnsupportedGeometry;
+            conflicted_occurrences.insert(
+                mates[index].dependent.instance_path.occurrence_ids.front());
+        }
+    }
+    for (const auto& occurrence_id : conflicted_occurrences) {
+        if (auto* occurrence = find_occurrence(occurrence_id)) {
+            occurrence->placement = original_placements.at(occurrence_id);
+        }
+        for (auto& mate : mates) {
+            if (!mate.suppressed &&
+                mate.dependent.instance_path.occurrence_ids.front() == occurrence_id) {
+                mate.status = MateStatus::UnsupportedGeometry;
+            }
+        }
     }
 }
 

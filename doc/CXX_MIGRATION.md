@@ -251,13 +251,19 @@ při rollbacku jiného occurrence. Společný ordered candidate list obsahuje
 `Axis`; během axis selection contractu jsou osy zobrazené a hover/LMB/RMB
 pracují se stejnou kandidátní sadou a přesným zvýrazněním.
 
-Vazba osa–osa pro již rovnoběžné osy odstraní kolmou vzdálenost mezi přímkami,
-ale správně ponechá volný posun a rotaci podél osy. Lze ji kombinovat s jednou
-vazbou plocha–plocha na stejné komponentě; po výpočtu se oba výsledky znovu
-ověří a konflikt se nepředstírá jako platné řešení. Nerovnoběžné osy budou
-vyžadovat rotační část budoucího solveru a zatím jsou explicitně nepodporované.
-GUI používá stejný dvoukrokový výběr a interní Properties okno; u osa–osa se
-nezobrazuje editovatelný offset, protože posun podél společné osy zůstává
+Vazba osa–osa natočí libovolně orientovanou závislou osu nejkratší rotací na
+nejbližší ekvivalentní směr referenční osy a potom odstraní kolmou vzdálenost
+mezi přímkami. Správně ponechá volný posun a rotaci podél osy. Vazba
+plocha–plocha stejným principem nejprve natočí komponentu kolem vybraného bodu
+a potom aplikuje podepsané odsazení. Souhlasná i opačná orientace zůstávají
+stabilní bez zbytečného obratu o 180 stupňů.
+
+Osovou a rovinnou vazbu lze kombinovat na stejné komponentě; po výpočtu se oba
+výsledky znovu ověří z persistovaných ZIMA dat. Konflikt vrátí přesný placement
+komponenty před regenerací a označí všechny její aktivní vazby jako
+nepodporované, takže v dokumentu nezůstane částečný pohyb. GUI používá stejný
+dvoukrokový výběr a interní Properties okno; u osa–osa se nezobrazuje
+editovatelný offset, protože posun podél společné osy zůstává
 stupněm volnosti.
 
 Vazby mají nyní celý editační životní cyklus. Stejný `MatePropertiesDialog`
