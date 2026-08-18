@@ -6,7 +6,9 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -26,6 +28,8 @@
 #include <TopoDS_Wire.hxx>
 #include <TopLoc_Location.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
@@ -134,8 +138,17 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 primitive.direction.x * primitive.direction.x +
                 primitive.direction.y * primitive.direction.y +
                 primitive.direction.z * primitive.direction.z);
+            const Vec3 origin = std::visit([](const auto& profile) {
+                using Profile = std::decay_t<decltype(profile)>;
+                if constexpr (std::is_same_v<Profile,
+                                  ExtrusionRequest::PolygonProfile>) {
+                    return profile.vertices.front();
+                } else {
+                    return profile.center;
+                }
+            }, primitive.profile);
             return std::vector<ViewerAxis>{{
-                primitive.profile.front(),
+                origin,
                 {primitive.direction.x / length, primitive.direction.y / length,
                  primitive.direction.z / length},
                 length, {operation.owner_id, "axis"}}};
@@ -279,15 +292,29 @@ PrimitiveData make_cylinder_data(
 }
 
 void validate_extrusion(const ExtrusionRequest& request) {
-    if (request.profile.size() < 3) {
-        throw std::invalid_argument("Extrusion profile requires at least three vertices");
-    }
-    for (const auto& point : request.profile) {
-        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
-            !std::isfinite(point.z)) {
-            throw std::invalid_argument("Extrusion profile coordinates must be finite");
+    std::visit([](const auto& profile) {
+        using Profile = std::decay_t<decltype(profile)>;
+        if constexpr (std::is_same_v<Profile,
+                          ExtrusionRequest::PolygonProfile>) {
+            if (profile.vertices.size() < 3) {
+                throw std::invalid_argument(
+                    "Extrusion profile requires at least three vertices");
+            }
+            for (const auto& point : profile.vertices) {
+                if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+                    !std::isfinite(point.z)) {
+                    throw std::invalid_argument(
+                        "Extrusion profile coordinates must be finite");
+                }
+            }
+        } else if (!std::isfinite(profile.center.x) ||
+                   !std::isfinite(profile.center.y) ||
+                   !std::isfinite(profile.center.z) ||
+                   !std::isfinite(profile.radius) || profile.radius <= 0.0) {
+            throw std::invalid_argument(
+                "Extrusion Circle must have a finite center and positive radius");
         }
-    }
+    }, request.profile);
     const double length = std::sqrt(
         request.direction.x * request.direction.x +
         request.direction.y * request.direction.y +
@@ -299,13 +326,36 @@ void validate_extrusion(const ExtrusionRequest& request) {
 
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id) {
-    BRepBuilderAPI_MakePolygon polygon;
-    for (const auto& point : request.profile) {
-        polygon.Add(gp_Pnt(point.x, point.y, point.z));
-    }
-    polygon.Close();
-    if (!polygon.IsDone()) throw std::runtime_error("OCCT profile wire failed");
-    const TopoDS_Wire wire = polygon.Wire();
+    const TopoDS_Wire wire = std::visit([&](const auto& profile) {
+        using Profile = std::decay_t<decltype(profile)>;
+        if constexpr (std::is_same_v<Profile,
+                          ExtrusionRequest::PolygonProfile>) {
+            BRepBuilderAPI_MakePolygon polygon;
+            for (const auto& point : profile.vertices) {
+                polygon.Add(gp_Pnt(point.x, point.y, point.z));
+            }
+            polygon.Close();
+            if (!polygon.IsDone()) {
+                throw std::runtime_error("OCCT polygon profile wire failed");
+            }
+            return polygon.Wire();
+        } else {
+            const gp_Dir normal(
+                request.direction.x, request.direction.y, request.direction.z);
+            BRepBuilderAPI_MakeEdge edge(gp_Circ(
+                gp_Ax2(gp_Pnt(profile.center.x, profile.center.y, profile.center.z),
+                       normal),
+                profile.radius));
+            if (!edge.IsDone()) {
+                throw std::runtime_error("OCCT circular profile edge failed");
+            }
+            BRepBuilderAPI_MakeWire circle_wire(edge.Edge());
+            if (!circle_wire.IsDone()) {
+                throw std::runtime_error("OCCT circular profile wire failed");
+            }
+            return circle_wire.Wire();
+        }
+    }, request.profile);
     BRepBuilderAPI_MakeFace face_builder(wire, true);
     if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
     const TopoDS_Face face = face_builder.Face();

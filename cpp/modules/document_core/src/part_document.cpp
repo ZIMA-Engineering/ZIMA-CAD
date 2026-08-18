@@ -61,16 +61,34 @@ void require_default_extrusion_placement(const Placement& placement) {
 zima::kernel::ExtrusionRequest extrusion_request(
     const zima::sketcher::Sketch& sketch, double height) {
     require_positive(height, "extrusion height");
-    if (std::any_of(sketch.circles.begin(), sketch.circles.end(),
-            [](const auto& value) { return !value.construction; }) ||
-        std::any_of(sketch.arcs.begin(), sketch.arcs.end(),
+    if (std::any_of(sketch.arcs.begin(), sketch.arcs.end(),
             [](const auto& value) { return !value.construction; })) {
         throw std::runtime_error(
-            "Extrusion currently supports one closed straight-segment profile");
+            "Extrusion currently supports one straight-segment loop or one Circle");
     }
     std::vector<const zima::sketcher::SketchSegment*> profile_segments;
     for (const auto& segment : sketch.segments) {
         if (!segment.construction) profile_segments.push_back(&segment);
+    }
+    std::vector<const zima::sketcher::SketchCircle*> profile_circles;
+    for (const auto& circle : sketch.circles) {
+        if (!circle.construction) profile_circles.push_back(&circle);
+    }
+    if (!profile_circles.empty()) {
+        if (!profile_segments.empty() || profile_circles.size() != 1) {
+            throw std::runtime_error(
+                "Extrusion profile must be one straight-segment loop or one Circle");
+        }
+        const auto* center = sketch.find_point(profile_circles.front()->center_point_id);
+        zima::kernel::ExtrusionRequest request;
+        request.profile = zima::kernel::ExtrusionRequest::CircleProfile{
+            sketch.world_point(center->x, center->y), profile_circles.front()->radius};
+        request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
+            ? zima::kernel::Vec3{0.0, 0.0, height}
+            : sketch.plane == zima::sketcher::SketchPlane::XZ
+                ? zima::kernel::Vec3{0.0, -height, 0.0}
+                : zima::kernel::Vec3{height, 0.0, 0.0};
+        return request;
     }
     if (profile_segments.size() < 3) {
         throw std::runtime_error("Extrusion profile requires at least three segments");
@@ -97,7 +115,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
     zima::kernel::ExtrusionRequest request;
     do {
         const auto* point = sketch.find_point(current);
-        request.profile.push_back(sketch.world_point(point->x, point->y));
+        std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(request.profile)
+            .vertices.push_back(sketch.world_point(point->x, point->y));
         auto candidates = incident.at(current);
         std::sort(candidates.begin(), candidates.end(), [](const auto* left, const auto* right) {
             return left->id < right->id;

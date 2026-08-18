@@ -354,6 +354,75 @@ int main() {
         require(open_profile_rejected,
                 "Open Sketch profile reached the solid kernel");
 
+        auto circular_document = zima::document::PartDocument::create_default();
+        auto circular_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(circular_sketch.add_circle(20.0, 20.0, 5.0));
+        const auto circular_sketch_id = circular_sketch.id;
+        circular_document.sketches.push_back(std::move(circular_sketch));
+        auto circular_base = zima::document::PartDocument::create_box_container();
+        circular_base.box = {40.0, 40.0, 10.0};
+        circular_document.history.push_back(std::move(circular_base));
+        auto circular_cut =
+            zima::document::PartDocument::create_extrusion_container(
+                circular_sketch_id);
+        circular_cut.extrusion.height = 10.0;
+        circular_cut.combine_mode = zima::document::CombineMode::Subtract;
+        const auto circular_cut_id = circular_cut.id;
+        circular_document.history.push_back(std::move(circular_cut));
+        const auto circular_results =
+            kernel.evaluate_history(circular_document.kernel_operations());
+        require(circular_results.size() == 2 &&
+                    std::abs(circular_results.back().volume -
+                        (16000.0 - 250.0 * std::numbers::pi)) < 1.0e-6,
+                "Exact circular Sketch extrusion did not cut the expected volume");
+        bool circular_side_found = false;
+        for (const auto& reference :
+             circular_results.back().mesh.triangle_references) {
+            if (reference.owner_id == circular_cut_id &&
+                reference.semantic_key == "side:0") {
+                circular_side_found = true;
+            }
+        }
+        require(circular_side_found,
+                "Circular extrusion lost its stable cylindrical side reference");
+        const auto circular_fingerprint = zima::kernel::history_fingerprint(
+            circular_document.kernel_operations(), 2);
+        auto resized_circle_document = circular_document;
+        resized_circle_document.sketches.front().circles.front().radius = 6.0;
+        require(circular_fingerprint != zima::kernel::history_fingerprint(
+                    resized_circle_document.kernel_operations(), 2),
+                "Circular profile radius is missing from the history fingerprint");
+        auto xz_circle_document = zima::document::PartDocument::create_default();
+        auto xz_circle_sketch = zima::sketcher::Sketch::create_default();
+        xz_circle_sketch.plane = zima::sketcher::SketchPlane::XZ;
+        xz_circle_sketch.plane_offset = 4.0;
+        static_cast<void>(xz_circle_sketch.add_circle(2.0, 3.0, 3.0));
+        const auto xz_circle_sketch_id = xz_circle_sketch.id;
+        xz_circle_document.sketches.push_back(std::move(xz_circle_sketch));
+        auto xz_circle_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                xz_circle_sketch_id);
+        xz_circle_extrusion.extrusion.height = 7.0;
+        xz_circle_document.history.push_back(std::move(xz_circle_extrusion));
+        const auto xz_circle_results =
+            kernel.evaluate_history(xz_circle_document.kernel_operations());
+        require(std::abs(xz_circle_results.front().volume -
+                    63.0 * std::numbers::pi) < 1.0e-6 &&
+                    xz_circle_results.front().mesh.axes.size() == 1 &&
+                    xz_circle_results.front().mesh.axes.front().direction.y < -0.999,
+                "Circular XZ extrusion lost its exact volume or plane normal");
+        auto multiple_circle_document = circular_document;
+        static_cast<void>(multiple_circle_document.sketches.front().add_circle(
+            10.0, 10.0, 2.0));
+        bool multiple_circles_rejected = false;
+        try {
+            static_cast<void>(multiple_circle_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            multiple_circles_rejected = true;
+        }
+        require(multiple_circles_rejected,
+                "Ambiguous multiple-Circle profile reached OCCT");
+
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());
         require(!session.is_dirty() && !session.can_undo(),

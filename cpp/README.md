@@ -393,10 +393,12 @@ Extrusion is the first Sketch-to-solid vertical slice. The Modeling command is
 enabled only for a selected persisted Sketch and reuses one internal Properties
 window for creation and editing. OK explicitly evaluates the body; Cancel and
 history rollback remain transient. The current profile contract deliberately
-accepts exactly one connected closed loop of non-construction straight
-Segments. Open profiles, multiple loops, Circles and Arcs are rejected in
-Document Core before OCCT. OCCT returns a prism with stable start, end, side,
-edge and vertex references owned by the Extrusion history container.
+accepts either one connected closed loop of non-construction straight Segments
+or one non-construction Circle. Circles cross the kernel boundary as an exact
+centre/radius profile and therefore produce a true cylindrical face, not a
+tessellated polygon. Open profiles, mixed or multiple loops, and Arcs are
+rejected in Document Core before OCCT. OCCT returns a prism with stable start,
+end, side, edge and vertex references owned by the Extrusion history container.
 
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model

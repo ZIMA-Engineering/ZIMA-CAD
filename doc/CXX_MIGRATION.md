@@ -522,9 +522,13 @@ skica, kladná výška a operace Přičíst/Odečíst; prostředkem je úzký po
 koncové a bočních ploch, hran a vrcholů. Poloha tělesa vychází výhradně z roviny
 a odsazení zdrojové skici, takže vytažení nemá druhé nezávislé posunutí.
 
-První záměrně malý profilový kontrakt přijímá právě jednu souvislou uzavřenou
-smyčku nekonstrukčních přímých úseček. Otevřený profil, více smyček, kružnice a
-oblouky odmítne Document Core ještě před voláním OCCT. Kontrolní obdélník
-30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³; tento nezávislý rozměrový
-test je součástí kontraktních testů. Rozšíření profilů přijde až s vlastním
-jednoznačným datovým kontraktem, ne skrytou OCCT rekonstrukcí při editaci.
+Profilový kontrakt přijímá právě jednu souvislou uzavřenou smyčku
+nekonstrukčních přímých úseček nebo jednu nekonstrukční kružnici. Kružnice
+přechází do adaptéru jako přesný střed a poloměr a vytváří skutečnou válcovou
+plochu, nikoliv polygonovou aproximaci. Otevřený, smíšený či vícenásobný profil
+a oblouky odmítne Document Core ještě před voláním OCCT. Kontrolní obdélník
+30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³. Druhá nezávislá kontrola
+odečte průchozí kružnici R5 z kvádru 40 × 40 × 10 mm a vyžaduje analytický objem
+`16000 − 250π mm³` i stabilní vlastnictví válcové boční plochy. Rozšíření
+profilů přijde až s vlastním jednoznačným datovým kontraktem, ne skrytou OCCT
+rekonstrukcí při editaci.

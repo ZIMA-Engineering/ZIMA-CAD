@@ -117,7 +117,14 @@ struct CylinderRequest {
 };
 
 struct ExtrusionRequest {
-    std::vector<Vec3> profile;
+    struct PolygonProfile {
+        std::vector<Vec3> vertices;
+    };
+    struct CircleProfile {
+        Vec3 center;
+        double radius{};
+    };
+    std::variant<PolygonProfile, CircleProfile> profile{PolygonProfile{}};
     Vec3 direction{0.0, 0.0, 10.0};
 };
 
@@ -224,12 +231,25 @@ struct BodyResult {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else {
-                u64(primitive.profile.size());
-                for (const auto& point : primitive.profile) {
-                    for (const double value : {point.x, point.y, point.z}) {
-                        u64(std::bit_cast<std::uint64_t>(value));
+                byte(static_cast<std::uint8_t>(primitive.profile.index()));
+                std::visit([&](const auto& profile) {
+                    using Profile = std::decay_t<decltype(profile)>;
+                    if constexpr (std::is_same_v<Profile,
+                                      ExtrusionRequest::PolygonProfile>) {
+                        u64(profile.vertices.size());
+                        for (const auto& point : profile.vertices) {
+                            for (const double value : {point.x, point.y, point.z}) {
+                                u64(std::bit_cast<std::uint64_t>(value));
+                            }
+                        }
+                    } else {
+                        for (const double value : {
+                                profile.center.x, profile.center.y, profile.center.z,
+                                profile.radius}) {
+                            u64(std::bit_cast<std::uint64_t>(value));
+                        }
                     }
-                }
+                }, primitive.profile);
                 for (const double value : {
                         primitive.direction.x, primitive.direction.y,
                         primitive.direction.z}) {
