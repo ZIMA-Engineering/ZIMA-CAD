@@ -78,6 +78,14 @@ int main() {
         });
         require(std::abs(cut_body.volume - 392000.0) < 1e-6,
                 "Sequential subtract produced incorrect volume");
+        const auto boundaries = kernel.evaluate_box_boundaries({
+            {"base", {100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
+            {"cut", {20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
+        });
+        require(boundaries.size() == 2 &&
+                    std::abs(boundaries.front().volume - 400000.0) < 1e-6 &&
+                    std::abs(boundaries.back().volume - 392000.0) < 1e-6,
+                "Explicit calculation did not retain history boundary results");
         std::set<std::string> cut_owners;
         for (const auto& reference : cut_body.mesh.triangle_references) {
             if (reference.valid()) cut_owners.insert(reference.owner_id);
@@ -132,8 +140,22 @@ int main() {
         document.history.push_back(second);
         const auto path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-contract.zcp.json";
-        document.save(path);
-        const auto loaded = zima::document::PartDocument::load(path);
+        const auto persisted_boundaries =
+            kernel.evaluate_box_boundaries(document.box_operations());
+        auto stale_document = document;
+        stale_document.history.front().box.length += 1.0;
+        bool stale_rejected = false;
+        try {
+            stale_document.save(path, persisted_boundaries);
+        } catch (const std::runtime_error&) {
+            stale_rejected = true;
+        }
+        require(stale_rejected,
+                "Save accepted calculated geometry from different parameters");
+        document.save(path, persisted_boundaries);
+        std::vector<zima::kernel::BodyResult> loaded_boundaries;
+        const auto loaded = zima::document::PartDocument::load(
+            path, &loaded_boundaries);
         std::filesystem::remove(path);
         require(loaded.document_id == document.document_id,
                 "Document identity was not preserved");
@@ -142,6 +164,11 @@ int main() {
                 "Stable container identity was not preserved");
         require(loaded.find_container(first.id) != nullptr,
                 "Stable container index lookup failed");
+        require(loaded.history_index(first.id) == 0 &&
+                    loaded.history_index(second.id) == 1,
+                "History rollback boundary lookup failed");
+        require(!loaded.history_index("missing-container"),
+                "Missing container produced a rollback boundary");
         require(loaded.history.front().box.length == 123.5,
                 "Box parameter was not preserved");
         require(loaded.history.back().combine_mode ==
@@ -150,6 +177,12 @@ int main() {
         require(loaded.history.back().placement.y == -5.0 &&
                     loaded.history.back().placement.rotation_z == 30.0,
                 "Container placement was not preserved");
+        require(loaded_boundaries.size() == 2 &&
+                    loaded_boundaries.back().mesh.triangle_references.size() ==
+                        persisted_boundaries.back().mesh.triangle_references.size() &&
+                    std::abs(loaded_boundaries.back().volume -
+                             persisted_boundaries.back().volume) < 1e-6,
+                "Calculated viewer packets were not preserved");
 
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());

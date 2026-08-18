@@ -1,6 +1,9 @@
 #pragma once
 
+#include <zima/kernel/geometry_kernel.hpp>
+
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,8 +44,15 @@ public:
     [[nodiscard]] static HistoryContainer create_box_container();
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
-    [[nodiscard]] static PartDocument load(const std::filesystem::path& path);
-    void save(const std::filesystem::path& path) const;
+    [[nodiscard]] std::optional<std::size_t> history_index(
+        const std::string& id) const;
+    [[nodiscard]] std::vector<zima::kernel::BoxOperation> box_operations() const;
+    [[nodiscard]] static PartDocument load(
+        const std::filesystem::path& path,
+        std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);
+    void save(
+        const std::filesystem::path& path,
+        const std::vector<zima::kernel::BodyResult>& calculated_boundaries = {}) const;
 };
 
 }  // namespace zima::document

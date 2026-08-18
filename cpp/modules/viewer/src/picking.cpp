@@ -218,4 +218,23 @@ std::vector<ViewerCandidate> filter_candidates(
     return result;
 }
 
+std::optional<ViewerCandidate> container_candidate(
+    const zima::kernel::ViewerMesh& mesh, const std::string& owner_id) {
+    if (owner_id.empty()) return std::nullopt;
+    const auto triangle = std::find_if(
+        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+        [&](const zima::kernel::FaceReference& reference) {
+            return reference.valid() && reference.owner_id == owner_id;
+        });
+    if (triangle == mesh.triangle_references.end()) return std::nullopt;
+    return ViewerCandidate{
+        CandidateKind::Container,
+        0.0,
+        static_cast<std::size_t>(std::distance(
+            mesh.triangle_references.begin(), triangle)),
+        owner_id,
+        {},
+    };
+}
+
 }  // namespace zima::viewer

@@ -71,6 +71,59 @@ spotřebují stejné pořadí. Zvýraznění respektuje přesnou úroveň kandid
 všechny vlastněné plochy kontejneru, jednu sémantickou plochu, jednu ZIMA
 polyline hrany nebo jeden persistovaný vrchol.
 
+Editace existujícího kontejneru nyní používá obecnou hranici historie podle
+stabilního ID. Po otevření Properties viewer explicitně vyhodnotí pouze
+operace před editovaným kontejnerem, aktivní položka zůstane v celém stromu
+zelená a následující položky jsou po dobu editace potlačené. První kontejner
+má korektně prázdný vstup. OK vytvoří jednu dokumentovou revizi a Cancel žádná
+data nezmění; po zavření se v obou případech obnoví normální výsledek celé
+historie.
+
+Běžný potvrzený výběr kontejneru je obousměrně synchronizovaný mezi viewerem a
+stromem přes stejné stabilní ID. LMB ve vieweru předá již potvrzeného kandidáta
+ze společného candidate listu; strom nespouští nový ray picker. Výběr položky
+ve stromu smí vytvořit zvýraznění pouze tehdy, když se její vlastník skutečně
+nachází v aktuálním persistovaném viewer packetu.
+
+RMB nyní respektuje stav stejného výběru. Před LMB potvrzením pouze posune
+aktivní index ve společném candidate listu. Nad již potvrzeným kontejnerem
+otevře jeho běžné kontextové menu místo dalšího cyklování. Menu nabízí
+`Vlastnosti` a první obecný krok `Vybrat nadřazený`, který přesune výběr z
+kontejneru na Part a současně odstraní kontejnerové zvýraznění ve vieweru.
+
+Potvrzený běžný výběr se uchovává jako stabilní ID, nikoliv jako ukazatel na
+položku stromu nebo index trojúhelníku. Přestavba stromu, explicitní výpočet a
+ukončení rollbacku proto výběr obnoví proti novému viewer packetu. Během
+rollbacku může aktivní kontejner zůstat vybraný ve stromu bez falešného
+zvýraznění, pokud ještě není součástí zobrazeného vstupu. Neplatný nebo po
+výpočtu nedostupný vlastník se ve vieweru nezvýrazní.
+
+Strom historie používá stejné kontextové akce jako potvrzený objekt ve
+vieweru. RMB na položce ji nejprve nastaví jako aktuální stabilní výběr a pak
+otevře společné menu; `Vlastnosti` tak vstupují do stejného rollback editačního
+kontraktu bez ohledu na to, odkud uživatel příkaz vyvolal.
+
+Výpočet tělesa je nově oddělený od `rebuild()` uživatelského rozhraní.
+Explicitní OK nebo příkaz `Regenerovat` vytvoří v jednom průchodu OCCT také
+ZIMA viewer výsledky pro hranice historie a uloží je do cache konkrétní revize.
+Obnovení stromu, výběr, otevření Properties, rollback, Undo/Redo ani zavření
+dialogu už OCCT nevolají; pouze čtou existující vypočtený packet. Revize bez
+výsledku zobrazí jednoznačnou výzvu k regeneraci místo skrytého výpočtu.
+
+Textový dokument nyní persistuje také vypočtené ZIMA viewer packety všech
+hranic historie: mesh, stabilní reference ploch, hran a vrcholů, objem a
+plochu. Načtení validního vypočteného dokumentu proto rovnou obnoví poslední
+stav bez OCCT. Serializace kontroluje indexy trojúhelníků, zarovnání referencí,
+konečnost souřadnic a shodu počtu hranic s historií; poškozená data se
+nepoužijí jako reference. Dokument uložený bez výsledku zůstává platný, ale
+vyžádá explicitní Regenerovat.
+
+Každá vypočtená hranice navíc nese deterministický otisk přesného prefixu
+operací: stabilních ID, Boolean režimů, rozměrů, posunutí a natočení. Save i
+Open porovnají otisk s aktuální historií. Syntakticky validní mesh z jiných
+parametrů je proto odmítnut místo toho, aby se zobrazil nebo nabídl k výběru
+jako aktuální geometrie.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce

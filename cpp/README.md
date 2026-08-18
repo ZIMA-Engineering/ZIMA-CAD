@@ -63,6 +63,54 @@ or Vertex while hover, LMB confirmation and RMB cycling continue consuming the
 same filtered ordering. Highlighting follows the exact level: all owned faces
 for a container, one semantic face, one persisted edge polyline or one vertex.
 
+Opening Properties for an existing history container now evaluates the real
+input immediately before that stable container ID. The complete tree remains
+visible, the active item is green, and downstream items are temporarily
+suppressed until OK or Cancel restores normal full-history display. Editing
+the first operation correctly presents an empty input rather than a cached
+final body.
+
+Confirmed container selection is synchronized both ways between the viewer
+and history tree through the stable container owner ID. Viewer LMB forwards
+the already confirmed common-list candidate; selecting a tree item resolves
+only against the current persisted viewer packet and does not run another ray
+picker or query OCCT.
+
+RMB keeps cycling the common candidate list only before LMB confirmation.
+Over a confirmed container it opens the ordinary object menu instead, with
+Properties and one-level Select Parent actions. Selecting the Part parent in
+the tree clears the container highlight, keeping tree and view ownership in
+sync.
+
+Ordinary confirmed selection is retained as a stable container ID across tree
+rebuilds, explicit calculations, and rollback exit. It is resolved again
+against each new viewer packet rather than retaining a tree pointer or
+triangle index. During rollback the active container can remain selected in
+the tree without inventing a highlight when it is absent from the input body.
+
+The history tree exposes the same context actions as a confirmed viewer
+container. Tree RMB first establishes that stable selection and then opens the
+shared menu, so Properties enters the identical rollback editing path from
+either surface.
+
+UI rebuild and body calculation are now separate operations. Explicit OK and
+Regenerate calculate all history-boundary viewer packets in one OCCT pass and
+cache them by document revision. Tree refresh, selection, Properties opening,
+rollback, Undo/Redo, and dialog close consume that cache without invoking
+OCCT.
+
+The text document persists every calculated history-boundary viewer packet,
+including mesh, stable face/edge/vertex references, volume, and area. Loading
+a calculated file restores its last display without OCCT. Triangle indices,
+reference alignment, finite coordinates, and boundary/history counts are
+validated before the packet is accepted. A document intentionally saved
+without calculation remains valid and asks for explicit Regenerate.
+
+Each boundary also carries a deterministic fingerprint of its exact operation
+prefix: stable IDs, Boolean modes, dimensions, translations, and rotations.
+Save and Open reject otherwise valid viewer data when that fingerprint belongs
+to different parameters, preventing stale geometry from becoming selectable.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

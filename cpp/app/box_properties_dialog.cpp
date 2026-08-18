@@ -6,6 +6,8 @@
 #include <QLabel>
 #include <QLineEdit>
 
+#include <exception>
+
 namespace zima::app {
 
 BoxPropertiesDialog::BoxPropertiesDialog(
@@ -109,7 +111,12 @@ bool BoxPropertiesDialog::submit() {
         translation_[2]->value(), rotation_[0]->value(),
         rotation_[1]->value(), rotation_[2]->value(),
     };
-    commit_(std::move(result));
+    try {
+        commit_(std::move(result));
+    } catch (const std::exception& failure) {
+        error_->setText(QString::fromUtf8(failure.what()));
+        return false;
+    }
     return true;
 }
 

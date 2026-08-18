@@ -29,6 +29,8 @@ struct MeshView::Impl {
     std::vector<ViewerCandidate> candidates;
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
+    std::function<void(const ViewerCandidate&)> confirmation_callback;
+    std::function<void(const ViewerCandidate&, const QPoint&)> context_menu_callback;
     QPoint last_pointer;
     QVector3D center;
     QVector3D pan;
@@ -98,6 +100,40 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
 
 std::optional<ViewerCandidate> MeshView::confirmed_candidate() const {
     return impl_->confirmed_candidate;
+}
+
+void MeshView::confirm_container(const std::string& owner_id) {
+    auto candidate = container_candidate(impl_->mesh, owner_id);
+    if (!candidate) {
+        clear_selection();
+        return;
+    }
+    impl_->confirmed_candidate = std::move(candidate);
+    impl_->candidates.clear();
+    update();
+}
+
+void MeshView::clear_selection() {
+    impl_->confirmed_candidate.reset();
+    impl_->candidates.clear();
+    impl_->active_candidate = 0;
+    update();
+}
+
+void MeshView::set_confirmation_callback(
+    std::function<void(const ViewerCandidate&)> callback) {
+    impl_->confirmation_callback = std::move(callback);
+}
+
+void MeshView::set_context_menu_callback(
+    std::function<void(const ViewerCandidate&, const QPoint&)> callback) {
+    impl_->context_menu_callback = std::move(callback);
+}
+
+void MeshView::notify_confirmation() {
+    if (impl_->confirmed_candidate && impl_->confirmation_callback) {
+        impl_->confirmation_callback(*impl_->confirmed_candidate);
+    }
 }
 
 void MeshView::fit_all() {
@@ -335,12 +371,19 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::LeftButton && !impl_->candidates.empty()) {
         impl_->confirmed_candidate = impl_->candidates[impl_->active_candidate];
+        notify_confirmation();
         update();
-    } else if (event->button() == Qt::RightButton &&
-               !impl_->confirmed_candidate && impl_->candidates.size() > 1) {
-        impl_->active_candidate =
-            next_candidate_index(impl_->active_candidate, impl_->candidates.size());
-        update();
+    } else if (event->button() == Qt::RightButton) {
+        if (impl_->confirmed_candidate) {
+            if (impl_->context_menu_callback) {
+                impl_->context_menu_callback(
+                    *impl_->confirmed_candidate, event->globalPosition().toPoint());
+            }
+        } else if (impl_->candidates.size() > 1) {
+            impl_->active_candidate =
+                next_candidate_index(impl_->active_candidate, impl_->candidates.size());
+            update();
+        }
     }
 }
 

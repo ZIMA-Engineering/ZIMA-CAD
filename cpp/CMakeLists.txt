@@ -14,16 +14,18 @@ find_package(OpenCASCADE 7.9 REQUIRED COMPONENTS
     FoundationClasses ModelingData ModelingAlgorithms)
 find_package(nlohmann_json 3.11 REQUIRED)
 
+add_library(zima_kernel_api INTERFACE)
+target_include_directories(zima_kernel_api INTERFACE
+    modules/kernel_api/include)
+
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
     modules/document_core/src/document_session.cpp)
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
-target_link_libraries(zima_document_core PRIVATE nlohmann_json::nlohmann_json)
-
-add_library(zima_kernel_api INTERFACE)
-target_include_directories(zima_kernel_api INTERFACE
-    modules/kernel_api/include)
+target_link_libraries(zima_document_core
+    PUBLIC zima_kernel_api
+    PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)

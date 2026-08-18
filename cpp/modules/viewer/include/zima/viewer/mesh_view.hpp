@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <functional>
 #include <vector>
 
 class QMouseEvent;
@@ -22,6 +23,12 @@ public:
     void set_mesh(zima::kernel::ViewerMesh mesh);
     void fit_all();
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
+    void confirm_container(const std::string& owner_id);
+    void clear_selection();
+    void set_confirmation_callback(
+        std::function<void(const ViewerCandidate&)> callback);
+    void set_context_menu_callback(
+        std::function<void(const ViewerCandidate&, const QPoint&)> callback);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
 
 protected:
@@ -37,6 +44,7 @@ private:
     std::unique_ptr<Impl> impl_;
     void upload_mesh();
     void update_candidates(const QPointF& position);
+    void notify_confirmation();
 };
 
 }  // namespace zima::viewer

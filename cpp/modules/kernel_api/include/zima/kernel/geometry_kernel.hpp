@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <bit>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -84,7 +86,46 @@ struct BodyResult {
     ViewerMesh mesh;
     double volume{};
     double surface_area{};
+    std::string source_fingerprint;
 };
+
+[[nodiscard]] inline std::string box_history_fingerprint(
+    const std::vector<BoxOperation>& operations,
+    std::size_t operation_count) {
+    operation_count = std::min(operation_count, operations.size());
+    std::uint64_t hash = 1469598103934665603ULL;
+    const auto append_byte = [&](std::uint8_t value) {
+        hash ^= value;
+        hash *= 1099511628211ULL;
+    };
+    const auto append_u64 = [&](std::uint64_t value) {
+        for (unsigned shift = 0; shift < 64; shift += 8) {
+            append_byte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
+        }
+    };
+    append_u64(operation_count);
+    for (std::size_t index = 0; index < operation_count; ++index) {
+        const auto& operation = operations[index];
+        append_u64(operation.owner_id.size());
+        for (const unsigned char value : operation.owner_id) append_byte(value);
+        append_byte(static_cast<std::uint8_t>(operation.operation));
+        for (const double value : {
+                operation.box.length, operation.box.width, operation.box.height,
+                operation.box.translation.x, operation.box.translation.y,
+                operation.box.translation.z, operation.box.rotation_degrees.x,
+                operation.box.rotation_degrees.y,
+                operation.box.rotation_degrees.z}) {
+            append_u64(std::bit_cast<std::uint64_t>(value));
+        }
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result(16, '0');
+    for (int index = 15; index >= 0; --index) {
+        result[static_cast<std::size_t>(index)] = digits[hash & 0xfU];
+        hash >>= 4;
+    }
+    return result;
+}
 
 class GeometryKernel {
 public:
@@ -92,6 +133,8 @@ public:
     [[nodiscard]] virtual std::string name() const = 0;
     [[nodiscard]] virtual BodyResult make_box(const BoxRequest& request) const = 0;
     [[nodiscard]] virtual BodyResult evaluate_boxes(
+        const std::vector<BoxOperation>& operations) const = 0;
+    [[nodiscard]] virtual std::vector<BodyResult> evaluate_box_boundaries(
         const std::vector<BoxOperation>& operations) const = 0;
 };
 

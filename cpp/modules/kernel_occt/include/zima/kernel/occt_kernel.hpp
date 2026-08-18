@@ -10,6 +10,8 @@ public:
     [[nodiscard]] BodyResult make_box(const BoxRequest& request) const override;
     [[nodiscard]] BodyResult evaluate_boxes(
         const std::vector<BoxOperation>& operations) const override;
+    [[nodiscard]] std::vector<BodyResult> evaluate_box_boundaries(
+        const std::vector<BoxOperation>& operations) const override;
 };
 
 }  // namespace zima::kernel

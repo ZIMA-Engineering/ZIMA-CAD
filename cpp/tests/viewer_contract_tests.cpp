@@ -68,6 +68,14 @@ int main() {
         require(container_contract.size() == 2 &&
                     container_contract.front().owner_id == "front-container",
                 "Default container contract did not preserve leaf-first depth order");
+        const auto tree_confirmation =
+            zima::viewer::container_candidate(mesh, "back-container");
+        require(tree_confirmation &&
+                    tree_confirmation->kind == zima::viewer::CandidateKind::Container &&
+                    tree_confirmation->owner_id == "back-container",
+                "Tree selection did not resolve the same stable container candidate");
+        require(!zima::viewer::container_candidate(mesh, "missing-container"),
+                "Tree selection accepted a container absent from viewer data");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

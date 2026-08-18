@@ -28,6 +28,7 @@
 #include <array>
 #include <numbers>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace zima::kernel {
@@ -284,6 +285,12 @@ BodyResult OcctKernel::make_box(const BoxRequest& request) const {
 
 BodyResult OcctKernel::evaluate_boxes(
     const std::vector<BoxOperation>& operations) const {
+    auto boundaries = evaluate_box_boundaries(operations);
+    return boundaries.empty() ? BodyResult{} : std::move(boundaries.back());
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
+    const std::vector<BoxOperation>& operations) const {
     if (operations.empty()) return {};
     if (operations.front().operation == BooleanOperation::Subtract) {
         throw std::invalid_argument("The first history operation cannot subtract");
@@ -293,6 +300,8 @@ BodyResult OcctKernel::evaluate_boxes(
         std::vector<OwnedFace> owned_faces;
         std::vector<OwnedEdge> owned_edges;
         std::vector<OwnedVertex> owned_vertices;
+        std::vector<BodyResult> boundaries;
+        boundaries.reserve(operations.size());
         for (const auto& operation : operations) {
             validate_box(operation.box);
             if (operation.owner_id.empty()) {
@@ -325,8 +334,12 @@ BodyResult OcctKernel::evaluate_boxes(
                     algorithm, owned_vertices, operand.vertices);
                 result_shape = algorithm.Shape();
             }
+            boundaries.push_back(
+                make_result(result_shape, owned_faces, owned_edges, owned_vertices));
+            boundaries.back().source_fingerprint =
+                box_history_fingerprint(operations, boundaries.size());
         }
-        return make_result(result_shape, owned_faces, owned_edges, owned_vertices);
+        return boundaries;
     } catch (const Standard_Failure& failure) {
         throw std::runtime_error(failure.GetMessageString());
     }
