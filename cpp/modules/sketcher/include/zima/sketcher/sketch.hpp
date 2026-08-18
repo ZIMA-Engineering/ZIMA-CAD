@@ -14,7 +14,10 @@ enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind {
     Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength
 };
-enum class DimensionKind { Distance, DistanceX, DistanceY, Radius, Diameter, Angle };
+enum class DimensionKind {
+    Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
+    EllipseMajorRadius, EllipseMinorRadius
+};
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -159,6 +162,8 @@ public:
         const std::string& circle_id) const;
     [[nodiscard]] SketchDimension create_arc_radius_dimension(
         const std::string& arc_id) const;
+    [[nodiscard]] SketchDimension create_ellipse_radius_dimension(
+        const std::string& ellipse_id, bool major) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(

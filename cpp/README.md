@@ -362,6 +362,12 @@ only the third valid click commits one Part revision. Escape clears the complete
 pending command, and successful creation keeps the tool active for another Ellipse.
 Confirmed Ellipses use the same `SketchCurve` selection and Delete transaction as
 the other persisted Sketch geometry.
+The selected Ellipse exposes two independent internal dimension Properties actions:
+major semiaxis `a` and minor semiaxis `b`. Both dimensions own the stable Ellipse
+ID, support driving/measured state and absolute lower/upper limits, update their
+axis point transactionally, persist in the current Sketch format, and render as
+pickable `a=` and `b=` dimensions. Editing the tree or viewer dimension reuses the
+same Properties class as every other Sketch dimension.
 
 The Coincident command owns an explicit point-only viewer selection contract.
 Two confirmed stable `point:<id>` candidates create one transactional constraint;

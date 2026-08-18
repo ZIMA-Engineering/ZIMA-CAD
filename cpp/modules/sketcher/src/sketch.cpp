@@ -71,6 +71,8 @@ const char* dimension_name(DimensionKind kind) {
     case DimensionKind::Radius: return "radius";
     case DimensionKind::Diameter: return "diameter";
     case DimensionKind::Angle: return "angle";
+    case DimensionKind::EllipseMajorRadius: return "ellipse_major_radius";
+    case DimensionKind::EllipseMinorRadius: return "ellipse_minor_radius";
     }
     throw std::invalid_argument("Unknown sketch dimension");
 }
@@ -82,6 +84,8 @@ DimensionKind dimension_from_name(const std::string& name) {
     if (name == "radius") return DimensionKind::Radius;
     if (name == "diameter") return DimensionKind::Diameter;
     if (name == "angle") return DimensionKind::Angle;
+    if (name == "ellipse_major_radius") return DimensionKind::EllipseMajorRadius;
+    if (name == "ellipse_minor_radius") return DimensionKind::EllipseMinorRadius;
     throw std::runtime_error("Unknown sketch dimension");
 }
 
@@ -248,6 +252,9 @@ void Sketch::validate() const {
     for (const auto& dimension : dimensions) {
         const bool radial_dimension = dimension.kind == DimensionKind::Radius ||
             dimension.kind == DimensionKind::Diameter;
+        const bool ellipse_dimension =
+            dimension.kind == DimensionKind::EllipseMajorRadius ||
+            dimension.kind == DimensionKind::EllipseMinorRadius;
         const bool circle_geometry = std::any_of(
             circles.begin(), circles.end(), [&](const auto& circle) {
                 return circle.id == dimension.geometry_id;
@@ -256,22 +263,28 @@ void Sketch::validate() const {
             (circle_geometry || (dimension.kind == DimensionKind::Radius &&
              std::any_of(arcs.begin(), arcs.end(), [&](const auto& arc) {
                 return arc.id == dimension.geometry_id;
-            })));
+             })));
+        const bool ellipse_geometry_valid = ellipse_dimension && std::any_of(
+            ellipses.begin(), ellipses.end(), [&](const auto& ellipse) {
+                return ellipse.id == dimension.geometry_id;
+            });
         const auto owned_segment = std::find_if(
             segments.begin(), segments.end(), [&](const auto& segment) {
                 return segment.id == dimension.geometry_id;
             });
-        const bool segment_geometry_valid = !radial_dimension &&
+        const bool segment_geometry_valid = !radial_dimension && !ellipse_dimension &&
             owned_segment != segments.end() &&
             owned_segment->first_point_id == dimension.first_point_id &&
             owned_segment->second_point_id == dimension.second_point_id;
         if (dimension.id.empty() || !ids.insert(dimension.id).second ||
             (radial_dimension ? !geometry_valid
+                : ellipse_dimension ? !ellipse_geometry_valid
                 : !segment_geometry_valid)) {
             throw std::runtime_error("Sketch dimension is invalid");
         }
         require_finite(dimension.value, "dimension value");
-        if ((dimension.kind == DimensionKind::Distance || radial_dimension) &&
+        if ((dimension.kind == DimensionKind::Distance || radial_dimension ||
+             ellipse_dimension) &&
             dimension.value < 0.0) {
             throw std::runtime_error("Distance must not be negative");
         }
@@ -306,7 +319,9 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     if (found == dimensions.end() ||
         ((found->kind == DimensionKind::Distance ||
           found->kind == DimensionKind::Radius ||
-          found->kind == DimensionKind::Diameter) && value < 0.0) ||
+          found->kind == DimensionKind::Diameter ||
+          found->kind == DimensionKind::EllipseMajorRadius ||
+          found->kind == DimensionKind::EllipseMinorRadius) && value < 0.0) ||
         (found->kind == DimensionKind::Angle && (value < -180.0 || value > 180.0)) ||
         (found->lower_limit && value < *found->lower_limit) ||
         (found->upper_limit && value > *found->upper_limit)) return false;
@@ -433,7 +448,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     for (auto& dimension : next.dimensions) {
         if (dimension.suppressed || dimension.driving) continue;
         double measured{};
-        if (dimension.kind == DimensionKind::Radius ||
+        if (dimension.kind == DimensionKind::EllipseMajorRadius ||
+            dimension.kind == DimensionKind::EllipseMinorRadius) {
+            const auto ellipse = std::find_if(next.ellipses.begin(), next.ellipses.end(),
+                [&](const auto& value) { return value.id == dimension.geometry_id; });
+            measured = dimension.kind == DimensionKind::EllipseMajorRadius
+                ? ellipse->major_radius : ellipse->minor_radius;
+        } else if (dimension.kind == DimensionKind::Radius ||
             dimension.kind == DimensionKind::Diameter) {
             const auto circle = std::find_if(next.circles.begin(), next.circles.end(),
                 [&](const auto& value) { return value.id == dimension.geometry_id; });
@@ -857,6 +878,20 @@ SketchDimension Sketch::create_arc_radius_dimension(const std::string& arc_id) c
     return result;
 }
 
+SketchDimension Sketch::create_ellipse_radius_dimension(
+    const std::string& ellipse_id, bool major) const {
+    const auto ellipse = std::find_if(ellipses.begin(), ellipses.end(),
+        [&](const auto& value) { return value.id == ellipse_id; });
+    if (ellipse == ellipses.end()) throw std::invalid_argument("Sketch ellipse does not exist");
+    SketchDimension result;
+    result.id = make_id();
+    result.kind = major ? DimensionKind::EllipseMajorRadius
+                        : DimensionKind::EllipseMinorRadius;
+    result.value = major ? ellipse->major_radius : ellipse->minor_radius;
+    result.geometry_id = ellipse->id;
+    return result;
+}
+
 void Sketch::apply_dimension(SketchDimension dimension) {
     if (dimension.id.empty()) throw std::invalid_argument("Sketch dimension ID is required");
     const auto dimension_kind = dimension.kind;
@@ -875,7 +910,9 @@ void Sketch::apply_dimension(SketchDimension dimension) {
                       (dimension.kind == DimensionKind::Radius ||
                        dimension.kind == DimensionKind::Diameter))) &&
                     ((dimension.kind == DimensionKind::Radius ||
-                      dimension.kind == DimensionKind::Diameter)
+                      dimension.kind == DimensionKind::Diameter ||
+                      dimension.kind == DimensionKind::EllipseMajorRadius ||
+                      dimension.kind == DimensionKind::EllipseMinorRadius)
                         ? value.geometry_id == dimension.geometry_id
                         : value.first_point_id == dimension.first_point_id &&
                           value.second_point_id == dimension.second_point_id);
@@ -909,6 +946,25 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             start->y = center->y + arc->radius * std::sin(arc->start_angle);
             end->x = center->x + arc->radius * std::cos(arc->end_angle);
             end->y = center->y + arc->radius * std::sin(arc->end_angle);
+        }
+    } else if (dimension_kind == DimensionKind::EllipseMajorRadius ||
+               dimension_kind == DimensionKind::EllipseMinorRadius) {
+        const auto ellipse = std::find_if(next.ellipses.begin(), next.ellipses.end(),
+            [&](const auto& value) { return value.id == dimension_geometry_id; });
+        if (ellipse == next.ellipses.end()) {
+            throw std::invalid_argument("Ellipse dimension geometry does not exist");
+        }
+        const auto* center = next.find_point(ellipse->center_point_id);
+        if (dimension_kind == DimensionKind::EllipseMajorRadius) {
+            ellipse->major_radius = dimension_value;
+            auto* point = next.find_point(ellipse->major_point_id);
+            point->x = center->x + dimension_value * std::cos(ellipse->rotation);
+            point->y = center->y + dimension_value * std::sin(ellipse->rotation);
+        } else {
+            ellipse->minor_radius = dimension_value;
+            auto* point = next.find_point(ellipse->minor_point_id);
+            point->x = center->x - dimension_value * std::sin(ellipse->rotation);
+            point->y = center->y + dimension_value * std::cos(ellipse->rotation);
         }
     }
     next.validate();
@@ -1012,6 +1068,26 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
+            if (dimension.kind == DimensionKind::EllipseMajorRadius ||
+                dimension.kind == DimensionKind::EllipseMinorRadius) {
+                auto ellipse = std::find_if(ellipses.begin(), ellipses.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                double& radius = dimension.kind == DimensionKind::EllipseMajorRadius
+                    ? ellipse->major_radius : ellipse->minor_radius;
+                maximum_residual = std::max(
+                    maximum_residual, std::abs(radius - dimension.value));
+                radius = dimension.value;
+                const auto* center = find_point(ellipse->center_point_id);
+                auto* axis_point = find_point(
+                    dimension.kind == DimensionKind::EllipseMajorRadius
+                        ? ellipse->major_point_id : ellipse->minor_point_id);
+                const double angle = dimension.kind == DimensionKind::EllipseMajorRadius
+                    ? ellipse->rotation
+                    : ellipse->rotation + 3.14159265358979323846 / 2.0;
+                axis_point->x = center->x + radius * std::cos(angle);
+                axis_point->y = center->y + radius * std::sin(angle);
+                continue;
+            }
             if (dimension.kind == DimensionKind::Radius ||
                 dimension.kind == DimensionKind::Diameter) {
                 auto circle = std::find_if(circles.begin(), circles.end(),
@@ -1134,6 +1210,14 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
+            if (dimension.kind == DimensionKind::EllipseMajorRadius ||
+                dimension.kind == DimensionKind::EllipseMinorRadius) {
+                const auto ellipse = std::find_if(ellipses.begin(), ellipses.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                result.push_back((dimension.kind == DimensionKind::EllipseMajorRadius
+                    ? ellipse->major_radius : ellipse->minor_radius) - dimension.value);
+                continue;
+            }
             if (dimension.kind == DimensionKind::Radius ||
                 dimension.kind == DimensionKind::Diameter) {
                 const auto circle = std::find_if(circles.begin(), circles.end(),
@@ -1288,6 +1372,21 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed) continue;
+        if (dimension.kind == DimensionKind::EllipseMajorRadius ||
+            dimension.kind == DimensionKind::EllipseMinorRadius) {
+            const auto ellipse = std::find_if(ellipses.begin(), ellipses.end(),
+                [&](const auto& value) { return value.id == dimension.geometry_id; });
+            if (ellipse == ellipses.end()) continue;
+            const auto* center = find_point(ellipse->center_point_id);
+            const auto* rim = find_point(
+                dimension.kind == DimensionKind::EllipseMajorRadius
+                    ? ellipse->major_point_id : ellipse->minor_point_id);
+            result.dimensions.push_back({
+                project(*center), project(*rim), project(*center), project(*rim),
+                dimension.value, {id, "dimension:" + dimension.id, {}},
+                dimension.kind == DimensionKind::EllipseMajorRadius ? "a=" : "b="});
+            continue;
+        }
         if (dimension.kind == DimensionKind::Diameter) {
             const auto circle = std::find_if(circles.begin(), circles.end(),
                 [&](const auto& value) { return value.id == dimension.geometry_id; });

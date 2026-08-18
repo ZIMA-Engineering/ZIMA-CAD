@@ -97,7 +97,10 @@ bool SketchDimensionPropertiesDialog::submit() {
         ? std::optional<double>{upper_->value()} : std::nullopt;
     if ((result.kind == zima::sketcher::DimensionKind::Distance ||
          result.kind == zima::sketcher::DimensionKind::Radius ||
-         result.kind == zima::sketcher::DimensionKind::Diameter) && result.value < 0.0) {
+         result.kind == zima::sketcher::DimensionKind::Diameter ||
+         result.kind == zima::sketcher::DimensionKind::EllipseMajorRadius ||
+         result.kind == zima::sketcher::DimensionKind::EllipseMinorRadius) &&
+        result.value < 0.0) {
         error_->setText(tr("Délka ani poloměr nesmí být záporný."));
         return false;
     }

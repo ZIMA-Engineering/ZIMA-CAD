@@ -567,6 +567,11 @@ vedlejší poloosy. První dva kroky jsou pouze transientní viewer preview; tř
 platný klik vytvoří jedinou Part revizi. Escape zruší celý rozpracovaný příkaz.
 Potvrzenou elipsu lze vybrat přes její stabilní `SketchCurve` referenci a smazat
 stejnou undoable transakcí jako ostatní geometrie skici.
+Vybraná elipsa nabízí dvě samostatné kóty hlavní poloosy `a` a vedlejší poloosy
+`b`. Obě odkazují na stabilní ID elipsy, používají společné interní Properties,
+řídicí/měřený stav a absolutní dolní/horní meze. Změna hodnoty transakčně upraví
+příslušný osový bod; viewer je zobrazuje jako `a=` a `b=` a serializace zachová
+jejich přesný druh i vlastníka.
 
 Půlkruhový profil R10 tvořený přesným obloukem a uzavírací úsečkou s vnitřním
 kruhovým otvorem R2, symetricky vytažený o 6 mm, musí mít objem `276π mm³` a

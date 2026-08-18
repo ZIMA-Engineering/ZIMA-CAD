@@ -601,9 +601,29 @@ int main() {
         require(loaded_ellipse.ellipses == ellipse_sketch.ellipses &&
                     loaded_ellipse.points == ellipse_sketch.points,
                 "Ellipse did not survive current Sketch serialization");
+        auto ellipse_major_dimension =
+            ellipse_sketch.create_ellipse_radius_dimension(ellipse_id, true);
+        ellipse_major_dimension.value = 25.0;
+        ellipse_sketch.apply_dimension(ellipse_major_dimension);
+        auto ellipse_minor_dimension =
+            ellipse_sketch.create_ellipse_radius_dimension(ellipse_id, false);
+        ellipse_minor_dimension.value = 6.0;
+        ellipse_sketch.apply_dimension(ellipse_minor_dimension);
+        const auto dimensioned_ellipse_packet = ellipse_sketch.viewer_mesh();
+        require(std::abs(ellipse_sketch.ellipses.front().major_radius - 25.0) < 1.0e-9 &&
+                    std::abs(ellipse_sketch.ellipses.front().minor_radius - 6.0) < 1.0e-9 &&
+                    dimensioned_ellipse_packet.dimensions.size() == 2 &&
+                    dimensioned_ellipse_packet.dimensions[0].label_prefix == "a=" &&
+                    dimensioned_ellipse_packet.dimensions[1].label_prefix == "b=",
+                "Ellipse semiaxis dimensions did not drive geometry or viewer data");
+        const auto loaded_dimensioned_ellipse = zima::sketcher::Sketch::from_serialized(
+            ellipse_sketch.serialized());
+        require(loaded_dimensioned_ellipse.dimensions == ellipse_sketch.dimensions,
+                "Ellipse semiaxis dimensions did not survive serialization");
         ellipse_sketch.remove_geometry(ellipse_id);
-        require(ellipse_sketch.ellipses.empty() && ellipse_sketch.points.empty(),
-                "Ellipse deletion retained orphan axis points");
+        require(ellipse_sketch.ellipses.empty() && ellipse_sketch.points.empty() &&
+                    ellipse_sketch.dimensions.empty(),
+                "Ellipse deletion retained dimensions or orphan axis points");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -58,6 +58,8 @@ private:
     QAction* sketch_angle_dimension_action_{};
     QAction* sketch_radius_dimension_action_{};
     QAction* sketch_diameter_dimension_action_{};
+    QAction* sketch_ellipse_major_dimension_action_{};
+    QAction* sketch_ellipse_minor_dimension_action_{};
     QAction* sketch_fix_point_action_{};
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
