@@ -52,6 +52,46 @@ class SelectionControllerTests(unittest.TestCase):
             document.cached_body_result_at(history), validated_result
         )
 
+    def test_evaluated_length_output_does_not_change_body_cache_key(self):
+        document = create_empty_part()
+        container = document.create_container(
+            "Protrusion", ContainerType.PROTRUSION
+        )
+        feature = ZimaEntity(
+            name="Protrusion",
+            kind=EntityKind.PROTRUSION,
+            parameters={
+                "length_forward": "50",
+                "evaluated_length_forward": "88.4742331905",
+            },
+        )
+        container.add_child(feature)
+        history = document.history_objects()
+        original_key = document._shape_history_cache_keys(history)[-1]
+        validated_result = object()
+        document._body_result_cache[original_key] = validated_result
+
+        # OCCT evaluation stores the measured result at full binary64
+        # precision.  This output must not make its own input signature stale.
+        feature.parameters["evaluated_length_forward"] = (
+            "88.47423319047367"
+        )
+
+        self.assertEqual(
+            document._shape_history_cache_keys(history)[-1],
+            original_key,
+        )
+        self.assertIs(
+            document.cached_body_result_at(history), validated_result
+        )
+
+        # The user-controlled extent remains a real geometric input.
+        feature.parameters["length_forward"] = "51"
+        self.assertNotEqual(
+            document._shape_history_cache_keys(history)[-1],
+            original_key,
+        )
+
     def test_request_filters_resolves_and_completes(self) -> None:
         completed = []
         controller = SelectionController()

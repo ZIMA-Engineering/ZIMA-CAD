@@ -592,7 +592,15 @@ def _entity_geometry_state(obj: ZimaEntity) -> dict[str, Any]:
                 else value
             )
             for key, value in obj.parameters.items()
+            # Calculation outputs describe the result; they are not inputs
+            # to that result.  In particular, an Up-to/Through-all build may
+            # replace a persisted display-rounded evaluated length with its
+            # full binary64 value.  Including that value in the input
+            # signature made the calculation invalidate its own persisted
+            # BodyResult, which left Assembly components present in the tree
+            # but absent from the viewer after Regenerate.
             if key != "build_status"
+            and not str(key).startswith("evaluated_length_")
         },
         "locked": obj.locked,
         "suppressed": obj.suppressed,

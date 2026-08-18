@@ -19802,6 +19802,14 @@ class MainWindow(QMainWindow):
         if self._dimension_overlays:
             self._clear_dimension_overlays()
         self._store_active_session()
+        # The OpenGL viewer is shared by every document tab, while its
+        # confirmed source-topology wire and the remaining interaction
+        # overlays are document-owned.  A normal scene rebuild replaces the
+        # body mesh but deliberately leaves those independent overlays
+        # untouched.  Reset the complete outgoing interaction context before
+        # installing the next session so an empty Part/Assembly cannot display
+        # a cyan wire selected in the previous document.
+        self._reset_viewer_interaction_context()
         self.active_document_index = index
 
         if not 0 <= index < len(self.document_sessions):
@@ -52808,9 +52816,24 @@ class MainWindow(QMainWindow):
             if canonical_assembly_path is not None:
                 active.discard(canonical_assembly_path)
 
+    def _regeneration_result_needs_fit(self) -> bool:
+        """Fit only when regeneration is installing the first real Body."""
+        if self._active_component_return_document is not None:
+            # Regenerating an activated Part must not move the camera of its
+            # displayed parent Assembly.
+            return False
+        scene = self._native_viewer_scene
+        return bool(
+            scene is None
+            or scene.body_mesh is None
+            or scene.body_mesh.is_empty
+        )
+
     def regenerate_model(self) -> None:
         if self.document is None:
             return
+
+        fit_first_body = self._regeneration_result_needs_fit()
 
         # Regeneration is synchronous because OCCT shapes belong to this
         # document/thread.  Still service paint and window-system events
@@ -53134,7 +53157,12 @@ class MainWindow(QMainWindow):
             )
 
         self.rebuild_view(
-            fit=False,
+            # A document opened without a persisted Body intentionally has
+            # an empty viewer until this explicit calculation.  Its camera
+            # can still carry the scale of the previously active document;
+            # fit the newly created first Body once so a valid Assembly does
+            # not look empty merely because it is a few pixels large.
+            fit=fit_first_body,
             rebuild_geometry=True,
             cached_body_shape=(
                 None
@@ -53844,6 +53872,12 @@ class MainWindow(QMainWindow):
                 planes=set(),
                 edges=set(),
             )
+            # A confirmed original face/edge is painted by an independent
+            # source-topology layer.  It is meaningful only while the
+            # Assembly mate dialog owns the reference contract.  Clear it on
+            # every ordinary rebuild as well, covering deletion/regeneration
+            # inside one tab in addition to the atomic tab-switch reset.
+            self.native_viewer.set_source_topology_selection(None)
         self.native_viewer.set_large_mesh_topology_enabled(
             point_constraints_active or assembly_references_active
         )

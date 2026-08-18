@@ -2422,6 +2422,90 @@ class DrawingViewConventionTests(unittest.TestCase):
         viewer.deleteLater()
         application.processEvents()
 
+    def test_document_tab_change_resets_outgoing_viewer_context(self):
+        window = MainWindow.__new__(MainWindow)
+        window.active_document_index = 0
+        window._sketch_edit_entity_id = None
+        window._active_component_return_document = None
+        window._dimension_overlays = {}
+        window._reject_document_scoped_dialogs = lambda: None
+        window._store_active_session = lambda: None
+        reset_calls = []
+
+        class ContextResetObserved(RuntimeError):
+            pass
+
+        def observe_reset():
+            reset_calls.append(True)
+            raise ContextResetObserved
+
+        window._reset_viewer_interaction_context = observe_reset
+
+        with self.assertRaises(ContextResetObserved):
+            window._on_document_tab_changed(1)
+
+        self.assertEqual(reset_calls, [True])
+
+    def test_viewer_context_reset_clears_confirmed_source_wire(self):
+        application = QApplication.instance() or QApplication([])
+        viewer = ZimaOpenGLViewer()
+        wire = ViewerMesh(
+            triangle_positions=(),
+            triangle_normals=(),
+            triangle_face_indices=(),
+            triangle_owner_ids=(),
+            edges=(EdgePolyline(
+                1,
+                ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                owner_id="previous-document",
+            ),),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(1.0, 0.0, 0.0),
+        )
+        viewer.set_source_topology_selection(wire, "edge")
+        window = SimpleNamespace(
+            native_viewer=viewer,
+            _viewer_initialized=True,
+            _assembly_occurrence_records={},
+        )
+
+        MainWindow._reset_viewer_interaction_context(window)
+
+        self.assertIsNone(viewer._source_topology_selection_mesh)
+        viewer.close()
+        viewer.deleteLater()
+        application.processEvents()
+
+    def test_first_regenerated_body_requests_fit_without_moving_parent_view(self):
+        window = MainWindow.__new__(MainWindow)
+        window._active_component_return_document = None
+        window._native_viewer_scene = None
+
+        self.assertTrue(window._regeneration_result_needs_fit())
+
+        window._native_viewer_scene = SimpleNamespace(body_mesh=ViewerMesh(
+            triangle_positions=(
+                0.0, 0.0, 0.0,
+                1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+            ),
+            triangle_normals=(0.0, 0.0, 1.0) * 3,
+            triangle_face_indices=(1,),
+            triangle_owner_ids=("body",),
+            edges=(),
+            points=(),
+            planes=(),
+            bounds_min=(0.0, 0.0, 0.0),
+            bounds_max=(1.0, 1.0, 0.0),
+        ))
+        self.assertFalse(window._regeneration_result_needs_fit())
+
+        window._native_viewer_scene = None
+        window._active_component_return_document = object()
+        self.assertFalse(window._regeneration_result_needs_fit())
+
     def test_viewer_skips_frame_while_paint_device_is_already_active(self):
         application = QApplication.instance() or QApplication([])
 
