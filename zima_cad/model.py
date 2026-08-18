@@ -192,48 +192,48 @@ def default_physical_parameters() -> dict[str, str]:
 
 def default_user_parameters() -> dict[str, str]:
     return {
-        "nazev": "",
-        "norma": "",
-        "polotovar": "",
+        "name": "",
+        "standard": "",
+        "stock": "",
         "material": "",
-        "mnozstvi": "1",
-        "kreslil": "",
-        "schvalil": "",
-        "verze": "00",
-        "datum": "",
-        "presnost": "ISO 2768-mK",
-        "tolerovani": "ISO 8015",
-        "hmotnost": "",
+        "quantity": "1",
+        "drawn_by": "",
+        "approved_by": "",
+        "revision": "00",
+        "date": "",
+        "general_tolerance": "ISO 2768-mK",
+        "tolerancing": "ISO 8015",
+        "mass": "",
     }
 
 
 def default_user_parameter_order() -> list[str]:
     return [
-        "nazev",
-        "norma",
-        "polotovar",
+        "name",
+        "standard",
+        "stock",
         "material",
-        "mnozstvi",
-        "kreslil",
-        "schvalil",
-        "verze",
-        "datum",
-        "presnost",
-        "tolerovani",
-        "hmotnost",
+        "quantity",
+        "drawn_by",
+        "approved_by",
+        "revision",
+        "date",
+        "general_tolerance",
+        "tolerancing",
+        "mass",
     ]
 
 
 def default_user_parameter_labels() -> dict[str, dict[str, str]]:
     return {
-        "datum": {"cs": "Datum", "de": "Datum", "en": "Date", "fr": "Date"},
-        "kreslil": {
+        "date": {"cs": "Datum", "de": "Datum", "en": "Date", "fr": "Date"},
+        "drawn_by": {
             "cs": "Kreslil",
             "de": "Gezeichnet von",
             "en": "Drew",
             "fr": "Dessiné par",
         },
-        "hmotnost": {
+        "mass": {
             "cs": "Hmotnost",
             "de": "Gewicht",
             "en": "Weight",
@@ -245,34 +245,34 @@ def default_user_parameter_labels() -> dict[str, dict[str, str]]:
             "en": "Material",
             "fr": "Matériau",
         },
-        "mnozstvi": {
+        "quantity": {
             "cs": "Mno\u017estv\u00ed",
             "de": "Menge",
             "en": "Quantity",
             "fr": "Quantité",
         },
-        "nazev": {"cs": "N\u00e1zev", "de": "Name", "en": "Name", "fr": "Nom"},
-        "presnost": {
+        "name": {"cs": "N\u00e1zev", "de": "Name", "en": "Name", "fr": "Nom"},
+        "general_tolerance": {
             "cs": "P\u0159esnost",
             "de": "Genauigkeit",
             "en": "Accuracy",
             "fr": "Pr\u00e9cision",
         },
-        "norma": {"cs": "Norma", "de": "Norm", "en": "Standard", "fr": "Norme"},
-        "polotovar": {
+        "standard": {"cs": "Norma", "de": "Norm", "en": "Standard", "fr": "Norme"},
+        "stock": {
             "cs": "Polotovar",
             "de": "Rohteil",
             "en": "Stock",
             "fr": "Ébauche",
         },
-        "schvalil": {
+        "approved_by": {
             "cs": "Schvalil",
             "de": "Genehmigt von",
             "en": "Approved",
             "fr": "Approuvé par",
         },
-        "verze": {"cs": "Verze", "de": "Version", "en": "Version", "fr": "Version"},
-        "tolerovani": {
+        "revision": {"cs": "Verze", "de": "Version", "en": "Version", "fr": "Version"},
+        "tolerancing": {
             "cs": "Tolerov\u00e1n\u00ed",
             "de": "Tolerierung",
             "en": "Tolerancing",
@@ -8942,7 +8942,7 @@ def create_empty_assembly() -> PartDocument:
         ),
     )
     document.relations = [{
-        "target": "hmotnost",
+        "target": "mass",
         "expression": "model.mass",
     }]
     return document

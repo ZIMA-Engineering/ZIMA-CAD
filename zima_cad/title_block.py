@@ -47,15 +47,49 @@ def title_block_token_scope(token: str) -> str:
     return "model"
 
 
-def title_block_parameter_key(token: str, context: dict) -> str:
-    """Resolve a displayed/localized parameter name to its stable key."""
+def title_block_parameter_reference(
+    token: str,
+    context: dict,
+    *,
+    field_locale: str = "",
+) -> tuple[str, str]:
+    """Resolve a localized parameter name to its stable key and language."""
     key = str(token)
     if key.startswith("model."):
         key = key.removeprefix("model.")
     elif key.startswith("user_parameter."):
         key = key.removeprefix("user_parameter.")
-    aliases = context.get("parameter_aliases", {})
-    return str(aliases.get(key, key)) if isinstance(aliases, dict) else key
+    locale = str(field_locale).strip()
+
+    known_keys: set[str] = set()
+    for context_key in ("parameters", "parameter_values", "parameter_labels"):
+        values = context.get(context_key, {})
+        if isinstance(values, dict):
+            known_keys.update(str(item) for item in values)
+    if key in known_keys:
+        return key, locale
+
+    candidates: list[tuple[str, str]] = []
+    parameter_labels = context.get("parameter_labels", {})
+    if isinstance(parameter_labels, dict):
+        for stable_key, language_labels in parameter_labels.items():
+            if not isinstance(language_labels, dict):
+                continue
+            for language, label in language_labels.items():
+                if str(label).strip() == key:
+                    candidates.append((str(stable_key), str(language)))
+
+    if locale:
+        for stable_key, language in candidates:
+            if language == locale:
+                return stable_key, language
+    if candidates:
+        # A unique localized name carries its language even when the field's
+        # locale is different. Ambiguous labels such as English/German
+        # "Name" are resolved by the title-block locale above.
+        stable_key, language = sorted(candidates)[0]
+        return stable_key, language
+    return key, locale
 
 
 def resolve_title_block_text(
@@ -97,13 +131,17 @@ def resolve_title_block_text(
         if token.startswith(("drawing.", "local.")):
             key = token.split(".", 1)[1]
             return str(context.get("local_parameters", {}).get(key, ""))
-        key = title_block_parameter_key(token, context)
+        key, value_locale = title_block_parameter_reference(
+            token,
+            context,
+            field_locale=field_locale,
+        )
         localized_values = context.get("parameter_values", {}).get(key, {})
         if isinstance(localized_values, dict):
             if "" in localized_values:
                 return str(localized_values.get("", ""))
-            if field_locale in localized_values:
-                return str(localized_values.get(field_locale, ""))
+            if value_locale in localized_values:
+                return str(localized_values.get(value_locale, ""))
         return str(context.get("parameters", {}).get(key, ""))
 
     resolved = TITLE_BLOCK_TOKEN_PATTERN.sub(

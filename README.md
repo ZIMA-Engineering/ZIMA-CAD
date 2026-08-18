@@ -365,19 +365,21 @@ localized.
 
 ```ini
 [UserParameters]
-Order=nazev, norma, material, mnozstvi
+Order=name, standard, material, quantity
 
 [UserParameterLabels]
-nazev\cs=Nazev
-nazev\en=Name
+name\cs=Název
+name\en=Name
 
 [UserParameterValues]
-nazev\cs=KORPUS
-nazev\en=BODY
-norma=CSN EN 10131
+name\cs=KORPUS
+name\en=BODY
+standard=ČSN EN 10131
 ```
 
-A value without language, such as `norma=...`, is shared by all languages.
+A value without language, such as `standard=...`, is shared by all languages.
+Localized title-block names select both the stable key and its value language:
+`&Název` reads `name\cs`, while `&Name` reads `name\en`.
 
 ## Runtime Packaging
 

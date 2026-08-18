@@ -26,13 +26,15 @@ dolním rohu.
 
 Dodávaná razítka jsou:
 
-- `ZE-RAZITKO.tblz` pro české popisky a české klíče parametrů;
-- `ZE-TITLE-BLOCK.tblz` pro anglické popisky a anglické klíče parametrů.
+- `ZE-RAZITKO.tblz` pro české popisky a české lokalizované názvy parametrů;
+- `ZE-TITLE-BLOCK.tblz` pro anglické popisky a anglické lokalizované názvy.
 
-Text začínající `&` je programovatelné pole. Například `&Název` čte přesně
-český parametr `Název`; lokalizace tedy není pouze překladem viditelného
-popisku. Prázdná hodnota se ve výkresu zobrazuje jako `-`, nikoliv jako
-historická ukázková hodnota ze šablony.
+Text začínající `&` je programovatelné pole. Interní klíče parametrů jsou
+anglické, například `name`, ale lokalizovaný název současně vybírá jazyk
+hodnoty. `&Název` tedy čte českou hodnotu klíče `name`, zatímco `&Name` čte
+jeho anglickou hodnotu. Při zapnuté sdílené hodnotě oba tokeny vrátí stejný
+text. Prázdná hodnota se ve výkresu zobrazuje jako `-`, nikoliv jako historická
+ukázková hodnota ze šablony.
 
 Upravitelné pole se při přejetí zvýrazní oranžově a po výběru azurově.
 Dvojklik otevře jeho vlastnosti. Změna pole navázaného na parametr modelu

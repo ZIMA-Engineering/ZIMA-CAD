@@ -291,7 +291,7 @@ from zima_cad.drawing_template import (
 from zima_cad.title_block import (
     resolve_title_block_text,
     title_block_field_text,
-    title_block_parameter_key,
+    title_block_parameter_reference,
     title_block_token_scope,
     title_block_tokens,
 )
@@ -7926,7 +7926,7 @@ class RelationsDialog(DocumentSubWindowDialog):
         )
         layout.addWidget(self.table)
         rows = document.relations or [{
-            "target": "hmotnost",
+            "target": "mass",
             "expression": "model.mass",
         }]
         for relation in rows:
@@ -21903,30 +21903,27 @@ class MainWindow(QMainWindow):
         part_head: bool = False,
     ) -> dict[str, Any]:
         parameters = source_document.user_parameters
-        norma = str(parameters.get("norma", "")).strip()
+        standard = str(parameters.get("standard", "")).strip()
         return {
             "item": item,
             "file_stem": source_path.stem,
             "name": "-" if part_head else (
-                str(parameters.get("nazev", "")).strip() or source_path.stem
+                str(parameters.get("name", "")).strip() or source_path.stem
             ),
-            "drawing_norm": norma if part_head else (
-                f"{source_path.stem} - {norma}".rstrip()
+            "drawing_norm": standard if part_head else (
+                f"{source_path.stem} - {standard}".rstrip()
             ),
-            "stock": str(parameters.get("polotovar", "")).strip(),
+            "stock": str(parameters.get("stock", "")).strip(),
             "material": str(parameters.get("material", "")).strip(),
-            "weight": str(parameters.get("hmotnost", "")).strip() or "-",
+            "weight": str(parameters.get("mass", "")).strip() or "-",
             "quantity": quantity,
             "parameters": dict(parameters),
             "parameter_values": copy.deepcopy(
                 source_document.user_parameter_values
             ),
-            "parameter_aliases": {
-                str(label).strip(): str(key)
-                for key, labels in source_document.user_parameter_labels.items()
-                for label in labels.values()
-                if str(label).strip()
-            },
+            "parameter_labels": copy.deepcopy(
+                source_document.user_parameter_labels
+            ),
         }
 
     def _refresh_drawing_title_block_context(self) -> None:
@@ -21993,7 +21990,7 @@ class MainWindow(QMainWindow):
         else:
             rows = [self._title_block_row(
                 source_document, source_path, item="1",
-                quantity=str(source_document.user_parameters.get("mnozstvi", "1")),
+                quantity=str(source_document.user_parameters.get("quantity", "1")),
                 part_head=True,
             )]
         self.drawing_workspace.set_title_block_context({
@@ -22003,12 +22000,9 @@ class MainWindow(QMainWindow):
             "parameter_values": copy.deepcopy(
                 source_document.user_parameter_values
             ),
-            "parameter_aliases": {
-                str(label).strip(): str(key)
-                for key, labels in source_document.user_parameter_labels.items()
-                for label in labels.values()
-                if str(label).strip()
-            },
+            "parameter_labels": copy.deepcopy(
+                source_document.user_parameter_labels
+            ),
             "head_rows": rows,
         })
 
@@ -22057,7 +22051,12 @@ class MainWindow(QMainWindow):
                 key = token.removeprefix("user_parameter.")
             label = token
             if scope == "model":
-                key = title_block_parameter_key(token, context)
+                field_locale = str(field.get("locale", "cs")) or "cs"
+                key, value_locale = title_block_parameter_reference(
+                    token,
+                    context,
+                    field_locale=field_locale,
+                )
                 localized = source_document.user_parameter_labels.get(key, {})
                 label = str(
                     localized.get(self.settings.language)
@@ -22065,11 +22064,10 @@ class MainWindow(QMainWindow):
                     or key
                 )
                 value_map = source_document.user_parameter_values.get(key, {})
-                field_locale = str(field.get("locale", "cs")) or "cs"
                 value = str(
                     value_map.get("")
                     if "" in value_map
-                    else value_map.get(field_locale, "")
+                    else value_map.get(value_locale, "")
                 )
             elif scope == "drawing":
                 label = f"{tr('dialog.title_block_field.local')} – {key}"
@@ -22108,16 +22106,20 @@ class MainWindow(QMainWindow):
                     continue
                 if scope != "model":
                     continue
-                key = title_block_parameter_key(token, context)
+                field_locale = str(field.get("locale", "cs")) or "cs"
+                key, value_locale = title_block_parameter_reference(
+                    token,
+                    context,
+                    field_locale=field_locale,
+                )
                 value_map = source_document.user_parameter_values.setdefault(
                     key, {"": ""}
                 )
-                field_locale = str(field.get("locale", "cs")) or "cs"
                 if "" in value_map:
                     value_map[""] = value
                     source_document.user_parameters[key] = value
                 else:
-                    value_map[field_locale] = value
+                    value_map[value_locale or field_locale] = value
                 if key not in source_document.user_parameter_order:
                     source_document.user_parameter_order.append(key)
                 model_changed = True

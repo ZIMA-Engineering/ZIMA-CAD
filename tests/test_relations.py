@@ -36,7 +36,7 @@ class RelationsTests(unittest.TestCase):
 
             result = evaluate_document_relations(assembly)
 
-        self.assertEqual(result["hmotnost"], f"{expected_mass:.3f}")
+        self.assertEqual(result["mass"], f"{expected_mass:.3f}")
 
     def test_mass_relation_writes_plain_user_parameter_value(self):
         document = create_empty_part()
@@ -44,17 +44,17 @@ class RelationsTests(unittest.TestCase):
         document.physical_parameters["MASS_DENSITY"] = "7.85e-6"
         document.physical_parameter_units["MASS_DENSITY"] = "kg/mm^3"
         document.relations = [{
-            "target": "hmotnost",
+            "target": "mass",
             "expression": "model.mass",
         }]
         document.build_active_shape = lambda: BRepPrimAPI_MakeBox(10, 10, 10).Shape()
 
         result = evaluate_document_relations(document)
 
-        self.assertEqual(result["hmotnost"], "0.007850")
-        self.assertEqual(document.user_parameters["hmotnost"], "0.007850")
+        self.assertEqual(result["mass"], "0.007850")
+        self.assertEqual(document.user_parameters["mass"], "0.007850")
         self.assertEqual(
-            document.user_parameter_values["hmotnost"][""], "0.007850"
+            document.user_parameter_values["mass"][""], "0.007850"
         )
 
     def test_relations_can_use_previous_result_and_safe_functions(self):
@@ -71,7 +71,7 @@ class RelationsTests(unittest.TestCase):
     def test_arbitrary_python_is_rejected(self):
         document = create_empty_part()
         document.relations = [{
-            "target": "hmotnost",
+            "target": "mass",
             "expression": "__import__('os').system('true')",
         }]
 
@@ -81,7 +81,7 @@ class RelationsTests(unittest.TestCase):
     def test_relations_round_trip_in_model_file(self):
         document = create_empty_part()
         document.relations = [{
-            "target": "hmotnost",
+            "target": "mass",
             "expression": "model.mass",
         }]
         with tempfile.TemporaryDirectory() as directory:

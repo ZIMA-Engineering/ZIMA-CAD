@@ -94,10 +94,10 @@ class DrawingTemplateTests(unittest.TestCase):
             for point in model.points.values()
             if point.attributes.get("template_field_id")
         }
-        self.assertEqual(fields["DRAWN_BY"].attributes["text_value"], "&kreslil")
+        self.assertEqual(fields["DRAWN_BY"].attributes["text_value"], "&Kreslil")
         self.assertEqual(
             fields["DOCUMENT_NUMBER"].attributes["text_value"],
-            "&document.file_stem.&verze",
+            "&document.file_stem.&Verze",
         )
         self.assertTrue(model.constraints)
         self.assertTrue(all(
@@ -119,7 +119,7 @@ class DrawingTemplateTests(unittest.TestCase):
             if point.attributes.get("template_field_id") == "DOCUMENT_NUMBER"
         )
         field.attributes["text_value"] = (
-            "&document.file_stem / &model.verze / &drawing.edice"
+            "&document.file_stem / &model.revision / &drawing.edice"
         )
         template_sketch(document).parameters["sketch_data"] = json.dumps(
             model.to_dict(), ensure_ascii=False
@@ -129,7 +129,7 @@ class DrawingTemplateTests(unittest.TestCase):
             save_drawing_template(document, target)
             text = target.read_text(encoding="utf-8")
             self.assertIn(
-                "Text = &document.file_stem / &model.verze / &drawing.edice",
+                "Text = &document.file_stem / &model.revision / &drawing.edice",
                 text,
             )
             reloaded = load_drawing_template(target)
@@ -143,7 +143,7 @@ class DrawingTemplateTests(unittest.TestCase):
             )
             self.assertEqual(
                 reloaded_field.attributes["text_value"],
-                "&document.file_stem / &model.verze / &drawing.edice",
+                "&document.file_stem / &model.revision / &drawing.edice",
             )
 
     def test_deleted_title_block_field_does_not_return_after_reopen(self) -> None:

@@ -33,14 +33,22 @@ sestavy a přiřazuje bezpečný výraz jednomu cílovému parametru. Výchozí
 startovací díl obsahuje:
 
 ```text
-hmotnost = model.mass
+mass = model.mass
 ```
 
 `model.mass` je hmotnost v kilogramech vypočítaná ze skutečného objemu
 výsledného OCCT tělesa a z `MASS_DENSITY` přiřazeného materiálu. Podporované
 jednotky hustoty jsou `kg/mm^3`, `kg/m^3`, `g/cm^3` a `lb/in^3`. Výsledek se
-zapíše jako obyčejný text do parametru `hmotnost`; razítko ani další uživatel
+zapíše jako obyčejný text do parametru `mass`; razítko ani další uživatel
 parametru nemusí znát jeho vzorec.
+
+Výchozí klíče v prvním sloupci tabulky Parametry jsou stabilní anglické
+identifikátory, například `name`, `standard`, `drawn_by`, `revision` a `mass`.
+Viditelné názvy a hodnoty zůstávají jazykové. Český název `Název` a anglický
+název `Name` proto odkazují na stejný klíč `name`, ale mohou mít různé hodnoty.
+Nová sestava používá stejnou sadu parametrů. V aktuálním datovém modelu se
+zakládá generátorem, nikoliv samostatným souborem `start_assembly.asmz`, a
+generátor jí nastaví také relaci `mass = model.mass`.
 
 Výrazy používají omezený pythonovský zápis, nikoliv spustitelný Python.
 Podporují čísla, odkazy na dříve dostupné parametry, operátory
@@ -695,9 +703,10 @@ volba je dostupná také pro text.
 
 Automatická pole razítka jsou ve Sketchi zobrazena se znakem `&` na začátku.
 Jedno textové pole smí kombinovat běžný text s libovolným počtem tokenů,
-například `Číslo: &document.file_stem.&model.verze / &drawing.edice`.
-`&model.verze` odkazuje na parametr zdrojového modelu a `&verze` je jeho
-zkrácený zápis. Token `&drawing.edice` patří pouze konkrétnímu listu výkresu
+například `Číslo: &document.file_stem.&model.revision / &drawing.edice`.
+`&model.revision` odkazuje přímo na anglický klíč zdrojového modelu. Lokalizovaný
+token `&Verze` vybere českou hodnotu stejného parametru a `&Version` hodnotu
+podle jazyka razítka. Token `&drawing.edice` patří pouze konkrétnímu listu výkresu
 a nemění zdrojový model ani šablonu razítka. Tokeny `&document.file_stem`,
 `&sheet.format`, `&sheet.scale` a `&sheet.position` jsou automatické systémové
 hodnoty. Kód lze upravit jako běžný text; po uložení se zapíše zpět jako

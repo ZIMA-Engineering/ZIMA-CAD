@@ -102,17 +102,17 @@ Line001 = 0, 0, 1, 1, BLUE
             "ACCURACY", "TOLERANCING",
             "ASSEMBLY_WEIGHT", "ASSEMBLY_QUANTITY",
         })
-        self.assertEqual(fields["DRAWN_BY"]["text"], "&kreslil")
+        self.assertEqual(fields["DRAWN_BY"]["text"], "&Kreslil")
         self.assertEqual(fields["DRAWN_BY"]["default"], "-")
         self.assertEqual(fields["DRAWN_BY"]["align"], "right")
         self.assertEqual(fields["DRAWN_BY"]["offset_y"], -0.7)
-        self.assertEqual(fields["APPROVED_BY"]["text"], "&schvalil")
+        self.assertEqual(fields["APPROVED_BY"]["text"], "&Schvalil")
         self.assertEqual(fields["APPROVED_BY"]["align"], "right")
         self.assertEqual(fields["APPROVED_BY"]["offset_y"], -0.5)
-        self.assertEqual(fields["DATE"]["text"], "&datum")
+        self.assertEqual(fields["DATE"]["text"], "&Datum")
         self.assertEqual(
             fields["DOCUMENT_NUMBER"]["text"],
-            "&document.file_stem.&verze",
+            "&document.file_stem.&Verze",
         )
         self.assertEqual(fields["SHEET_NUMBER"]["text"], "&sheet.position")
         self.assertEqual(fields["SHEET_NUMBER"]["format"], "{index}/{count}")
@@ -120,7 +120,7 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(fields["SHEET_NUMBER"]["vertical_align"], "bottom")
         self.assertFalse(fields["SHEET_NUMBER"]["editable"])
         self.assertFalse(fields["SHEET_NUMBER"]["write_back"])
-        self.assertEqual(fields["NAME"]["text"], "&nazev")
+        self.assertEqual(fields["NAME"]["text"], "&Název")
         self.assertEqual(fields["NAME"]["pen"], "WHITE")
         self.assertEqual(fields["DOCUMENT_NUMBER"]["pen"], "WHITE")
         self.assertEqual(fields["NAME"]["height"], 5.0)
@@ -152,13 +152,13 @@ Line001 = 0, 0, 1, 1, BLUE
         self.assertEqual(fields["SCALE"]["pen"], "WHITE")
         self.assertEqual(fields["SCALE"]["format"], "M{numerator}:{denominator}")
         self.assertEqual(fields["SHEET_FORMAT"]["align"], "right")
-        self.assertEqual(fields["ACCURACY"]["text"], "&presnost")
-        self.assertEqual(fields["TOLERANCING"]["text"], "&tolerovani")
+        self.assertEqual(fields["ACCURACY"]["text"], "&Přesnost")
+        self.assertEqual(fields["TOLERANCING"]["text"], "&Tolerování")
         self.assertEqual(
-            fields["ASSEMBLY_WEIGHT"]["text"], "&hmotnost_sestavy"
+            fields["ASSEMBLY_WEIGHT"]["text"], "&Hmotnost"
         )
         self.assertEqual(
-            fields["ASSEMBLY_QUANTITY"]["text"], "&mnozstvi_sestav"
+            fields["ASSEMBLY_QUANTITY"]["text"], "&Množství"
         )
         static_texts = {
             entity.get("text") for entity in definition["geometry"]
@@ -191,14 +191,14 @@ Line001 = 0, 0, 1, 1, BLUE
 
     def test_one_field_resolves_multiple_model_system_and_local_tokens(self) -> None:
         field = {
-            "text": "Číslo &document.file_stem.&model.verze / &drawing.edice",
+            "text": "Číslo &document.file_stem.&model.revision / &drawing.edice",
             "default": "-",
         }
         self.assertEqual(
             title_block_tokens(field["text"]),
-            ("document.file_stem", "model.verze", "drawing.edice"),
+            ("document.file_stem", "model.revision", "drawing.edice"),
         )
-        self.assertEqual(title_block_token_scope("model.verze"), "model")
+        self.assertEqual(title_block_token_scope("model.revision"), "model")
         self.assertEqual(title_block_token_scope("drawing.edice"), "drawing")
         self.assertEqual(title_block_token_scope("sheet.scale"), "system")
         self.assertEqual(
@@ -206,7 +206,7 @@ Line001 = 0, 0, 1, 1, BLUE
                 field,
                 context={
                     "file_stem": "ZE0019-0200-0001",
-                    "parameters": {"verze": "03"},
+                    "parameters": {"revision": "03"},
                     "local_parameters": {"edice": "A"},
                 },
                 sheet={},
@@ -224,10 +224,10 @@ Line001 = 0, 0, 1, 1, BLUE
             resolve_title_block_text(
                 {"text": "&Název / &Materiál"},
                 context={
-                    "parameters": {"nazev": "OBJÍMKA", "material": "S235JR"},
-                    "parameter_aliases": {
-                        "Název": "nazev",
-                        "Materiál": "material",
+                    "parameters": {"name": "OBJÍMKA", "material": "S235JR"},
+                    "parameter_labels": {
+                        "name": {"cs": "Název"},
+                        "material": {"cs": "Materiál"},
                     },
                 },
                 sheet={},

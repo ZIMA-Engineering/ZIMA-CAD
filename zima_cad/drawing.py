@@ -1636,7 +1636,7 @@ class DrawingCanvas(QWidget):
                 for key in (
                     "parameters",
                     "parameter_values",
-                    "parameter_aliases",
+                    "parameter_labels",
                     "file_stem",
                 ):
                     if key in row:

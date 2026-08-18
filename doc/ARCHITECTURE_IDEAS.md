@@ -180,6 +180,9 @@ jen při **Použít**, **OK** nebo regeneraci.
 
 - Uživatelský parametr je vždy materializovaná hodnota použitelná beze znalosti
   jejího původu ve featurech, sestavě, rodinné tabulce, razítku a výkresu.
+- Výchozí stabilní klíče jsou anglické identifikátory. Lokalizovaný název
+  parametru mapuje klíč i jazyk hodnoty, například `Název -> name + cs` a
+  `Name -> name + en`; sdílená hodnota jazykovou větev nahrazuje.
 - Relace patří pouze modelovému dokumentu Part nebo Assembly. Ukládá dvojici
   `target + expression`; vyhodnocený výsledek zapisuje do běžného
   `user_parameters[target]` a jazykově sdílené hodnoty parametru.
