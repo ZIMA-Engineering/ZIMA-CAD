@@ -164,6 +164,58 @@ int main() {
         require(out_of_range_rejected && connected.points == before_out_of_range.points &&
                     connected.dimensions == before_out_of_range.dimensions,
                 "Out-of-range dimension changed the Sketch transaction");
+        auto rectangle = zima::sketcher::Sketch::create_default();
+        const auto rectangle_ids = rectangle.add_rectangle(0.0, 0.0, 30.0, 20.0);
+        require(rectangle_ids.size() == 4 && rectangle.points.size() == 4 &&
+                    rectangle.segments.size() == 4 && rectangle.constraints.size() == 4 &&
+                    rectangle.segments[0].second_point_id ==
+                        rectangle.segments[1].first_point_id &&
+                    rectangle.segments[3].second_point_id ==
+                        rectangle.segments[0].first_point_id,
+                "Rectangle did not create one closed constrained point graph");
+        const auto rectangle_before_invalid = rectangle;
+        bool flat_rectangle_rejected = false;
+        try {
+            static_cast<void>(rectangle.add_rectangle(0.0, 0.0, 10.0, 0.0));
+        } catch (const std::invalid_argument&) {
+            flat_rectangle_rejected = true;
+        }
+        require(flat_rectangle_rejected && rectangle.points == rectangle_before_invalid.points &&
+                    rectangle.segments == rectangle_before_invalid.segments,
+                "Degenerate rectangle partially changed the Sketch");
+        auto circle_sketch = zima::sketcher::Sketch::create_default();
+        const auto circle_id = circle_sketch.add_circle(5.0, 7.0, 10.0);
+        auto radius_dimension =
+            circle_sketch.create_circle_radius_dimension(circle_id);
+        radius_dimension.lower_limit = 2.0;
+        radius_dimension.upper_limit = 20.0;
+        radius_dimension.value = 15.0;
+        circle_sketch.apply_dimension(radius_dimension);
+        require(circle_sketch.circles.size() == 1 &&
+                    std::abs(circle_sketch.circles.front().radius - 15.0) < 1.0e-9 &&
+                    circle_sketch.dimensions.front().geometry_id == circle_id,
+                "Radius dimension did not drive its stable circle");
+        const auto circle_packet = circle_sketch.viewer_mesh();
+        require(circle_packet.edges.size() == 1 &&
+                    circle_packet.edges.front().points.size() == 97 &&
+                    circle_packet.edges.front().reference.semantic_key ==
+                        "circle:" + circle_id &&
+                    circle_packet.dimensions.size() == 1 &&
+                    circle_packet.dimensions.front().label_prefix == "R",
+                "Circle or radius dimension did not produce stable viewer data");
+        const auto loaded_circle = zima::sketcher::Sketch::from_serialized(
+            circle_sketch.serialized());
+        require(loaded_circle.circles == circle_sketch.circles &&
+                    loaded_circle.dimensions == circle_sketch.dimensions,
+                "Circle and radius dimension did not survive serialization");
+        bool zero_circle_rejected = false;
+        try {
+            static_cast<void>(circle_sketch.add_circle(0.0, 0.0, 0.0));
+        } catch (const std::invalid_argument&) {
+            zero_circle_rejected = true;
+        }
+        require(zero_circle_rejected,
+                "Zero-radius circle was accepted");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

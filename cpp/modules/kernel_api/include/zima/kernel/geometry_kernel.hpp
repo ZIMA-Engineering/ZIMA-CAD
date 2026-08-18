@@ -81,6 +81,7 @@ struct ViewerDimension {
     Vec3 line_second;
     double value{};
     EdgeReference reference;
+    std::string label_prefix;
 };
 
 struct ViewerMesh {

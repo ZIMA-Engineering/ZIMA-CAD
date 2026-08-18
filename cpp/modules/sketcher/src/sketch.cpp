@@ -62,6 +62,7 @@ const char* dimension_name(DimensionKind kind) {
     case DimensionKind::Distance: return "distance";
     case DimensionKind::DistanceX: return "distance_x";
     case DimensionKind::DistanceY: return "distance_y";
+    case DimensionKind::Radius: return "radius";
     }
     throw std::invalid_argument("Unknown sketch dimension");
 }
@@ -70,6 +71,7 @@ DimensionKind dimension_from_name(const std::string& name) {
     if (name == "distance") return DimensionKind::Distance;
     if (name == "distance_x") return DimensionKind::DistanceX;
     if (name == "distance_y") return DimensionKind::DistanceY;
+    if (name == "radius") return DimensionKind::Radius;
     throw std::runtime_error("Unknown sketch dimension");
 }
 
@@ -131,6 +133,14 @@ void Sketch::validate() const {
         }
     }
     ids.clear();
+    for (const auto& circle : circles) {
+        if (circle.id.empty() || !ids.insert(circle.id).second ||
+            find_point(circle.center_point_id) == nullptr ||
+            !std::isfinite(circle.radius) || circle.radius <= 0.0) {
+            throw std::runtime_error("Sketch circle is invalid");
+        }
+    }
+    ids.clear();
     for (const auto& constraint : constraints) {
         if (constraint.id.empty() || !ids.insert(constraint.id).second ||
             find_point(constraint.first_point_id) == nullptr ||
@@ -140,13 +150,20 @@ void Sketch::validate() const {
     }
     ids.clear();
     for (const auto& dimension : dimensions) {
+        const bool radius_dimension = dimension.kind == DimensionKind::Radius;
+        const bool geometry_valid = radius_dimension && std::any_of(
+            circles.begin(), circles.end(), [&](const auto& circle) {
+                return circle.id == dimension.geometry_id;
+            });
         if (dimension.id.empty() || !ids.insert(dimension.id).second ||
-            find_point(dimension.first_point_id) == nullptr ||
-            find_point(dimension.second_point_id) == nullptr) {
+            (radius_dimension ? !geometry_valid
+                : find_point(dimension.first_point_id) == nullptr ||
+                  find_point(dimension.second_point_id) == nullptr)) {
             throw std::runtime_error("Sketch dimension is invalid");
         }
         require_finite(dimension.value, "dimension value");
-        if (dimension.kind == DimensionKind::Distance && dimension.value < 0.0) {
+        if ((dimension.kind == DimensionKind::Distance || radius_dimension) &&
+            dimension.value < 0.0) {
             throw std::runtime_error("Distance must not be negative");
         }
         if (dimension.lower_limit) require_finite(*dimension.lower_limit, "lower limit");
@@ -237,6 +254,65 @@ std::string Sketch::add_segment_constraint(
     return id;
 }
 
+std::vector<std::string> Sketch::add_rectangle(
+    double first_x, double first_y, double second_x, double second_y,
+    double snap_tolerance) {
+    for (const double value : {first_x, first_y, second_x, second_y, snap_tolerance}) {
+        require_finite(value, "rectangle coordinate");
+    }
+    if (snap_tolerance < 0.0 || std::abs(second_x - first_x) <= 1.0e-12 ||
+        std::abs(second_y - first_y) <= 1.0e-12) {
+        throw std::invalid_argument("Sketch rectangle width and height must be non-zero");
+    }
+    auto next = *this;
+    std::vector<std::string> ids;
+    ids.push_back(next.add_segment(
+        first_x, first_y, second_x, first_y, snap_tolerance));
+    ids.push_back(next.add_segment(
+        second_x, first_y, second_x, second_y, snap_tolerance));
+    ids.push_back(next.add_segment(
+        second_x, second_y, first_x, second_y, snap_tolerance));
+    ids.push_back(next.add_segment(
+        first_x, second_y, first_x, first_y, snap_tolerance));
+    static_cast<void>(next.add_segment_constraint(ids[0], ConstraintKind::Horizontal));
+    static_cast<void>(next.add_segment_constraint(ids[1], ConstraintKind::Vertical));
+    static_cast<void>(next.add_segment_constraint(ids[2], ConstraintKind::Horizontal));
+    static_cast<void>(next.add_segment_constraint(ids[3], ConstraintKind::Vertical));
+    next.validate();
+    *this = std::move(next);
+    return ids;
+}
+
+std::string Sketch::add_circle(
+    double center_x, double center_y, double radius,
+    bool construction, double snap_tolerance) {
+    for (const double value : {center_x, center_y, radius, snap_tolerance}) {
+        require_finite(value, "circle parameter");
+    }
+    if (radius <= 1.0e-12 || snap_tolerance < 0.0) {
+        throw std::invalid_argument("Sketch circle radius must be positive");
+    }
+    auto next = *this;
+    const auto center = std::find_if(next.points.begin(), next.points.end(),
+        [&](const auto& point) {
+            return std::hypot(point.x - center_x, point.y - center_y) <= snap_tolerance;
+        });
+    std::string center_id;
+    if (center == next.points.end()) {
+        auto point = create_point(center_x, center_y);
+        center_id = point.id;
+        next.points.push_back(std::move(point));
+    } else {
+        center_id = center->id;
+    }
+    SketchCircle circle{make_id(), center_id, radius, construction};
+    const auto id = circle.id;
+    next.circles.push_back(std::move(circle));
+    next.validate();
+    *this = std::move(next);
+    return id;
+}
+
 SketchDimension Sketch::create_segment_dimension(
     const std::string& segment_id, DimensionKind kind) const {
     const auto segment = std::find_if(segments.begin(), segments.end(),
@@ -251,8 +327,24 @@ SketchDimension Sketch::create_segment_dimension(
     return {make_id(), kind, first->id, second->id, value};
 }
 
+SketchDimension Sketch::create_circle_radius_dimension(
+    const std::string& circle_id) const {
+    const auto circle = std::find_if(circles.begin(), circles.end(),
+        [&](const auto& value) { return value.id == circle_id; });
+    if (circle == circles.end()) throw std::invalid_argument("Sketch circle does not exist");
+    SketchDimension result;
+    result.id = make_id();
+    result.kind = DimensionKind::Radius;
+    result.value = circle->radius;
+    result.geometry_id = circle->id;
+    return result;
+}
+
 void Sketch::apply_dimension(SketchDimension dimension) {
     if (dimension.id.empty()) throw std::invalid_argument("Sketch dimension ID is required");
+    const auto dimension_kind = dimension.kind;
+    const auto dimension_geometry_id = dimension.geometry_id;
+    const double dimension_value = dimension.value;
     auto next = *this;
     const auto existing = std::find_if(next.dimensions.begin(), next.dimensions.end(),
         [&](const auto& value) { return value.id == dimension.id; });
@@ -261,13 +353,23 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             next.dimensions.begin(), next.dimensions.end(), [&](const auto& value) {
                 return !value.suppressed && value.driving && dimension.driving &&
                     value.kind == dimension.kind &&
-                    value.first_point_id == dimension.first_point_id &&
-                    value.second_point_id == dimension.second_point_id;
+                    (dimension.kind == DimensionKind::Radius
+                        ? value.geometry_id == dimension.geometry_id
+                        : value.first_point_id == dimension.first_point_id &&
+                          value.second_point_id == dimension.second_point_id);
             });
         if (same_driver) throw std::invalid_argument("Segment already owns this driving dimension");
         next.dimensions.push_back(std::move(dimension));
     } else {
         *existing = std::move(dimension);
+    }
+    if (dimension_kind == DimensionKind::Radius) {
+        const auto circle = std::find_if(next.circles.begin(), next.circles.end(),
+            [&](const auto& value) { return value.id == dimension_geometry_id; });
+        if (circle == next.circles.end()) {
+            throw std::invalid_argument("Radius dimension circle does not exist");
+        }
+        circle->radius = dimension_value;
     }
     next.validate();
     const auto result = next.solve();
@@ -281,6 +383,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
     try { validate(); } catch (const std::exception&) { return {SolveStatus::Invalid, 0, 0.0}; }
     if (maximum_iterations == 0) return {SolveStatus::Invalid, 0, 0.0};
     const auto original_points = points;
+    const auto original_circles = circles;
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto move_pair = [](SketchPoint& first, SketchPoint& second,
@@ -314,6 +417,14 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
+            if (dimension.kind == DimensionKind::Radius) {
+                auto circle = std::find_if(circles.begin(), circles.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                const double residual = circle->radius - dimension.value;
+                maximum_residual = std::max(maximum_residual, std::abs(residual));
+                circle->radius = dimension.value;
+                continue;
+            }
             auto* first = find_point(dimension.first_point_id);
             auto* second = find_point(dimension.second_point_id);
             double dx = second->x - first->x;
@@ -345,12 +456,14 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         if (immovable_conflict) {
             points = original_points;
+            circles = original_circles;
             return {SolveStatus::Conflicting, 0, maximum_residual};
         }
         if (maximum_residual <= tolerance) break;
     }
     if (maximum_residual > tolerance) {
         points = original_points;
+        circles = original_circles;
         return {SolveStatus::Conflicting, 0, maximum_residual};
     }
     for (const auto& segment : segments) {
@@ -358,6 +471,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         const auto* second = find_point(segment.second_point_id);
         if (std::hypot(second->x - first->x, second->y - first->y) <= tolerance) {
             points = original_points;
+            circles = original_circles;
             return {SolveStatus::Conflicting, 0, 0.0};
         }
     }
@@ -378,6 +492,12 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
+            if (dimension.kind == DimensionKind::Radius) {
+                const auto circle = std::find_if(circles.begin(), circles.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                result.push_back(circle->radius - dimension.value);
+                continue;
+            }
             const auto* first = find_point(dimension.first_point_id);
             const auto* second = find_point(dimension.second_point_id);
             const double dx = second->x - first->x;
@@ -397,6 +517,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             variables.push_back(&point.y);
         }
     }
+    for (auto& circle : circles) variables.push_back(&circle.radius);
     const auto base = residuals();
     std::vector<std::vector<double>> jacobian(
         base.size(), std::vector<double>(variables.size()));
@@ -455,9 +576,35 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
              project(*find_point(segment.second_point_id))},
             {id, "segment:" + segment.id, {}}});
     }
+    constexpr std::size_t circle_samples = 96;
+    for (const auto& circle : circles) {
+        const auto* center = find_point(circle.center_point_id);
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {id, "circle:" + circle.id, {}};
+        edge.points.reserve(circle_samples + 1);
+        for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
+            const double angle = 2.0 * 3.14159265358979323846 *
+                static_cast<double>(sample) / static_cast<double>(circle_samples);
+            edge.points.push_back(world_point(
+                center->x + circle.radius * std::cos(angle),
+                center->y + circle.radius * std::sin(angle)));
+        }
+        result.edges.push_back(std::move(edge));
+    }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed) continue;
+        if (dimension.kind == DimensionKind::Radius) {
+            const auto circle = std::find_if(circles.begin(), circles.end(),
+                [&](const auto& value) { return value.id == dimension.geometry_id; });
+            if (circle == circles.end()) continue;
+            const auto* center = find_point(circle->center_point_id);
+            const auto rim = world_point(center->x + circle->radius, center->y);
+            result.dimensions.push_back({
+                project(*center), rim, project(*center), rim, dimension.value,
+                {id, "dimension:" + dimension.id, {}}, "R"});
+            continue;
+        }
         const auto* first = find_point(dimension.first_point_id);
         const auto* second = find_point(dimension.second_point_id);
         const double dx = second->x - first->x;
@@ -513,6 +660,10 @@ std::string Sketch::serialized() const {
     for (const auto& segment : segments) segment_values.push_back({
         {"id", segment.id}, {"first", segment.first_point_id},
         {"second", segment.second_point_id}, {"construction", segment.construction}});
+    nlohmann::json circle_values = nlohmann::json::array();
+    for (const auto& circle : circles) circle_values.push_back({
+        {"id", circle.id}, {"center", circle.center_point_id},
+        {"radius", circle.radius}, {"construction", circle.construction}});
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -524,6 +675,7 @@ std::string Sketch::serialized() const {
             {"first", dimension.first_point_id}, {"second", dimension.second_point_id},
             {"value", dimension.value}, {"driving", dimension.driving},
             {"suppressed", dimension.suppressed}};
+        if (!dimension.geometry_id.empty()) value["geometry"] = dimension.geometry_id;
         if (dimension.lower_limit) value["lower_limit"] = *dimension.lower_limit;
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
@@ -532,6 +684,7 @@ std::string Sketch::serialized() const {
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
+        {"circles", std::move(circle_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
     return root.dump(2);
@@ -554,6 +707,9 @@ Sketch Sketch::from_serialized(const std::string& value) {
     for (const auto& value : root.at("segments")) sketch.segments.push_back({
         value.at("id").get<std::string>(), value.at("first").get<std::string>(),
         value.at("second").get<std::string>(), value.at("construction").get<bool>()});
+    for (const auto& value : root.at("circles")) sketch.circles.push_back({
+        value.at("id").get<std::string>(), value.at("center").get<std::string>(),
+        value.at("radius").get<double>(), value.at("construction").get<bool>()});
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),
@@ -563,6 +719,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
             dimension_from_name(value.at("kind")), value.at("first").get<std::string>(),
             value.at("second").get<std::string>(), value.at("value").get<double>(),
             value.at("driving").get<bool>(), value.at("suppressed").get<bool>()};
+        dimension.geometry_id = value.value("geometry", std::string{});
         if (value.contains("lower_limit")) dimension.lower_limit = value.at("lower_limit").get<double>();
         if (value.contains("upper_limit")) dimension.upper_limit = value.at("upper_limit").get<double>();
         sketch.dimensions.push_back(std::move(dimension));

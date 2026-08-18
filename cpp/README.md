@@ -307,6 +307,29 @@ the tree. Viewer-packet JSON validates and persists dimensions, while Assembly
 composition transforms every dimension point and prefixes exact nested instance
 identity without invoking OCCT.
 
+The second interactive geometry command creates a rectangle from two opposite
+corners. Pointer motion draws four transient preview edges. The confirming click
+atomically creates four shared Sketch points, four closed segments, two
+Horizontal constraints, and two Vertical constraints as one Part revision.
+Zero width/height is rejected without mutation, Escape cancels the preview, and
+switching tools removes the previous transient state. The command stays active
+after a successful rectangle so multiple profiles can be drawn without reopening
+the action.
+
+Circle is the next native Sketch geometry. It owns a stable ID, one stable
+centre point, a positive radius, and construction state. The two-click command
+selects centre then rim, draws a 96-segment transient preview, and commits one
+Part revision only after a non-zero radius is confirmed. Persisted viewer data
+uses the dedicated `SketchCurve` candidate and a stable `circle:<id>` key, so it
+cannot be confused with a solid edge.
+
+A confirmed Circle can create a driving Radius dimension through the same
+dimension Properties class and absolute limit contract as segment length. The
+dimension points to the Circle ID rather than inventing a rim point, drives the
+stored radius transactionally, contributes radius DOF to the Jacobian, and is
+rendered/picked with an `R` prefix. Circle geometry and its Radius dimension
+round-trip in the current Sketch format without OCCT.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

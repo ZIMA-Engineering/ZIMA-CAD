@@ -253,7 +253,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     for (const auto& edge : ordered_edge_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
         const auto kind = edge.reference.semantic_key.starts_with("segment:")
-            ? CandidateKind::SketchSegment : CandidateKind::Edge;
+            ? CandidateKind::SketchSegment
+            : edge.reference.semantic_key.starts_with("circle:")
+                ? CandidateKind::SketchCurve : CandidateKind::Edge;
         result.push_back({kind, edge.distance, edge.edge,
                           edge.reference.owner_id, edge.reference.semantic_key,
                           edge.reference.instance_path});
@@ -282,6 +284,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
         case CandidateKind::SketchDimension: return 0;
+        case CandidateKind::SketchCurve: return 2;
         case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;

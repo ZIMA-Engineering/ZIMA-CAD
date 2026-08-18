@@ -12,7 +12,7 @@ namespace zima::sketcher {
 
 enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind { Horizontal, Vertical, Coincident };
-enum class DimensionKind { Distance, DistanceX, DistanceY };
+enum class DimensionKind { Distance, DistanceX, DistanceY, Radius };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -30,6 +30,14 @@ struct SketchSegment {
     std::string second_point_id;
     bool construction{};
     bool operator==(const SketchSegment&) const = default;
+};
+
+struct SketchCircle {
+    std::string id;
+    std::string center_point_id;
+    double radius{};
+    bool construction{};
+    bool operator==(const SketchCircle&) const = default;
 };
 
 struct SketchConstraint {
@@ -51,6 +59,7 @@ struct SketchDimension {
     bool suppressed{};
     std::optional<double> lower_limit;
     std::optional<double> upper_limit;
+    std::string geometry_id;
     bool operator==(const SketchDimension&) const = default;
 };
 
@@ -68,6 +77,7 @@ public:
     double plane_offset{};
     std::vector<SketchPoint> points;
     std::vector<SketchSegment> segments;
+    std::vector<SketchCircle> circles;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -87,9 +97,17 @@ public:
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_segment_constraint(
         const std::string& segment_id, ConstraintKind kind);
+    [[nodiscard]] std::vector<std::string> add_rectangle(
+        double first_x, double first_y, double second_x, double second_y,
+        double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_circle(
+        double center_x, double center_y, double radius,
+        bool construction = false, double snap_tolerance = 1.0e-6);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
     void apply_dimension(SketchDimension dimension);
+    [[nodiscard]] SketchDimension create_circle_radius_dimension(
+        const std::string& circle_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(

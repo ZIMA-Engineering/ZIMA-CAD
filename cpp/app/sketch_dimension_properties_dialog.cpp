@@ -82,8 +82,9 @@ bool SketchDimensionPropertiesDialog::submit() {
         ? std::optional<double>{lower_->value()} : std::nullopt;
     result.upper_limit = upper_enabled_->isChecked()
         ? std::optional<double>{upper_->value()} : std::nullopt;
-    if (result.kind == zima::sketcher::DimensionKind::Distance && result.value < 0.0) {
-        error_->setText(tr("Délka nesmí být záporná."));
+    if ((result.kind == zima::sketcher::DimensionKind::Distance ||
+         result.kind == zima::sketcher::DimensionKind::Radius) && result.value < 0.0) {
+        error_->setText(tr("Délka ani poloměr nesmí být záporný."));
         return false;
     }
     if (result.lower_limit && result.upper_limit &&

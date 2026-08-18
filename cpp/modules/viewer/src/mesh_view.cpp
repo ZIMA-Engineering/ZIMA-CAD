@@ -359,7 +359,8 @@ void MeshView::paintGL() {
         CandidateKind::Axis) != impl_->allowed_kinds.end();
     const bool sketch_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
-            return edge.reference.semantic_key.starts_with("segment:");
+            return edge.reference.semantic_key.starts_with("segment:") ||
+                edge.reference.semantic_key.starts_with("circle:");
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty();
     if (axes_visible || sketch_geometry_visible || dimensions_visible ||
@@ -367,6 +368,7 @@ void MeshView::paintGL() {
         (highlighted && (
             highlighted->kind == CandidateKind::Edge ||
             highlighted->kind == CandidateKind::SketchSegment ||
+            highlighted->kind == CandidateKind::SketchCurve ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
             highlighted->kind == CandidateKind::SketchDimension ||
@@ -384,7 +386,8 @@ void MeshView::paintGL() {
         if (sketch_geometry_visible) {
             painter.setPen(QPen(QColor(220, 220, 220), 1.8));
             for (const auto& edge : impl_->mesh.edges) {
-                if (!edge.reference.semantic_key.starts_with("segment:")) continue;
+                if (!edge.reference.semantic_key.starts_with("segment:") &&
+                    !edge.reference.semantic_key.starts_with("circle:")) continue;
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }
@@ -415,6 +418,7 @@ void MeshView::paintGL() {
                 const QPointF middle =
                     (project(dimension.line_first) + project(dimension.line_second)) * 0.5;
                 painter.drawText(middle + QPointF(4.0, -4.0),
+                    QString::fromStdString(dimension.label_prefix) +
                     QString::number(dimension.value, 'f', 3) + " mm");
             }
         }
@@ -436,7 +440,8 @@ void MeshView::paintGL() {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
             if ((highlighted->kind == CandidateKind::Edge ||
-                 highlighted->kind == CandidateKind::SketchSegment) &&
+                 highlighted->kind == CandidateKind::SketchSegment ||
+                 highlighted->kind == CandidateKind::SketchCurve) &&
                 highlighted->geometry_index < impl_->mesh.edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
                 const auto& edge = impl_->mesh.edges[highlighted->geometry_index];

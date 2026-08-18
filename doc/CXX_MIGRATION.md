@@ -275,6 +275,26 @@ ordered pickeru; dvojklik otevře stejnou Properties třídu jako strom.
 Viewer-packet JSON kóty validuje a persistuje, zatímco sestava transformuje
 všechny jejich body a prefixuje přesnou identitu vnořeného výskytu bez OCCT.
 
+Druhý interaktivní příkaz vytvoří obdélník dvěma protilehlými rohy. Pohyb
+kurzoru vykresluje čtyři transientní hrany náhledu. Potvrzovací klik atomicky
+vloží čtyři sdílené body, čtyři uzavřené úsečky, dvě vodorovné a dvě svislé
+vazby jako jednu Part revizi. Nulová šířka nebo výška se odmítne bez změny,
+Escape náhled zahodí a přepnutí nástroje odstraní předchozí transientní stav.
+Po úspěchu zůstává příkaz aktivní pro kreslení dalších profilů.
+
+Kružnice je další nativní geometrie Sketcheru. Vlastní stabilní ID, jeden
+stabilní středový bod, kladný poloměr a konstrukční stav. Dvoukrokový příkaz
+zadá střed a bod obvodu, během pohybu kreslí 96segmentový transientní náhled a
+jednu Part revizi vytvoří až po potvrzení nenulového poloměru. Persistovaná
+viewer data používají samostatný `SketchCurve` kandidát a klíč `circle:<id>`,
+takže kružnici nelze zaměnit za hranu solidu.
+
+Potvrzená kružnice může vytvořit řídicí kótu poloměru přes stejnou Properties
+třídu a kontrakt absolutních mezí jako délka úsečky. Kóta odkazuje přímo na ID
+kružnice, nevytváří pomocný bod obvodu, transakčně řídí uložený poloměr,
+přispívá stupněm volnosti do Jacobiánu a ve vieweru má prefix `R`. Kružnice i
+její kóta poloměru se ukládají bez OCCT.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se
