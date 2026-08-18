@@ -27,6 +27,7 @@ private:
     CommitCallback commit_;
     QDoubleSpinBox* value_{};
     QCheckBox* lower_enabled_{};
+    QCheckBox* driving_{};
     QDoubleSpinBox* lower_{};
     QCheckBox* upper_enabled_{};
     QDoubleSpinBox* upper_{};

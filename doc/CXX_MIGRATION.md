@@ -308,6 +308,19 @@ Dva potvrzené kandidáty `point:<id>` vytvoří jednu transakční vazbu; solve
 pohybuje jen nefixovanými souřadnicemi, odmítá duplicitu i konflikt a Escape
 vrátí běžný výběr geometrie skici.
 
+Běžně potvrzený Sketch bod lze jednou modelovou operací fixovat nebo uvolnit.
+Fixace je persistovaná vlastnost stabilního bodu, odebere jeho dvě souřadnicové
+proměnné ze stupňů volnosti solveru a uloží se jako jedna Part revize. Vybraná
+úsečka nabízí také podepsané projekční kóty X a Y. Používají společné Properties
+okno kóty a zobrazují osově orientované čáry s prefixem `X` nebo `Y`; nemíchají
+se se skutečnou délkou ani s výkresovou tolerancí.
+
+Properties kóty dovolují přepnout řídicí a měřený stav. Tažení potvrzeného
+nefixovaného bodu vychází ze stejného seřazeného viewer kandidáta jako hover a
+klik. Pohyb se počítá nad transientním Part dokumentem, solver zachová vazby,
+měřené kóty se přepočítají a absolutní meze odmítnou neplatnou polohu. Puštění
+LMB vytvoří nejvýše jednu Part revizi.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se

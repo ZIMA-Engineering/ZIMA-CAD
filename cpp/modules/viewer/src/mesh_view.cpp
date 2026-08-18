@@ -31,6 +31,11 @@ struct MeshView::Impl {
     std::optional<ViewerCandidate> confirmed_candidate;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
     std::function<void(const ViewerCandidate&)> double_confirmation_callback;
+    std::function<bool(const ViewerCandidate&)> drag_begin_callback;
+    std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
+        drag_update_callback;
+    std::function<void()> drag_end_callback;
+    bool drag_active{};
     std::function<void(const ViewerCandidate&, const QPoint&)> context_menu_callback;
     std::function<bool(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
         world_click_callback;
@@ -160,6 +165,15 @@ void MeshView::set_world_pointer_callback(std::function<void(
 void MeshView::set_double_confirmation_callback(
     std::function<void(const ViewerCandidate&)> callback) {
     impl_->double_confirmation_callback = std::move(callback);
+}
+
+void MeshView::set_candidate_drag_callbacks(
+    std::function<bool(const ViewerCandidate&)> begin,
+    std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
+    std::function<void()> end) {
+    impl_->drag_begin_callback = std::move(begin);
+    impl_->drag_update_callback = std::move(update);
+    impl_->drag_end_callback = std::move(end);
 }
 
 void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
@@ -529,6 +543,9 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton && !impl_->candidates.empty()) {
         impl_->confirmed_candidate = impl_->candidates[impl_->active_candidate];
         notify_confirmation();
+        if (impl_->confirmed_candidate && impl_->drag_begin_callback) {
+            impl_->drag_active = impl_->drag_begin_callback(*impl_->confirmed_candidate);
+        }
         update();
     } else if (event->button() == Qt::RightButton) {
         if (impl_->confirmed_candidate) {
@@ -557,6 +574,13 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
     const QPoint current = event->position().toPoint();
     const QPoint movement = current - impl_->last_pointer;
     impl_->last_pointer = current;
+    if ((event->buttons() & Qt::LeftButton) && impl_->drag_active) {
+        if (impl_->drag_update_callback) {
+            const auto ray = ray_at(event->position());
+            if (ray) impl_->drag_update_callback(ray->first, ray->second);
+        }
+        return;
+    }
     if (event->buttons() & Qt::MiddleButton) {
         if (event->modifiers() & Qt::ShiftModifier) {
             const QVector3D forward = -impl_->direction();
@@ -580,6 +604,16 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         }
         update_candidates(event->position());
     }
+}
+
+void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && impl_->drag_active) {
+        impl_->drag_active = false;
+        if (impl_->drag_end_callback) impl_->drag_end_callback();
+        event->accept();
+        return;
+    }
+    QOpenGLWidget::mouseReleaseEvent(event);
 }
 
 void MeshView::wheelEvent(QWheelEvent* event) {

@@ -99,6 +99,63 @@ int main() {
         require(dof.status == zima::sketcher::SolveStatus::UnderConstrained &&
                     dof.remaining_degrees_of_freedom == 2,
                 "Sketch Jacobian did not report two free point coordinates");
+        const auto free_point_id = under_constrained.points.front().id;
+        under_constrained.set_point_fixed(free_point_id, true);
+        require(under_constrained.points.front().fixed &&
+                    under_constrained.solve().status == zima::sketcher::SolveStatus::Solved &&
+                    under_constrained.solve().remaining_degrees_of_freedom == 0,
+                "Fixed point did not remove both coordinate degrees of freedom");
+        under_constrained.set_point_fixed(free_point_id, false);
+        require(!under_constrained.points.front().fixed &&
+                    under_constrained.solve().remaining_degrees_of_freedom == 2,
+                "Released point did not restore both coordinate degrees of freedom");
+        auto projected = zima::sketcher::Sketch::create_default();
+        const auto projected_segment = projected.add_segment(0.0, 0.0, 5.0, 7.0);
+        auto projected_x = projected.create_segment_dimension(
+            projected_segment, zima::sketcher::DimensionKind::DistanceX);
+        projected_x.value = 8.0;
+        projected.apply_dimension(projected_x);
+        auto projected_y = projected.create_segment_dimension(
+            projected_segment, zima::sketcher::DimensionKind::DistanceY);
+        projected_y.value = 9.0;
+        projected.apply_dimension(projected_y);
+        const auto* projected_first = projected.find_point(
+            projected.segments.front().first_point_id);
+        const auto* projected_second = projected.find_point(
+            projected.segments.front().second_point_id);
+        require(std::abs(projected_second->x - projected_first->x - 8.0) < 1.0e-7 &&
+                    std::abs(projected_second->y - projected_first->y - 9.0) < 1.0e-7,
+                "Projected X/Y dimensions did not independently drive the segment");
+        const auto projected_mesh = projected.viewer_mesh();
+        require(projected_mesh.dimensions.size() == 2 &&
+                    projected_mesh.dimensions[0].label_prefix == "X " &&
+                    projected_mesh.dimensions[1].label_prefix == "Y " &&
+                    std::abs(projected_mesh.dimensions[0].line_first.y -
+                        projected_mesh.dimensions[0].line_second.y) < 1.0e-9 &&
+                    std::abs(projected_mesh.dimensions[1].line_first.x -
+                        projected_mesh.dimensions[1].line_second.x) < 1.0e-9,
+                "Projected dimensions did not create axis-aligned viewer geometry");
+        auto dragged = zima::sketcher::Sketch::create_default();
+        const auto dragged_segment = dragged.add_segment(0.0, 0.0, 10.0, 0.0);
+        auto measured = dragged.create_segment_dimension(dragged_segment);
+        measured.driving = false;
+        measured.lower_limit = 5.0;
+        measured.upper_limit = 15.0;
+        dragged.apply_dimension(measured);
+        const auto dragged_point_id = dragged.segments.front().second_point_id;
+        require(dragged.move_point(dragged_point_id, 12.0, 0.0) &&
+                    std::abs(dragged.dimensions.front().value - 12.0) < 1.0e-9,
+                "Dragging did not update a non-driving measured dimension");
+        const auto dragged_before_limit = dragged;
+        require(!dragged.move_point(dragged_point_id, 20.0, 0.0) &&
+                    dragged.points == dragged_before_limit.points &&
+                    dragged.dimensions == dragged_before_limit.dimensions,
+                "Drag outside absolute dimension limits partially changed the Sketch");
+        dragged.set_point_fixed(dragged_point_id, true);
+        const auto dragged_before_fixed_move = dragged;
+        require(!dragged.move_point(dragged_point_id, 8.0, 0.0) &&
+                    dragged.points == dragged_before_fixed_move.points,
+                "Fixed Sketch point accepted a drag move");
         auto connected = zima::sketcher::Sketch::create_default();
         static_cast<void>(connected.add_segment(0.0, 0.0, 10.0, 0.0));
         static_cast<void>(connected.add_segment(10.0 + 1.0e-8, 0.0, 10.0, 10.0));

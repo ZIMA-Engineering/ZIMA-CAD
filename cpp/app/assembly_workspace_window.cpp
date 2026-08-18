@@ -84,8 +84,16 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { constrain_selected_segment(zima::sketcher::ConstraintKind::Vertical); });
     sketch_coincident_action_ = modeling->addAction(tr("Shodnost bodů"), this,
         [this] { start_sketch_coincident(); });
+    sketch_fix_point_action_ = modeling->addAction(tr("Fixovat/uvolnit bod"), this,
+        [this] { toggle_selected_sketch_point_fixed(); });
     sketch_dimension_action_ = modeling->addAction(tr("Kóta délky úsečky…"), this,
         [this] { show_sketch_dimension_properties(active_sketch_id_); });
+    sketch_dimension_x_action_ = modeling->addAction(tr("Vodorovná kóta úsečky…"), this,
+        [this] { show_sketch_dimension_properties(active_sketch_id_, {},
+            zima::sketcher::DimensionKind::DistanceX); });
+    sketch_dimension_y_action_ = modeling->addAction(tr("Svislá kóta úsečky…"), this,
+        [this] { show_sketch_dimension_properties(active_sketch_id_, {},
+            zima::sketcher::DimensionKind::DistanceY); });
     sketch_radius_dimension_action_ = modeling->addAction(tr("Kóta poloměru…"), this,
         [this] { show_sketch_dimension_properties(active_sketch_id_); });
     regenerate_part_action_ = modeling->addAction(tr("Regenerovat Part"), this,
@@ -137,9 +145,13 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_segment_id_ = candidate.semantic_key.substr(8);
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
+            selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(true);
             sketch_vertical_action_->setEnabled(true);
             sketch_dimension_action_->setEnabled(true);
+            sketch_dimension_x_action_->setEnabled(true);
+            sketch_dimension_y_action_->setEnabled(true);
+            sketch_fix_point_action_->setEnabled(false);
             state_->setText(tr("Vybrána úsečka skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
@@ -147,9 +159,13 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_ = candidate.semantic_key.substr(7);
             selected_sketch_arc_id_.clear();
             selected_sketch_segment_id_.clear();
+            selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
             sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
             sketch_radius_dimension_action_->setEnabled(true);
             state_->setText(tr("Vybrána kružnice skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
@@ -158,11 +174,30 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_ = candidate.semantic_key.substr(4);
+            selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
             sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
             sketch_radius_dimension_action_->setEnabled(true);
             state_->setText(tr("Vybrán oblouk skici."));
+        } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
+                   candidate.owner_id == active_sketch_id_ &&
+                   candidate.semantic_key.starts_with("point:")) {
+            selected_sketch_point_id_ = candidate.semantic_key.substr(6);
+            selected_sketch_segment_id_.clear();
+            selected_sketch_circle_id_.clear();
+            selected_sketch_arc_id_.clear();
+            sketch_horizontal_action_->setEnabled(false);
+            sketch_vertical_action_->setEnabled(false);
+            sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_radius_dimension_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(true);
+            state_->setText(tr("Vybrán bod skici."));
         }
     });
     viewer_->set_context_menu_callback(
@@ -190,6 +225,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 active_sketch_id_, candidate.semantic_key.substr(10));
         }
     });
+    viewer_->set_candidate_drag_callbacks(
+        [this](const auto& candidate) { return begin_sketch_point_drag(candidate); },
+        [this](const auto& origin, const auto& direction) {
+            update_sketch_point_drag(origin, direction);
+        },
+        [this] { end_sketch_point_drag(); });
     splitter->addWidget(left);
     splitter->addWidget(viewer_);
     splitter->setStretchFactor(1, 1);
@@ -202,6 +243,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         workspace_.display_top_level(id);
         active_occurrence_path_.clear();
         active_sketch_id_.clear();
+        selected_sketch_segment_id_.clear();
+        selected_sketch_circle_id_.clear();
+        selected_sketch_arc_id_.clear();
+        selected_sketch_point_id_.clear();
         cancel_sketch_segment();
         refresh_scene();
     });
@@ -213,6 +258,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
                 active_sketch_id_ = item->data(0, Qt::UserRole).toString().toStdString();
                 selected_sketch_segment_id_.clear();
+                selected_sketch_point_id_.clear();
                 selected_sketch_circle_id_.clear();
                 selected_sketch_arc_id_.clear();
                 cancel_sketch_segment();
@@ -223,7 +269,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_horizontal_action_->setEnabled(false);
                 sketch_vertical_action_->setEnabled(false);
                 sketch_dimension_action_->setEnabled(false);
+                sketch_dimension_x_action_->setEnabled(false);
+                sketch_dimension_y_action_->setEnabled(false);
                 sketch_radius_dimension_action_->setEnabled(false);
+                sketch_fix_point_action_->setEnabled(false);
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
@@ -316,6 +365,7 @@ void AssemblyWorkspaceWindow::new_part() {
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     cancel_sketch_segment();
@@ -332,6 +382,7 @@ void AssemblyWorkspaceWindow::new_assembly() {
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     cancel_sketch_segment();
@@ -352,6 +403,7 @@ void AssemblyWorkspaceWindow::open_part() {
         active_occurrence_path_.clear();
         active_sketch_id_.clear();
         selected_sketch_segment_id_.clear();
+        selected_sketch_point_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
         cancel_sketch_segment();
@@ -375,6 +427,7 @@ void AssemblyWorkspaceWindow::open_assembly() {
         active_occurrence_path_.clear();
         active_sketch_id_.clear();
         selected_sketch_segment_id_.clear();
+        selected_sketch_point_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
         cancel_sketch_segment();
@@ -685,6 +738,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment() {
     cancel_sketch_segment();
     sketch_segment_active_ = true;
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     pending_segment_start_.reset();
@@ -720,6 +774,7 @@ void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     cancel_sketch_segment();
     sketch_rectangle_active_ = true;
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     state_->setText(tr("Obdélník skici: určete první roh. Escape příkaz zruší."));
@@ -744,6 +799,7 @@ void AssemblyWorkspaceWindow::start_sketch_circle() {
     cancel_sketch_segment();
     sketch_circle_active_ = true;
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     state_->setText(tr("Kružnice skici: určete střed. Escape příkaz zruší."));
@@ -768,6 +824,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     cancel_sketch_segment();
     sketch_arc_active_ = true;
     selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     state_->setText(tr("Oblouk skici: určete střed. Escape příkaz zruší."));
@@ -909,8 +966,112 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     }
 }
 
+void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
+    if (properties_dialog_ != nullptr || sketch_coincident_active_ ||
+        selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return;
+        const auto* point = sketch->find_point(selected_sketch_point_id_);
+        if (point == nullptr) return;
+        const bool fixed = !point->fixed;
+        sketch->set_point_fixed(selected_sketch_point_id_, fixed);
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(fixed ? tr("Bod je fixovaný.") : tr("Bod je uvolněný."));
+    } catch (const std::exception& error) {
+        QMessageBox::warning(this, tr("Fixaci bodu nelze změnit"), error.what());
+    }
+}
+
+bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (properties_dialog_ != nullptr || sketch_segment_active_ ||
+        sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_coincident_active_ || candidate.kind !=
+            zima::viewer::CandidateKind::SketchPoint ||
+        candidate.owner_id != active_sketch_id_ ||
+        !candidate.semantic_key.starts_with("point:")) return false;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return false;
+    const auto point_id = candidate.semantic_key.substr(6);
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* point = sketch->find_point(point_id);
+    if (point == nullptr || point->fixed) {
+        state_->setText(tr("Fixovaný bod nelze táhnout."));
+        return false;
+    }
+    sketch_drag_document_ = part->session.document();
+    sketch_drag_point_id_ = point_id;
+    sketch_drag_changed_ = false;
+    return true;
+}
+
+void AssemblyWorkspaceWindow::update_sketch_point_drag(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_drag_document_) return;
+    const auto current_sketch = std::find_if(
+        sketch_drag_document_->sketches.begin(), sketch_drag_document_->sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (current_sketch == sketch_drag_document_->sketches.end()) return;
+    const auto position = current_sketch->intersect_ray(origin, direction);
+    if (!position) return;
+    auto next = *sketch_drag_document_;
+    const auto next_sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (next_sketch == next.sketches.end() || !next_sketch->move_point(
+            sketch_drag_point_id_, (*position)[0], (*position)[1])) {
+        state_->setText(tr("Bod nelze přesunout mimo vazby nebo absolutní meze."));
+        return;
+    }
+    sketch_drag_document_ = std::move(next);
+    sketch_drag_changed_ = true;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto& calculated = part->session.calculated_boundaries();
+    zima::kernel::ViewerMesh display = calculated.empty()
+        ? zima::kernel::ViewerMesh{} : calculated.back().mesh;
+    for (const auto& sketch : sketch_drag_document_->sketches) {
+        append_mesh(display, sketch.viewer_mesh());
+    }
+    viewer_->set_mesh(std::move(display), false);
+    state_->setText(tr("Tažení bodu: poloha je pouze transientní do puštění LMB."));
+}
+
+void AssemblyWorkspaceWindow::end_sketch_point_drag() {
+    if (!sketch_drag_document_) return;
+    auto document = std::move(*sketch_drag_document_);
+    sketch_drag_document_.reset();
+    sketch_drag_point_id_.clear();
+    const bool changed = sketch_drag_changed_;
+    sketch_drag_changed_ = false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    if (changed) {
+        part->session.commit(std::move(document), part->session.calculated_boundaries());
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+    }
+    refresh_scene();
+    state_->setText(changed ? tr("Poloha bodu byla uložena jako jedna Part revize.")
+                              : tr("Poloha bodu se nezměnila."));
+}
+
 void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
-    const std::string& sketch_id, const std::string& dimension_id) {
+    const std::string& sketch_id, const std::string& dimension_id,
+    zima::sketcher::DimensionKind creation_kind) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_coincident_active_) return;
@@ -934,7 +1095,8 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
             ? sketch->create_circle_radius_dimension(selected_sketch_circle_id_)
             : !selected_sketch_arc_id_.empty()
                 ? sketch->create_arc_radius_dimension(selected_sketch_arc_id_)
-                : sketch->create_segment_dimension(selected_sketch_segment_id_);
+                : sketch->create_segment_dimension(
+                    selected_sketch_segment_id_, creation_kind);
     const std::string part_id = part->session.document().document_id;
     auto* dialog = new SketchDimensionPropertiesDialog(
         std::move(initial), edit_mode,
@@ -1354,10 +1516,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             item->setData(0, Qt::UserRole, QString::fromStdString(sketch.id));
             item->setData(0, Qt::UserRole + 3, "part-sketch");
             for (const auto& dimension : sketch.dimensions) {
+                const auto dimension_label = dimension.kind ==
+                        zima::sketcher::DimensionKind::Radius
+                    ? tr("Poloměr R%1 mm").arg(dimension.value, 0, 'f', 3)
+                    : dimension.kind == zima::sketcher::DimensionKind::DistanceX
+                        ? tr("Vodorovná kóta X %1 mm").arg(dimension.value, 0, 'f', 3)
+                    : dimension.kind == zima::sketcher::DimensionKind::DistanceY
+                        ? tr("Svislá kóta Y %1 mm").arg(dimension.value, 0, 'f', 3)
+                        : tr("Kóta %1 mm").arg(dimension.value, 0, 'f', 3);
                 auto* child = new QTreeWidgetItem(item, {
-                    dimension.kind == zima::sketcher::DimensionKind::Radius
-                        ? tr("Poloměr R%1 mm").arg(dimension.value, 0, 'f', 3)
-                        : tr("Kóta %1 mm").arg(dimension.value, 0, 'f', 3)});
+                    dimension_label});
                 child->setData(0, Qt::UserRole, QString::fromStdString(dimension.id));
                 child->setData(0, Qt::UserRole + 3, "part-sketch-dimension");
                 child->setData(0, Qt::UserRole + 4, QString::fromStdString(sketch.id));
@@ -1407,8 +1575,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimension_action_->setEnabled(!selected_sketch_segment_id_.empty());
+        sketch_dimension_x_action_->setEnabled(!selected_sketch_segment_id_.empty());
+        sketch_dimension_y_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_radius_dimension_action_->setEnabled(
             !selected_sketch_circle_id_.empty() || !selected_sketch_arc_id_.empty());
+        sketch_fix_point_action_->setEnabled(!selected_sketch_point_id_.empty());
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
         redo_action_->setEnabled(part->session.can_redo());
@@ -1465,7 +1636,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);
     sketch_dimension_action_->setEnabled(false);
+    sketch_dimension_x_action_->setEnabled(false);
+    sketch_dimension_y_action_->setEnabled(false);
     sketch_radius_dimension_action_->setEnabled(false);
+    sketch_fix_point_action_->setEnabled(false);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {
         undo_action_->setEnabled(active_part->session.can_undo());

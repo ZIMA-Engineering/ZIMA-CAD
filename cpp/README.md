@@ -343,6 +343,19 @@ Two confirmed stable `point:<id>` candidates create one transactional constraint
 the solver moves only unfixed coordinates, rejects duplicate or conflicting
 relations, and Escape restores the ordinary Sketch candidate contract.
 
+A normally confirmed Sketch point can be fixed or released through one model
+operation. Fixation is persisted on the stable point, removes its two coordinate
+variables from solver DOF, and is committed as one Part revision. Segment
+selection also exposes signed X and Y projection dimensions. They reuse the
+shared dimension Properties window and render as axis-aligned lines labelled
+`X` or `Y`; they remain distinct from true length and from drawing tolerances.
+
+Dimension Properties can switch a dimension between driving and measured state.
+Dragging a confirmed unfixed point uses the same ordered viewer candidate that
+was hovered and clicked. Motion is evaluated on a transient Part document;
+constraints are solved, measured dimensions are refreshed, and absolute limits
+reject invalid positions. Releasing LMB commits at most one Part revision.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.

@@ -103,6 +103,9 @@ public:
     [[nodiscard]] SolveResult solve(std::size_t maximum_iterations = 100);
     [[nodiscard]] bool set_dimension_value(
         const std::string& dimension_id, double value);
+    void set_point_fixed(const std::string& point_id, bool fixed);
+    [[nodiscard]] bool move_point(
+        const std::string& point_id, double x, double y);
     [[nodiscard]] std::string add_segment(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);

@@ -205,6 +205,63 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     return true;
 }
 
+void Sketch::set_point_fixed(const std::string& point_id, bool fixed) {
+    auto next = *this;
+    auto* point = next.find_point(point_id);
+    if (point == nullptr) throw std::invalid_argument("Sketch point does not exist");
+    point->fixed = fixed;
+    next.validate();
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Point fixation conflicts with existing geometry");
+    }
+    *this = std::move(next);
+}
+
+bool Sketch::move_point(const std::string& point_id, double x, double y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
+    auto next = *this;
+    auto* point = next.find_point(point_id);
+    if (point == nullptr || point->fixed) return false;
+    point->x = x;
+    point->y = y;
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
+        return false;
+    }
+    for (auto& dimension : next.dimensions) {
+        if (dimension.suppressed || dimension.driving) continue;
+        double measured{};
+        if (dimension.kind == DimensionKind::Radius) {
+            const auto circle = std::find_if(next.circles.begin(), next.circles.end(),
+                [&](const auto& value) { return value.id == dimension.geometry_id; });
+            if (circle != next.circles.end()) {
+                measured = circle->radius;
+            } else {
+                const auto arc = std::find_if(next.arcs.begin(), next.arcs.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                measured = arc->radius;
+            }
+        } else {
+            const auto* first = next.find_point(dimension.first_point_id);
+            const auto* second = next.find_point(dimension.second_point_id);
+            const double dx = second->x - first->x;
+            const double dy = second->y - first->y;
+            measured = dimension.kind == DimensionKind::DistanceX ? dx
+                : dimension.kind == DimensionKind::DistanceY ? dy
+                : std::hypot(dx, dy);
+        }
+        if ((dimension.lower_limit && measured < *dimension.lower_limit) ||
+            (dimension.upper_limit && measured > *dimension.upper_limit)) {
+            return false;
+        }
+        dimension.value = measured;
+    }
+    next.validate();
+    *this = std::move(next);
+    return true;
+}
+
 std::string Sketch::add_segment(
     double first_x, double first_y, double second_x, double second_y,
     double snap_tolerance) {
@@ -764,6 +821,22 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const double dy = second->y - first->y;
         const double magnitude = std::hypot(dx, dy);
         const double offset = std::clamp(magnitude * 0.15, 5.0, 25.0);
+        if (dimension.kind == DimensionKind::DistanceX) {
+            const double line_y = std::max(first->y, second->y) + offset;
+            result.dimensions.push_back({
+                project(*first), project(*second),
+                world_point(first->x, line_y), world_point(second->x, line_y),
+                dimension.value, {id, "dimension:" + dimension.id, {}}, "X "});
+            continue;
+        }
+        if (dimension.kind == DimensionKind::DistanceY) {
+            const double line_x = std::max(first->x, second->x) + offset;
+            result.dimensions.push_back({
+                project(*first), project(*second),
+                world_point(line_x, first->y), world_point(line_x, second->y),
+                dimension.value, {id, "dimension:" + dimension.id, {}}, "Y "});
+            continue;
+        }
         const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
         const double ny = magnitude > 1.0e-12 ? dx / magnitude : 1.0;
         result.dimensions.push_back({

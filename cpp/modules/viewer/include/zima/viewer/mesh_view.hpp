@@ -36,6 +36,10 @@ public:
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
     void set_double_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
+    void set_candidate_drag_callbacks(
+        std::function<bool(const ViewerCandidate&)> begin,
+        std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
+        std::function<void()> end);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
 
@@ -46,6 +50,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
 
 private:

@@ -49,6 +49,10 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     auto* form = new QFormLayout;
     value_ = dimension_field(initial_.value, "sketchDimensionValue", this);
     form->addRow(tr("Jmenovitá hodnota"), value_);
+    driving_ = new QCheckBox(tr("Řídicí kóta"), this);
+    driving_->setObjectName("sketchDimensionDriving");
+    driving_->setChecked(initial_.driving);
+    form->addRow(tr("Stav kóty"), driving_);
     form->addRow(tr("Dolní mez"), optional_field(
         lower_enabled_, lower_, initial_.lower_limit.has_value(),
         initial_.lower_limit.value_or(0.0), "sketchLowerEnabled", "sketchLowerLimit", this));
@@ -78,6 +82,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
 bool SketchDimensionPropertiesDialog::submit() {
     auto result = initial_;
     result.value = value_->value();
+    result.driving = driving_->isChecked();
     result.lower_limit = lower_enabled_->isChecked()
         ? std::optional<double>{lower_->value()} : std::nullopt;
     result.upper_limit = upper_enabled_->isChecked()
