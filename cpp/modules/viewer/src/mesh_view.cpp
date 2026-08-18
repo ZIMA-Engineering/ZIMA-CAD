@@ -292,7 +292,7 @@ void MeshView::paintGL() {
                 ? reference.owner_id == highlighted->owner_id
                 : reference.owner_id == highlighted->owner_id &&
                     reference.semantic_key == highlighted->semantic_key;
-            if (!matches) continue;
+            if (!matches || reference.instance_path != highlighted->instance_path) continue;
             const auto byte_offset = triangle * 3 * sizeof(std::uint32_t);
             glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT,
                            reinterpret_cast<const void*>(byte_offset));
@@ -358,7 +358,8 @@ void MeshView::update_candidates(const QPointF& position) {
         std::equal(next.begin(), next.end(), impl_->candidates.begin(),
             [](const ViewerCandidate& left, const ViewerCandidate& right) {
                 return left.kind == right.kind && left.owner_id == right.owner_id &&
-                    left.semantic_key == right.semantic_key;
+                    left.semantic_key == right.semantic_key &&
+                    left.instance_path == right.instance_path;
             });
     impl_->candidates = std::move(next);
     if (!same_order || impl_->active_candidate >= impl_->candidates.size()) {

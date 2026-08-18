@@ -169,24 +169,29 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const auto faces = ordered_ray_candidates(mesh, ray_origin, ray_direction);
     for (const auto& face : faces) {
         result.push_back({CandidateKind::Face, face.distance, face.triangle,
-                          face.reference.owner_id, face.reference.semantic_key});
+                          face.reference.owner_id, face.reference.semantic_key,
+                          face.reference.instance_path});
         if (std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                 return item.kind == CandidateKind::Container &&
-                    item.owner_id == face.reference.owner_id;
+                    item.owner_id == face.reference.owner_id &&
+                    item.instance_path == face.reference.instance_path;
             })) {
             result.push_back({CandidateKind::Container, face.distance, face.triangle,
-                              face.reference.owner_id, {}});
+                              face.reference.owner_id, {},
+                              face.reference.instance_path});
         }
     }
     for (const auto& edge : ordered_edge_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
         result.push_back({CandidateKind::Edge, edge.distance, edge.edge,
-                          edge.reference.owner_id, edge.reference.semantic_key});
+                          edge.reference.owner_id, edge.reference.semantic_key,
+                          edge.reference.instance_path});
     }
     for (const auto& vertex : ordered_vertex_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
         result.push_back({CandidateKind::Vertex, vertex.distance, vertex.point,
-                          vertex.reference.owner_id, vertex.reference.semantic_key});
+                          vertex.reference.owner_id, vertex.reference.semantic_key,
+                          vertex.reference.instance_path});
     }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
@@ -219,12 +224,14 @@ std::vector<ViewerCandidate> filter_candidates(
 }
 
 std::optional<ViewerCandidate> container_candidate(
-    const zima::kernel::ViewerMesh& mesh, const std::string& owner_id) {
+    const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,
+    const std::string& instance_path) {
     if (owner_id.empty()) return std::nullopt;
     const auto triangle = std::find_if(
         mesh.triangle_references.begin(), mesh.triangle_references.end(),
         [&](const zima::kernel::FaceReference& reference) {
-            return reference.valid() && reference.owner_id == owner_id;
+            return reference.valid() && reference.owner_id == owner_id &&
+                reference.instance_path == instance_path;
         });
     if (triangle == mesh.triangle_references.end()) return std::nullopt;
     return ViewerCandidate{
@@ -234,6 +241,7 @@ std::optional<ViewerCandidate> container_candidate(
             mesh.triangle_references.begin(), triangle)),
         owner_id,
         {},
+        triangle->instance_path,
     };
 }
 

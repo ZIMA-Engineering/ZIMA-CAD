@@ -139,6 +139,23 @@ persistované parametry poloměru, výšky a umístění, stabilní původní pl
 válce. Typ prvku pouze určí zobrazená parametrická pole; umístění, operace,
 rollback, validace, OK/Cancel a MMB potvrzení nemají duplicitní cesty.
 
+První Assembly datový řez zavádí `AssemblyDocument`, bezprostředně vlastněné
+`PartOccurrence` a samostatnou `InstancePath`. Každá komponenta drží stabilní
+occurrence ID, identitu a cestu zdrojového Partu, vlastní umístění a poslední
+explicitně převzatý ZIMA viewer packet. Složení sestavové scény pouze
+transformuje persistovaná viewer data a nevolá OCCT. Dva výskyty stejného
+zdrojového Partu proto zachovají shodné feature/container vlastníky, ale ve
+viewer referencích mají odlišnou délkově kódovanou instance path. Picking,
+deduplikace a přesné zvýraznění nyní zahrnují tuto occurrence identitu.
+
+Assembly prototyp má vlastní textový formát `.zca.json`. Persistuje identitu
+sestavy, stabilní occurrence ID, zdrojové document ID/cesty, sestavou vlastněné
+umístění a poslední explicitně převzatý vypočtený `BodyResult` každého Partu.
+Part i Assembly používají jednu sdílenou serializaci a validaci viewer packetu.
+Otevření sestavy pouze ověří a složí persistovanou scénu; OCCT nespouští.
+Samostatný jednosměrný `DependencyGraph` odmítá self-reference i libovolně
+hluboký nepřímý cyklus ještě před vložením závislosti.
+
 ## Hlavní cíle
 
 - vysoká rychlost aplikace, zejména vieweru, pickingu, velkých sestav a práce

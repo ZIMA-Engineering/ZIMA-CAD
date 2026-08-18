@@ -37,6 +37,7 @@ struct ViewerCandidate {
     std::size_t geometry_index{};
     std::string owner_id;
     std::string semantic_key;
+    std::string instance_path;
 
     bool operator==(const ViewerCandidate&) const = default;
 };
@@ -72,6 +73,7 @@ struct ViewerCandidate {
     const std::vector<CandidateKind>& allowed_kinds);
 
 [[nodiscard]] std::optional<ViewerCandidate> container_candidate(
-    const zima::kernel::ViewerMesh& mesh, const std::string& owner_id);
+    const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,
+    const std::string& instance_path = {});
 
 }  // namespace zima::viewer

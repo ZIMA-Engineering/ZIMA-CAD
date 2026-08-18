@@ -19,6 +19,7 @@ struct Vec3 {
 struct FaceReference {
     std::string owner_id;
     std::string semantic_key;
+    std::string instance_path;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -29,6 +30,7 @@ struct FaceReference {
 struct EdgeReference {
     std::string owner_id;
     std::string semantic_key;
+    std::string instance_path;
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
     }
@@ -38,6 +40,7 @@ struct EdgeReference {
 struct VertexReference {
     std::string owner_id;
     std::string semantic_key;
+    std::string instance_path;
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
     }

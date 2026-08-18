@@ -125,6 +125,22 @@ Cylinder persists radius, height, and placement, exposes stable original
 and Cylinder; primitive type changes only the parameter fields, not placement,
 transaction, validation, or confirmation code paths.
 
+The first Assembly data slice introduces immediate `PartOccurrence` ownership
+and a separate stable `InstancePath`. Each occurrence keeps its source Part
+identity/path, assembly-owned placement, and the last explicitly acquired ZIMA
+viewer packet. Scene composition transforms only persisted viewer data and
+does not call OCCT. Repeated insertions of one source retain the same feature
+owners but carry distinct length-prefixed occurrence paths through picking,
+deduplication, and exact highlighting.
+
+The Assembly prototype has its own `.zca.json` text format. It persists
+Assembly identity, stable occurrence IDs, source document IDs/paths,
+Assembly-owned placement, and each Part's last explicitly acquired
+`BodyResult`. Part and Assembly share one viewer-packet serializer and
+validator. Opening composes the persisted scene without OCCT. A one-way
+dependency graph rejects self-reference and arbitrarily deep indirect cycles
+before an insertion mutates the document.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.
@@ -135,6 +151,7 @@ can preserve their complete current contract.
 - `kernel_api`: ZIMA-owned requests and results, with no OCCT types;
 - `kernel_occt`: the only module that knows live OCCT shapes;
 - `viewer`: renders ZIMA viewer mesh data;
+- `assembly`: immediate component ownership, instance paths, and scene composition;
 - `ui`: shared in-application Properties window behaviour;
 - `app`: Qt application and commands.
 

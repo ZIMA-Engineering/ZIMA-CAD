@@ -20,11 +20,19 @@ target_include_directories(zima_kernel_api INTERFACE
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
-    modules/document_core/src/document_session.cpp)
+    modules/document_core/src/document_session.cpp
+    modules/document_core/src/viewer_packet_json.cpp)
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
     PUBLIC zima_kernel_api
+    PRIVATE nlohmann_json::nlohmann_json)
+
+add_library(zima_assembly
+    modules/assembly/src/assembly_document.cpp)
+target_include_directories(zima_assembly PUBLIC modules/assembly/include)
+target_link_libraries(zima_assembly
+    PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_kernel_occt
@@ -71,4 +79,8 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
     target_link_libraries(zima_cpp_viewer_contract_tests PRIVATE zima_viewer)
     add_test(NAME zima_cpp_viewer_contract_tests COMMAND zima_cpp_viewer_contract_tests)
+    add_executable(zima_cpp_assembly_contract_tests tests/assembly_contract_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_contract_tests PRIVATE
+        zima_assembly zima_kernel_occt zima_viewer)
+    add_test(NAME zima_cpp_assembly_contract_tests COMMAND zima_cpp_assembly_contract_tests)
 endif()
