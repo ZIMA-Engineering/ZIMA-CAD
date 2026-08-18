@@ -54,6 +54,7 @@ target_link_libraries(zima_kernel_occt
     PUBLIC zima_kernel_api
     PRIVATE TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo
             TKTopAlgo TKPrim TKBO TKBool TKMesh)
+target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
 
 add_library(zima_viewer
     modules/viewer/src/mesh_view.cpp
@@ -65,6 +66,9 @@ target_link_libraries(zima_viewer PUBLIC zima_kernel_api
 add_library(zima_ui modules/ui/src/properties_subwindow.cpp)
 target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets)
+
+add_library(zima_interchange modules/interchange/src/interchange.cpp)
+target_include_directories(zima_interchange PUBLIC modules/interchange/include)
 
 add_executable(zima-cad-cpp
     app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp
@@ -83,6 +87,7 @@ add_executable(zima-cad-workspace-cpp
 target_include_directories(zima-cad-workspace-cpp PRIVATE app)
 target_link_libraries(zima-cad-workspace-cpp PRIVATE
     zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer zima_ui
+    zima_interchange
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
 if(ZIMA_BUILD_TESTS)
@@ -115,4 +120,7 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_sketcher_contract_tests tests/sketcher_contract_tests.cpp)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE zima_sketcher zima_viewer)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
+    target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
+    add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
 endif()

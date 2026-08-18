@@ -41,6 +41,7 @@ struct OccurrenceSnapshot {
     bool manually_suppressed{};
     bool dependency_suppressed{};
     bool visible{true};
+    bool grounded{};
     std::vector<OccurrenceSnapshot> children;
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
@@ -52,6 +53,7 @@ struct PartOccurrence {
     std::filesystem::path source_path;
     ComponentSourceKind source_kind{ComponentSourceKind::Part};
     ComponentPlacement placement;
+    bool grounded{};
     bool suppressed{};
     bool visible{true};
     zima::kernel::BodyResult calculated_source;
@@ -165,6 +167,8 @@ public:
     [[nodiscard]] AxisResolution resolve_axis(
         const MateReference& reference) const;
     void calculate_mates();
+    [[nodiscard]] int remaining_degrees_of_freedom(
+        const std::string& occurrence_id) const;
     [[nodiscard]] std::unordered_set<std::string>
         effectively_suppressed_occurrences() const;
 };

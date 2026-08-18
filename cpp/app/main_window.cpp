@@ -133,8 +133,10 @@ void MainWindow::show_container_properties(const std::string& container_id) {
         show_cylinder_properties(container_id);
     } else if (container->feature_kind == zima::document::FeatureKind::Extrusion) {
         show_primitive_properties(zima::document::FeatureKind::Extrusion, container_id);
-    } else {
+    } else if (container->feature_kind == zima::document::FeatureKind::Revolution) {
         show_primitive_properties(zima::document::FeatureKind::Revolution, container_id);
+    } else {
+        show_primitive_properties(container->feature_kind, container_id);
     }
 }
 
@@ -240,7 +242,9 @@ void MainWindow::show_primitive_properties(
     const auto& document = session_.document();
     if (container_id.empty() &&
         (feature_kind == zima::document::FeatureKind::Extrusion ||
-         feature_kind == zima::document::FeatureKind::Revolution)) return;
+         feature_kind == zima::document::FeatureKind::Revolution ||
+         feature_kind == zima::document::FeatureKind::Fillet ||
+         feature_kind == zima::document::FeatureKind::Chamfer)) return;
     const auto* edited = container_id.empty()
         ? nullptr : document.find_container(container_id);
     if (!container_id.empty() &&

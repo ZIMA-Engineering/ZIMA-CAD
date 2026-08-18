@@ -620,6 +620,32 @@ HistoryContainer PartDocument::create_revolution_container(std::string sketch_id
     return container;
 }
 
+HistoryContainer PartDocument::create_fillet_container(
+    zima::kernel::EdgeReference edge) {
+    if (!edge.valid() || !edge.instance_path.empty()) {
+        throw std::invalid_argument("Fillet requires a local original edge reference");
+    }
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = "Zaoblení";
+    container.feature_kind = FeatureKind::Fillet;
+    container.edge_treatment.edge = std::move(edge);
+    return container;
+}
+
+HistoryContainer PartDocument::create_chamfer_container(
+    zima::kernel::EdgeReference edge) {
+    if (!edge.valid() || !edge.instance_path.empty()) {
+        throw std::invalid_argument("Chamfer requires a local original edge reference");
+    }
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = "Sražení";
+    container.feature_kind = FeatureKind::Chamfer;
+    container.edge_treatment.edge = std::move(edge);
+    return container;
+}
+
 HistoryContainer* PartDocument::find_container(const std::string& id) {
     const auto found = std::find_if(history.begin(), history.end(),
         [&](const HistoryContainer& container) { return container.id == id; });
@@ -675,7 +701,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             primitive = extrusion_request(
                 *sketch, container.extrusion.height,
                 container.extrusion.direction);
-        } else {
+        } else if (container.feature_kind == FeatureKind::Revolution) {
             require_default_sketch_feature_placement(container.placement);
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
                 [&](const auto& value) {
@@ -687,6 +713,18 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             primitive = revolution_request(
                 *sketch, container.revolution.axis,
                 container.revolution.angle_degrees);
+        } else if (container.feature_kind == FeatureKind::Fillet) {
+            require_default_sketch_feature_placement(container.placement);
+            primitive = zima::kernel::FilletRequest{
+                container.edge_treatment.edge,
+                container.edge_treatment.origin,
+                container.edge_treatment.size};
+        } else {
+            require_default_sketch_feature_placement(container.placement);
+            primitive = zima::kernel::ChamferRequest{
+                container.edge_treatment.edge,
+                container.edge_treatment.origin,
+                container.edge_treatment.size};
         }
         operations.push_back({
             container.id,
@@ -709,7 +747,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 3) {
+        root.at("format_version").get<int>() != 4) {
         throw std::runtime_error("Unsupported C++ prototype document format");
     }
     PartDocument document;
@@ -723,13 +761,15 @@ PartDocument PartDocument::load(
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
         if (type != "box" && type != "cylinder" && type != "extrusion" &&
-            type != "revolution") {
+            type != "revolution" && type != "fillet" && type != "chamfer") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
         container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
             : type == "extrusion" ? FeatureKind::Extrusion
-            : type == "revolution" ? FeatureKind::Revolution : FeatureKind::Box;
+            : type == "revolution" ? FeatureKind::Revolution
+            : type == "fillet" ? FeatureKind::Fillet
+            : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.name = source.at("name").get<std::string>();
         if (container.id.empty() || !container_ids.insert(container.id).second) {
@@ -775,7 +815,7 @@ PartDocument PartDocument::load(
             }
             require_positive(container.extrusion.height, "extrusion height");
             validate_extrusion_direction(container.extrusion.direction);
-        } else {
+        } else if (container.feature_kind == FeatureKind::Revolution) {
             container.revolution.sketch_id =
                 source.at("sketch_id").get<std::string>();
             container.revolution.angle_degrees =
@@ -794,6 +834,27 @@ PartDocument PartDocument::load(
                 container.revolution.angle_degrees > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else {
+            container.edge_treatment.edge = {
+                source.at("edge_owner").get<std::string>(),
+                source.at("edge_key").get<std::string>(), {}};
+            const std::string origin = source.at("edge_origin").get<std::string>();
+            if (origin == "original_entity") {
+                container.edge_treatment.origin =
+                    zima::kernel::EdgeSelectionOrigin::OriginalEntity;
+            } else if (origin == "operational_body") {
+                container.edge_treatment.origin =
+                    zima::kernel::EdgeSelectionOrigin::OperationalBody;
+            } else {
+                throw std::runtime_error("Invalid edge treatment origin");
+            }
+            container.edge_treatment.size = source.at("size").get<double>();
+            if (!container.edge_treatment.edge.valid() ||
+                !std::isfinite(container.edge_treatment.size) ||
+                container.edge_treatment.size <= 0.0 ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid Fillet/Chamfer parameters");
+            }
         }
         if (source.contains("placement")) {
             const auto& placement = source.at("placement");
@@ -806,7 +867,9 @@ PartDocument PartDocument::load(
         }
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Extrusion ||
-            container.feature_kind == FeatureKind::Revolution) {
+            container.feature_kind == FeatureKind::Revolution ||
+            container.feature_kind == FeatureKind::Fillet ||
+            container.feature_kind == FeatureKind::Chamfer) {
             require_default_sketch_feature_placement(container.placement);
         }
         document.history.push_back(std::move(container));
@@ -944,7 +1007,7 @@ void PartDocument::save(
             }
             require_positive(container.extrusion.height, "extrusion height");
             validate_extrusion_direction(container.extrusion.direction);
-        } else {
+        } else if (container.feature_kind == FeatureKind::Revolution) {
             if (container.revolution.sketch_id.empty() ||
                 std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                     return sketch.id == container.revolution.sketch_id;
@@ -955,10 +1018,18 @@ void PartDocument::save(
                 container.revolution.angle_degrees > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (!container.edge_treatment.edge.valid() ||
+                   !container.edge_treatment.edge.instance_path.empty() ||
+                   !std::isfinite(container.edge_treatment.size) ||
+                   container.edge_treatment.size <= 0.0 ||
+                   container.combine_mode != CombineMode::Add) {
+            throw std::runtime_error("Invalid Fillet/Chamfer parameters");
         }
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Extrusion ||
-            container.feature_kind == FeatureKind::Revolution) {
+            container.feature_kind == FeatureKind::Revolution ||
+            container.feature_kind == FeatureKind::Fillet ||
+            container.feature_kind == FeatureKind::Chamfer) {
             require_default_sketch_feature_placement(container.placement);
         }
         nlohmann::json serialized = {
@@ -967,13 +1038,19 @@ void PartDocument::save(
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
                 : container.feature_kind == FeatureKind::Extrusion
-                    ? "extrusion" : "revolution"},
+                    ? "extrusion"
+                : container.feature_kind == FeatureKind::Revolution
+                    ? "revolution"
+                : container.feature_kind == FeatureKind::Fillet
+                    ? "fillet" : "chamfer"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"},
         };
         if (container.feature_kind != FeatureKind::Extrusion &&
-            container.feature_kind != FeatureKind::Revolution) {
+            container.feature_kind != FeatureKind::Revolution &&
+            container.feature_kind != FeatureKind::Fillet &&
+            container.feature_kind != FeatureKind::Chamfer) {
             serialized["placement"] = {
                 {"x", container.placement.x},
                 {"y", container.placement.y},
@@ -998,11 +1075,18 @@ void PartDocument::save(
                     ? "forward"
                 : container.extrusion.direction == ExtrusionDirection::Reverse
                     ? "reverse" : "symmetric";
-        } else {
+        } else if (container.feature_kind == FeatureKind::Revolution) {
             serialized["sketch_id"] = container.revolution.sketch_id;
             serialized["axis"] = container.revolution.axis == RevolutionAxis::SketchX
                 ? "sketch_x" : "sketch_y";
             serialized["angle_degrees"] = container.revolution.angle_degrees;
+        } else {
+            serialized["edge_owner"] = container.edge_treatment.edge.owner_id;
+            serialized["edge_key"] = container.edge_treatment.edge.semantic_key;
+            serialized["edge_origin"] = container.edge_treatment.origin ==
+                    zima::kernel::EdgeSelectionOrigin::OriginalEntity
+                ? "original_entity" : "operational_body";
+            serialized["size"] = container.edge_treatment.size;
         }
         serialized_history.push_back(std::move(serialized));
     }
@@ -1036,7 +1120,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 3},
+        {"format_version", 4},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

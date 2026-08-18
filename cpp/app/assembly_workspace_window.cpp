@@ -7,6 +7,7 @@
 #include "sketch_dimension_properties_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/interchange/interchange.hpp>
 
 #include <QAction>
 #include <QBrush>
@@ -80,6 +81,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(tr("Otevřít sestavu…"), this, [this] { open_assembly(); });
     save_action_ = file->addAction(tr("Uložit…"), this,
         [this] { save_active_document(); });
+    file->addSeparator();
+    file->addAction(tr("Importovat…"), this, [this] { import_file(); });
+    file->addAction(tr("Exportovat…"), this, [this] { export_file(); });
     auto* edit = menuBar()->addMenu(tr("Úpravy"));
     undo_action_ = edit->addAction(tr("Zpět"), this, [this] { undo(); });
     redo_action_ = edit->addAction(tr("Znovu"), this, [this] { redo(); });
@@ -92,6 +96,10 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { show_primitive_properties(zima::document::FeatureKind::Extrusion); });
     revolution_action_ = modeling->addAction(tr("Rotace…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Revolution); });
+    fillet_action_ = modeling->addAction(tr("Zaoblení…"), this,
+        [this] { start_edge_treatment(zima::document::FeatureKind::Fillet); });
+    chamfer_action_ = modeling->addAction(tr("Sražení…"), this,
+        [this] { start_edge_treatment(zima::document::FeatureKind::Chamfer); });
     sketch_action_ = modeling->addAction(tr("Skica…"), this,
         [this] { show_sketch_properties(); });
     sketch_segment_action_ = modeling->addAction(tr("Úsečka skici"), this,
@@ -182,6 +190,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_ = new zima::viewer::MeshView(splitter);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if (edge_treatment_selection_) {
+            accept_edge_treatment(candidate);
+            return;
+        }
         if (mate_selection_active_) {
             accept_mate_reference(candidate);
             return;
@@ -338,6 +350,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_arc_ray(origin, direction);
         preview_sketch_ellipse_ray(origin, direction);
         preview_sketch_bspline_ray(origin, direction);
+    });
+    viewer_->set_short_middle_click_callback([this] {
+        return finish_sketch_bspline();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::SketchDimension &&
@@ -632,12 +647,67 @@ void AssemblyWorkspaceWindow::start_axis_mate() {
     state_->setText(tr("Vyberte pohyblivou osu."));
 }
 
+void AssemblyWorkspaceWindow::start_edge_treatment(
+    zima::document::FeatureKind kind) {
+    if (properties_dialog_ != nullptr ||
+        (kind != zima::document::FeatureKind::Fillet &&
+         kind != zima::document::FeatureKind::Chamfer)) return;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id() || part->session.document().history.empty()) return;
+    edge_treatment_selection_ = kind;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
+    state_->setText(kind == zima::document::FeatureKind::Fillet
+        ? tr("Vyberte původní hranu pro zaoblení.")
+        : tr("Vyberte původní hranu pro sražení."));
+}
+
+void AssemblyWorkspaceWindow::accept_edge_treatment(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!edge_treatment_selection_) return;
+    if (candidate.kind != zima::viewer::CandidateKind::Edge ||
+        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
+        !candidate.instance_path.empty()) {
+        state_->setText(tr("Vyberte hranu původního solidu aktivního Partu."));
+        return;
+    }
+    const auto kind = *edge_treatment_selection_;
+    edge_treatment_selection_.reset();
+    const zima::kernel::EdgeReference edge{candidate.owner_id, candidate.semantic_key, {}};
+    auto initial = kind == zima::document::FeatureKind::Fillet
+        ? zima::document::PartDocument::create_fillet_container(edge)
+        : zima::document::PartDocument::create_chamfer_container(edge);
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const std::string part_id = part->session.document().document_id;
+    auto* dialog = new PrimitivePropertiesDialog(
+        initial, false, false,
+        [this, part_id](zima::document::HistoryContainer committed) {
+            auto* target = workspace_.open_part(part_id);
+            if (target == nullptr) throw std::runtime_error("Part is no longer open");
+            auto next = target->session.document();
+            next.history.push_back(std::move(committed));
+            target->session.commit(next, calculate_part(next));
+        }, this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this] {
+        properties_dialog_ = nullptr;
+        edge_treatment_selection_.reset();
+        refresh_tabs();
+        refresh_scene();
+    });
+    dialog->show();
+}
+
 std::optional<zima::assembly::MateReference>
 AssemblyWorkspaceWindow::local_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) const {
     const bool face = candidate.kind == zima::viewer::CandidateKind::Face &&
+        candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
         pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident;
     const bool axis = candidate.kind == zima::viewer::CandidateKind::Axis &&
+        candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
         pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident;
     if ((!face && !axis) ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) return std::nullopt;
@@ -757,6 +827,44 @@ void AssemblyWorkspaceWindow::save_active_document() {
     }
 }
 
+void AssemblyWorkspaceWindow::import_file() {
+    const QString path = QFileDialog::getOpenFileName(this, tr("Importovat"), {},
+        tr("Podporované soubory (*.dxf *.step *.stp);;DXF (*.dxf);;STEP (*.step *.stp)"));
+    if (path.isEmpty()) return;
+    const auto context = !active_sketch_id_.empty()
+        ? zima::interchange::Context::Sketch
+        : workspace_.open_part(workspace_.active_document_id()) != nullptr
+            ? zima::interchange::Context::Part : zima::interchange::Context::Assembly;
+    const auto format = zima::interchange::format_from_path(path.toStdString());
+    if (!zima::interchange::supports(
+            format, zima::interchange::Direction::Import, context)) {
+        QMessageBox::warning(this, tr("Import nelze provést"), QString::fromStdString(
+            zima::interchange::unsupported_reason(
+                format, zima::interchange::Direction::Import, context)));
+        return;
+    }
+    state_->setText(tr("Importní soubor připraven: %1").arg(path));
+}
+
+void AssemblyWorkspaceWindow::export_file() {
+    const QString path = QFileDialog::getSaveFileName(this, tr("Exportovat"), {},
+        tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
+    if (path.isEmpty()) return;
+    const auto context = !active_sketch_id_.empty()
+        ? zima::interchange::Context::Sketch
+        : workspace_.open_part(workspace_.active_document_id()) != nullptr
+            ? zima::interchange::Context::Part : zima::interchange::Context::Assembly;
+    const auto format = zima::interchange::format_from_path(path.toStdString());
+    if (!zima::interchange::supports(
+            format, zima::interchange::Direction::Export, context)) {
+        QMessageBox::warning(this, tr("Export nelze provést"), QString::fromStdString(
+            zima::interchange::unsupported_reason(
+                format, zima::interchange::Direction::Export, context)));
+        return;
+    }
+    state_->setText(tr("Exportní soubor připraven: %1").arg(path));
+}
+
 std::vector<zima::kernel::BodyResult> AssemblyWorkspaceWindow::calculate_part(
     const zima::document::PartDocument& document) const {
     return kernel_.evaluate_history(document.kernel_operations());
@@ -794,6 +902,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             return;
         }
     }
+    if (!edit_mode && (feature_kind == zima::document::FeatureKind::Fillet ||
+                       feature_kind == zima::document::FeatureKind::Chamfer)) return;
     const auto initial = edit_mode ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
             ? zima::document::PartDocument::create_cylinder_container()
@@ -1972,6 +2082,13 @@ void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
 }
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && edge_treatment_selection_) {
+        edge_treatment_selection_.reset();
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+        state_->setText(tr("Zaoblení nebo sražení zrušeno."));
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Delete && delete_selected_sketch_geometry()) {
         event->accept();
         return;
@@ -2326,6 +2443,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             label += tr(" [potlačeno závislostí]");
         }
         else if (!component.visible) label += tr(" [skryto]");
+        if (component.grounded) label += tr(" [uzemněno]");
         auto* item = new QTreeWidgetItem(parent, {label});
         const auto path = parent_path.child(component.occurrence_id);
         item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));
@@ -2496,18 +2614,22 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         occurrence->visible ? tr("Skrýt") : tr("Zobrazit"));
     auto* suppression = menu.addAction(
         occurrence->suppressed ? tr("Obnovit") : tr("Potlačit"));
+    auto* grounding = menu.addAction(
+        occurrence->grounded ? tr("Uvolnit") : tr("Uzemnit"));
     const QAction* selected = menu.exec(global_position);
     if (selected == properties) {
         show_component_properties(instance_path);
         return;
     }
-    if (selected != visibility && selected != suppression) return;
+    if (selected != visibility && selected != suppression && selected != grounding) return;
     auto next = assembly->session.document();
     auto found = std::find_if(next.components.begin(), next.components.end(),
         [&](const auto& item) { return item.occurrence_id == address->occurrence_id; });
     if (found == next.components.end()) return;
     if (selected == visibility) found->visible = !found->visible;
     if (selected == suppression) found->suppressed = !found->suppressed;
+    if (selected == grounding) found->grounded = !found->grounded;
+    next.calculate_mates();
     assembly->session.commit(std::move(next));
     refresh_tabs();
     refresh_scene();

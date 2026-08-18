@@ -179,6 +179,20 @@ struct RevolutionRequest {
     double angle_degrees{360.0};
 };
 
+enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };
+
+struct FilletRequest {
+    EdgeReference edge;
+    EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
+    double radius{1.0};
+};
+
+struct ChamferRequest {
+    EdgeReference edge;
+    EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
+    double distance{1.0};
+};
+
 enum class BooleanOperation { Add, Subtract };
 
 struct BoxOperation {
@@ -188,7 +202,8 @@ struct BoxOperation {
 };
 
 using PrimitiveRequest = std::variant<
-    BoxRequest, CylinderRequest, ExtrusionRequest, RevolutionRequest>;
+    BoxRequest, CylinderRequest, ExtrusionRequest, RevolutionRequest,
+    FilletRequest, ChamferRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -355,7 +370,7 @@ struct BodyResult {
                         primitive.direction.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
-            } else {
+            } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -431,6 +446,17 @@ struct BodyResult {
                         primitive.axis_direction.y, primitive.axis_direction.z,
                         primitive.angle_degrees}) {
                     u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else {
+                u64(primitive.edge.owner_id.size());
+                for (const unsigned char value : primitive.edge.owner_id) byte(value);
+                u64(primitive.edge.semantic_key.size());
+                for (const unsigned char value : primitive.edge.semantic_key) byte(value);
+                byte(static_cast<std::uint8_t>(primitive.origin));
+                if constexpr (std::is_same_v<Request, FilletRequest>) {
+                    u64(std::bit_cast<std::uint64_t>(primitive.radius));
+                } else {
+                    u64(std::bit_cast<std::uint64_t>(primitive.distance));
                 }
             }
         }, operation.primitive);

@@ -41,6 +41,8 @@ private:
     QAction* cylinder_action_{};
     QAction* extrusion_action_{};
     QAction* revolution_action_{};
+    QAction* fillet_action_{};
+    QAction* chamfer_action_{};
     QAction* sketch_action_{};
     QAction* sketch_segment_action_{};
     QAction* sketch_rectangle_action_{};
@@ -77,6 +79,7 @@ private:
     std::string active_occurrence_path_;
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
+    std::optional<zima::document::FeatureKind> edge_treatment_selection_;
     std::string active_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
@@ -121,11 +124,15 @@ private:
     void regenerate_assembly();
     void start_plane_mate();
     void start_axis_mate();
+    void start_edge_treatment(zima::document::FeatureKind kind);
+    void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] std::optional<zima::assembly::MateReference>
         local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();
     void save_active_document();
+    void import_file();
+    void export_file();
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});

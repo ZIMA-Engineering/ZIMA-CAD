@@ -250,7 +250,8 @@ nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
         {"source_kind", source_kind_name(snapshot.source_kind)},
         {"manually_suppressed", snapshot.manually_suppressed},
         {"dependency_suppressed", snapshot.dependency_suppressed},
-        {"visible", snapshot.visible}, {"children", std::move(children)},
+        {"visible", snapshot.visible}, {"grounded", snapshot.grounded},
+        {"children", std::move(children)},
     };
 }
 
@@ -263,6 +264,7 @@ OccurrenceSnapshot load_snapshot(const nlohmann::json& source) {
     snapshot.manually_suppressed = source.at("manually_suppressed").get<bool>();
     snapshot.dependency_suppressed = source.at("dependency_suppressed").get<bool>();
     snapshot.visible = source.at("visible").get<bool>();
+    snapshot.grounded = source.at("grounded").get<bool>();
     if (snapshot.occurrence_id.empty() || snapshot.name.empty() ||
         snapshot.source_document_id.empty()) {
         throw std::runtime_error("Nested Assembly snapshot identity is invalid");
@@ -357,7 +359,7 @@ PartOccurrence AssemblyDocument::create_part_occurrence(
     }
     return {
         make_id(), std::move(name), std::move(source_document_id),
-        std::move(source_path), ComponentSourceKind::Part, {}, false, true,
+        std::move(source_path), ComponentSourceKind::Part, {}, false, false, true,
         std::move(calculated_source), {},
     };
 }
@@ -385,7 +387,7 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
             component.source_kind, component.suppressed,
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
-            component.visible, component.nested_snapshot});
+            component.visible, component.grounded, component.nested_snapshot});
     }
     return result;
 }
@@ -535,12 +537,9 @@ PlaneResolution AssemblyDocument::resolve_plane(
     constexpr double planar_tolerance = 1.0e-7;
     std::optional<ResolvedPlane> result;
     std::vector<zima::kernel::Vec3> points;
-    const auto& face_vertices = scene.original_references.triangles.empty()
-        ? scene.vertices : scene.original_references.vertices;
-    const auto& face_triangles = scene.original_references.triangles.empty()
-        ? scene.triangles : scene.original_references.triangles;
-    const auto& face_references = scene.original_references.triangles.empty()
-        ? scene.triangle_references : scene.original_references.triangle_references;
+    const auto& face_vertices = scene.original_references.vertices;
+    const auto& face_triangles = scene.original_references.triangles;
+    const auto& face_references = scene.original_references.triangle_references;
     for (std::size_t triangle = 0;
          triangle < face_references.size(); ++triangle) {
         const auto& candidate = face_references[triangle];
@@ -589,8 +588,7 @@ AxisResolution AssemblyDocument::resolve_axis(
     }
     const auto scene = build_scene();
     const std::string path = reference.instance_path.encoded();
-    const auto& axes = scene.original_references.axes.empty()
-        ? scene.axes : scene.original_references.axes;
+    const auto& axes = scene.original_references.axes;
     const auto found = std::find_if(axes.begin(), axes.end(),
         [&](const auto& axis) {
             return axis.reference.instance_path == path &&
@@ -634,6 +632,10 @@ void AssemblyDocument::calculate_mates() {
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
             mate.status = MateStatus::MissingReference;
+            return;
+        }
+        if (occurrence->grounded) {
+            mate.status = MateStatus::Valid;
             return;
         }
         if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
@@ -683,6 +685,10 @@ void AssemblyDocument::calculate_mates() {
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
             mate.status = MateStatus::MissingReference;
+            return;
+        }
+        if (occurrence->grounded) {
+            mate.status = MateStatus::Valid;
             return;
         }
         if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
@@ -792,6 +798,21 @@ void AssemblyDocument::calculate_mates() {
             }
         }
     }
+}
+
+int AssemblyDocument::remaining_degrees_of_freedom(
+    const std::string& occurrence_id) const {
+    const auto* occurrence = find_occurrence(occurrence_id);
+    if (occurrence == nullptr) throw std::invalid_argument("Assembly occurrence does not exist");
+    if (occurrence->grounded) return 0;
+    int constrained = 0;
+    for (const auto& mate : mates) {
+        if (mate.suppressed || mate.status != MateStatus::Valid ||
+            mate.dependent.instance_path.occurrence_ids.empty() ||
+            mate.dependent.instance_path.occurrence_ids.front() != occurrence_id) continue;
+        constrained += mate.kind == MateKind::AxisCoincident ? 4 : 3;
+    }
+    return std::max(0, 6 - constrained);
 }
 
 std::unordered_set<std::string>
@@ -959,7 +980,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 1 ||
+        root.at("format_version").get<int>() != 2 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported C++ Assembly document format");
     }
@@ -977,6 +998,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             source.at("source_kind").get<std::string>());
         component.suppressed = source.at("suppressed").get<bool>();
         component.visible = source.at("visible").get<bool>();
+        component.grounded = source.at("grounded").get<bool>();
         if (component.occurrence_id.empty() || component.name.empty() ||
             component.source_document_id.empty() ||
             !occurrence_ids.insert(component.occurrence_id).second) {
@@ -1074,6 +1096,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"source_kind", source_kind_name(component.source_kind)},
             {"suppressed", component.suppressed},
             {"visible", component.visible},
+            {"grounded", component.grounded},
             {"placement", {
                 {"x", component.placement.x}, {"y", component.placement.y},
                 {"z", component.placement.z},
@@ -1114,7 +1137,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         });
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 1},
+        {"format", "zima-cad-cpp"}, {"format_version", 2},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

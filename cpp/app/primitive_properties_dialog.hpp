@@ -39,6 +39,7 @@ private:
     QComboBox* extrusion_direction_{};
     QComboBox* revolution_axis_{};
     QDoubleSpinBox* angle_{};
+    QDoubleSpinBox* treatment_size_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};

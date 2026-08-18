@@ -41,6 +41,8 @@ struct MeshView::Impl {
         world_click_callback;
     std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
         world_pointer_callback;
+    std::function<bool()> short_middle_click_callback;
+    bool middle_dragged{};
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     QPoint last_pointer;
     QVector3D center;
@@ -160,6 +162,10 @@ void MeshView::set_world_click_callback(std::function<bool(
 void MeshView::set_world_pointer_callback(std::function<void(
     const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback) {
     impl_->world_pointer_callback = std::move(callback);
+}
+
+void MeshView::set_short_middle_click_callback(std::function<bool()> callback) {
+    impl_->short_middle_click_callback = std::move(callback);
 }
 
 void MeshView::set_double_confirmation_callback(
@@ -573,6 +579,7 @@ MeshView::ray_at(const QPointF& position) const {
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
+    if (event->button() == Qt::MiddleButton) impl_->middle_dragged = false;
     if (event->button() == Qt::LeftButton && impl_->world_click_callback) {
         const auto ray = ray_at(event->position());
         if (ray && impl_->world_click_callback(ray->first, ray->second)) {
@@ -623,6 +630,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (event->buttons() & Qt::MiddleButton) {
+        if (movement.manhattanLength() > 2) impl_->middle_dragged = true;
         if (event->modifiers() & Qt::ShiftModifier) {
             const QVector3D forward = -impl_->direction();
             const QVector3D right = QVector3D::crossProduct(forward, QVector3D(0, 0, 1)).normalized();
@@ -648,6 +656,18 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::MiddleButton && !impl_->middle_dragged) {
+        bool handled = impl_->short_middle_click_callback &&
+            impl_->short_middle_click_callback();
+        if (!handled && impl_->world_click_callback) {
+            const auto ray = ray_at(event->position());
+            handled = ray && impl_->world_click_callback(ray->first, ray->second);
+        }
+        if (handled) {
+            event->accept();
+            return;
+        }
+    }
     if (event->button() == Qt::LeftButton && impl_->drag_active) {
         impl_->drag_active = false;
         if (impl_->drag_end_callback) impl_->drag_end_callback();

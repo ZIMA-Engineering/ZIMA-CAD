@@ -69,7 +69,11 @@ int main() {
             {zima::viewer::CandidateKind::Container});
         require(candidates.size() == 2 &&
                     candidates[0].instance_path != candidates[1].instance_path &&
-                    candidates[0].owner_id == candidates[1].owner_id,
+                    candidates[0].owner_id == candidates[1].owner_id &&
+                    candidates[0].geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference &&
+                    candidates[1].geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference,
                 "Viewer did not distinguish repeated occurrences of one source owner");
         const auto occurrence_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
@@ -430,6 +434,7 @@ int main() {
                 "Conflicting rotational mates damaged the previous placement");
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
+        state_document.components.front().grounded = true;
         state_document.components.back().visible = false;
         require(state_document.build_scene().triangles.empty() &&
                     state_document.components.size() == 2 &&
@@ -441,8 +446,10 @@ int main() {
         const auto loaded_state = zima::assembly::AssemblyDocument::load(state_path);
         std::filesystem::remove(state_path);
         require(loaded_state.components.front().suppressed &&
+                    loaded_state.components.front().grounded &&
+                    loaded_state.remaining_degrees_of_freedom(first_id) == 0 &&
                     !loaded_state.components.back().visible,
-                "Assembly suppression and visibility were not persisted separately");
+                "Assembly suppression, visibility or grounding were not persisted separately");
         auto dependent_assembly = loaded;
         auto third = zima::assembly::AssemblyDocument::create_part_occurrence(
             "Třetí", "third-part-document", "third.zcp.json", source.back());

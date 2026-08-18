@@ -16,7 +16,11 @@ QString primitive_label(zima::document::FeatureKind kind) {
         : kind == zima::document::FeatureKind::Extrusion
             ? QObject::tr("vytažení")
         : kind == zima::document::FeatureKind::Revolution
-            ? QObject::tr("rotace") : QObject::tr("kvádru");
+            ? QObject::tr("rotace")
+        : kind == zima::document::FeatureKind::Fillet
+            ? QObject::tr("zaoblení")
+        : kind == zima::document::FeatureKind::Chamfer
+            ? QObject::tr("sražení") : QObject::tr("kvádru");
 }
 
 }  // namespace
@@ -35,7 +39,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                   : initial.feature_kind == zima::document::FeatureKind::Extrusion
                       ? tr("Nové vytažení")
                   : initial.feature_kind == zima::document::FeatureKind::Revolution
-                      ? tr("Nová rotace") : tr("Nový kvádr"),
+                      ? tr("Nová rotace")
+                  : initial.feature_kind == zima::document::FeatureKind::Fillet
+                      ? tr("Nové zaoblení")
+                  : initial.feature_kind == zima::document::FeatureKind::Chamfer
+                      ? tr("Nové sražení") : tr("Nový kvádr"),
           parent),
       initial_(initial), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -43,13 +51,17 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
     form->addRow(tr("Název"), name_);
-    operation_ = new QComboBox(this);
-    operation_->addItem(tr("Přičíst"), "add");
-    if (allow_subtract) operation_->addItem(tr("Odečíst"), "subtract");
-    if (initial.combine_mode == zima::document::CombineMode::Subtract) {
-        operation_->setCurrentIndex(operation_->findData("subtract"));
+    const bool treatment = initial.feature_kind == zima::document::FeatureKind::Fillet ||
+        initial.feature_kind == zima::document::FeatureKind::Chamfer;
+    if (!treatment) {
+        operation_ = new QComboBox(this);
+        operation_->addItem(tr("Přičíst"), "add");
+        if (allow_subtract) operation_->addItem(tr("Odečíst"), "subtract");
+        if (initial.combine_mode == zima::document::CombineMode::Subtract) {
+            operation_->setCurrentIndex(operation_->findData("subtract"));
+        }
+        form->addRow(tr("Operace"), operation_);
     }
-    form->addRow(tr("Operace"), operation_);
 
     const auto dimension = [this](double value, const char* object_name) {
         auto* field = new QDoubleSpinBox(this);
@@ -94,7 +106,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         extrusion_direction_->setCurrentIndex(
             extrusion_direction_->findData(direction));
         form->addRow(tr("Směr"), extrusion_direction_);
-    } else {
+    } else if (initial.feature_kind == zima::document::FeatureKind::Revolution) {
         auto* sketch = new QLabel(
             QString::fromStdString(initial.revolution.sketch_id), this);
         sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -115,6 +127,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         angle_->setObjectName("revolutionAngle");
         angle_->setValue(initial.revolution.angle_degrees);
         form->addRow(tr("Úhel"), angle_);
+    } else {
+        auto* edge = new QLabel(
+            QString::fromStdString(initial.edge_treatment.edge.owner_id + " / " +
+                                    initial.edge_treatment.edge.semantic_key), this);
+        edge->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        form->addRow(tr("Hrana"), edge);
+        treatment_size_ = dimension(initial.edge_treatment.size, "edgeTreatmentSize");
+        form->addRow(initial.feature_kind == zima::document::FeatureKind::Fillet
+            ? tr("Poloměr") : tr("Vzdálenost"), treatment_size_);
     }
 
     const auto placement = [this](double value, bool angular) {
@@ -170,9 +191,11 @@ bool PrimitivePropertiesDialog::submit() {
     }
     auto result = initial_;
     result.name = name.toStdString();
-    result.combine_mode = operation_->currentData().toString() == "subtract"
-        ? zima::document::CombineMode::Subtract
-        : zima::document::CombineMode::Add;
+    if (operation_ != nullptr) {
+        result.combine_mode = operation_->currentData().toString() == "subtract"
+            ? zima::document::CombineMode::Subtract
+            : zima::document::CombineMode::Add;
+    }
     if (result.feature_kind == zima::document::FeatureKind::Box) {
         result.box = {length_->value(), width_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
@@ -186,12 +209,14 @@ bool PrimitivePropertiesDialog::submit() {
             : direction == "symmetric"
                 ? zima::document::ExtrusionDirection::Symmetric
                 : zima::document::ExtrusionDirection::Forward;
-    } else {
+    } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
         result.revolution.axis =
             revolution_axis_->currentData().toString() == "sketch_y"
                 ? zima::document::RevolutionAxis::SketchY
                 : zima::document::RevolutionAxis::SketchX;
         result.revolution.angle_degrees = angle_->value();
+    } else {
+        result.edge_treatment.size = treatment_size_->value();
     }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
         result.feature_kind == zima::document::FeatureKind::Cylinder) {

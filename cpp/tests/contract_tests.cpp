@@ -76,6 +76,32 @@ int main() {
         require(box_axis_keys == std::set<std::string>{
                     "axis:x", "axis:y", "axis:z"},
                 "Box does not expose three stable local axes");
+        const auto selected_box_edge =
+            body.mesh.original_references.edges.front().reference;
+        const auto fillet_boundaries = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"fillet", zima::kernel::FilletRequest{
+                selected_box_edge,
+                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(fillet_boundaries.size() == 2 &&
+                    fillet_boundaries.back().volume < body.volume &&
+                    fillet_boundaries.back().volume > body.volume - 1000.0,
+                "Original-edge Fillet did not produce a valid bounded solid");
+        const auto chamfer_boundaries = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"chamfer", zima::kernel::ChamferRequest{
+                selected_box_edge,
+                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(chamfer_boundaries.size() == 2 &&
+                    chamfer_boundaries.back().volume < body.volume &&
+                    chamfer_boundaries.back().volume > body.volume - 1000.0,
+                "Original-edge Chamfer did not produce a valid bounded solid");
         zima::kernel::BoxRequest resized_rotated{135.0, 62.0, 47.0};
         resized_rotated.rotation_degrees = {17.0, 29.0, 41.0};
         const auto regenerated = kernel.evaluate_boxes({

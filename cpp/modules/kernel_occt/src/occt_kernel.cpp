@@ -15,6 +15,8 @@
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepFilletAPI_MakeChamfer.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -170,7 +172,7 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 {primitive.direction.x / length, primitive.direction.y / length,
                  primitive.direction.z / length},
                 length, {operation.owner_id, "axis"}}};
-        } else {
+        } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
             const double length = std::max(10.0, std::sqrt(
                 primitive.axis_direction.x * primitive.axis_direction.x +
                 primitive.axis_direction.y * primitive.axis_direction.y +
@@ -185,6 +187,8 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                  primitive.axis_direction.y / direction_length,
                  primitive.axis_direction.z / direction_length},
                 length, {operation.owner_id, "axis"}}};
+        } else {
+            return std::vector<ViewerAxis>{};
         }
     }, operation.primitive);
 }
@@ -963,7 +967,81 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");
             }
-            const PrimitiveData operand = std::visit([&](const auto& primitive) {
+            const auto apply_edge_treatment = [&](const auto& treatment) {
+                if (result_shape.IsNull()) {
+                    throw std::invalid_argument(
+                        "Fillet/Chamfer requires an input body");
+                }
+                if (!treatment.edge.valid() || !treatment.edge.instance_path.empty() ||
+                    treatment.origin != EdgeSelectionOrigin::OriginalEntity) {
+                    throw std::invalid_argument(
+                        "Fillet/Chamfer original edge reference is invalid");
+                }
+                const double size = [&] {
+                    using Treatment = std::decay_t<decltype(treatment)>;
+                    if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                        return treatment.radius;
+                    } else {
+                        return treatment.distance;
+                    }
+                }();
+                if (!std::isfinite(size) || size <= 0.0) {
+                    throw std::invalid_argument(
+                        "Fillet/Chamfer size must be finite and positive");
+                }
+                std::vector<TopoDS_Edge> selected;
+                for (const auto& owned : owned_edges) {
+                    if (owned.reference.owner_id == treatment.edge.owner_id &&
+                        owned.reference.semantic_key == treatment.edge.semantic_key) {
+                        selected.push_back(TopoDS::Edge(owned.shape));
+                    }
+                }
+                if (selected.empty()) {
+                    throw std::runtime_error(
+                        "Fillet/Chamfer original edge is missing at this history boundary");
+                }
+                using Treatment = std::decay_t<decltype(treatment)>;
+                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                    BRepFilletAPI_MakeFillet algorithm(result_shape);
+                    for (const auto& edge : selected) algorithm.Add(size, edge);
+                    algorithm.Build();
+                    if (!algorithm.IsDone()) throw std::runtime_error("OCCT Fillet failed");
+                    owned_faces = propagate_topology(
+                        algorithm, owned_faces, std::vector<OwnedFace>{});
+                    owned_edges = propagate_topology(
+                        algorithm, owned_edges, std::vector<OwnedEdge>{});
+                    owned_vertices = propagate_topology(
+                        algorithm, owned_vertices, std::vector<OwnedVertex>{});
+                    result_shape = algorithm.Shape();
+                } else {
+                    BRepFilletAPI_MakeChamfer algorithm(result_shape);
+                    for (const auto& edge : selected) algorithm.Add(size, edge);
+                    algorithm.Build();
+                    if (!algorithm.IsDone()) throw std::runtime_error("OCCT Chamfer failed");
+                    owned_faces = propagate_topology(
+                        algorithm, owned_faces, std::vector<OwnedFace>{});
+                    owned_edges = propagate_topology(
+                        algorithm, owned_edges, std::vector<OwnedEdge>{});
+                    owned_vertices = propagate_topology(
+                        algorithm, owned_vertices, std::vector<OwnedVertex>{});
+                    result_shape = algorithm.Shape();
+                }
+                boundaries.push_back(
+                    make_result(result_shape, owned_faces, owned_edges, owned_vertices));
+                boundaries.back().mesh.original_references = original_references;
+                boundaries.back().source_fingerprint =
+                    history_fingerprint(operations, boundaries.size());
+            };
+            if (const auto* fillet = std::get_if<FilletRequest>(&operation.primitive)) {
+                apply_edge_treatment(*fillet);
+                continue;
+            }
+            if (const auto* chamfer = std::get_if<ChamferRequest>(&operation.primitive)) {
+                apply_edge_treatment(*chamfer);
+                continue;
+            }
+            const PrimitiveData operand = std::visit([&](const auto& primitive)
+                -> PrimitiveData {
                 using Request = std::decay_t<decltype(primitive)>;
                 if constexpr (std::is_same_v<Request, BoxRequest>) {
                     validate_box(primitive);
@@ -974,9 +1052,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                     validate_extrusion(primitive);
                     return make_extrusion_data(primitive, operation.owner_id);
-                } else {
+                } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive, operation.owner_id);
+                } else {
+                    throw std::logic_error("Edge treatment reached primitive builder");
                 }
             }, operation.primitive);
             auto operand_result = make_result(

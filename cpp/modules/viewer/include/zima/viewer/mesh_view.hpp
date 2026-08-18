@@ -34,6 +34,7 @@ public:
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
     void set_world_pointer_callback(std::function<void(
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
+    void set_short_middle_click_callback(std::function<bool()> callback);
     void set_double_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
     void set_candidate_drag_callbacks(

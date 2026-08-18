@@ -11,7 +11,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder, Extrusion, Revolution };
+enum class FeatureKind { Box, Cylinder, Extrusion, Revolution, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class RevolutionAxis { SketchX, SketchY };
 
@@ -38,6 +38,13 @@ struct RevolutionParameters {
     double angle_degrees{360.0};
 };
 
+struct EdgeTreatmentParameters {
+    zima::kernel::EdgeReference edge;
+    zima::kernel::EdgeSelectionOrigin origin{
+        zima::kernel::EdgeSelectionOrigin::OriginalEntity};
+    double size{1.0};
+};
+
 struct Placement {
     double x{};
     double y{};
@@ -57,6 +64,7 @@ struct HistoryContainer {
     CylinderParameters cylinder;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
+    EdgeTreatmentParameters edge_treatment;
 };
 
 class PartDocument {
@@ -73,6 +81,10 @@ public:
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
+    [[nodiscard]] static HistoryContainer create_fillet_container(
+        zima::kernel::EdgeReference edge);
+    [[nodiscard]] static HistoryContainer create_chamfer_container(
+        zima::kernel::EdgeReference edge);
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
     [[nodiscard]] std::optional<std::size_t> history_index(
