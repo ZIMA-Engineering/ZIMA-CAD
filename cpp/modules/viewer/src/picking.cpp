@@ -234,13 +234,17 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     }
     for (const auto& edge : ordered_edge_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
-        result.push_back({CandidateKind::Edge, edge.distance, edge.edge,
+        const auto kind = edge.reference.semantic_key.starts_with("segment:")
+            ? CandidateKind::SketchSegment : CandidateKind::Edge;
+        result.push_back({kind, edge.distance, edge.edge,
                           edge.reference.owner_id, edge.reference.semantic_key,
                           edge.reference.instance_path});
     }
     for (const auto& vertex : ordered_vertex_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
-        result.push_back({CandidateKind::Vertex, vertex.distance, vertex.point,
+        const auto kind = vertex.reference.semantic_key.starts_with("point:")
+            ? CandidateKind::SketchPoint : CandidateKind::Vertex;
+        result.push_back({kind, vertex.distance, vertex.point,
                           vertex.reference.owner_id, vertex.reference.semantic_key,
                           vertex.reference.instance_path});
     }
@@ -252,8 +256,10 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
+        case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;
+        case CandidateKind::SketchSegment: return 2;
         case CandidateKind::Edge: return 2;
         case CandidateKind::Face: return 3;
         case CandidateKind::Container: return 4;

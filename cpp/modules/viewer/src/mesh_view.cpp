@@ -31,6 +31,11 @@ struct MeshView::Impl {
     std::optional<ViewerCandidate> confirmed_candidate;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
     std::function<void(const ViewerCandidate&, const QPoint&)> context_menu_callback;
+    std::function<bool(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
+        world_click_callback;
+    std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
+        world_pointer_callback;
+    std::vector<zima::kernel::ViewerEdge> transient_edges;
     QPoint last_pointer;
     QVector3D center;
     QVector3D pan;
@@ -81,12 +86,12 @@ MeshView::~MeshView() {
     }
 }
 
-void MeshView::set_mesh(zima::kernel::ViewerMesh mesh) {
+void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->mesh = std::move(mesh);
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
     impl_->gpu_dirty = true;
-    fit_all();
+    if (fit_view) fit_all();
     update();
 }
 
@@ -141,6 +146,21 @@ void MeshView::set_context_menu_callback(
     impl_->context_menu_callback = std::move(callback);
 }
 
+void MeshView::set_world_click_callback(std::function<bool(
+    const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback) {
+    impl_->world_click_callback = std::move(callback);
+}
+
+void MeshView::set_world_pointer_callback(std::function<void(
+    const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback) {
+    impl_->world_pointer_callback = std::move(callback);
+}
+
+void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
+    impl_->transient_edges = std::move(edges);
+    update();
+}
+
 void MeshView::notify_confirmation() {
     if (impl_->confirmed_candidate && impl_->confirmation_callback) {
         impl_->confirmation_callback(*impl_->confirmed_candidate);
@@ -148,7 +168,12 @@ void MeshView::notify_confirmation() {
 }
 
 void MeshView::fit_all() {
-    if (impl_->mesh.vertices.empty()) {
+    std::vector<zima::kernel::Vec3> bounds = impl_->mesh.vertices;
+    for (const auto& edge : impl_->mesh.edges) {
+        bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
+    }
+    for (const auto& point : impl_->mesh.points) bounds.push_back(point.position);
+    if (bounds.empty()) {
         impl_->center = {};
         impl_->radius = 1.0F;
         impl_->view_scale = 1.4F;
@@ -161,7 +186,7 @@ void MeshView::fit_all() {
     zima::kernel::Vec3 maximum{
         std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(),
         std::numeric_limits<double>::lowest()};
-    for (const auto& point : impl_->mesh.vertices) {
+    for (const auto& point : bounds) {
         minimum.x = std::min(minimum.x, point.x);
         minimum.y = std::min(minimum.y, point.y);
         minimum.z = std::min(minimum.z, point.z);
@@ -263,7 +288,7 @@ void MeshView::upload_mesh() {
 void MeshView::paintGL() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (impl_->gpu_dirty) upload_mesh();
-    if (impl_->mesh.vertices.empty() || !impl_->program.isLinked()) return;
+    if (!impl_->program.isLinked()) return;
     impl_->program.bind();
     const QMatrix4x4 view = impl_->view();
     impl_->program.setUniformValue("mvp",
@@ -320,9 +345,16 @@ void MeshView::paintGL() {
     const bool axes_visible = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Axis) != impl_->allowed_kinds.end();
-    if (axes_visible || (highlighted && (
+    const bool sketch_geometry_visible = std::any_of(
+        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
+            return edge.reference.semantic_key.starts_with("segment:");
+        });
+    if (axes_visible || sketch_geometry_visible || !impl_->transient_edges.empty() ||
+        (highlighted && (
             highlighted->kind == CandidateKind::Edge ||
+            highlighted->kind == CandidateKind::SketchSegment ||
             highlighted->kind == CandidateKind::Vertex ||
+            highlighted->kind == CandidateKind::SketchPoint ||
             highlighted->kind == CandidateKind::Axis))) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
@@ -334,6 +366,23 @@ void MeshView::paintGL() {
         };
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+        if (sketch_geometry_visible) {
+            painter.setPen(QPen(QColor(220, 220, 220), 1.8));
+            for (const auto& edge : impl_->mesh.edges) {
+                if (!edge.reference.semantic_key.starts_with("segment:")) continue;
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                }
+            }
+        }
+        if (!impl_->transient_edges.empty()) {
+            painter.setPen(QPen(QColor(255, 140, 12), 2.0, Qt::DashLine));
+            for (const auto& edge : impl_->transient_edges) {
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                }
+            }
+        }
         if (axes_visible) {
             painter.setPen(QPen(QColor(125, 125, 125), 1.5, Qt::DashLine));
             for (const auto& axis : impl_->mesh.axes) {
@@ -351,7 +400,8 @@ void MeshView::paintGL() {
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
-            if (highlighted->kind == CandidateKind::Edge &&
+            if ((highlighted->kind == CandidateKind::Edge ||
+                 highlighted->kind == CandidateKind::SketchSegment) &&
                 highlighted->geometry_index < impl_->mesh.edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
                 const auto& edge = impl_->mesh.edges[highlighted->geometry_index];
@@ -359,7 +409,8 @@ void MeshView::paintGL() {
                     painter.drawLine(
                         project(edge.points[index - 1]), project(edge.points[index]));
                 }
-            } else if (highlighted->kind == CandidateKind::Vertex &&
+            } else if ((highlighted->kind == CandidateKind::Vertex ||
+                        highlighted->kind == CandidateKind::SketchPoint) &&
                        highlighted->geometry_index < impl_->mesh.points.size()) {
                 painter.setPen(QPen(color, 2.0));
                 painter.setBrush(color);
@@ -384,25 +435,14 @@ void MeshView::paintGL() {
 }
 
 void MeshView::update_candidates(const QPointF& position) {
-    if (impl_->mesh.vertices.empty() || width() <= 0 || height() <= 0) return;
-    const float x = static_cast<float>(2.0 * position.x() / width() - 1.0);
-    const float y = static_cast<float>(1.0 - 2.0 * position.y() / height());
-    bool invertible = false;
-    const QMatrix4x4 inverse =
-        (impl_->projection(width(), height()) * impl_->view()).inverted(&invertible);
-    if (!invertible) return;
-    QVector4D near_point = inverse * QVector4D(x, y, -1.0F, 1.0F);
-    QVector4D far_point = inverse * QVector4D(x, y, 1.0F, 1.0F);
-    near_point /= near_point.w();
-    far_point /= far_point.w();
-    const QVector3D direction = (far_point.toVector3D() - near_point.toVector3D()).normalized();
+    if (width() <= 0 || height() <= 0) return;
+    const auto ray = ray_at(position);
+    if (!ray) return;
+    const auto& [ray_origin, ray_direction] = *ray;
     const double world_tolerance =
         8.0 * impl_->view_scale / std::max(height(), 1);
     auto next = filter_candidates(ordered_viewer_candidates(
-        impl_->mesh,
-        {near_point.x(), near_point.y(), near_point.z()},
-        {direction.x(), direction.y(), direction.z()},
-        world_tolerance), impl_->allowed_kinds);
+        impl_->mesh, ray_origin, ray_direction, world_tolerance), impl_->allowed_kinds);
     const bool same_order = next.size() == impl_->candidates.size() &&
         std::equal(next.begin(), next.end(), impl_->candidates.begin(),
             [](const ViewerCandidate& left, const ViewerCandidate& right) {
@@ -417,8 +457,35 @@ void MeshView::update_candidates(const QPointF& position) {
     update();
 }
 
+std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
+MeshView::ray_at(const QPointF& position) const {
+    if (width() <= 0 || height() <= 0) return std::nullopt;
+    const float x = static_cast<float>(2.0 * position.x() / width() - 1.0);
+    const float y = static_cast<float>(1.0 - 2.0 * position.y() / height());
+    bool invertible = false;
+    const QMatrix4x4 inverse =
+        (impl_->projection(width(), height()) * impl_->view()).inverted(&invertible);
+    if (!invertible) return std::nullopt;
+    QVector4D near_point = inverse * QVector4D(x, y, -1.0F, 1.0F);
+    QVector4D far_point = inverse * QVector4D(x, y, 1.0F, 1.0F);
+    near_point /= near_point.w();
+    far_point /= far_point.w();
+    const QVector3D direction = (far_point.toVector3D() - near_point.toVector3D()).normalized();
+    return std::pair{
+        zima::kernel::Vec3{near_point.x(), near_point.y(), near_point.z()},
+        zima::kernel::Vec3{direction.x(), direction.y(), direction.z()}};
+}
+
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
+    if (event->button() == Qt::LeftButton && impl_->world_click_callback) {
+        const auto ray = ray_at(event->position());
+        if (ray && impl_->world_click_callback(ray->first, ray->second)) {
+            impl_->candidates.clear();
+            update();
+            return;
+        }
+    }
     if (event->button() == Qt::LeftButton && !impl_->candidates.empty()) {
         impl_->confirmed_candidate = impl_->candidates[impl_->active_candidate];
         notify_confirmation();
@@ -458,6 +525,10 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (event->buttons() == Qt::NoButton && !impl_->confirmed_candidate) {
+        if (impl_->world_pointer_callback) {
+            const auto ray = ray_at(event->position());
+            if (ray) impl_->world_pointer_callback(ray->first, ray->second);
+        }
         update_candidates(event->position());
     }
 }

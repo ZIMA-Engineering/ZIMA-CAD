@@ -6,10 +6,12 @@
 #include <QMainWindow>
 
 #include <optional>
+#include <array>
 
 class QAction;
 class QDialog;
 class QLabel;
+class QKeyEvent;
 class QTabBar;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -36,6 +38,11 @@ private:
     QAction* redo_action_{};
     QAction* box_action_{};
     QAction* cylinder_action_{};
+    QAction* sketch_action_{};
+    QAction* sketch_segment_action_{};
+    QAction* sketch_horizontal_action_{};
+    QAction* sketch_vertical_action_{};
+    QAction* sketch_dimension_action_{};
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
     QAction* axis_mate_action_{};
@@ -49,6 +56,11 @@ private:
     std::string active_occurrence_path_;
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
+    std::string active_sketch_id_;
+    std::string selected_sketch_segment_id_;
+    std::optional<std::array<double, 2>> pending_segment_start_;
+    bool sketch_segment_active_{};
+    bool preserve_view_on_refresh_{};
     zima::assembly::MateKind pending_mate_kind_{
         zima::assembly::MateKind::PlaneCoincident};
 
@@ -70,6 +82,16 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void show_sketch_properties(const std::string& sketch_id = {});
+    void start_sketch_segment();
+    void cancel_sketch_segment();
+    bool accept_sketch_segment_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void preview_sketch_segment_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void constrain_selected_segment(zima::sketcher::ConstraintKind kind);
+    void show_sketch_dimension_properties(
+        const std::string& sketch_id, const std::string& dimension_id = {});
     void regenerate_active_part();
     void undo();
     void redo();
@@ -104,6 +126,9 @@ private:
         const QPoint& global_position);
     [[nodiscard]] std::optional<std::string> resolve_active_occurrence(
         const std::string& part_document_id) const;
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
 };
 
 }  // namespace zima::app

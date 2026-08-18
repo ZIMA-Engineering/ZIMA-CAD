@@ -189,6 +189,16 @@ int main() {
         second.box = {10.0, 11.0, 12.0};
         second.placement = {20.0, -5.0, 3.0, 10.0, 20.0, 30.0};
         document.history.push_back(second);
+        auto part_sketch = zima::sketcher::Sketch::create_default();
+        part_sketch.name = "Profil";
+        auto sketch_first = zima::sketcher::Sketch::create_point(0.0, 0.0);
+        auto sketch_second = zima::sketcher::Sketch::create_point(10.0, 0.0);
+        part_sketch.segments.push_back(zima::sketcher::Sketch::create_segment(
+            sketch_first.id, sketch_second.id));
+        part_sketch.points.push_back(std::move(sketch_first));
+        part_sketch.points.push_back(std::move(sketch_second));
+        const auto part_sketch_id = part_sketch.id;
+        document.sketches.push_back(std::move(part_sketch));
         const auto path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-contract.zcp.json";
         const auto persisted_boundaries =
@@ -211,6 +221,10 @@ int main() {
         require(loaded.document_id == document.document_id,
                 "Document identity was not preserved");
         require(loaded.history.size() == 2, "History containers were not preserved");
+        require(loaded.sketches.size() == 1 &&
+                    loaded.sketches.front().id == part_sketch_id &&
+                    loaded.sketches.front().segments.size() == 1,
+                "Part did not preserve its embedded Sketch graph");
         require(loaded.history.front().id == first.id,
                 "Stable container identity was not preserved");
         require(loaded.find_container(first.id) != nullptr,

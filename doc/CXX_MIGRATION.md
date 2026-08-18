@@ -221,6 +221,51 @@ strukturální snapshot. Rollback vnořeného Partu nahradí v cached top-level
 scéně jen geometrii přesné listové cesty a zachová všechny pasivní sourozence
 bez implicitní regenerace parentu.
 
+První C++ řez Sketcheru zavádí samostatný modul bez Qt a OCCT. Persistovaná
+skica vlastní stabilní body a úsečky, konstrukční stav, rovinu XY/XZ/YZ a její
+podepsané odsazení. Bodový model podporuje horizontální, vertikální a shodnou
+vazbu a řídicí kóty vzdálenosti, podepsané vzdálenosti X a vzdálenosti Y.
+Kóta může mít nezávislou absolutní dolní a horní mez; hodnota mimo zapnutou mez
+se odmítne ještě před solverem.
+
+Solver mění body transakčně. Pevný nebo nekonvergující konflikt obnoví přesné
+vstupní souřadnice a neponechá částečně vyřešenou skicu. Zbývající stupně
+volnosti se určují hodností numerického Jacobiánu, takže redundantní rovnice
+nepředstírají plně zavazbený model. Testy ověřují řešení, konflikt, meze,
+stabilní save/load a stav nedostatečného zavazbení.
+
+Part dokument persistuje skici přímo vedle historie tělesa. Změna skici je
+jedna běžná revize DocumentSession a sama nespouští OCCT. Skica promítá své
+body a úsečky do ZIMA viewer packetu se stabilním vlastníkem a sémantickým
+klíčem; zobrazení a společný picker proto zůstávají na aplikační straně hranice
+kernelu. Workspace nabízí stejné interní Properties SubWindow pro vytvoření i
+editaci názvu, roviny a odsazení skici.
+
+První interaktivní příkaz Sketcheru vytváří úsečku dvěma LMB body. Oba body
+vznikají projekcí stejného kamerového paprsku vieweru do persistované roviny
+skici; nevzniká druhý picker ani dotaz do OCCT. První bod a pohyb kurzoru jsou
+jen transientní čárkovaný náhled. Druhý bod atomicky vloží geometrii jako jednu
+Part revizi, Escape náhled zahodí a změna dokumentu příkaz ukončí. Navazující
+konce v modelové toleranci znovu použijí stejné stabilní ID bodu, takže profil
+je topologicky propojený a ne pouze vizuálně překrytý. Kamera se mezi
+navazujícími úsečkami neresetuje.
+
+Body a úsečky skici mají samostatné druhy viewer kandidátů `SketchPoint` a
+`SketchSegment`. Aktivní skica nabízí pouze tyto přesné persistované objekty,
+zatímco běžný režim Partu dál nabízí kontejnery a nepropouští result-topology
+solidu. Potvrzené úsečce lze přidat vodorovnou nebo svislou vazbu; vazba a
+vyřešené souřadnice tvoří jednu Part revizi. Duplicitní vazba nebo kombinace,
+která by zkolabovala úsečku do bodu, se transakčně odmítne.
+
+Potvrzená úsečka může vytvořit první řídicí kótu délky. Tvorba i pozdější
+editace ze stromu nebo kontextové cesty používají tutéž interní třídu
+`SketchDimensionPropertiesDialog`. Okno obsahuje jmenovitou hodnotu a nezávislé
+absolutní dolní a horní meze. Při prvním zapnutí se dolní mez předvyplní nulou
+a horní aktuální jmenovitou délkou. OK validuje meze, vyřeší skicu a vytvoří
+jednu Part revizi; Cancel, hodnota mimo rozsah nebo konflikt nepřenesou žádnou
+změnu. Editace zachová stabilní ID kóty a kóta zůstává pod vlastní skicou ve
+stromu.
+
 První řez sestavových vazeb persistuje dva přesné konce reference
 (`InstancePath`, owner kontejneru a sémantický klíč), typ vazby, offset, stav
 výpočtu a odpovídající orientovanou dependency edge. Rovinná geometrie se

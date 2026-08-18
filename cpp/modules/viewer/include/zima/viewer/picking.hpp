@@ -35,7 +35,9 @@ struct AxisPickCandidate {
     zima::kernel::AxisReference reference;
 };
 
-enum class CandidateKind { Occurrence, Container, Face, Edge, Vertex, Axis };
+enum class CandidateKind {
+    Occurrence, Container, Face, Edge, Vertex, Axis, SketchSegment, SketchPoint
+};
 
 struct ViewerCandidate {
     CandidateKind kind{CandidateKind::Container};

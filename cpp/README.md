@@ -250,6 +250,53 @@ mates remain editable without forcing a successful calculation in the dialog;
 their references may become valid only after a later model change and explicit
 Regenerate.
 
+The first C++ Sketcher slice is a standalone Qt- and OCCT-free module. A Sketch
+owns stable point, segment, constraint, and dimension IDs on an XY, XZ, or YZ
+plane with a signed plane offset. Segment construction state and point fixed/
+construction state are model data. Horizontal, vertical, coincident, distance,
+signed X-distance, and signed Y-distance equations are supported without live
+kernel geometry.
+
+Driving dimension values may carry independent absolute lower and upper limits.
+An edit outside either enabled limit is rejected before solving. The iterative
+solver commits point motion only when the complete system converges; an
+immovable or non-converging conflict restores the exact input coordinates. A
+numerical Jacobian reports remaining degrees of freedom without counting
+redundant equations twice.
+
+Part documents now persist their Sketch graphs directly, and DocumentSession
+Undo/Redo therefore moves a Sketch edit as one normal Part revision. A Sketch
+also projects stable point and segment references into a ZIMA ViewerMesh on its
+persisted plane. This display and common picker data require no OCCT call. The
+Workspace exposes one shared internal Sketch Properties SubWindow for creation
+and editing of name, plane, and offset.
+
+The first interactive command now creates a Sketch segment from two LMB points.
+Both clicks use the viewer's existing camera ray, projected deterministically
+into the active persisted Sketch plane. The first point and pointer motion draw
+only a transient dashed preview; the second point atomically appends the segment
+as one Part revision. Escape discards the preview. Consecutive endpoints inside
+the model tolerance reuse one stable point ID, producing an actually connected
+profile rather than two visually coincident points. Camera state is retained
+while drawing consecutive segments.
+
+Sketch edges and points now have dedicated `SketchSegment` and `SketchPoint`
+viewer candidate kinds. Activating a Sketch exposes only these exact persisted
+objects; ordinary Part mode still exposes containers and never leaks solid
+result topology. A confirmed segment can receive Horizontal or Vertical through
+model-owned commands. The constraint and its solved coordinates commit as one
+Part revision. Duplicate constraints and combinations that collapse a segment
+are rejected transactionally.
+
+A confirmed Sketch segment can now create its first driving length dimension.
+The same internal `SketchDimensionPropertiesDialog` serves creation and later
+tree/context editing. It exposes the nominal value and independent absolute
+lower/upper limits. On first enable, the lower limit defaults to zero and the
+upper limit to the current nominal length. OK validates limits, solves the
+Sketch, and commits one Part revision; Cancel, an out-of-range value, or a
+solver conflict commits nothing. Editing retains the stable dimension ID, and
+the dimension remains visible below its owning Sketch in the Part tree.
+
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model
 can preserve their complete current contract.
@@ -261,6 +308,7 @@ can preserve their complete current contract.
 - `kernel_occt`: the only module that knows live OCCT shapes;
 - `viewer`: renders ZIMA viewer mesh data;
 - `assembly`: immediate component ownership, instance paths, and scene composition;
+- `sketcher`: OCCT-free point graph, constraints, dimensions, and solver;
 - `ui`: shared in-application Properties window behaviour;
 - `app`: Qt application and commands.
 

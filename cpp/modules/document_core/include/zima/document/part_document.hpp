@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/sketcher/sketch.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -47,6 +48,7 @@ public:
     std::string document_id;
     std::string name{"Nový díl"};
     std::vector<HistoryContainer> history;
+    std::vector<zima::sketcher::Sketch> sketches;
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();

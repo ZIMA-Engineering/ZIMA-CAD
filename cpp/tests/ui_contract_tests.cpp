@@ -1,11 +1,14 @@
 #include "primitive_properties_dialog.hpp"
 #include "component_properties_dialog.hpp"
 #include "mate_properties_dialog.hpp"
+#include "sketch_properties_dialog.hpp"
+#include "sketch_dimension_properties_dialog.hpp"
 
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QWidget>
@@ -188,7 +191,55 @@ int main(int argc, char* argv[]) {
         require(axis_offset != nullptr && !axis_offset->isEnabled(),
                 "Axis mate incorrectly exposed a meaningless axial offset");
         axis_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        auto sketch = zima::sketcher::Sketch::create_default();
+        int sketch_commits = 0;
+        auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
+            sketch, false, [&](zima::sketcher::Sketch committed) {
+                ++sketch_commits;
+                sketch = std::move(committed);
+            }, &parent);
+        sketch_dialog->show();
+        require(sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Sketch Properties is not an internal SubWindow");
+        auto* sketch_offset =
+            sketch_dialog->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+        require(sketch_offset != nullptr,
+                "Sketch Properties does not expose its plane offset");
+        sketch_offset->setValue(12.5);
+        sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(sketch_commits == 1 && sketch.plane_offset == 12.5,
+                "Sketch Properties did not commit exactly once on OK");
         application.processEvents();
+
+        zima::sketcher::SketchDimension dimension{
+            "dimension", zima::sketcher::DimensionKind::Distance,
+            "first", "second", 20.0};
+        int dimension_commits = 0;
+        zima::sketcher::SketchDimension committed_dimension;
+        auto* dimension_dialog = new zima::app::SketchDimensionPropertiesDialog(
+            dimension, false, [&](zima::sketcher::SketchDimension committed) {
+                ++dimension_commits;
+                committed_dimension = std::move(committed);
+            }, &parent);
+        dimension_dialog->show();
+        auto* lower_enabled =
+            dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled");
+        auto* upper_enabled =
+            dimension_dialog->findChild<QCheckBox*>("sketchUpperEnabled");
+        auto* lower_limit =
+            dimension_dialog->findChild<QDoubleSpinBox*>("sketchLowerLimit");
+        auto* upper_limit =
+            dimension_dialog->findChild<QDoubleSpinBox*>("sketchUpperLimit");
+        require(lower_enabled && upper_enabled && lower_limit && upper_limit,
+                "Sketch dimension Properties does not expose independent limits");
+        lower_enabled->setChecked(true);
+        upper_enabled->setChecked(true);
+        require(lower_limit->value() == 0.0 && upper_limit->value() == 20.0,
+                "New dimension limits did not default to zero and nominal value");
+        dimension_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(dimension_commits == 1 && committed_dimension.lower_limit == 0.0 &&
+                    committed_dimension.upper_limit == 20.0,
+                "Sketch dimension Properties did not commit its absolute limits");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

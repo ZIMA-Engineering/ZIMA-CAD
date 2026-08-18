@@ -193,6 +193,14 @@ PartDocument PartDocument::load(
         validate_placement(container.placement);
         document.history.push_back(std::move(container));
     }
+    std::unordered_set<std::string> sketch_ids;
+    for (const auto& source : root.at("sketches")) {
+        auto sketch = zima::sketcher::Sketch::from_serialized(source.dump());
+        if (!sketch_ids.insert(sketch.id).second) {
+            throw std::runtime_error("Sketch IDs must be unique in a Part");
+        }
+        document.sketches.push_back(std::move(sketch));
+    }
     if (!document.history.empty() &&
         document.history.front().combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
@@ -310,6 +318,14 @@ void PartDocument::save(
     for (const auto& boundary : calculated_boundaries) {
         serialized_boundaries.push_back(serialize_body_result(boundary));
     }
+    nlohmann::json serialized_sketches = nlohmann::json::array();
+    std::unordered_set<std::string> sketch_ids;
+    for (const auto& sketch : sketches) {
+        if (sketch.id.empty() || !sketch_ids.insert(sketch.id).second) {
+            throw std::runtime_error("Sketch IDs must be non-empty and unique in a Part");
+        }
+        serialized_sketches.push_back(nlohmann::json::parse(sketch.serialized()));
+    }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
         {"format_version", 1},
@@ -317,6 +333,7 @@ void PartDocument::save(
         {"type", "part"},
         {"name", name},
         {"history", std::move(serialized_history)},
+        {"sketches", std::move(serialized_sketches)},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
     const auto temporary = path.string() + ".tmp";
