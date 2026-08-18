@@ -317,8 +317,13 @@ void MeshView::paintGL() {
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
 
-    if (highlighted && (highlighted->kind == CandidateKind::Edge ||
-                        highlighted->kind == CandidateKind::Vertex)) {
+    const bool axes_visible = std::find(
+        impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+        CandidateKind::Axis) != impl_->allowed_kinds.end();
+    if (axes_visible || (highlighted && (
+            highlighted->kind == CandidateKind::Edge ||
+            highlighted->kind == CandidateKind::Vertex ||
+            highlighted->kind == CandidateKind::Axis))) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
             QVector4D clip = mvp * QVector4D(
@@ -329,21 +334,51 @@ void MeshView::paintGL() {
         };
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        const QColor color = impl_->confirmed_candidate
-            ? QColor(30, 220, 240) : QColor(255, 140, 12);
-        if (highlighted->kind == CandidateKind::Edge &&
-            highlighted->geometry_index < impl_->mesh.edges.size()) {
-            painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-            const auto& edge = impl_->mesh.edges[highlighted->geometry_index];
-            for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+        if (axes_visible) {
+            painter.setPen(QPen(QColor(125, 125, 125), 1.5, Qt::DashLine));
+            for (const auto& axis : impl_->mesh.axes) {
+                const zima::kernel::Vec3 half{
+                    axis.direction.x * axis.display_length * 0.5,
+                    axis.direction.y * axis.display_length * 0.5,
+                    axis.direction.z * axis.display_length * 0.5};
+                painter.drawLine(
+                    project({axis.point.x - half.x, axis.point.y - half.y,
+                             axis.point.z - half.z}),
+                    project({axis.point.x + half.x, axis.point.y + half.y,
+                             axis.point.z + half.z}));
             }
-        } else if (highlighted->kind == CandidateKind::Vertex &&
-                   highlighted->geometry_index < impl_->mesh.points.size()) {
-            painter.setPen(QPen(color, 2.0));
-            painter.setBrush(color);
-            painter.drawEllipse(project(
-                impl_->mesh.points[highlighted->geometry_index].position), 5.0, 5.0);
+        }
+        if (highlighted) {
+            const QColor color = impl_->confirmed_candidate
+                ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            if (highlighted->kind == CandidateKind::Edge &&
+                highlighted->geometry_index < impl_->mesh.edges.size()) {
+                painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
+                const auto& edge = impl_->mesh.edges[highlighted->geometry_index];
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    painter.drawLine(
+                        project(edge.points[index - 1]), project(edge.points[index]));
+                }
+            } else if (highlighted->kind == CandidateKind::Vertex &&
+                       highlighted->geometry_index < impl_->mesh.points.size()) {
+                painter.setPen(QPen(color, 2.0));
+                painter.setBrush(color);
+                painter.drawEllipse(project(
+                    impl_->mesh.points[highlighted->geometry_index].position), 5.0, 5.0);
+            } else if (highlighted->kind == CandidateKind::Axis &&
+                       highlighted->geometry_index < impl_->mesh.axes.size()) {
+                painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
+                const auto& axis = impl_->mesh.axes[highlighted->geometry_index];
+                const zima::kernel::Vec3 half{
+                    axis.direction.x * axis.display_length * 0.5,
+                    axis.direction.y * axis.display_length * 0.5,
+                    axis.direction.z * axis.display_length * 0.5};
+                painter.drawLine(
+                    project({axis.point.x - half.x, axis.point.y - half.y,
+                             axis.point.z - half.z}),
+                    project({axis.point.x + half.x, axis.point.y + half.y,
+                             axis.point.z + half.z}));
+            }
         }
     }
 }

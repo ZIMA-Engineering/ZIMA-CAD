@@ -50,6 +50,14 @@ zima::kernel::Vec3 transform_point(
     };
 }
 
+zima::kernel::Vec3 transform_direction(
+    const zima::kernel::Vec3& source, ComponentPlacement placement) {
+    placement.x = 0.0;
+    placement.y = 0.0;
+    placement.z = 0.0;
+    return transform_point(source, placement);
+}
+
 template <typename Reference>
 void assign_instance(Reference& reference, const std::string& instance_path) {
     if (reference.valid()) reference.instance_path = instance_path + reference.instance_path;
@@ -354,10 +362,11 @@ void AssemblyDocument::add_mate(AssemblyMate mate) {
     }
     if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
             return existing.dependent.instance_path.occurrence_ids.front() ==
-                mate.dependent.instance_path.occurrence_ids.front();
+                mate.dependent.instance_path.occurrence_ids.front() &&
+                existing.kind == mate.kind;
         })) {
         throw std::invalid_argument(
-            "A component may currently own only one calculated placement mate");
+            "A component may currently own only one calculated mate of each kind");
     }
     ComponentDependency dependency{
         mate.mate_id, mate.dependent.instance_path.occurrence_ids.front(),
@@ -431,25 +440,41 @@ PlaneResolution AssemblyDocument::resolve_plane(
     return {MateStatus::Valid, *result};
 }
 
+AxisResolution AssemblyDocument::resolve_axis(
+    const MateReference& reference) const {
+    if (reference.kind != MateReferenceKind::Axis) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const auto scene = build_scene();
+    const std::string path = reference.instance_path.encoded();
+    const auto found = std::find_if(scene.axes.begin(), scene.axes.end(),
+        [&](const auto& axis) {
+            return axis.reference.instance_path == path &&
+                axis.reference.owner_id == reference.owner_id &&
+                axis.reference.semantic_key == reference.semantic_key;
+        });
+    if (found == scene.axes.end()) return {MateStatus::MissingReference, {}};
+    return {MateStatus::Valid, {found->point, found->direction}};
+}
+
 void AssemblyDocument::calculate_mates() {
     constexpr double parallel_tolerance = 1.0e-7;
     for (auto& mate : mates) mate.status = MateStatus::Uncalculated;
-    for (auto& mate : mates) {
-        if (mate.kind != MateKind::PlaneCoincident ||
-            mate.dependent.kind != MateReferenceKind::Face ||
+    const auto calculate_plane = [&](AssemblyMate& mate) {
+        if (mate.dependent.kind != MateReferenceKind::Face ||
             mate.prerequisite.kind != MateReferenceKind::Face) {
             mate.status = MateStatus::UnsupportedGeometry;
-            continue;
+            return;
         }
         const auto dependent_plane = resolve_plane(mate.dependent);
         const auto prerequisite_plane = resolve_plane(mate.prerequisite);
         if (dependent_plane.status != MateStatus::Valid) {
             mate.status = dependent_plane.status;
-            continue;
+            return;
         }
         if (prerequisite_plane.status != MateStatus::Valid) {
             mate.status = prerequisite_plane.status;
-            continue;
+            return;
         }
         const auto& dependent_normal = dependent_plane.plane.normal;
         const auto& prerequisite_normal = prerequisite_plane.plane.normal;
@@ -459,7 +484,7 @@ void AssemblyDocument::calculate_mates() {
             dependent_normal.z * prerequisite_normal.z;
         if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
             mate.status = MateStatus::UnsupportedGeometry;
-            continue;
+            return;
         }
         const auto& dependent_point = dependent_plane.plane.point;
         const auto& prerequisite_point = prerequisite_plane.plane.point;
@@ -472,12 +497,112 @@ void AssemblyDocument::calculate_mates() {
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
             mate.status = MateStatus::MissingReference;
-            continue;
+            return;
         }
         occurrence->placement.x += prerequisite_normal.x * correction;
         occurrence->placement.y += prerequisite_normal.y * correction;
         occurrence->placement.z += prerequisite_normal.z * correction;
         mate.status = MateStatus::Valid;
+    };
+    const auto calculate_axis = [&](AssemblyMate& mate) {
+        if (mate.dependent.kind != MateReferenceKind::Axis ||
+            mate.prerequisite.kind != MateReferenceKind::Axis ||
+            std::abs(mate.offset) > 1.0e-12) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            return;
+        }
+        const auto dependent = resolve_axis(mate.dependent);
+        const auto prerequisite = resolve_axis(mate.prerequisite);
+        if (dependent.status != MateStatus::Valid) {
+            mate.status = dependent.status;
+            return;
+        }
+        if (prerequisite.status != MateStatus::Valid) {
+            mate.status = prerequisite.status;
+            return;
+        }
+        const double alignment =
+            dependent.axis.direction.x * prerequisite.axis.direction.x +
+            dependent.axis.direction.y * prerequisite.axis.direction.y +
+            dependent.axis.direction.z * prerequisite.axis.direction.z;
+        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            return;
+        }
+        const zima::kernel::Vec3 delta{
+            prerequisite.axis.point.x - dependent.axis.point.x,
+            prerequisite.axis.point.y - dependent.axis.point.y,
+            prerequisite.axis.point.z - dependent.axis.point.z};
+        const double axial =
+            delta.x * prerequisite.axis.direction.x +
+            delta.y * prerequisite.axis.direction.y +
+            delta.z * prerequisite.axis.direction.z;
+        const zima::kernel::Vec3 correction{
+            delta.x - axial * prerequisite.axis.direction.x,
+            delta.y - axial * prerequisite.axis.direction.y,
+            delta.z - axial * prerequisite.axis.direction.z};
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            return;
+        }
+        occurrence->placement.x += correction.x;
+        occurrence->placement.y += correction.y;
+        occurrence->placement.z += correction.z;
+        mate.status = MateStatus::Valid;
+    };
+    for (auto& mate : mates) {
+        if (mate.kind == MateKind::AxisCoincident) calculate_axis(mate);
+    }
+    for (auto& mate : mates) {
+        if (mate.kind == MateKind::PlaneCoincident) calculate_plane(mate);
+    }
+    std::vector<bool> conflicts(mates.size(), false);
+    for (std::size_t index = 0; index < mates.size(); ++index) {
+        const auto& mate = mates[index];
+        if (mate.status != MateStatus::Valid) continue;
+        if (mate.kind == MateKind::AxisCoincident) {
+            const auto dependent = resolve_axis(mate.dependent);
+            const auto prerequisite = resolve_axis(mate.prerequisite);
+            if (dependent.status != MateStatus::Valid ||
+                prerequisite.status != MateStatus::Valid) {
+                conflicts[index] = true;
+                continue;
+            }
+            const zima::kernel::Vec3 delta{
+                dependent.axis.point.x - prerequisite.axis.point.x,
+                dependent.axis.point.y - prerequisite.axis.point.y,
+                dependent.axis.point.z - prerequisite.axis.point.z};
+            const double axial =
+                delta.x * prerequisite.axis.direction.x +
+                delta.y * prerequisite.axis.direction.y +
+                delta.z * prerequisite.axis.direction.z;
+            const zima::kernel::Vec3 radial{
+                delta.x - axial * prerequisite.axis.direction.x,
+                delta.y - axial * prerequisite.axis.direction.y,
+                delta.z - axial * prerequisite.axis.direction.z};
+            conflicts[index] = std::sqrt(
+                radial.x * radial.x + radial.y * radial.y + radial.z * radial.z) >
+                parallel_tolerance;
+        } else {
+            const auto dependent = resolve_plane(mate.dependent);
+            const auto prerequisite = resolve_plane(mate.prerequisite);
+            if (dependent.status != MateStatus::Valid ||
+                prerequisite.status != MateStatus::Valid) {
+                conflicts[index] = true;
+                continue;
+            }
+            const auto& normal = prerequisite.plane.normal;
+            const double offset =
+                (dependent.plane.point.x - prerequisite.plane.point.x) * normal.x +
+                (dependent.plane.point.y - prerequisite.plane.point.y) * normal.y +
+                (dependent.plane.point.z - prerequisite.plane.point.z) * normal.z;
+            conflicts[index] = std::abs(offset - mate.offset) > parallel_tolerance;
+        }
+    }
+    for (std::size_t index = 0; index < mates.size(); ++index) {
+        if (conflicts[index]) mates[index].status = MateStatus::UnsupportedGeometry;
     }
 }
 
@@ -558,6 +683,12 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             assign_instance(point.reference, path);
             point.position = transform_point(point.position, component.placement);
             scene.points.push_back(std::move(point));
+        }
+        for (auto axis : source_mesh.axes) {
+            assign_instance(axis.reference, path);
+            axis.point = transform_point(axis.point, component.placement);
+            axis.direction = transform_direction(axis.direction, component.placement);
+            scene.axes.push_back(std::move(axis));
         }
     }
     if (scene.triangle_references.size() != scene.triangles.size() / 3) {

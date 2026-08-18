@@ -63,6 +63,22 @@ int main() {
         require(edge_contract.size() == 2 &&
                     edge_contract.front().kind == zima::viewer::CandidateKind::Edge,
                 "Edge selection contract did not filter the common candidate list");
+        mesh.axes.push_back({
+            {0.0, 0.0, 5.0}, {0.0, 0.0, 1.0}, 10.0,
+            {"axis-owner", "axis:z", "4:part"}});
+        const auto axis_candidates = zima::viewer::ordered_axis_candidates(
+            mesh, {0.05, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.1);
+        require(axis_candidates.size() == 1 &&
+                    axis_candidates.front().reference.semantic_key == "axis:z",
+                "Viewer did not pick the exact persisted axis");
+        const auto axis_contract = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {0.05, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.1),
+            {zima::viewer::CandidateKind::Axis});
+        require(axis_contract.size() == 1 &&
+                    axis_contract.front().kind == zima::viewer::CandidateKind::Axis &&
+                    axis_contract.front().instance_path == "4:part",
+                "Axis selection contract left the common candidate list");
         const auto container_contract = zima::viewer::filter_candidates(
             all_candidates, {zima::viewer::CandidateKind::Container});
         require(container_contract.size() == 2 &&

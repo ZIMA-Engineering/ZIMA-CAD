@@ -29,7 +29,13 @@ struct VertexPickCandidate {
     zima::kernel::VertexReference reference;
 };
 
-enum class CandidateKind { Occurrence, Container, Face, Edge, Vertex };
+struct AxisPickCandidate {
+    std::size_t axis{};
+    double distance{};
+    zima::kernel::AxisReference reference;
+};
+
+enum class CandidateKind { Occurrence, Container, Face, Edge, Vertex, Axis };
 
 struct ViewerCandidate {
     CandidateKind kind{CandidateKind::Container};
@@ -57,6 +63,11 @@ struct ViewerCandidate {
     double world_tolerance);
 
 [[nodiscard]] std::vector<VertexPickCandidate> ordered_vertex_candidates(
+    const zima::kernel::ViewerMesh& mesh,
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction,
+    double world_tolerance);
+[[nodiscard]] std::vector<AxisPickCandidate> ordered_axis_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,

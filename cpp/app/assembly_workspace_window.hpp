@@ -38,6 +38,7 @@ private:
     QAction* cylinder_action_{};
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
+    QAction* axis_mate_action_{};
     QDialog* properties_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
@@ -48,6 +49,8 @@ private:
     std::string active_occurrence_path_;
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
+    zima::assembly::MateKind pending_mate_kind_{
+        zima::assembly::MateKind::PlaneCoincident};
 
     void create_layout();
     void create_actions();
@@ -58,7 +61,8 @@ private:
     void insert_active_component();
     void regenerate_assembly();
     void start_plane_mate();
-    void accept_mate_face(const zima::viewer::ViewerCandidate& candidate);
+    void start_axis_mate();
+    void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] std::optional<zima::assembly::MateReference>
         local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();

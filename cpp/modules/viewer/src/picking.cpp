@@ -160,6 +160,49 @@ std::vector<VertexPickCandidate> ordered_vertex_candidates(
     return candidates;
 }
 
+std::vector<AxisPickCandidate> ordered_axis_candidates(
+    const zima::kernel::ViewerMesh& mesh,
+    const Vec3& ray_origin,
+    const Vec3& ray_direction,
+    double world_tolerance) {
+    std::vector<AxisPickCandidate> candidates;
+    const double ray_length_squared = dot(ray_direction, ray_direction);
+    if (ray_length_squared <= 1.0e-18 || world_tolerance < 0.0) return candidates;
+    for (std::size_t index = 0; index < mesh.axes.size(); ++index) {
+        const auto& axis = mesh.axes[index];
+        if (!axis.reference.valid() || axis.display_length <= 0.0) continue;
+        const Vec3 segment_direction{
+            axis.direction.x * axis.display_length,
+            axis.direction.y * axis.display_length,
+            axis.direction.z * axis.display_length};
+        const Vec3 start{
+            axis.point.x - segment_direction.x * 0.5,
+            axis.point.y - segment_direction.y * 0.5,
+            axis.point.z - segment_direction.z * 0.5};
+        const double segment_length_squared = dot(segment_direction, segment_direction);
+        const Vec3 origin_delta = subtract(start, ray_origin);
+        const double b = dot(segment_direction, ray_direction);
+        const double d = dot(segment_direction, origin_delta);
+        const double e = dot(ray_direction, origin_delta);
+        const double denominator =
+            segment_length_squared * ray_length_squared - b * b;
+        double segment_parameter = denominator > 1.0e-18
+            ? (b * e - ray_length_squared * d) / denominator : 0.5;
+        segment_parameter = std::clamp(segment_parameter, 0.0, 1.0);
+        const Vec3 segment_point = add_scaled(start, segment_direction, segment_parameter);
+        double ray_parameter = dot(subtract(segment_point, ray_origin), ray_direction) /
+            ray_length_squared;
+        ray_parameter = std::max(ray_parameter, 0.0);
+        const Vec3 ray_point = add_scaled(ray_origin, ray_direction, ray_parameter);
+        if (length(subtract(segment_point, ray_point)) <= world_tolerance) {
+            candidates.push_back({index, ray_parameter, axis.reference});
+        }
+    }
+    std::stable_sort(candidates.begin(), candidates.end(),
+        [](const auto& left, const auto& right) { return left.distance < right.distance; });
+    return candidates;
+}
+
 std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,
@@ -201,15 +244,22 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                           vertex.reference.owner_id, vertex.reference.semantic_key,
                           vertex.reference.instance_path});
     }
+    for (const auto& axis : ordered_axis_candidates(
+            mesh, ray_origin, ray_direction, world_tolerance)) {
+        result.push_back({CandidateKind::Axis, axis.distance, axis.axis,
+                          axis.reference.owner_id, axis.reference.semantic_key,
+                          axis.reference.instance_path});
+    }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
         case CandidateKind::Vertex: return 0;
-        case CandidateKind::Edge: return 1;
-        case CandidateKind::Face: return 2;
-        case CandidateKind::Container: return 3;
-        case CandidateKind::Occurrence: return 4;
+        case CandidateKind::Axis: return 1;
+        case CandidateKind::Edge: return 2;
+        case CandidateKind::Face: return 3;
+        case CandidateKind::Container: return 4;
+        case CandidateKind::Occurrence: return 5;
         }
-        return 4;
+        return 5;
     };
     std::stable_sort(result.begin(), result.end(), [&](const auto& left, const auto& right) {
         if (std::abs(left.distance - right.distance) > 1.0e-9) {

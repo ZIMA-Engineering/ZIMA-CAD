@@ -43,6 +43,12 @@ int main() {
         }
         require(instance_paths.size() == 2,
                 "Repeated source Part occurrences collapsed into one identity");
+        std::set<std::string> assembly_axis_paths;
+        for (const auto& axis : scene.axes) {
+            assembly_axis_paths.insert(axis.reference.instance_path);
+        }
+        require(scene.axes.size() == 6 && assembly_axis_paths == instance_paths,
+                "Assembly did not transform and distinguish occurrence axes");
         const auto rollback_scene = assembly.build_scene_with_part_override(
             first_id, zima::kernel::BodyResult{});
         std::set<std::string> rollback_paths;
@@ -186,6 +192,36 @@ int main() {
         require(loaded_mates.mates == mated_assembly.mates &&
                     loaded_mates.dependencies == mated_assembly.dependencies,
                 "Assembly mate reference or dependency did not survive save/load");
+        auto combined_mates = loaded;
+        combined_mates.components.back().placement.x = 20.0;
+        combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Osa na osu", zima::assembly::MateKind::AxisCoincident,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "axis:z"}));
+        combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Doraz", zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"}));
+        combined_mates.calculate_mates();
+        const auto combined_axis_dependent = combined_mates.resolve_axis(
+            combined_mates.mates.front().dependent);
+        const auto combined_axis_prerequisite = combined_mates.resolve_axis(
+            combined_mates.mates.front().prerequisite);
+        require(combined_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
+                    combined_mates.mates[1].status == zima::assembly::MateStatus::Valid &&
+                    std::abs(combined_axis_dependent.axis.point.x -
+                             combined_axis_prerequisite.axis.point.x) < 1.0e-7 &&
+                    std::abs(combined_axis_dependent.axis.point.y -
+                             combined_axis_prerequisite.axis.point.y) < 1.0e-7,
+                "Axis and plane mates did not preserve their independent constraints");
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.back().visible = false;

@@ -71,6 +71,62 @@ struct PrimitiveData {
     std::vector<OwnedVertex> vertices;
 };
 
+gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees) {
+    constexpr double radians_per_degree = std::numbers::pi / 180.0;
+    gp_Trsf transform;
+    transform.SetTranslation(gp_Vec(translation.x, translation.y, translation.z));
+    for (const auto& rotation : std::array<std::pair<gp_Dir, double>, 3>{
+            std::pair{gp_Dir(0.0, 0.0, 1.0), rotation_degrees.z},
+            std::pair{gp_Dir(0.0, 1.0, 0.0), rotation_degrees.y},
+            std::pair{gp_Dir(1.0, 0.0, 0.0), rotation_degrees.x}}) {
+        gp_Trsf next;
+        next.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), rotation.first),
+                         rotation.second * radians_per_degree);
+        transform.Multiply(next);
+    }
+    return transform;
+}
+
+ViewerAxis transformed_axis(
+    const std::string& owner_id,
+    const std::string& key,
+    const Vec3& local_direction,
+    double display_length,
+    const gp_Trsf& transform) {
+    gp_Pnt point(0.0, 0.0, 0.0);
+    point.Transform(transform);
+    gp_Vec direction(local_direction.x, local_direction.y, local_direction.z);
+    direction.Transform(transform);
+    direction.Normalize();
+    return {{point.X(), point.Y(), point.Z()},
+            {direction.X(), direction.Y(), direction.Z()}, display_length,
+            {owner_id, key}};
+}
+
+std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
+    return std::visit([&](const auto& primitive) {
+        using Request = std::decay_t<decltype(primitive)>;
+        const auto transform = primitive_transform(
+            primitive.translation, primitive.rotation_degrees);
+        if constexpr (std::is_same_v<Request, BoxRequest>) {
+            const double length = std::max({
+                primitive.length, primitive.width, primitive.height});
+            return std::vector<ViewerAxis>{
+                transformed_axis(operation.owner_id, "axis:x", {1.0, 0.0, 0.0},
+                                 length, transform),
+                transformed_axis(operation.owner_id, "axis:y", {0.0, 1.0, 0.0},
+                                 length, transform),
+                transformed_axis(operation.owner_id, "axis:z", {0.0, 0.0, 1.0},
+                                 length, transform)};
+        } else {
+            const double length = std::max(primitive.height, primitive.radius * 2.0);
+            return std::vector<ViewerAxis>{
+                transformed_axis(operation.owner_id, "axis", {0.0, 0.0, 1.0},
+                                 length, transform)};
+        }
+    }, operation.primitive);
+}
+
 std::string axis_position(double value, double maximum, const char* axis) {
     return std::string(axis) + (std::abs(value) <= std::abs(value - maximum)
         ? "_min" : "_max");
@@ -117,22 +173,8 @@ std::string semantic_box_face(
 PrimitiveData make_box_data(const BoxRequest& request, const std::string& owner_id) {
     const TopoDS_Shape unplaced = BRepPrimAPI_MakeBox(
         request.length, request.width, request.height).Shape();
-    constexpr double radians_per_degree = std::numbers::pi / 180.0;
-    gp_Trsf transform;
-    transform.SetTranslation(gp_Vec(
-        request.translation.x, request.translation.y, request.translation.z));
-    gp_Trsf rotation_z;
-    rotation_z.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)),
-                           request.rotation_degrees.z * radians_per_degree);
-    gp_Trsf rotation_y;
-    rotation_y.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 1.0, 0.0)),
-                           request.rotation_degrees.y * radians_per_degree);
-    gp_Trsf rotation_x;
-    rotation_x.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(1.0, 0.0, 0.0)),
-                           request.rotation_degrees.x * radians_per_degree);
-    transform.Multiply(rotation_z);
-    transform.Multiply(rotation_y);
-    transform.Multiply(rotation_x);
+    const gp_Trsf transform = primitive_transform(
+        request.translation, request.rotation_degrees);
     BRepBuilderAPI_Transform transformer(unplaced, transform, true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
     for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
@@ -183,19 +225,8 @@ PrimitiveData make_cylinder_data(
     const CylinderRequest& request, const std::string& owner_id) {
     const TopoDS_Shape unplaced =
         BRepPrimAPI_MakeCylinder(request.radius, request.height).Shape();
-    constexpr double radians_per_degree = std::numbers::pi / 180.0;
-    gp_Trsf transform;
-    transform.SetTranslation(gp_Vec(
-        request.translation.x, request.translation.y, request.translation.z));
-    for (const auto& rotation : std::array<std::pair<gp_Dir, double>, 3>{
-            std::pair{gp_Dir(0.0, 0.0, 1.0), request.rotation_degrees.z},
-            std::pair{gp_Dir(0.0, 1.0, 0.0), request.rotation_degrees.y},
-            std::pair{gp_Dir(1.0, 0.0, 0.0), request.rotation_degrees.x}}) {
-        gp_Trsf next;
-        next.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), rotation.first),
-                         rotation.second * radians_per_degree);
-        transform.Multiply(next);
-    }
+    const gp_Trsf transform = primitive_transform(
+        request.translation, request.rotation_degrees);
     BRepBuilderAPI_Transform transformer(unplaced, transform, true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
     for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
@@ -427,6 +458,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
             }
             boundaries.push_back(
                 make_result(result_shape, owned_faces, owned_edges, owned_vertices));
+            for (std::size_t index = 0; index < boundaries.size(); ++index) {
+                auto axes = axes_for_operation(operations[index]);
+                boundaries.back().mesh.axes.insert(
+                    boundaries.back().mesh.axes.end(), axes.begin(), axes.end());
+            }
             boundaries.back().source_fingerprint =
                 history_fingerprint(operations, boundaries.size());
         }

@@ -60,12 +60,24 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"position", serialize_vec3(point.position)},
         });
     }
+    nlohmann::json axes = nlohmann::json::array();
+    for (const auto& axis : result.mesh.axes) {
+        axes.push_back({
+            {"owner", axis.reference.owner_id},
+            {"key", axis.reference.semantic_key},
+            {"instance_path", axis.reference.instance_path},
+            {"point", serialize_vec3(axis.point)},
+            {"direction", serialize_vec3(axis.direction)},
+            {"display_length", axis.display_length},
+        });
+    }
     return {
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
         {"vertices", std::move(vertices)}, {"triangles", result.mesh.triangles},
         {"triangle_references", std::move(faces)},
         {"edges", std::move(edges)}, {"points", std::move(points)},
+        {"axes", std::move(axes)},
     };
 }
 
@@ -117,6 +129,25 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             throw std::runtime_error("Persisted viewer point is invalid");
         }
         result.mesh.points.push_back(std::move(loaded));
+    }
+    for (const auto& axis : source.at("axes")) {
+        zima::kernel::ViewerAxis loaded;
+        loaded.reference = {
+            axis.at("owner").get<std::string>(), axis.at("key").get<std::string>(),
+            axis.at("instance_path").get<std::string>()};
+        loaded.point = load_vec3(axis.at("point"));
+        loaded.direction = load_vec3(axis.at("direction"));
+        loaded.display_length = axis.at("display_length").get<double>();
+        require_finite(loaded.display_length, "viewer axis display length");
+        const double magnitude = std::sqrt(
+            loaded.direction.x * loaded.direction.x +
+            loaded.direction.y * loaded.direction.y +
+            loaded.direction.z * loaded.direction.z);
+        if (!loaded.reference.valid() || loaded.display_length <= 0.0 ||
+            std::abs(magnitude - 1.0) > 1.0e-9) {
+            throw std::runtime_error("Persisted viewer axis is invalid");
+        }
+        result.mesh.axes.push_back(std::move(loaded));
     }
     return result;
 }

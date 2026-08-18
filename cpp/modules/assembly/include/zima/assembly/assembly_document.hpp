@@ -104,6 +104,16 @@ struct PlaneResolution {
     ResolvedPlane plane;
 };
 
+struct ResolvedAxis {
+    zima::kernel::Vec3 point;
+    zima::kernel::Vec3 direction;
+};
+
+struct AxisResolution {
+    MateStatus status{MateStatus::MissingReference};
+    ResolvedAxis axis;
+};
+
 class AssemblyDocument {
 public:
     std::string document_id;
@@ -146,6 +156,8 @@ public:
         double offset = 0.0);
     void add_mate(AssemblyMate mate);
     [[nodiscard]] PlaneResolution resolve_plane(
+        const MateReference& reference) const;
+    [[nodiscard]] AxisResolution resolve_axis(
         const MateReference& reference) const;
     void calculate_mates();
     [[nodiscard]] std::unordered_set<std::string>

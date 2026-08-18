@@ -47,6 +47,16 @@ struct VertexReference {
     bool operator==(const VertexReference&) const = default;
 };
 
+struct AxisReference {
+    std::string owner_id;
+    std::string semantic_key;
+    std::string instance_path;
+    [[nodiscard]] bool valid() const {
+        return !owner_id.empty() && !semantic_key.empty();
+    }
+    bool operator==(const AxisReference&) const = default;
+};
+
 struct ViewerEdge {
     std::vector<Vec3> points;
     EdgeReference reference;
@@ -57,6 +67,13 @@ struct ViewerPoint {
     VertexReference reference;
 };
 
+struct ViewerAxis {
+    Vec3 point;
+    Vec3 direction{0.0, 0.0, 1.0};
+    double display_length{100.0};
+    AxisReference reference;
+};
+
 struct ViewerMesh {
     std::vector<Vec3> vertices;
     std::vector<std::uint32_t> triangles;
@@ -65,6 +82,7 @@ struct ViewerMesh {
     std::vector<FaceReference> triangle_references;
     std::vector<ViewerEdge> edges;
     std::vector<ViewerPoint> points;
+    std::vector<ViewerAxis> axes;
 };
 
 struct BoxRequest {

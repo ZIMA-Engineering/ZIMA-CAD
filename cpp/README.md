@@ -205,16 +205,29 @@ calculation never query OCCT.
 
 Plane-to-plane currently solves the deliberately bounded case of two already
 parallel planes by translating the dependent immediate component to the signed
-offset. One calculated placement mate per dependent component avoids pretending
-that a general solver exists. Missing and unsupported references turn the mate
+offset. One calculated mate of each kind per dependent component avoids
+pretending that a general solver exists. Missing and unsupported references turn the mate
 red and suppress its dependent branch; explicit Regenerate clears the old
-error state before retrying, so repaired references recover. Axis references
-and axis-coincident mates are persisted but remain explicitly unsupported until
-ZIMA viewer data owns stable axes.
+error state before retrying, so repaired references recover.
 
 The GUI command selects both faces through the common viewer candidate list,
 then uses the shared internal Properties SubWindow with OK/Cancel to edit name
 and offset. OK calculates and commits one Assembly revision.
+
+ZIMA viewer packets now own stable axes as a point, unit direction, display
+length, and `AxisReference`. Explicit body calculation emits local `axis:x/y/z`
+for a Box and the center `axis` for a Cylinder. Persistence, Assembly placement,
+nested instance-path prefixing, rollback, picking, and highlighting then consume
+only ZIMA data. Axis candidates join the common ordered list and become visibly
+selectable only under an explicit Axis selection contract.
+
+Axis-coincident solves the bounded parallel-axis case by removing perpendicular
+line distance while deliberately leaving translation and rotation along the
+axis free. It can combine with one plane mate on the same component; both
+constraints are verified after calculation and conflicts stay unsupported.
+Non-parallel axes await the rotational solver. The GUI reuses the two-reference
+workflow and internal Properties window, with offset disabled because axial
+translation is intentionally unconstrained.
 
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model

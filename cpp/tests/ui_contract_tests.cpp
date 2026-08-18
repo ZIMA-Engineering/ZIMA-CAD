@@ -174,6 +174,21 @@ int main(int argc, char* argv[]) {
                     committed_mate.dependent == mate.dependent &&
                     committed_mate.prerequisite == mate.prerequisite,
                 "Mate Properties changed references or lost its offset");
+        auto axis_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Osy", zima::assembly::MateKind::AxisCoincident,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "axis:z"});
+        auto* axis_dialog = new zima::app::MatePropertiesDialog(
+            axis_mate, [](zima::assembly::AssemblyMate) {}, &parent);
+        axis_dialog->show();
+        application.processEvents();
+        auto* axis_offset = axis_dialog->findChild<QDoubleSpinBox*>("mateOffset");
+        require(axis_offset != nullptr && !axis_offset->isEnabled(),
+                "Axis mate incorrectly exposed a meaningless axial offset");
+        axis_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        application.processEvents();
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

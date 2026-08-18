@@ -231,8 +231,8 @@ nevolá.
 Deterministická vazba plocha–plocha zatím řeší právě ten rozsah, pro který je
 prostá transformace správným prostředkem: dvě již rovnoběžné roviny a translaci
 pohyblivé bezprostřední komponenty na zadané podepsané odsazení. Jedna
-komponenta smí nyní vlastnit jednu vypočítávanou polohovací vazbu; nerovnoběžné
-roviny a osa–osa se označí jako nepodporovaná geometrie místo předstírání
+komponenta smí nyní vlastnit jednu vypočítávanou vazbu každého typu;
+nerovnoběžné roviny se označí jako nepodporovaná geometrie místo předstírání
 obecného solveru. Chybějící nebo nepodporovaná reference zčervená ve stromu a
 potlačí závislou větev. Po opravě reference další explicitní Regenerate starý
 chybový stav nejprve uvolní a komponentu může obnovit.
@@ -241,6 +241,24 @@ GUI příkaz `Vazba plocha–plocha` používá společný viewer candidate list
 potvrzená plocha určuje pohyblivou komponentu, druhá pevnou referenci. Název a
 odsazení se zadávají ve sdíleném interním Properties SubWindow pouze s OK a
 Cancel; OK vazbu vypočítá a vytvoří jednu Assembly revizi.
+
+ZIMA viewer packet nyní vlastní také stabilní osy: bod, jednotkový směr,
+zobrazovací délku a `AxisReference`. Kvádr při explicitním výpočtu uloží své
+lokální `axis:x/y/z`, válec svou hlavní `axis`; jejich umístění se vyřeší při
+výpočtu a další UI/persistence/Assembly cesty OCCT nepoužívají. Assembly
+transformuje bod i směr osy, prefixuje přesnou instance path a zachovává osu i
+při rollbacku jiného occurrence. Společný ordered candidate list obsahuje
+`Axis`; během axis selection contractu jsou osy zobrazené a hover/LMB/RMB
+pracují se stejnou kandidátní sadou a přesným zvýrazněním.
+
+Vazba osa–osa pro již rovnoběžné osy odstraní kolmou vzdálenost mezi přímkami,
+ale správně ponechá volný posun a rotaci podél osy. Lze ji kombinovat s jednou
+vazbou plocha–plocha na stejné komponentě; po výpočtu se oba výsledky znovu
+ověří a konflikt se nepředstírá jako platné řešení. Nerovnoběžné osy budou
+vyžadovat rotační část budoucího solveru a zatím jsou explicitně nepodporované.
+GUI používá stejný dvoukrokový výběr a interní Properties okno; u osa–osa se
+nezobrazuje editovatelný offset, protože posun podél společné osy zůstává
+stupněm volnosti.
 
 ## Hlavní cíle
 

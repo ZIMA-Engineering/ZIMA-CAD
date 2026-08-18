@@ -53,6 +53,19 @@ int main() {
         }
         require(box_vertex_keys.size() == 8,
                 "Primitive does not expose eight unique semantic vertices");
+        std::set<std::string> box_axis_keys;
+        for (const auto& axis : body.mesh.axes) {
+            require(axis.reference.owner_id == "box" &&
+                        std::abs(std::sqrt(
+                            axis.direction.x * axis.direction.x +
+                            axis.direction.y * axis.direction.y +
+                            axis.direction.z * axis.direction.z) - 1.0) < 1.0e-9,
+                    "Primitive axis lost owner or unit direction");
+            box_axis_keys.insert(axis.reference.semantic_key);
+        }
+        require(box_axis_keys == std::set<std::string>{
+                    "axis:x", "axis:y", "axis:z"},
+                "Box does not expose three stable local axes");
         zima::kernel::BoxRequest resized_rotated{135.0, 62.0, 47.0};
         resized_rotated.rotation_degrees = {17.0, 29.0, 41.0};
         const auto regenerated = kernel.evaluate_boxes({
@@ -73,6 +86,9 @@ int main() {
         }
         require(regenerated_edge_keys == box_edge_keys,
                 "Resize/rotation changed primitive semantic edge identities");
+        require(regenerated.mesh.axes.size() == 3 &&
+                    std::abs(regenerated.mesh.axes.front().direction.y) > 1.0e-3,
+                "Primitive placement was not applied to persisted axes");
         const auto cut_body = kernel.evaluate_boxes({
             {"base", {100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
             {"cut", {20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
@@ -151,6 +167,10 @@ int main() {
         require(cylinder_edges == std::set<std::string>{
                     "circle:z_max", "circle:z_min", "seam"} && sampled_circle,
                 "Cylinder edges are not stable selectable viewer polylines");
+        require(cylinder_boundaries.front().mesh.axes.size() == 1 &&
+                    cylinder_boundaries.front().mesh.axes.front()
+                        .reference.semantic_key == "axis",
+                "Cylinder does not expose its stable center axis");
 
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
@@ -214,6 +234,11 @@ int main() {
                     std::abs(loaded_boundaries.back().volume -
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
+        require(loaded_boundaries.back().mesh.axes.size() ==
+                    persisted_boundaries.back().mesh.axes.size() &&
+                    loaded_boundaries.back().mesh.axes.front().reference ==
+                        persisted_boundaries.back().mesh.axes.front().reference,
+                "Persisted axes did not survive Part save/load");
         auto cylinder_document = zima::document::PartDocument::create_default();
         auto cylinder_container =
             zima::document::PartDocument::create_cylinder_container();

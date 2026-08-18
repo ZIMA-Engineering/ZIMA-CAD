@@ -20,20 +20,22 @@ MatePropertiesDialog::MatePropertiesDialog(
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial_.name), this);
     form->addRow(tr("Název"), name_);
+    const bool axis_mate = initial_.kind == zima::assembly::MateKind::AxisCoincident;
     auto* dependent = new QLineEdit(
         QString::fromStdString(initial_.dependent.semantic_key), this);
     dependent->setReadOnly(true);
-    form->addRow(tr("Pohyblivá plocha"), dependent);
+    form->addRow(axis_mate ? tr("Pohyblivá osa") : tr("Pohyblivá plocha"), dependent);
     auto* prerequisite = new QLineEdit(
         QString::fromStdString(initial_.prerequisite.semantic_key), this);
     prerequisite->setReadOnly(true);
-    form->addRow(tr("Referenční plocha"), prerequisite);
+    form->addRow(axis_mate ? tr("Referenční osa") : tr("Referenční plocha"), prerequisite);
     offset_ = new QDoubleSpinBox(this);
     offset_->setRange(-1'000'000.0, 1'000'000.0);
     offset_->setDecimals(3);
     offset_->setSuffix(" mm");
     offset_->setObjectName("mateOffset");
     offset_->setValue(initial_.offset);
+    offset_->setEnabled(!axis_mate);
     form->addRow(tr("Odsazení"), offset_);
     content_layout()->addLayout(form);
     error_ = new QLabel(this);

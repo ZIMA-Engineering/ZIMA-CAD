@@ -58,6 +58,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { regenerate_assembly(); });
     plane_mate_action_ = assembly->addAction(tr("Vazba plocha–plocha…"), this,
         [this] { start_plane_mate(); });
+    axis_mate_action_ = assembly->addAction(tr("Vazba osa–osa…"), this,
+        [this] { start_axis_mate(); });
 }
 
 void AssemblyWorkspaceWindow::create_layout() {
@@ -79,7 +81,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
         if (mate_selection_active_) {
-            accept_mate_face(candidate);
+            accept_mate_reference(candidate);
             return;
         }
         if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
@@ -258,14 +260,30 @@ void AssemblyWorkspaceWindow::start_plane_mate() {
         workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
     pending_mate_reference_.reset();
     mate_selection_active_ = true;
+    pending_mate_kind_ = zima::assembly::MateKind::PlaneCoincident;
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
     state_->setText(tr("Vyberte pohyblivou rovinnou plochu."));
+}
+
+void AssemblyWorkspaceWindow::start_axis_mate() {
+    if (properties_dialog_ != nullptr ||
+        workspace_.open_assembly(workspace_.active_document_id()) == nullptr ||
+        workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
+    pending_mate_reference_.reset();
+    mate_selection_active_ = true;
+    pending_mate_kind_ = zima::assembly::MateKind::AxisCoincident;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Axis});
+    state_->setText(tr("Vyberte pohyblivou osu."));
 }
 
 std::optional<zima::assembly::MateReference>
 AssemblyWorkspaceWindow::local_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) const {
-    if (candidate.kind != zima::viewer::CandidateKind::Face ||
+    const bool face = candidate.kind == zima::viewer::CandidateKind::Face &&
+        pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident;
+    const bool axis = candidate.kind == zima::viewer::CandidateKind::Axis &&
+        pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident;
+    if ((!face && !axis) ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) return std::nullopt;
     auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
     if (!active_occurrence_path_.empty()) {
@@ -279,11 +297,13 @@ AssemblyWorkspaceWindow::local_mate_reference(
                 static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
     }
     return zima::assembly::MateReference{
-        zima::assembly::MateReferenceKind::Face, std::move(path),
+        face ? zima::assembly::MateReferenceKind::Face
+             : zima::assembly::MateReferenceKind::Axis,
+        std::move(path),
         candidate.owner_id, candidate.semantic_key};
 }
 
-void AssemblyWorkspaceWindow::accept_mate_face(
+void AssemblyWorkspaceWindow::accept_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     auto reference = local_mate_reference(candidate);
     if (!reference) {
@@ -292,12 +312,16 @@ void AssemblyWorkspaceWindow::accept_mate_face(
     }
     if (!pending_mate_reference_) {
         pending_mate_reference_ = std::move(reference);
-        state_->setText(tr("Vyberte pevnou referenční rovinnou plochu."));
+        state_->setText(pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
+            ? tr("Vyberte pevnou referenční rovinnou plochu.")
+            : tr("Vyberte pevnou referenční osu."));
         return;
     }
     try {
         auto mate = zima::assembly::AssemblyDocument::create_mate(
-            "Plocha na plochu", zima::assembly::MateKind::PlaneCoincident,
+            pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
+                ? "Plocha na plochu" : "Osa na osu",
+            pending_mate_kind_,
             std::move(*pending_mate_reference_), std::move(*reference));
         pending_mate_reference_.reset();
         mate_selection_active_ = false;
@@ -576,6 +600,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
         plane_mate_action_->setEnabled(false);
+        axis_mate_action_->setEnabled(false);
         save_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
@@ -640,6 +665,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_.find(workspace_.active_document_id()) != nullptr);
     regenerate_action_->setEnabled(true);
     plane_mate_action_->setEnabled(
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
+    axis_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());
