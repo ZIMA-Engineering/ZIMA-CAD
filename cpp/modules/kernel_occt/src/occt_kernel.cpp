@@ -5,9 +5,12 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <GeomAbs_CurveType.hxx>
@@ -20,6 +23,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <TopoDS_Wire.hxx>
 #include <TopLoc_Location.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
@@ -106,9 +110,9 @@ ViewerAxis transformed_axis(
 std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
     return std::visit([&](const auto& primitive) {
         using Request = std::decay_t<decltype(primitive)>;
-        const auto transform = primitive_transform(
-            primitive.translation, primitive.rotation_degrees);
         if constexpr (std::is_same_v<Request, BoxRequest>) {
+            const auto transform = primitive_transform(
+                primitive.translation, primitive.rotation_degrees);
             const double length = std::max({
                 primitive.length, primitive.width, primitive.height});
             return std::vector<ViewerAxis>{
@@ -118,11 +122,23 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                                  length, transform),
                 transformed_axis(operation.owner_id, "axis:z", {0.0, 0.0, 1.0},
                                  length, transform)};
-        } else {
+        } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
+            const auto transform = primitive_transform(
+                primitive.translation, primitive.rotation_degrees);
             const double length = std::max(primitive.height, primitive.radius * 2.0);
             return std::vector<ViewerAxis>{
                 transformed_axis(operation.owner_id, "axis", {0.0, 0.0, 1.0},
                                  length, transform)};
+        } else {
+            const double length = std::sqrt(
+                primitive.direction.x * primitive.direction.x +
+                primitive.direction.y * primitive.direction.y +
+                primitive.direction.z * primitive.direction.z);
+            return std::vector<ViewerAxis>{{
+                primitive.profile.front(),
+                {primitive.direction.x / length, primitive.direction.y / length,
+                 primitive.direction.z / length},
+                length, {operation.owner_id, "axis"}}};
         }
     }, operation.primitive);
 }
@@ -258,6 +274,83 @@ PrimitiveData make_cylinder_data(
             ? "seam:z_min" : "seam:z_max";
         const TopoDS_Shape transformed = transformer.ModifiedShape(original);
         if (!transformed.IsNull()) result.vertices.push_back({transformed, {owner_id, key}});
+    }
+    return result;
+}
+
+void validate_extrusion(const ExtrusionRequest& request) {
+    if (request.profile.size() < 3) {
+        throw std::invalid_argument("Extrusion profile requires at least three vertices");
+    }
+    for (const auto& point : request.profile) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            !std::isfinite(point.z)) {
+            throw std::invalid_argument("Extrusion profile coordinates must be finite");
+        }
+    }
+    const double length = std::sqrt(
+        request.direction.x * request.direction.x +
+        request.direction.y * request.direction.y +
+        request.direction.z * request.direction.z);
+    if (!std::isfinite(length) || length <= 1.0e-12) {
+        throw std::invalid_argument("Extrusion direction must be finite and non-zero");
+    }
+}
+
+PrimitiveData make_extrusion_data(
+    const ExtrusionRequest& request, const std::string& owner_id) {
+    BRepBuilderAPI_MakePolygon polygon;
+    for (const auto& point : request.profile) {
+        polygon.Add(gp_Pnt(point.x, point.y, point.z));
+    }
+    polygon.Close();
+    if (!polygon.IsDone()) throw std::runtime_error("OCCT profile wire failed");
+    const TopoDS_Wire wire = polygon.Wire();
+    BRepBuilderAPI_MakeFace face_builder(wire, true);
+    if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
+    const TopoDS_Face face = face_builder.Face();
+    BRepPrimAPI_MakePrism prism(face, gp_Vec(
+        request.direction.x, request.direction.y, request.direction.z), true, true);
+    prism.Build();
+    if (!prism.IsDone()) throw std::runtime_error("OCCT extrusion failed");
+    PrimitiveData result{prism.Shape(), {}, {}, {}};
+    result.faces.push_back({prism.FirstShape(), {owner_id, "profile_start"}});
+    result.faces.push_back({prism.LastShape(), {owner_id, "profile_end"}});
+    std::size_t edge_index{};
+    for (TopExp_Explorer explorer(wire, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+        const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+        const auto index = std::to_string(edge_index++);
+        const auto& generated = prism.Generated(edge);
+        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() == TopAbs_FACE) {
+                result.faces.push_back({iterator.Value(), {owner_id, "side:" + index}});
+            }
+        }
+        const auto first = prism.FirstShape(edge);
+        const auto last = prism.LastShape(edge);
+        if (!first.IsNull()) result.edges.push_back({first, {owner_id, "edge:start:" + index}});
+        if (!last.IsNull()) result.edges.push_back({last, {owner_id, "edge:end:" + index}});
+    }
+    std::size_t vertex_index{};
+    for (TopExp_Explorer explorer(wire, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
+        const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
+        const auto index = std::to_string(vertex_index++);
+        const auto first = prism.FirstShape(vertex);
+        const auto last = prism.LastShape(vertex);
+        if (!first.IsNull()) {
+            result.vertices.push_back({first, {owner_id, "vertex:start:" + index}});
+        }
+        if (!last.IsNull()) {
+            result.vertices.push_back({last, {owner_id, "vertex:end:" + index}});
+        }
+        const auto& generated = prism.Generated(vertex);
+        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() == TopAbs_EDGE) {
+                result.edges.push_back({iterator.Value(), {owner_id, "edge:vertical:" + index}});
+            }
+        }
     }
     return result;
 }
@@ -425,9 +518,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 if constexpr (std::is_same_v<Request, BoxRequest>) {
                     validate_box(primitive);
                     return make_box_data(primitive, operation.owner_id);
-                } else {
+                } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
                     validate_cylinder(primitive);
                     return make_cylinder_data(primitive, operation.owner_id);
+                } else {
+                    validate_extrusion(primitive);
+                    return make_extrusion_data(primitive, operation.owner_id);
                 }
             }, operation.primitive);
             if (result_shape.IsNull()) {

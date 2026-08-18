@@ -11,7 +11,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder };
+enum class FeatureKind { Box, Cylinder, Extrusion };
 
 struct BoxParameters {
     double length{100.0};
@@ -22,6 +22,11 @@ struct BoxParameters {
 struct CylinderParameters {
     double radius{40.0};
     double height{50.0};
+};
+
+struct ExtrusionParameters {
+    std::string sketch_id;
+    double height{10.0};
 };
 
 struct Placement {
@@ -41,6 +46,7 @@ struct HistoryContainer {
     Placement placement;
     BoxParameters box;
     CylinderParameters cylinder;
+    ExtrusionParameters extrusion;
 };
 
 class PartDocument {
@@ -53,6 +59,8 @@ public:
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();
     [[nodiscard]] static HistoryContainer create_cylinder_container();
+    [[nodiscard]] static HistoryContainer create_extrusion_container(
+        std::string sketch_id);
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
     [[nodiscard]] std::optional<std::size_t> history_index(

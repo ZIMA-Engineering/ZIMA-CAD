@@ -12,8 +12,9 @@ namespace zima::app {
 namespace {
 
 QString primitive_label(zima::document::FeatureKind kind) {
-    return kind == zima::document::FeatureKind::Cylinder
-        ? QObject::tr("válce") : QObject::tr("kvádru");
+    return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
+        : kind == zima::document::FeatureKind::Extrusion
+            ? QObject::tr("vytažení") : QObject::tr("kvádru");
 }
 
 }  // namespace
@@ -28,7 +29,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
           edit_mode
               ? tr("Vlastnosti %1").arg(primitive_label(initial.feature_kind))
               : initial.feature_kind == zima::document::FeatureKind::Cylinder
-                  ? tr("Nový válec") : tr("Nový kvádr"),
+                  ? tr("Nový válec")
+                  : initial.feature_kind == zima::document::FeatureKind::Extrusion
+                      ? tr("Nové vytažení") : tr("Nový kvádr"),
           parent),
       initial_(initial), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -61,10 +64,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         form->addRow(tr("Délka"), length_);
         form->addRow(tr("Šířka"), width_);
         form->addRow(tr("Výška"), height_);
-    } else {
+    } else if (initial.feature_kind == zima::document::FeatureKind::Cylinder) {
         radius_ = dimension(initial.cylinder.radius, "cylinderRadius");
         height_ = dimension(initial.cylinder.height, "cylinderHeight");
         form->addRow(tr("Poloměr"), radius_);
+        form->addRow(tr("Výška"), height_);
+    } else {
+        auto* sketch = new QLabel(QString::fromStdString(initial.extrusion.sketch_id), this);
+        sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        form->addRow(tr("Zdrojová skica"), sketch);
+        height_ = dimension(initial.extrusion.height, "extrusionHeight");
         form->addRow(tr("Výška"), height_);
     }
 
@@ -79,22 +88,24 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         field->setObjectName(angular ? "primitiveRotation" : "primitiveTranslation");
         return field;
     };
-    translation_ = {
-        placement(initial.placement.x, false),
-        placement(initial.placement.y, false),
-        placement(initial.placement.z, false),
-    };
-    rotation_ = {
-        placement(initial.placement.rotation_x, true),
-        placement(initial.placement.rotation_y, true),
-        placement(initial.placement.rotation_z, true),
-    };
-    form->addRow(tr("Posunutí X"), translation_[0]);
-    form->addRow(tr("Posunutí Y"), translation_[1]);
-    form->addRow(tr("Posunutí Z"), translation_[2]);
-    form->addRow(tr("Natočení X"), rotation_[0]);
-    form->addRow(tr("Natočení Y"), rotation_[1]);
-    form->addRow(tr("Natočení Z"), rotation_[2]);
+    if (initial.feature_kind != zima::document::FeatureKind::Extrusion) {
+        translation_ = {
+            placement(initial.placement.x, false),
+            placement(initial.placement.y, false),
+            placement(initial.placement.z, false),
+        };
+        rotation_ = {
+            placement(initial.placement.rotation_x, true),
+            placement(initial.placement.rotation_y, true),
+            placement(initial.placement.rotation_z, true),
+        };
+        form->addRow(tr("Posunutí X"), translation_[0]);
+        form->addRow(tr("Posunutí Y"), translation_[1]);
+        form->addRow(tr("Posunutí Z"), translation_[2]);
+        form->addRow(tr("Natočení X"), rotation_[0]);
+        form->addRow(tr("Natočení Y"), rotation_[1]);
+        form->addRow(tr("Natočení Z"), rotation_[2]);
+    }
     content_layout()->addLayout(form);
 
     error_ = new QLabel(this);
@@ -123,13 +134,17 @@ bool PrimitivePropertiesDialog::submit() {
         : zima::document::CombineMode::Add;
     if (result.feature_kind == zima::document::FeatureKind::Box) {
         result.box = {length_->value(), width_->value(), height_->value()};
-    } else {
+    } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.cylinder = {radius_->value(), height_->value()};
+    } else {
+        result.extrusion.height = height_->value();
     }
-    result.placement = {
-        translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
-        rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
-    };
+    if (result.feature_kind != zima::document::FeatureKind::Extrusion) {
+        result.placement = {
+            translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
+            rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
+        };
+    }
     try {
         commit_(std::move(result));
     } catch (const std::exception& failure) {

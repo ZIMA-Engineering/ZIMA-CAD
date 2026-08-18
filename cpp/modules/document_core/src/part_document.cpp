@@ -12,6 +12,7 @@
 #include <random>
 #include <stdexcept>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace zima::document {
 namespace {
@@ -48,6 +49,79 @@ void validate_placement(const Placement& placement) {
     require_finite(placement.rotation_z, "rotation z");
 }
 
+void require_default_extrusion_placement(const Placement& placement) {
+    if (placement.x != 0.0 || placement.y != 0.0 || placement.z != 0.0 ||
+        placement.rotation_x != 0.0 || placement.rotation_y != 0.0 ||
+        placement.rotation_z != 0.0) {
+        throw std::runtime_error(
+            "Extrusion placement is defined by its source Sketch");
+    }
+}
+
+zima::kernel::ExtrusionRequest extrusion_request(
+    const zima::sketcher::Sketch& sketch, double height) {
+    require_positive(height, "extrusion height");
+    if (std::any_of(sketch.circles.begin(), sketch.circles.end(),
+            [](const auto& value) { return !value.construction; }) ||
+        std::any_of(sketch.arcs.begin(), sketch.arcs.end(),
+            [](const auto& value) { return !value.construction; })) {
+        throw std::runtime_error(
+            "Extrusion currently supports one closed straight-segment profile");
+    }
+    std::vector<const zima::sketcher::SketchSegment*> profile_segments;
+    for (const auto& segment : sketch.segments) {
+        if (!segment.construction) profile_segments.push_back(&segment);
+    }
+    if (profile_segments.size() < 3) {
+        throw std::runtime_error("Extrusion profile requires at least three segments");
+    }
+    std::unordered_map<std::string, std::vector<const zima::sketcher::SketchSegment*>>
+        incident;
+    for (const auto* segment : profile_segments) {
+        incident[segment->first_point_id].push_back(segment);
+        incident[segment->second_point_id].push_back(segment);
+    }
+    for (const auto& [point_id, segments] : incident) {
+        if (segments.size() != 2) {
+            throw std::runtime_error(
+                "Extrusion profile must be one closed non-branching loop");
+        }
+    }
+    std::string current = std::min_element(
+        incident.begin(), incident.end(), [](const auto& left, const auto& right) {
+            return left.first < right.first;
+        })->first;
+    const std::string start = current;
+    const zima::sketcher::SketchSegment* previous{};
+    std::unordered_set<std::string> visited_segments;
+    zima::kernel::ExtrusionRequest request;
+    do {
+        const auto* point = sketch.find_point(current);
+        request.profile.push_back(sketch.world_point(point->x, point->y));
+        auto candidates = incident.at(current);
+        std::sort(candidates.begin(), candidates.end(), [](const auto* left, const auto* right) {
+            return left->id < right->id;
+        });
+        const auto* next = candidates.front() == previous
+            ? candidates.back() : candidates.front();
+        if (!visited_segments.insert(next->id).second) {
+            throw std::runtime_error("Extrusion profile contains multiple loops");
+        }
+        current = next->first_point_id == current
+            ? next->second_point_id : next->first_point_id;
+        previous = next;
+    } while (current != start);
+    if (visited_segments.size() != profile_segments.size()) {
+        throw std::runtime_error("Extrusion profile contains disconnected loops");
+    }
+    request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
+        ? zima::kernel::Vec3{0.0, 0.0, height}
+        : sketch.plane == zima::sketcher::SketchPlane::XZ
+            ? zima::kernel::Vec3{0.0, -height, 0.0}
+            : zima::kernel::Vec3{height, 0.0, 0.0};
+    return request;
+}
+
 }  // namespace
 
 PartDocument PartDocument::create_default() {
@@ -67,6 +141,16 @@ HistoryContainer PartDocument::create_cylinder_container() {
     container.id = make_id();
     container.name = "Válec";
     container.feature_kind = FeatureKind::Cylinder;
+    return container;
+}
+
+HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id) {
+    if (sketch_id.empty()) throw std::invalid_argument("Extrusion Sketch ID is required");
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = "Vytažení";
+    container.feature_kind = FeatureKind::Extrusion;
+    container.extrusion.sketch_id = std::move(sketch_id);
     return container;
 }
 
@@ -106,13 +190,23 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             box.translation = translation;
             box.rotation_degrees = rotation;
             primitive = box;
-        } else {
+        } else if (container.feature_kind == FeatureKind::Cylinder) {
             zima::kernel::CylinderRequest cylinder;
             cylinder.radius = container.cylinder.radius;
             cylinder.height = container.cylinder.height;
             cylinder.translation = translation;
             cylinder.rotation_degrees = rotation;
             primitive = cylinder;
+        } else {
+            require_default_extrusion_placement(container.placement);
+            const auto sketch = std::find_if(sketches.begin(), sketches.end(),
+                [&](const auto& value) {
+                    return value.id == container.extrusion.sketch_id;
+                });
+            if (sketch == sketches.end()) {
+                throw std::runtime_error("Extrusion references a missing Sketch");
+            }
+            primitive = extrusion_request(*sketch, container.extrusion.height);
         }
         operations.push_back({
             container.id,
@@ -148,12 +242,12 @@ PartDocument PartDocument::load(
     std::unordered_set<std::string> container_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
-        if (type != "box" && type != "cylinder") {
+        if (type != "box" && type != "cylinder" && type != "extrusion") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
-        container.feature_kind = type == "cylinder"
-            ? FeatureKind::Cylinder : FeatureKind::Box;
+        container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
+            : type == "extrusion" ? FeatureKind::Extrusion : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.name = source.at("name").get<std::string>();
         if (container.id.empty() || !container_ids.insert(container.id).second) {
@@ -175,11 +269,18 @@ PartDocument PartDocument::load(
             require_positive(container.box.length, "length");
             require_positive(container.box.width, "width");
             require_positive(container.box.height, "height");
-        } else {
+        } else if (container.feature_kind == FeatureKind::Cylinder) {
             container.cylinder.radius = source.at("radius").get<double>();
             container.cylinder.height = source.at("height").get<double>();
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else {
+            container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
+            container.extrusion.height = source.at("height").get<double>();
+            if (container.extrusion.sketch_id.empty()) {
+                throw std::runtime_error("Extrusion Sketch ID is required");
+            }
+            require_positive(container.extrusion.height, "extrusion height");
         }
         if (source.contains("placement")) {
             const auto& placement = source.at("placement");
@@ -191,6 +292,9 @@ PartDocument PartDocument::load(
             container.placement.rotation_z = placement.value("rotation_z", 0.0);
         }
         validate_placement(container.placement);
+        if (container.feature_kind == FeatureKind::Extrusion) {
+            require_default_extrusion_placement(container.placement);
+        }
         document.history.push_back(std::move(container));
     }
     std::unordered_set<std::string> sketch_ids;
@@ -200,6 +304,15 @@ PartDocument PartDocument::load(
             throw std::runtime_error("Sketch IDs must be unique in a Part");
         }
         document.sketches.push_back(std::move(sketch));
+    }
+    for (const auto& container : document.history) {
+        if (container.feature_kind == FeatureKind::Extrusion &&
+            std::none_of(document.sketches.begin(), document.sketches.end(),
+                [&](const auto& sketch) {
+                    return sketch.id == container.extrusion.sketch_id;
+                })) {
+            throw std::runtime_error("Extrusion references a missing Sketch");
+        }
     }
     if (!document.history.empty() &&
         document.history.front().combine_mode == CombineMode::Subtract) {
@@ -274,33 +387,51 @@ void PartDocument::save(
             require_positive(container.box.length, "length");
             require_positive(container.box.width, "width");
             require_positive(container.box.height, "height");
-        } else {
+        } else if (container.feature_kind == FeatureKind::Cylinder) {
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else {
+            if (container.extrusion.sketch_id.empty() ||
+                std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
+                    return sketch.id == container.extrusion.sketch_id;
+                })) {
+                throw std::runtime_error("Extrusion references a missing Sketch");
+            }
+            require_positive(container.extrusion.height, "extrusion height");
         }
         validate_placement(container.placement);
+        if (container.feature_kind == FeatureKind::Extrusion) {
+            require_default_extrusion_placement(container.placement);
+        }
         nlohmann::json serialized = {
             {"id", container.id},
-            {"type", container.feature_kind == FeatureKind::Box ? "box" : "cylinder"},
+            {"type", container.feature_kind == FeatureKind::Box ? "box"
+                : container.feature_kind == FeatureKind::Cylinder
+                    ? "cylinder" : "extrusion"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"},
-            {"placement", {
+        };
+        if (container.feature_kind != FeatureKind::Extrusion) {
+            serialized["placement"] = {
                 {"x", container.placement.x},
                 {"y", container.placement.y},
                 {"z", container.placement.z},
                 {"rotation_x", container.placement.rotation_x},
                 {"rotation_y", container.placement.rotation_y},
                 {"rotation_z", container.placement.rotation_z},
-            }},
-        };
+            };
+        }
         if (container.feature_kind == FeatureKind::Box) {
             serialized["length"] = container.box.length;
             serialized["width"] = container.box.width;
             serialized["height"] = container.box.height;
-        } else {
+        } else if (container.feature_kind == FeatureKind::Cylinder) {
             serialized["radius"] = container.cylinder.radius;
             serialized["height"] = container.cylinder.height;
+        } else {
+            serialized["sketch_id"] = container.extrusion.sketch_id;
+            serialized["height"] = container.extrusion.height;
         }
         serialized_history.push_back(std::move(serialized));
     }

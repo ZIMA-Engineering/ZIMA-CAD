@@ -116,6 +116,11 @@ struct CylinderRequest {
     Vec3 rotation_degrees;
 };
 
+struct ExtrusionRequest {
+    std::vector<Vec3> profile;
+    Vec3 direction{0.0, 0.0, 10.0};
+};
+
 enum class BooleanOperation { Add, Subtract };
 
 struct BoxOperation {
@@ -124,7 +129,7 @@ struct BoxOperation {
     BooleanOperation operation{BooleanOperation::Add};
 };
 
-using PrimitiveRequest = std::variant<BoxRequest, CylinderRequest>;
+using PrimitiveRequest = std::variant<BoxRequest, CylinderRequest, ExtrusionRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -210,12 +215,24 @@ struct BodyResult {
                         primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
-            } else {
+            } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
                 for (const double value : {
                         primitive.radius, primitive.height,
                         primitive.translation.x, primitive.translation.y,
                         primitive.translation.z, primitive.rotation_degrees.x,
                         primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else {
+                u64(primitive.profile.size());
+                for (const auto& point : primitive.profile) {
+                    for (const double value : {point.x, point.y, point.z}) {
+                        u64(std::bit_cast<std::uint64_t>(value));
+                    }
+                }
+                for (const double value : {
+                        primitive.direction.x, primitive.direction.y,
+                        primitive.direction.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             }

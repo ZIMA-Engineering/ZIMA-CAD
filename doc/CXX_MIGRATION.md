@@ -512,3 +512,19 @@ migrace se zaznamenají reprodukovatelné benchmarky.
 Mechanicky přeložené množství C++ kódu není měřítkem dokončení. Rozhodující je
 ověřená shoda kontraktů a odstranění potřeby udržovat dvě aktivně se měnící
 implementace stejné funkce.
+
+## První těleso ze skici
+
+Příkaz **Vytažení** uzavírá první svislý řez od persistované skici přes historii
+Partu a explicitní OCCT výpočet až po stabilní viewer data. Vstupem je vybraná
+skica, kladná výška a operace Přičíst/Odečíst; prostředkem je úzký požadavek
+`ExtrusionRequest`; výstupem je hranol s persistovanými referencemi počáteční,
+koncové a bočních ploch, hran a vrcholů. Poloha tělesa vychází výhradně z roviny
+a odsazení zdrojové skici, takže vytažení nemá druhé nezávislé posunutí.
+
+První záměrně malý profilový kontrakt přijímá právě jednu souvislou uzavřenou
+smyčku nekonstrukčních přímých úseček. Otevřený profil, více smyček, kružnice a
+oblouky odmítne Document Core ještě před voláním OCCT. Kontrolní obdélník
+30 × 20 mm vytažený o 10 mm musí mít objem 6000 mm³; tento nezávislý rozměrový
+test je součástí kontraktních testů. Rozšíření profilů přijde až s vlastním
+jednoznačným datovým kontraktem, ne skrytou OCCT rekonstrukcí při editaci.

@@ -282,6 +282,77 @@ int main() {
                     loaded_cylinder.history.front().cylinder.radius == 12.0 &&
                     loaded_cylinder_results.size() == 1,
                 "Cylinder document did not survive save/load");
+        auto extrusion_document = zima::document::PartDocument::create_default();
+        auto extrusion_sketch = zima::sketcher::Sketch::create_default();
+        extrusion_sketch.name = "Obdélníkový profil";
+        static_cast<void>(extrusion_sketch.add_rectangle(0.0, 0.0, 30.0, 20.0));
+        const auto extrusion_sketch_id = extrusion_sketch.id;
+        extrusion_document.sketches.push_back(std::move(extrusion_sketch));
+        auto extrusion_container =
+            zima::document::PartDocument::create_extrusion_container(
+                extrusion_sketch_id);
+        extrusion_container.extrusion.height = 10.0;
+        const auto extrusion_container_id = extrusion_container.id;
+        extrusion_document.history.push_back(std::move(extrusion_container));
+        const auto extrusion_results =
+            kernel.evaluate_history(extrusion_document.kernel_operations());
+        require(extrusion_results.size() == 1 &&
+                    std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
+                "Closed Sketch extrusion produced an incorrect solid volume");
+        std::set<std::string> extrusion_faces;
+        for (const auto& reference : extrusion_results.front().mesh.triangle_references) {
+            require(reference.owner_id == extrusion_container_id && reference.valid(),
+                    "Extrusion face lost its stable history owner");
+            extrusion_faces.insert(reference.semantic_key);
+        }
+        require(extrusion_faces == std::set<std::string>{
+                    "profile_start", "profile_end", "side:0", "side:1",
+                    "side:2", "side:3"},
+                "Extrusion does not expose stable start/end/side faces");
+        require(extrusion_results.front().mesh.axes.size() == 1 &&
+                    extrusion_results.front().mesh.axes.front().reference.semantic_key ==
+                        "axis" &&
+                    extrusion_results.front().mesh.axes.front().direction.z > 0.999,
+                "Extrusion did not persist its normal axis");
+        const auto extrusion_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-extrusion-contract.zcp.json";
+        extrusion_document.save(extrusion_path, extrusion_results);
+        std::vector<zima::kernel::BodyResult> loaded_extrusion_results;
+        const auto loaded_extrusion = zima::document::PartDocument::load(
+            extrusion_path, &loaded_extrusion_results);
+        std::filesystem::remove(extrusion_path);
+        require(loaded_extrusion.history.size() == 1 &&
+                    loaded_extrusion.history.front().feature_kind ==
+                        zima::document::FeatureKind::Extrusion &&
+                    loaded_extrusion.history.front().extrusion.sketch_id ==
+                        extrusion_sketch_id &&
+                    loaded_extrusion_results.size() == 1,
+                "Extrusion document did not survive save/load");
+        auto misplaced_extrusion = extrusion_document;
+        misplaced_extrusion.history.front().placement.x = 5.0;
+        bool misplaced_extrusion_rejected = false;
+        try {
+            static_cast<void>(misplaced_extrusion.kernel_operations());
+        } catch (const std::runtime_error&) {
+            misplaced_extrusion_rejected = true;
+        }
+        require(misplaced_extrusion_rejected,
+                "Extrusion silently accepted a second placement");
+        auto open_profile_document = zima::document::PartDocument::create_default();
+        auto open_profile = zima::sketcher::Sketch::create_default();
+        static_cast<void>(open_profile.add_segment(0.0, 0.0, 10.0, 0.0));
+        const auto open_profile_id = open_profile.id;
+        open_profile_document.sketches.push_back(std::move(open_profile));
+        open_profile_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(open_profile_id));
+        bool open_profile_rejected = false;
+        try {
+            static_cast<void>(open_profile_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            open_profile_rejected = true;
+        }
+        require(open_profile_rejected,
+                "Open Sketch profile reached the solid kernel");
 
         zima::document::DocumentSession session(
             zima::document::PartDocument::create_default());

@@ -127,10 +127,12 @@ void MainWindow::show_container_context_menu(
 void MainWindow::show_container_properties(const std::string& container_id) {
     const auto* container = session_.document().find_container(container_id);
     if (container == nullptr) return;
-    if (container->feature_kind == zima::document::FeatureKind::Cylinder) {
+    if (container->feature_kind == zima::document::FeatureKind::Box) {
+        show_box_properties(container_id);
+    } else if (container->feature_kind == zima::document::FeatureKind::Cylinder) {
         show_cylinder_properties(container_id);
     } else {
-        show_box_properties(container_id);
+        show_primitive_properties(zima::document::FeatureKind::Extrusion, container_id);
     }
 }
 
@@ -234,6 +236,8 @@ void MainWindow::show_primitive_properties(
         return;
     }
     const auto& document = session_.document();
+    if (container_id.empty() &&
+        feature_kind == zima::document::FeatureKind::Extrusion) return;
     const auto* edited = container_id.empty()
         ? nullptr : document.find_container(container_id);
     if (!container_id.empty() &&

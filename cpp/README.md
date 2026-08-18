@@ -21,10 +21,12 @@ ordered history of containers with stable unique IDs and explicit Add/Subtract
 semantics. The application evaluates the complete history in one explicit
 kernel request, and only the final ZIMA viewer packet crosses back into UI.
 
-Each history container also persists an independent placement: translation in
-millimetres and rotations around local X, then Y, then Z in degrees. The OCCT
-adapter transforms each operand before its Boolean operation. Placement is
-therefore model data, not a viewer-only offset.
+Box and Cylinder history containers persist an independent placement:
+translation in millimetres and rotations around local X, then Y, then Z in
+degrees. The OCCT adapter transforms each operand before its Boolean operation.
+Placement is therefore model data, not a viewer-only offset. Extrusion is
+instead positioned solely by its persisted source Sketch plane and offset, so
+it neither serializes nor exposes a second ignored placement.
 
 `DocumentSession` is the only transaction owner. Every accepted Properties
 change creates exactly one revision, Cancel creates none, Undo/Redo move whole
@@ -386,6 +388,15 @@ Equal Length reuses the same two-Segment ownership and command contract. The
 first Segment supplies the target length; the solver scales the second about
 its available endpoints without changing its direction. Fixed endpoints are
 respected, and an immovable mismatch rejects the complete transaction.
+
+Extrusion is the first Sketch-to-solid vertical slice. The Modeling command is
+enabled only for a selected persisted Sketch and reuses one internal Properties
+window for creation and editing. OK explicitly evaluates the body; Cancel and
+history rollback remain transient. The current profile contract deliberately
+accepts exactly one connected closed loop of non-construction straight
+Segments. Open profiles, multiple loops, Circles and Arcs are rejected in
+Document Core before OCCT. OCCT returns a prism with stable start, end, side,
+edge and vertex references owned by the Extrusion history container.
 
 It intentionally uses its own prototype suffix (`.zcp.json`). It must not
 silently claim compatibility with current `.prtz` files before the C++ model

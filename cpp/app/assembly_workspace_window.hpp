@@ -38,6 +38,7 @@ private:
     QAction* redo_action_{};
     QAction* box_action_{};
     QAction* cylinder_action_{};
+    QAction* extrusion_action_{};
     QAction* sketch_action_{};
     QAction* sketch_segment_action_{};
     QAction* sketch_rectangle_action_{};

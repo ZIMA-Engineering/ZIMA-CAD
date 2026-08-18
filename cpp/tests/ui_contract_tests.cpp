@@ -126,6 +126,35 @@ int main(int argc, char* argv[]) {
                     committed_cylinder.cylinder.height == 63.0,
                 "Cylinder Properties did not commit exact parameters");
 
+        auto extrusion_initial =
+            zima::document::PartDocument::create_extrusion_container("sketch-profile");
+        int extrusion_commits = 0;
+        zima::document::HistoryContainer committed_extrusion;
+        auto* extrusion_dialog = new zima::app::PrimitivePropertiesDialog(
+            extrusion_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                ++extrusion_commits;
+                committed_extrusion = std::move(value);
+            }, &parent);
+        extrusion_dialog->show();
+        application.processEvents();
+        auto* extrusion_height =
+            extrusion_dialog->findChild<QDoubleSpinBox*>("extrusionHeight");
+        require(extrusion_height != nullptr,
+                "Extrusion dialog does not expose its height");
+        require(extrusion_dialog->findChildren<QDoubleSpinBox*>(
+                    "primitiveTranslation").empty(),
+                "Extrusion dialog exposes an ignored placement");
+        extrusion_height->setValue(48.0);
+        extrusion_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(extrusion_commits == 1 &&
+                    committed_extrusion.feature_kind ==
+                        zima::document::FeatureKind::Extrusion &&
+                    committed_extrusion.extrusion.sketch_id == "sketch-profile" &&
+                    committed_extrusion.extrusion.height == 48.0,
+                "Extrusion Properties did not preserve its Sketch or height");
+
         zima::kernel::BodyResult component_body;
         auto component = zima::assembly::AssemblyDocument::create_part_occurrence(
             "Komponenta", "source-part", "source.zcp.json", component_body);
