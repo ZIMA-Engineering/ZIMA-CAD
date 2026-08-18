@@ -35,7 +35,7 @@ int main() {
         assembly.components.push_back(std::move(second));
         const auto scene = assembly.build_scene();
         std::set<std::string> instance_paths;
-        for (const auto& reference : scene.triangle_references) {
+        for (const auto& reference : scene.original_references.triangle_references) {
             require(reference.owner_id == "same-source-container" &&
                         !reference.instance_path.empty(),
                     "Assembly changed source ownership or lost occurrence identity");
@@ -44,15 +44,15 @@ int main() {
         require(instance_paths.size() == 2,
                 "Repeated source Part occurrences collapsed into one identity");
         std::set<std::string> assembly_axis_paths;
-        for (const auto& axis : scene.axes) {
+        for (const auto& axis : scene.original_references.axes) {
             assembly_axis_paths.insert(axis.reference.instance_path);
         }
-        require(scene.axes.size() == 6 && assembly_axis_paths == instance_paths,
+        require(scene.original_references.axes.size() == 6 && assembly_axis_paths == instance_paths,
                 "Assembly did not transform and distinguish occurrence axes");
         const auto rollback_scene = assembly.build_scene_with_part_override(
             first_id, zima::kernel::BodyResult{});
         std::set<std::string> rollback_paths;
-        for (const auto& reference : rollback_scene.triangle_references) {
+        for (const auto& reference : rollback_scene.original_references.triangle_references) {
             rollback_paths.insert(reference.instance_path);
         }
         require(rollback_paths.size() == 1 && rollback_paths.contains(
@@ -111,7 +111,7 @@ int main() {
                 "Assembly identity and placement did not survive save/load");
         const auto loaded_scene = loaded.build_scene();
         std::set<std::string> loaded_paths;
-        for (const auto& reference : loaded_scene.triangle_references) {
+        for (const auto& reference : loaded_scene.original_references.triangle_references) {
             loaded_paths.insert(reference.instance_path);
         }
         require(loaded_paths == instance_paths,

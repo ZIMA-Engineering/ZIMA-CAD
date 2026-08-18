@@ -342,7 +342,8 @@ void MeshView::paintGL() {
         highlighted = impl_->candidates[impl_->active_candidate];
         highlight_color = QVector4D(1.0F, 0.55F, 0.05F, 1.0F);
     }
-    if (highlighted && (highlighted->kind == CandidateKind::Occurrence ||
+    if (highlighted && highlighted->geometry == CandidateGeometry::Display &&
+        (highlighted->kind == CandidateKind::Occurrence ||
                         highlighted->kind == CandidateKind::Container ||
                         highlighted->kind == CandidateKind::Face)) {
         glDisable(GL_DEPTH_TEST);
@@ -454,27 +455,66 @@ void MeshView::paintGL() {
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            if (highlighted->geometry == CandidateGeometry::OriginalReference &&
+                (highlighted->kind == CandidateKind::Occurrence ||
+                 highlighted->kind == CandidateKind::Container ||
+                 highlighted->kind == CandidateKind::Face)) {
+                painter.setPen(QPen(color, 1.5));
+                painter.setBrush(QColor(color.red(), color.green(), color.blue(), 70));
+                const auto& references = impl_->mesh.original_references;
+                for (std::size_t triangle = 0;
+                     triangle < references.triangle_references.size(); ++triangle) {
+                    const auto& reference = references.triangle_references[triangle];
+                    const bool matches = highlighted->kind == CandidateKind::Occurrence
+                        ? reference.instance_path == highlighted->instance_path
+                        : highlighted->kind == CandidateKind::Container
+                            ? reference.owner_id == highlighted->owner_id
+                            : reference.owner_id == highlighted->owner_id &&
+                              reference.semantic_key == highlighted->semantic_key;
+                    if (!matches || reference.instance_path != highlighted->instance_path ||
+                        triangle * 3 + 2 >= references.triangles.size()) continue;
+                    const auto first = references.triangles[triangle * 3];
+                    const auto second = references.triangles[triangle * 3 + 1];
+                    const auto third = references.triangles[triangle * 3 + 2];
+                    if (first >= references.vertices.size() ||
+                        second >= references.vertices.size() ||
+                        third >= references.vertices.size()) continue;
+                    painter.drawPolygon(QPolygonF{
+                        project(references.vertices[first]),
+                        project(references.vertices[second]),
+                        project(references.vertices[third])});
+                }
+            }
+            const auto& selectable_edges =
+                highlighted->geometry == CandidateGeometry::OriginalReference
+                    ? impl_->mesh.original_references.edges : impl_->mesh.edges;
+            const auto& selectable_points =
+                highlighted->geometry == CandidateGeometry::OriginalReference
+                    ? impl_->mesh.original_references.points : impl_->mesh.points;
+            const auto& selectable_axes =
+                highlighted->geometry == CandidateGeometry::OriginalReference
+                    ? impl_->mesh.original_references.axes : impl_->mesh.axes;
             if ((highlighted->kind == CandidateKind::Edge ||
                  highlighted->kind == CandidateKind::SketchSegment ||
                  highlighted->kind == CandidateKind::SketchCurve) &&
-                highlighted->geometry_index < impl_->mesh.edges.size()) {
+                highlighted->geometry_index < selectable_edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-                const auto& edge = impl_->mesh.edges[highlighted->geometry_index];
+                const auto& edge = selectable_edges[highlighted->geometry_index];
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(
                         project(edge.points[index - 1]), project(edge.points[index]));
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint) &&
-                       highlighted->geometry_index < impl_->mesh.points.size()) {
+                       highlighted->geometry_index < selectable_points.size()) {
                 painter.setPen(QPen(color, 2.0));
                 painter.setBrush(color);
                 painter.drawEllipse(project(
-                    impl_->mesh.points[highlighted->geometry_index].position), 5.0, 5.0);
+                    selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
             } else if (highlighted->kind == CandidateKind::Axis &&
-                       highlighted->geometry_index < impl_->mesh.axes.size()) {
+                       highlighted->geometry_index < selectable_axes.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-                const auto& axis = impl_->mesh.axes[highlighted->geometry_index];
+                const auto& axis = selectable_axes[highlighted->geometry_index];
                 const zima::kernel::Vec3 half{
                     axis.direction.x * axis.display_length * 0.5,
                     axis.direction.y * axis.display_length * 0.5,

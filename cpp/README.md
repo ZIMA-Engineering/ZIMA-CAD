@@ -378,10 +378,14 @@ lengths.
 
 Stable modeling references belong to persisted ZIMA Sketches, containers and
 their original solids. Result-body OCCT faces, vertices, axes and traversal
-indices are not reference owners. The calculated result packet retains every
-OCCT edge needed to draw the final silhouette and Boolean intersections, but an
-edge without a ZIMA owner has an invalid reference and is never offered by the
-ordinary picker. Fillet and Chamfer are the only operational exception: while
+indices are not reference owners. `ViewerMesh::original_references` persists a
+separate hidden selection mesh for every original history solid, including its
+faces, edges, vertices and axes. Part and nested Assembly transforms preserve
+the exact occurrence path of that layer; ordinary mates and modeling commands
+pick it and highlight it only on demand. The shaded calculated result packet
+retains every OCCT edge needed to draw the final silhouette and Boolean
+intersections, but its faces and edges have invalid references and are never
+offered by the ordinary picker. Fillet and Chamfer are the only operational exception: while
 explicitly calculating, they may select an edge of the real input body and map
 generated faces back to that operation; the resulting stable meaning is still
 owned and persisted by the ZIMA container.

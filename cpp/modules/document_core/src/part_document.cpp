@@ -885,6 +885,30 @@ PartDocument PartDocument::load(
         for (const auto& dimension : mesh.dimensions) {
             validate_reference(dimension.reference, false);
         }
+        const auto& references = mesh.original_references;
+        if (references.triangles.size() % 3 != 0 ||
+            references.triangle_references.size() != references.triangles.size() / 3) {
+            throw std::runtime_error(
+                "Calculated original-reference triangles are not aligned");
+        }
+        for (const auto index : references.triangles) {
+            if (index >= references.vertices.size()) {
+                throw std::runtime_error(
+                    "Calculated original-reference triangle is invalid");
+            }
+        }
+        for (const auto& reference : references.triangle_references) {
+            validate_reference(reference, false);
+        }
+        for (const auto& edge : references.edges) {
+            validate_reference(edge.reference, false);
+        }
+        for (const auto& point : references.points) {
+            validate_reference(point.reference, false);
+        }
+        for (const auto& axis : references.axes) {
+            validate_reference(axis.reference, false);
+        }
     }
     if (calculated_boundaries != nullptr) {
         *calculated_boundaries = std::move(loaded_boundaries);

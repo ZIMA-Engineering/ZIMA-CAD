@@ -92,8 +92,8 @@ int main() {
         const std::string expected_nested_path =
             zima::assembly::InstancePath{}.child(subassembly_occurrence)
                 .child(nested_part_occurrence).encoded();
-        require(!nested_scene.triangle_references.empty() &&
-                    nested_scene.triangle_references.front().instance_path ==
+        require(!nested_scene.original_references.triangle_references.empty() &&
+                    nested_scene.original_references.triangle_references.front().instance_path ==
                         expected_nested_path,
                 "Nested Assembly flattened or lost its stable leaf instance path");
         const auto resolved_nested = workspace.resolve_occurrence(
@@ -109,9 +109,9 @@ int main() {
             zima::assembly::InstancePath::decode(expected_nested_path), {});
         const std::string direct_part_path = zima::assembly::InstancePath{}
             .child(direct_part_occurrence).encoded();
-        require(!rollback_scene.triangle_references.empty() &&
-                    std::all_of(rollback_scene.triangle_references.begin(),
-                        rollback_scene.triangle_references.end(),
+        require(!rollback_scene.original_references.triangle_references.empty() &&
+                    std::all_of(rollback_scene.original_references.triangle_references.begin(),
+                        rollback_scene.original_references.triangle_references.end(),
                         [&](const auto& reference) {
                             return reference.instance_path == direct_part_path;
                         }),
@@ -145,7 +145,7 @@ int main() {
         const auto regenerated_nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
         require(maximum_y(regenerated_nested_scene) > old_nested_maximum_y &&
-                    regenerated_nested_scene.triangle_references.front().instance_path ==
+                    regenerated_nested_scene.original_references.triangle_references.front().instance_path ==
                         expected_nested_path,
                 "Top-level Regenerate did not pull nested geometry or preserve identity");
         require(workspace.open_assembly(topassembly_id)->session.document()

@@ -21,6 +21,15 @@ Fillet a Chamfer, které při explicitním výpočtu smějí vybrat hranu skute�
 vstupního tělesa a zjistit vazbu nových ploch na operaci. Stabilní význam těchto
 ploch následně přiděluje a persistuje jejich ZIMA kontejner.
 
+Implementovaná `ViewerMesh::original_references` je samostatná skrytá výběrová
+vrstva všech původních solidů historie. Persistuje jejich plochy, hrany, vrcholy
+a osy před Boolean operací. Výsledné stínované OCCT těleso má prázdné běžné
+reference; jeho hrany se pouze kreslí. Společný picker nabízí původní vrstvu a
+viewer ji barevně vykreslí jen při hoveru nebo potvrzení. Part save/load,
+rollback, sestavové instance, vnořené instance i dočasné nahrazení aktivního
+Partu zachovávají tuto vrstvu a přesnou `instance_path`. Sestavové rovinné a
+osové vazby řeší přednostně původní solid, nikoli výsledné těleso.
+
 ### Dvojí původ hrany a volba Fillet/Chamfer algoritmu
 
 Fillet a Chamfer mají jeden uživatelský příkaz, ale dvě explicitní interní

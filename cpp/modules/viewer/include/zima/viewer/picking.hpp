@@ -45,6 +45,8 @@ enum class CandidateKind {
     SketchDimension, SketchCurve
 };
 
+enum class CandidateGeometry { Display, OriginalReference };
+
 struct ViewerCandidate {
     CandidateKind kind{CandidateKind::Container};
     double distance{};
@@ -52,6 +54,7 @@ struct ViewerCandidate {
     std::string owner_id;
     std::string semantic_key;
     std::string instance_path;
+    CandidateGeometry geometry{CandidateGeometry::Display};
 
     bool operator==(const ViewerCandidate&) const = default;
 };

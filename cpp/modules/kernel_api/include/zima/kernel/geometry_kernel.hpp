@@ -85,6 +85,18 @@ struct ViewerDimension {
     std::string unit_suffix{" mm"};
 };
 
+// Hidden persisted geometry owned by original ZIMA entities. It participates
+// in picking and exact highlight only; the calculated OCCT result remains the
+// sole shaded/display body.
+struct ViewerReferenceGeometry {
+    std::vector<Vec3> vertices;
+    std::vector<std::uint32_t> triangles;
+    std::vector<FaceReference> triangle_references;
+    std::vector<ViewerEdge> edges;
+    std::vector<ViewerPoint> points;
+    std::vector<ViewerAxis> axes;
+};
+
 struct ViewerMesh {
     std::vector<Vec3> vertices;
     std::vector<std::uint32_t> triangles;
@@ -95,6 +107,7 @@ struct ViewerMesh {
     std::vector<ViewerPoint> points;
     std::vector<ViewerAxis> axes;
     std::vector<ViewerDimension> dimensions;
+    ViewerReferenceGeometry original_references;
 };
 
 struct BoxRequest {

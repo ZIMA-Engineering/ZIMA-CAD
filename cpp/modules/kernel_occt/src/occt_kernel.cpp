@@ -832,7 +832,8 @@ BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
     const std::vector<OwnedEdge>& owned_edges,
-    const std::vector<OwnedVertex>& owned_vertices) {
+    const std::vector<OwnedVertex>& owned_vertices,
+    bool original_reference_geometry = false) {
     BRepMesh_IncrementalMesh(shape, 0.1, false, 0.5, true).Perform();
     BodyResult result;
     GProp_GProps volume_properties;
@@ -848,8 +849,9 @@ BodyResult make_result(
         const Handle(Poly_Triangulation) triangulation =
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
-        const FaceReference reference =
-            reference_for_shape<FaceReference>(face, owned_faces);
+        const FaceReference reference = original_reference_geometry
+            ? reference_for_shape<FaceReference>(face, owned_faces)
+            : FaceReference{};
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
         const gp_Trsf transform = location.Transformation();
@@ -873,8 +875,9 @@ BodyResult make_result(
     }
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-        const EdgeReference reference =
-            reference_for_shape<EdgeReference>(edge, owned_edges);
+        const EdgeReference reference = original_reference_geometry
+            ? reference_for_shape<EdgeReference>(edge, owned_edges)
+            : EdgeReference{};
         BRepAdaptor_Curve curve(edge);
         const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
         GCPnts_UniformAbscissa samples(curve, sample_count);
@@ -888,7 +891,8 @@ BodyResult make_result(
         }
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
-    for (TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
+    if (original_reference_geometry) for (
+        TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
         const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
         const VertexReference reference =
             reference_for_shape<VertexReference>(vertex, owned_vertices);
@@ -898,6 +902,21 @@ BodyResult make_result(
             {point.X(), point.Y(), point.Z()}, reference});
     }
     return result;
+}
+
+void append_original_reference_geometry(
+    ViewerReferenceGeometry& target, ViewerMesh source) {
+    const auto offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(),
+        source.vertices.begin(), source.vertices.end());
+    for (const auto index : source.triangles) target.triangles.push_back(offset + index);
+    target.triangle_references.insert(target.triangle_references.end(),
+        source.triangle_references.begin(), source.triangle_references.end());
+    for (auto& edge : source.edges) {
+        if (edge.reference.valid()) target.edges.push_back(std::move(edge));
+    }
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
 }
 
 }  // namespace
@@ -937,6 +956,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
         std::vector<OwnedFace> owned_faces;
         std::vector<OwnedEdge> owned_edges;
         std::vector<OwnedVertex> owned_vertices;
+        ViewerReferenceGeometry original_references;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
         for (const auto& operation : operations) {
@@ -959,6 +979,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                     return make_revolution_data(primitive, operation.owner_id);
                 }
             }, operation.primitive);
+            auto operand_result = make_result(
+                operand.shape, operand.faces, operand.edges, operand.vertices, true);
+            operand_result.mesh.axes = axes_for_operation(operation);
+            append_original_reference_geometry(
+                original_references, std::move(operand_result.mesh));
             if (result_shape.IsNull()) {
                 result_shape = operand.shape;
                 owned_faces = operand.faces;
@@ -987,11 +1012,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
             }
             boundaries.push_back(
                 make_result(result_shape, owned_faces, owned_edges, owned_vertices));
-            for (std::size_t index = 0; index < boundaries.size(); ++index) {
-                auto axes = axes_for_operation(operations[index]);
-                boundaries.back().mesh.axes.insert(
-                    boundaries.back().mesh.axes.end(), axes.begin(), axes.end());
-            }
+            boundaries.back().mesh.original_references = original_references;
             boundaries.back().source_fingerprint =
                 history_fingerprint(operations, boundaries.size());
         }

@@ -535,17 +535,23 @@ PlaneResolution AssemblyDocument::resolve_plane(
     constexpr double planar_tolerance = 1.0e-7;
     std::optional<ResolvedPlane> result;
     std::vector<zima::kernel::Vec3> points;
+    const auto& face_vertices = scene.original_references.triangles.empty()
+        ? scene.vertices : scene.original_references.vertices;
+    const auto& face_triangles = scene.original_references.triangles.empty()
+        ? scene.triangles : scene.original_references.triangles;
+    const auto& face_references = scene.original_references.triangles.empty()
+        ? scene.triangle_references : scene.original_references.triangle_references;
     for (std::size_t triangle = 0;
-         triangle < scene.triangle_references.size(); ++triangle) {
-        const auto& candidate = scene.triangle_references[triangle];
+         triangle < face_references.size(); ++triangle) {
+        const auto& candidate = face_references[triangle];
         if (candidate.instance_path != path || candidate.owner_id != reference.owner_id ||
             candidate.semantic_key != reference.semantic_key) continue;
-        const auto first = scene.triangles[triangle * 3];
-        const auto second = scene.triangles[triangle * 3 + 1];
-        const auto third = scene.triangles[triangle * 3 + 2];
-        const auto& a = scene.vertices[first];
-        const auto& b = scene.vertices[second];
-        const auto& c = scene.vertices[third];
+        const auto first = face_triangles[triangle * 3];
+        const auto second = face_triangles[triangle * 3 + 1];
+        const auto third = face_triangles[triangle * 3 + 2];
+        const auto& a = face_vertices[first];
+        const auto& b = face_vertices[second];
+        const auto& c = face_vertices[third];
         points.insert(points.end(), {a, b, c});
         if (!result) {
             const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
@@ -583,13 +589,15 @@ AxisResolution AssemblyDocument::resolve_axis(
     }
     const auto scene = build_scene();
     const std::string path = reference.instance_path.encoded();
-    const auto found = std::find_if(scene.axes.begin(), scene.axes.end(),
+    const auto& axes = scene.original_references.axes.empty()
+        ? scene.axes : scene.original_references.axes;
+    const auto found = std::find_if(axes.begin(), axes.end(),
         [&](const auto& axis) {
             return axis.reference.instance_path == path &&
                 axis.reference.owner_id == reference.owner_id &&
                 axis.reference.semantic_key == reference.semantic_key;
         });
-    if (found == scene.axes.end()) return {MateStatus::MissingReference, {}};
+    if (found == axes.end()) return {MateStatus::MissingReference, {}};
     return {MateStatus::Valid, {found->point, found->direction}};
 }
 
@@ -881,9 +889,50 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             dimension.line_second = transform_point(dimension.line_second, component.placement);
             scene.dimensions.push_back(std::move(dimension));
         }
+        auto& target_references = scene.original_references;
+        const auto& source_references = source_mesh.original_references;
+        const auto reference_offset =
+            static_cast<std::uint32_t>(target_references.vertices.size());
+        for (const auto& vertex : source_references.vertices) {
+            target_references.vertices.push_back(
+                transform_point(vertex, component.placement));
+        }
+        for (const auto index : source_references.triangles) {
+            if (index >= source_references.vertices.size()) {
+                throw std::runtime_error(
+                    "Component reference triangle index is invalid");
+            }
+            target_references.triangles.push_back(reference_offset + index);
+        }
+        for (auto reference : source_references.triangle_references) {
+            assign_instance(reference, path);
+            target_references.triangle_references.push_back(std::move(reference));
+        }
+        for (auto edge : source_references.edges) {
+            assign_instance(edge.reference, path);
+            for (auto& point : edge.points) {
+                point = transform_point(point, component.placement);
+            }
+            target_references.edges.push_back(std::move(edge));
+        }
+        for (auto point : source_references.points) {
+            assign_instance(point.reference, path);
+            point.position = transform_point(point.position, component.placement);
+            target_references.points.push_back(std::move(point));
+        }
+        for (auto axis : source_references.axes) {
+            assign_instance(axis.reference, path);
+            axis.point = transform_point(axis.point, component.placement);
+            axis.direction = transform_direction(axis.direction, component.placement);
+            target_references.axes.push_back(std::move(axis));
+        }
     }
     if (scene.triangle_references.size() != scene.triangles.size() / 3) {
         throw std::runtime_error("Assembly triangle references are not aligned");
+    }
+    if (scene.original_references.triangle_references.size() !=
+        scene.original_references.triangles.size() / 3) {
+        throw std::runtime_error("Assembly reference triangle data are not aligned");
     }
     return scene;
 }
@@ -963,6 +1012,14 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             if (component.source_kind == ComponentSourceKind::Part &&
                 !reference.instance_path.empty()) {
                 throw std::runtime_error("Source Part packet contains an occurrence path");
+            }
+        }
+        for (const auto& reference : component.calculated_source.mesh
+                 .original_references.triangle_references) {
+            if (component.source_kind == ComponentSourceKind::Part &&
+                !reference.instance_path.empty()) {
+                throw std::runtime_error(
+                    "Source Part reference packet contains an occurrence path");
             }
         }
         document.components.push_back(std::move(component));

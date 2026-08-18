@@ -41,6 +41,25 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.dimensions.insert(target.dimensions.end(),
         source.dimensions.begin(), source.dimensions.end());
+    auto& target_references = target.original_references;
+    auto& source_references = source.original_references;
+    const auto reference_vertex_offset =
+        static_cast<std::uint32_t>(target_references.vertices.size());
+    target_references.vertices.insert(target_references.vertices.end(),
+        source_references.vertices.begin(), source_references.vertices.end());
+    for (const auto index : source_references.triangles) {
+        target_references.triangles.push_back(index + reference_vertex_offset);
+    }
+    target_references.triangle_references.insert(
+        target_references.triangle_references.end(),
+        source_references.triangle_references.begin(),
+        source_references.triangle_references.end());
+    target_references.edges.insert(target_references.edges.end(),
+        source_references.edges.begin(), source_references.edges.end());
+    target_references.points.insert(target_references.points.end(),
+        source_references.points.begin(), source_references.points.end());
+    target_references.axes.insert(target_references.axes.end(),
+        source_references.axes.begin(), source_references.axes.end());
 }
 
 }  // namespace
@@ -1995,7 +2014,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::resolve_active_occurrence(
     std::optional<std::string> only;
     std::set<std::string> paths;
     for (const auto& reference : assembly->session.document()
-             .build_scene().triangle_references) {
+             .build_scene().original_references.triangle_references) {
         paths.insert(reference.instance_path);
     }
     for (const auto& path : paths) {

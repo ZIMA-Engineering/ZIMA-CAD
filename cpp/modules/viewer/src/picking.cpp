@@ -227,54 +227,68 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_direction,
     double world_tolerance) {
     std::vector<ViewerCandidate> result;
-    const auto faces = ordered_ray_candidates(mesh, ray_origin, ray_direction);
-    for (const auto& face : faces) {
-        if (!face.reference.instance_path.empty() &&
-            std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
-                return item.kind == CandidateKind::Occurrence &&
-                    item.instance_path == face.reference.instance_path;
-            })) {
-            result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
-                              {}, {}, face.reference.instance_path});
+    const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
+                                     CandidateGeometry geometry) {
+        const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
+        for (const auto& face : faces) {
+            if (!face.reference.instance_path.empty() &&
+                std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
+                    return item.kind == CandidateKind::Occurrence &&
+                        item.instance_path == face.reference.instance_path;
+                })) {
+                result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
+                                  {}, {}, face.reference.instance_path, geometry});
+            }
+            result.push_back({CandidateKind::Face, face.distance, face.triangle,
+                              face.reference.owner_id, face.reference.semantic_key,
+                              face.reference.instance_path, geometry});
+            if (std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
+                    return item.kind == CandidateKind::Container &&
+                        item.owner_id == face.reference.owner_id &&
+                        item.instance_path == face.reference.instance_path;
+                })) {
+                result.push_back({CandidateKind::Container, face.distance, face.triangle,
+                                  face.reference.owner_id, {},
+                                  face.reference.instance_path, geometry});
+            }
         }
-        result.push_back({CandidateKind::Face, face.distance, face.triangle,
-                          face.reference.owner_id, face.reference.semantic_key,
-                          face.reference.instance_path});
-        if (std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
-                return item.kind == CandidateKind::Container &&
-                    item.owner_id == face.reference.owner_id &&
-                    item.instance_path == face.reference.instance_path;
-            })) {
-            result.push_back({CandidateKind::Container, face.distance, face.triangle,
-                              face.reference.owner_id, {},
-                              face.reference.instance_path});
+        for (const auto& edge : ordered_edge_candidates(
+                source, ray_origin, ray_direction, world_tolerance)) {
+            const auto kind = edge.reference.semantic_key.starts_with("segment:")
+                ? CandidateKind::SketchSegment
+                : edge.reference.semantic_key.starts_with("circle:") ||
+                  edge.reference.semantic_key.starts_with("arc:") ||
+                  edge.reference.semantic_key.starts_with("ellipse:") ||
+                  edge.reference.semantic_key.starts_with("bspline:")
+                    ? CandidateKind::SketchCurve : CandidateKind::Edge;
+            result.push_back({kind, edge.distance, edge.edge,
+                              edge.reference.owner_id, edge.reference.semantic_key,
+                              edge.reference.instance_path, geometry});
         }
-    }
-    for (const auto& edge : ordered_edge_candidates(
-            mesh, ray_origin, ray_direction, world_tolerance)) {
-        const auto kind = edge.reference.semantic_key.starts_with("segment:")
-            ? CandidateKind::SketchSegment
-            : edge.reference.semantic_key.starts_with("circle:") ||
-              edge.reference.semantic_key.starts_with("arc:")
-                ? CandidateKind::SketchCurve : CandidateKind::Edge;
-        result.push_back({kind, edge.distance, edge.edge,
-                          edge.reference.owner_id, edge.reference.semantic_key,
-                          edge.reference.instance_path});
-    }
-    for (const auto& vertex : ordered_vertex_candidates(
-            mesh, ray_origin, ray_direction, world_tolerance)) {
-        const auto kind = vertex.reference.semantic_key.starts_with("point:")
-            ? CandidateKind::SketchPoint : CandidateKind::Vertex;
-        result.push_back({kind, vertex.distance, vertex.point,
-                          vertex.reference.owner_id, vertex.reference.semantic_key,
-                          vertex.reference.instance_path});
-    }
-    for (const auto& axis : ordered_axis_candidates(
-            mesh, ray_origin, ray_direction, world_tolerance)) {
-        result.push_back({CandidateKind::Axis, axis.distance, axis.axis,
-                          axis.reference.owner_id, axis.reference.semantic_key,
-                          axis.reference.instance_path});
-    }
+        for (const auto& vertex : ordered_vertex_candidates(
+                source, ray_origin, ray_direction, world_tolerance)) {
+            const auto kind = vertex.reference.semantic_key.starts_with("point:")
+                ? CandidateKind::SketchPoint : CandidateKind::Vertex;
+            result.push_back({kind, vertex.distance, vertex.point,
+                              vertex.reference.owner_id, vertex.reference.semantic_key,
+                              vertex.reference.instance_path, geometry});
+        }
+        for (const auto& axis : ordered_axis_candidates(
+                source, ray_origin, ray_direction, world_tolerance)) {
+            result.push_back({CandidateKind::Axis, axis.distance, axis.axis,
+                              axis.reference.owner_id, axis.reference.semantic_key,
+                              axis.reference.instance_path, geometry});
+        }
+    };
+    append_geometry(mesh, CandidateGeometry::Display);
+    zima::kernel::ViewerMesh references;
+    references.vertices = mesh.original_references.vertices;
+    references.triangles = mesh.original_references.triangles;
+    references.triangle_references = mesh.original_references.triangle_references;
+    references.edges = mesh.original_references.edges;
+    references.points = mesh.original_references.points;
+    references.axes = mesh.original_references.axes;
+    append_geometry(references, CandidateGeometry::OriginalReference);
     for (const auto& dimension : ordered_dimension_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
         result.push_back({CandidateKind::SketchDimension, dimension.distance,
@@ -309,17 +323,23 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
 std::optional<ViewerCandidate> occurrence_candidate(
     const zima::kernel::ViewerMesh& mesh, const std::string& instance_path) {
     if (instance_path.empty()) return std::nullopt;
-    const auto triangle = std::find_if(
-        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+    const auto find_in = [&](const auto& references, CandidateGeometry geometry)
+        -> std::optional<ViewerCandidate> {
+        const auto triangle = std::find_if(
+        references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
             return reference.valid() && reference.instance_path == instance_path;
         });
-    if (triangle == mesh.triangle_references.end()) return std::nullopt;
-    return ViewerCandidate{
-        CandidateKind::Occurrence, 0.0,
-        static_cast<std::size_t>(std::distance(
-            mesh.triangle_references.begin(), triangle)),
-        {}, {}, instance_path};
+        if (triangle == references.end()) return std::nullopt;
+        return ViewerCandidate{
+            CandidateKind::Occurrence, 0.0,
+            static_cast<std::size_t>(std::distance(references.begin(), triangle)),
+            {}, {}, instance_path, geometry};
+    };
+    if (auto original = find_in(
+            mesh.original_references.triangle_references,
+            CandidateGeometry::OriginalReference)) return original;
+    return find_in(mesh.triangle_references, CandidateGeometry::Display);
 }
 
 std::vector<ViewerCandidate> filter_candidates(
@@ -338,22 +358,25 @@ std::optional<ViewerCandidate> container_candidate(
     const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,
     const std::string& instance_path) {
     if (owner_id.empty()) return std::nullopt;
-    const auto triangle = std::find_if(
-        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+    const auto find_in = [&](const auto& references, CandidateGeometry geometry)
+        -> std::optional<ViewerCandidate> {
+        const auto triangle = std::find_if(
+        references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
             return reference.valid() && reference.owner_id == owner_id &&
                 reference.instance_path == instance_path;
         });
-    if (triangle == mesh.triangle_references.end()) return std::nullopt;
-    return ViewerCandidate{
-        CandidateKind::Container,
-        0.0,
-        static_cast<std::size_t>(std::distance(
-            mesh.triangle_references.begin(), triangle)),
-        owner_id,
-        {},
-        triangle->instance_path,
+        if (triangle == references.end()) return std::nullopt;
+        return ViewerCandidate{
+            CandidateKind::Container, 0.0,
+            static_cast<std::size_t>(std::distance(references.begin(), triangle)),
+            owner_id, {}, triangle->instance_path, geometry,
+        };
     };
+    if (auto original = find_in(
+            mesh.original_references.triangle_references,
+            CandidateGeometry::OriginalReference)) return original;
+    return find_in(mesh.triangle_references, CandidateGeometry::Display);
 }
 
 }  // namespace zima::viewer

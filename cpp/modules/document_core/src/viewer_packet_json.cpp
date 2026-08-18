@@ -33,6 +33,93 @@ zima::kernel::Vec3 load_vec3(const nlohmann::json& source) {
 
 }  // namespace
 
+namespace {
+
+nlohmann::json serialize_reference_geometry(
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    nlohmann::json vertices = nlohmann::json::array();
+    for (const auto& value : geometry.vertices) vertices.push_back(serialize_vec3(value));
+    nlohmann::json faces = nlohmann::json::array();
+    for (const auto& reference : geometry.triangle_references) faces.push_back({
+        {"owner", reference.owner_id}, {"key", reference.semantic_key},
+        {"instance_path", reference.instance_path}});
+    nlohmann::json edges = nlohmann::json::array();
+    for (const auto& edge : geometry.edges) {
+        nlohmann::json edge_points = nlohmann::json::array();
+        for (const auto& point : edge.points) edge_points.push_back(serialize_vec3(point));
+        edges.push_back({{"owner", edge.reference.owner_id},
+            {"key", edge.reference.semantic_key},
+            {"instance_path", edge.reference.instance_path},
+            {"points", std::move(edge_points)}});
+    }
+    nlohmann::json points = nlohmann::json::array();
+    for (const auto& point : geometry.points) points.push_back({
+        {"owner", point.reference.owner_id}, {"key", point.reference.semantic_key},
+        {"instance_path", point.reference.instance_path},
+        {"position", serialize_vec3(point.position)}});
+    nlohmann::json axes = nlohmann::json::array();
+    for (const auto& axis : geometry.axes) axes.push_back({
+        {"owner", axis.reference.owner_id}, {"key", axis.reference.semantic_key},
+        {"instance_path", axis.reference.instance_path},
+        {"point", serialize_vec3(axis.point)},
+        {"direction", serialize_vec3(axis.direction)},
+        {"display_length", axis.display_length}});
+    return {{"vertices", std::move(vertices)}, {"triangles", geometry.triangles},
+        {"triangle_references", std::move(faces)}, {"edges", std::move(edges)},
+        {"points", std::move(points)}, {"axes", std::move(axes)}};
+}
+
+zima::kernel::ViewerReferenceGeometry load_reference_geometry(
+    const nlohmann::json& source) {
+    zima::kernel::ViewerReferenceGeometry result;
+    for (const auto& value : source.at("vertices")) result.vertices.push_back(load_vec3(value));
+    result.triangles = source.at("triangles").get<std::vector<std::uint32_t>>();
+    for (const auto index : result.triangles) {
+        if (index >= result.vertices.size()) {
+            throw std::runtime_error("Reference triangle index is out of range");
+        }
+    }
+    for (const auto& value : source.at("triangle_references")) {
+        result.triangle_references.push_back({value.at("owner").get<std::string>(),
+            value.at("key").get<std::string>(),
+            value.at("instance_path").get<std::string>()});
+    }
+    if (result.triangles.size() % 3 != 0 ||
+        result.triangle_references.size() != result.triangles.size() / 3) {
+        throw std::runtime_error("Reference triangle data are not aligned");
+    }
+    for (const auto& value : source.at("edges")) {
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {value.at("owner").get<std::string>(),
+            value.at("key").get<std::string>(),
+            value.at("instance_path").get<std::string>()};
+        for (const auto& point : value.at("points")) edge.points.push_back(load_vec3(point));
+        if (!edge.reference.valid() || edge.points.size() < 2) {
+            throw std::runtime_error("Persisted reference edge is invalid");
+        }
+        result.edges.push_back(std::move(edge));
+    }
+    for (const auto& value : source.at("points")) {
+        zima::kernel::ViewerPoint point{load_vec3(value.at("position")),
+            {value.at("owner").get<std::string>(), value.at("key").get<std::string>(),
+             value.at("instance_path").get<std::string>()}};
+        if (!point.reference.valid()) throw std::runtime_error("Reference point is invalid");
+        result.points.push_back(std::move(point));
+    }
+    for (const auto& value : source.at("axes")) {
+        zima::kernel::ViewerAxis axis{load_vec3(value.at("point")),
+            load_vec3(value.at("direction")), value.at("display_length").get<double>(),
+            {value.at("owner").get<std::string>(), value.at("key").get<std::string>(),
+             value.at("instance_path").get<std::string>()}};
+        if (!axis.reference.valid() || !std::isfinite(axis.display_length) ||
+            axis.display_length <= 0.0) throw std::runtime_error("Reference axis is invalid");
+        result.axes.push_back(std::move(axis));
+    }
+    return result;
+}
+
+}  // namespace
+
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     nlohmann::json vertices = nlohmann::json::array();
     for (const auto& point : result.mesh.vertices) vertices.push_back(serialize_vec3(point));
@@ -93,6 +180,8 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         {"triangle_references", std::move(faces)},
         {"edges", std::move(edges)}, {"points", std::move(points)},
         {"axes", std::move(axes)}, {"dimensions", std::move(dimensions)},
+        {"original_references", serialize_reference_geometry(
+            result.mesh.original_references)},
     };
 }
 
@@ -101,6 +190,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
+    result.mesh.original_references = load_reference_geometry(
+        source.at("original_references"));
     require_finite(result.volume, "calculated volume");
     require_finite(result.surface_area, "calculated surface area");
     for (const auto& point : source.at("vertices")) {

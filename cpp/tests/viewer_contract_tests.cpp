@@ -106,6 +106,24 @@ int main() {
                 "Tree selection did not resolve the same stable container candidate");
         require(!zima::viewer::container_candidate(mesh, "missing-container"),
                 "Tree selection accepted a container absent from viewer data");
+        zima::kernel::ViewerMesh separated;
+        separated.vertices = {
+            {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0}};
+        separated.triangles = {0, 1, 2};
+        separated.triangle_references = {{}};
+        separated.original_references.vertices = separated.vertices;
+        separated.original_references.triangles = separated.triangles;
+        separated.original_references.triangle_references = {
+            {"original-box", "z_max"}};
+        const auto separated_candidates = zima::viewer::ordered_viewer_candidates(
+            separated, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        const auto separated_faces = zima::viewer::filter_candidates(
+            separated_candidates, {zima::viewer::CandidateKind::Face});
+        require(separated_faces.size() == 1 &&
+                    separated_faces.front().owner_id == "original-box" &&
+                    separated_faces.front().geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference,
+                "Hidden original geometry did not replace result-face picking");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

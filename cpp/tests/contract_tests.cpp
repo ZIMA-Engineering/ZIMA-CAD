@@ -3,6 +3,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <cmath>
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <iostream>
@@ -27,11 +28,18 @@ int main() {
                 "Incorrect box surface area");
         require(!body.mesh.vertices.empty(), "Viewer mesh is empty");
         require(body.mesh.triangles.size() % 3 == 0, "Invalid triangle indices");
-        require(body.mesh.triangle_references.size() ==
-                    body.mesh.triangles.size() / 3,
+        require(body.mesh.original_references.triangle_references.size() ==
+                    body.mesh.original_references.triangles.size() / 3,
                 "Viewer triangles and face references are not aligned");
+        require(std::all_of(body.mesh.triangle_references.begin(),
+                    body.mesh.triangle_references.end(),
+                    [](const auto& reference) { return !reference.valid(); }),
+                "Calculated result body still owns selectable face references");
+        require(std::all_of(body.mesh.edges.begin(), body.mesh.edges.end(),
+                    [](const auto& edge) { return !edge.reference.valid(); }),
+                "Calculated result body still owns selectable edge references");
         std::set<std::string> box_face_keys;
-        for (const auto& reference : body.mesh.triangle_references) {
+        for (const auto& reference : body.mesh.original_references.triangle_references) {
             require(reference.owner_id == "box" && reference.valid(),
                     "Primitive triangle lost its persisted owner");
             box_face_keys.insert(reference.semantic_key);
@@ -40,7 +48,7 @@ int main() {
                     "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"},
                 "Primitive semantic face keys are incomplete");
         std::set<std::string> box_edge_keys;
-        for (const auto& edge : body.mesh.edges) {
+        for (const auto& edge : body.mesh.original_references.edges) {
             require(edge.reference.owner_id == "box" && edge.points.size() == 2,
                     "Primitive edge lost owner or geometry");
             box_edge_keys.insert(edge.reference.semantic_key);
@@ -48,7 +56,7 @@ int main() {
         require(box_edge_keys.size() == 12,
                 "Primitive does not expose twelve unique semantic edges");
         std::set<std::string> box_vertex_keys;
-        for (const auto& point : body.mesh.points) {
+        for (const auto& point : body.mesh.original_references.points) {
             require(point.reference.owner_id == "box",
                     "Primitive vertex lost its persisted owner");
             box_vertex_keys.insert(point.reference.semantic_key);
@@ -56,7 +64,7 @@ int main() {
         require(box_vertex_keys.size() == 8,
                 "Primitive does not expose eight unique semantic vertices");
         std::set<std::string> box_axis_keys;
-        for (const auto& axis : body.mesh.axes) {
+        for (const auto& axis : body.mesh.original_references.axes) {
             require(axis.reference.owner_id == "box" &&
                         std::abs(std::sqrt(
                             axis.direction.x * axis.direction.x +
@@ -75,7 +83,7 @@ int main() {
              zima::kernel::BooleanOperation::Add},
         });
         std::set<std::string> regenerated_keys;
-        for (const auto& reference : regenerated.mesh.triangle_references) {
+        for (const auto& reference : regenerated.mesh.original_references.triangle_references) {
             require(reference.owner_id == "persistent-box",
                     "Regeneration changed the persisted face owner");
             regenerated_keys.insert(reference.semantic_key);
@@ -83,13 +91,13 @@ int main() {
         require(regenerated_keys == box_face_keys,
                 "Resize/rotation changed primitive semantic face identities");
         std::set<std::string> regenerated_edge_keys;
-        for (const auto& edge : regenerated.mesh.edges) {
+        for (const auto& edge : regenerated.mesh.original_references.edges) {
             regenerated_edge_keys.insert(edge.reference.semantic_key);
         }
         require(regenerated_edge_keys == box_edge_keys,
                 "Resize/rotation changed primitive semantic edge identities");
-        require(regenerated.mesh.axes.size() == 3 &&
-                    std::abs(regenerated.mesh.axes.front().direction.y) > 1.0e-3,
+        require(regenerated.mesh.original_references.axes.size() == 3 &&
+                    std::abs(regenerated.mesh.original_references.axes.front().direction.y) > 1.0e-3,
                 "Primitive placement was not applied to persisted axes");
         const auto cut_body = kernel.evaluate_boxes({
             {"base", {100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
@@ -106,13 +114,13 @@ int main() {
                     std::abs(boundaries.back().volume - 392000.0) < 1e-6,
                 "Explicit calculation did not retain history boundary results");
         std::set<std::string> cut_owners;
-        for (const auto& reference : cut_body.mesh.triangle_references) {
+        for (const auto& reference : cut_body.mesh.original_references.triangle_references) {
             if (reference.valid()) cut_owners.insert(reference.owner_id);
         }
         require(cut_owners.contains("base") && cut_owners.contains("cut"),
                 "Boolean history did not propagate both original face owners");
         std::set<std::string> cut_edge_owners;
-        for (const auto& edge : cut_body.mesh.edges) {
+        for (const auto& edge : cut_body.mesh.original_references.edges) {
             if (edge.reference.valid()) {
                 cut_edge_owners.insert(edge.reference.owner_id);
             }
@@ -151,7 +159,7 @@ int main() {
                 "Cylinder produced incorrect OCCT volume");
         std::set<std::string> cylinder_faces;
         for (const auto& reference :
-             cylinder_boundaries.front().mesh.triangle_references) {
+             cylinder_boundaries.front().mesh.original_references.triangle_references) {
             require(reference.owner_id == "cylinder",
                     "Cylinder face lost its stable owner");
             cylinder_faces.insert(reference.semantic_key);
@@ -160,7 +168,7 @@ int main() {
                 "Cylinder semantic faces are incomplete");
         std::set<std::string> cylinder_edges;
         bool sampled_circle = false;
-        for (const auto& edge : cylinder_boundaries.front().mesh.edges) {
+        for (const auto& edge : cylinder_boundaries.front().mesh.original_references.edges) {
             cylinder_edges.insert(edge.reference.semantic_key);
             if (edge.reference.semantic_key.starts_with("circle:")) {
                 sampled_circle = sampled_circle || edge.points.size() > 16;
@@ -169,8 +177,8 @@ int main() {
         require(cylinder_edges == std::set<std::string>{
                     "circle:z_max", "circle:z_min", "seam"} && sampled_circle,
                 "Cylinder edges are not stable selectable viewer polylines");
-        require(cylinder_boundaries.front().mesh.axes.size() == 1 &&
-                    cylinder_boundaries.front().mesh.axes.front()
+        require(cylinder_boundaries.front().mesh.original_references.axes.size() == 1 &&
+                    cylinder_boundaries.front().mesh.original_references.axes.front()
                         .reference.semantic_key == "axis",
                 "Cylinder does not expose its stable center axis");
 
@@ -249,8 +257,8 @@ int main() {
                     loaded.history.back().placement.rotation_z == 30.0,
                 "Container placement was not preserved");
         require(loaded_boundaries.size() == 2 &&
-                    loaded_boundaries.back().mesh.triangle_references.size() ==
-                        persisted_boundaries.back().mesh.triangle_references.size() &&
+                    loaded_boundaries.back().mesh.original_references.triangle_references.size() ==
+                        persisted_boundaries.back().mesh.original_references.triangle_references.size() &&
                     std::abs(loaded_boundaries.back().volume -
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
@@ -259,10 +267,10 @@ int main() {
                     loaded_boundaries.back().mesh.dimensions.front().reference.owner_id ==
                         first.id,
                 "Persisted viewer dimension lost geometry, value, or stable owner");
-        require(loaded_boundaries.back().mesh.axes.size() ==
-                    persisted_boundaries.back().mesh.axes.size() &&
-                    loaded_boundaries.back().mesh.axes.front().reference ==
-                        persisted_boundaries.back().mesh.axes.front().reference,
+        require(loaded_boundaries.back().mesh.original_references.axes.size() ==
+                    persisted_boundaries.back().mesh.original_references.axes.size() &&
+                    loaded_boundaries.back().mesh.original_references.axes.front().reference ==
+                        persisted_boundaries.back().mesh.original_references.axes.front().reference,
                 "Persisted axes did not survive Part save/load");
         auto cylinder_document = zima::document::PartDocument::create_default();
         auto cylinder_container =
@@ -302,7 +310,7 @@ int main() {
                     std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
                 "Closed Sketch extrusion produced an incorrect solid volume");
         std::set<std::string> extrusion_faces;
-        for (const auto& reference : extrusion_results.front().mesh.triangle_references) {
+        for (const auto& reference : extrusion_results.front().mesh.original_references.triangle_references) {
             require(reference.owner_id == extrusion_container_id && reference.valid(),
                     "Extrusion face lost its stable history owner");
             extrusion_faces.insert(reference.semantic_key);
@@ -311,10 +319,10 @@ int main() {
                     "profile_start", "profile_end", "side:0", "side:1",
                     "side:2", "side:3"},
                 "Extrusion does not expose stable start/end/side faces");
-        require(extrusion_results.front().mesh.axes.size() == 1 &&
-                    extrusion_results.front().mesh.axes.front().reference.semantic_key ==
+        require(extrusion_results.front().mesh.original_references.axes.size() == 1 &&
+                    extrusion_results.front().mesh.original_references.axes.front().reference.semantic_key ==
                         "axis" &&
-                    extrusion_results.front().mesh.axes.front().direction.z > 0.999,
+                    extrusion_results.front().mesh.original_references.axes.front().direction.z > 0.999,
                 "Extrusion did not persist its normal axis");
         const auto z_bounds = [](const zima::kernel::BodyResult& result) {
             double minimum = std::numeric_limits<double>::infinity();
@@ -411,7 +419,7 @@ int main() {
                 "Exact circular Sketch extrusion did not cut the expected volume");
         bool circular_side_found = false;
         for (const auto& reference :
-             circular_results.back().mesh.triangle_references) {
+             circular_results.back().mesh.original_references.triangle_references) {
             if (reference.owner_id == circular_cut_id &&
                 reference.semantic_key == "side:0") {
                 circular_side_found = true;
@@ -442,8 +450,8 @@ int main() {
             kernel.evaluate_history(xz_circle_document.kernel_operations());
         require(std::abs(xz_circle_results.front().volume -
                     63.0 * std::numbers::pi) < 1.0e-6 &&
-                    xz_circle_results.front().mesh.axes.size() == 1 &&
-                    xz_circle_results.front().mesh.axes.front().direction.y < -0.999,
+                    xz_circle_results.front().mesh.original_references.axes.size() == 1 &&
+                    xz_circle_results.front().mesh.original_references.axes.front().direction.y < -0.999,
                 "Circular XZ extrusion lost its exact volume or plane normal");
         auto multiple_circle_document = circular_document;
         static_cast<void>(multiple_circle_document.sketches.front().add_circle(
@@ -477,7 +485,7 @@ int main() {
                 "Polygon profile with a circular hole has an incorrect volume");
         bool hole_side_found = false;
         for (const auto& reference :
-             holed_profile_results.front().mesh.triangle_references) {
+             holed_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == holed_extrusion_id &&
                 reference.semantic_key == "side:4") {
                 hole_side_found = true;
@@ -569,7 +577,7 @@ int main() {
                 "or symmetric extent");
         std::set<std::string> arc_profile_sides;
         for (const auto& reference :
-             arc_profile_results.front().mesh.triangle_references) {
+             arc_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == arc_profile_owner &&
                 reference.semantic_key.starts_with("side:")) {
                 arc_profile_sides.insert(reference.semantic_key);
@@ -714,8 +722,8 @@ int main() {
         require(revolution_results.size() == 1 &&
                     std::abs(revolution_results.front().volume -
                         390.0 * std::numbers::pi) < 1.0e-6 &&
-                    revolution_results.front().mesh.axes.size() == 1 &&
-                    revolution_results.front().mesh.axes.front().direction.x > 0.999,
+                    revolution_results.front().mesh.original_references.axes.size() == 1 &&
+                    revolution_results.front().mesh.original_references.axes.front().direction.x > 0.999,
                 "Full Sketch Revolution has an incorrect volume or axis");
         auto half_revolution_document = revolution_document;
         half_revolution_document.history.front().revolution.angle_degrees = 180.0;
@@ -728,7 +736,7 @@ int main() {
                 "Partial Revolution has an incorrect volume or fingerprint");
         std::set<std::string> partial_revolution_faces;
         for (const auto& reference :
-             half_revolution_results.front().mesh.triangle_references) {
+             half_revolution_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == revolution_owner) {
                 partial_revolution_faces.insert(reference.semantic_key);
             }
@@ -865,7 +873,7 @@ int main() {
             yz_revolution_document.kernel_operations());
         require(std::abs(yz_revolution_results.front().volume -
                     390.0 * std::numbers::pi) < 1.0e-6 &&
-                    yz_revolution_results.front().mesh.axes.front().direction.y > 0.999,
+                    yz_revolution_results.front().mesh.original_references.axes.front().direction.y > 0.999,
                 "Sketch X Revolution axis was mapped incorrectly on the YZ plane");
         auto xz_revolution_document =
             zima::document::PartDocument::create_default();
@@ -887,7 +895,7 @@ int main() {
             xz_revolution_document.kernel_operations());
         require(std::abs(xz_revolution_results.front().volume -
                     390.0 * std::numbers::pi) < 1.0e-6 &&
-                    xz_revolution_results.front().mesh.axes.front().direction.z > 0.999,
+                    xz_revolution_results.front().mesh.original_references.axes.front().direction.z > 0.999,
                 "Sketch Y Revolution axis was mapped incorrectly on the XZ plane");
 
         zima::document::DocumentSession session(

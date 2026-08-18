@@ -183,6 +183,30 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     std::erase_if(scene.dimensions, [&](const auto& dimension) {
         return dimension.reference.instance_path == target_path;
     });
+    auto& scene_references = scene.original_references;
+    std::vector<std::uint32_t> reference_triangles;
+    std::vector<zima::kernel::FaceReference> reference_faces;
+    for (std::size_t triangle = 0;
+         triangle < scene_references.triangle_references.size(); ++triangle) {
+        if (scene_references.triangle_references[triangle].instance_path ==
+            target_path) continue;
+        reference_triangles.insert(reference_triangles.end(), {
+            scene_references.triangles[triangle * 3],
+            scene_references.triangles[triangle * 3 + 1],
+            scene_references.triangles[triangle * 3 + 2]});
+        reference_faces.push_back(scene_references.triangle_references[triangle]);
+    }
+    scene_references.triangles = std::move(reference_triangles);
+    scene_references.triangle_references = std::move(reference_faces);
+    std::erase_if(scene_references.edges, [&](const auto& edge) {
+        return edge.reference.instance_path == target_path;
+    });
+    std::erase_if(scene_references.points, [&](const auto& point) {
+        return point.reference.instance_path == target_path;
+    });
+    std::erase_if(scene_references.axes, [&](const auto& axis) {
+        return axis.reference.instance_path == target_path;
+    });
     const auto offset = static_cast<std::uint32_t>(scene.vertices.size());
     scene.vertices.insert(scene.vertices.end(), calculated_source.mesh.vertices.begin(),
                           calculated_source.mesh.vertices.end());
@@ -200,6 +224,24 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
                       calculated_source.mesh.axes.end());
     scene.dimensions.insert(scene.dimensions.end(),
         calculated_source.mesh.dimensions.begin(), calculated_source.mesh.dimensions.end());
+    const auto& replacement_references = calculated_source.mesh.original_references;
+    const auto reference_offset =
+        static_cast<std::uint32_t>(scene_references.vertices.size());
+    scene_references.vertices.insert(scene_references.vertices.end(),
+        replacement_references.vertices.begin(), replacement_references.vertices.end());
+    for (const auto index : replacement_references.triangles) {
+        scene_references.triangles.push_back(reference_offset + index);
+    }
+    scene_references.triangle_references.insert(
+        scene_references.triangle_references.end(),
+        replacement_references.triangle_references.begin(),
+        replacement_references.triangle_references.end());
+    scene_references.edges.insert(scene_references.edges.end(),
+        replacement_references.edges.begin(), replacement_references.edges.end());
+    scene_references.points.insert(scene_references.points.end(),
+        replacement_references.points.begin(), replacement_references.points.end());
+    scene_references.axes.insert(scene_references.axes.end(),
+        replacement_references.axes.begin(), replacement_references.axes.end());
     return scene;
 }
 
