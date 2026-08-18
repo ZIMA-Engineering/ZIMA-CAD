@@ -461,15 +461,10 @@ zima::kernel::RevolutionRequest revolution_request(
     }
     const auto source = extrusion_request(
         sketch, 1.0, ExtrusionDirection::Forward);
-    if (!source.inner_profiles.empty() ||
-        !std::holds_alternative<zima::kernel::ExtrusionRequest::PolygonProfile>(
-            source.outer_profile)) {
-        throw std::runtime_error(
-            "Revolution currently requires one straight-segment profile");
-    }
     zima::kernel::RevolutionRequest request;
-    request.profile = std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
-        source.outer_profile).vertices;
+    request.outer_profile = source.outer_profile;
+    request.inner_profiles = source.inner_profiles;
+    request.profile_normal = source.direction;
     request.axis_point = sketch.world_point(0.0, 0.0);
     if (axis == RevolutionAxis::SketchX) {
         request.axis_direction = sketch.plane == zima::sketcher::SketchPlane::YZ

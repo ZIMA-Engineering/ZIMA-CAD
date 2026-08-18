@@ -414,10 +414,13 @@ owned by the Extrusion history container.
 
 Revolution is the next complete Sketch-to-solid command. It reuses the same
 internal Properties window and transaction/rollback path, with a persisted
-Sketch X or Sketch Y axis and an angle in `(0, 360]°`. The initial contract
-accepts one closed straight-Segment profile without holes. Document Core maps
-the local Sketch axis into XY, XZ, or YZ world coordinates; OCCT receives only
-the ordered profile, explicit axis, and angle during calculation. Partial
+Sketch X or Sketch Y axis and an angle in `(0, 360]°`. Revolution and Extrusion
+share one exact profile-loop contract: polygons, Circles, mixed Segment/Arc
+outer loops, and the currently supported inner circular loops cross the same
+kernel boundary without tessellating curves. Document Core maps the local
+Sketch axis into XY, XZ, or YZ world coordinates; OCCT receives only the
+ordered profile loops, explicit profile normal, axis, and angle during
+calculation. Partial
 revolutions persist distinct start/end profile faces, all generated side faces
 retain the Revolution owner, and angle/axis participate in the history
 fingerprint.

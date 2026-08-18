@@ -646,27 +646,75 @@ int main() {
                     loaded_revolution.history.front().revolution.angle_degrees == 180.0 &&
                     loaded_revolution_results.size() == 1,
                 "Revolution did not survive save/load");
-        auto unsupported_revolution_document =
+        auto torus_revolution_document =
             zima::document::PartDocument::create_default();
-        auto unsupported_revolution_sketch =
+        auto torus_revolution_sketch =
             zima::sketcher::Sketch::create_default();
-        static_cast<void>(unsupported_revolution_sketch.add_circle(
+        static_cast<void>(torus_revolution_sketch.add_circle(
             10.0, 0.0, 2.0));
-        const auto unsupported_revolution_sketch_id =
-            unsupported_revolution_sketch.id;
-        unsupported_revolution_document.sketches.push_back(
-            std::move(unsupported_revolution_sketch));
-        unsupported_revolution_document.history.push_back(
+        const auto torus_revolution_sketch_id = torus_revolution_sketch.id;
+        torus_revolution_document.sketches.push_back(
+            std::move(torus_revolution_sketch));
+        auto torus_revolution =
             zima::document::PartDocument::create_revolution_container(
-                unsupported_revolution_sketch_id));
-        bool unsupported_revolution_rejected = false;
-        try {
-            static_cast<void>(unsupported_revolution_document.kernel_operations());
-        } catch (const std::runtime_error&) {
-            unsupported_revolution_rejected = true;
-        }
-        require(unsupported_revolution_rejected,
-                "Unsupported Revolution profile reached OCCT");
+                torus_revolution_sketch_id);
+        torus_revolution.revolution.axis =
+            zima::document::RevolutionAxis::SketchY;
+        torus_revolution_document.history.push_back(std::move(torus_revolution));
+        const auto torus_revolution_results = kernel.evaluate_history(
+            torus_revolution_document.kernel_operations());
+        require(std::abs(torus_revolution_results.front().volume -
+                    80.0 * std::numbers::pi * std::numbers::pi) < 1.0e-6,
+                "Exact circular Revolution did not produce the expected torus");
+        auto arc_torus_document = zima::document::PartDocument::create_default();
+        auto arc_torus_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(arc_torus_sketch.add_arc(
+            10.0, 0.0, 10.0, -2.0, 10.0, 2.0));
+        static_cast<void>(arc_torus_sketch.add_arc(
+            10.0, 0.0, 10.0, 2.0, 10.0, -2.0));
+        const auto arc_torus_sketch_id = arc_torus_sketch.id;
+        arc_torus_document.sketches.push_back(std::move(arc_torus_sketch));
+        auto arc_torus_revolution =
+            zima::document::PartDocument::create_revolution_container(
+                arc_torus_sketch_id);
+        arc_torus_revolution.revolution.axis =
+            zima::document::RevolutionAxis::SketchY;
+        arc_torus_document.history.push_back(std::move(arc_torus_revolution));
+        const auto arc_torus_results = kernel.evaluate_history(
+            arc_torus_document.kernel_operations());
+        require(std::abs(arc_torus_results.front().volume -
+                    80.0 * std::numbers::pi * std::numbers::pi) < 1.0e-6 &&
+                    arc_torus_results.front().source_fingerprint !=
+                        torus_revolution_results.front().source_fingerprint,
+                "Exact Arc Revolution did not preserve the torus geometry");
+
+        auto holed_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto holed_revolution_sketch =
+            zima::sketcher::Sketch::create_default();
+        static_cast<void>(holed_revolution_sketch.add_rectangle(
+            10.0, 5.0, 20.0, 8.0));
+        static_cast<void>(holed_revolution_sketch.add_circle(
+            15.0, 6.5, 1.0));
+        const auto holed_revolution_sketch_id = holed_revolution_sketch.id;
+        holed_revolution_document.sketches.push_back(
+            std::move(holed_revolution_sketch));
+        holed_revolution_document.history.push_back(
+            zima::document::PartDocument::create_revolution_container(
+                holed_revolution_sketch_id));
+        const auto holed_revolution_results = kernel.evaluate_history(
+            holed_revolution_document.kernel_operations());
+        require(std::abs(holed_revolution_results.front().volume -
+                    (390.0 * std::numbers::pi -
+                     13.0 * std::numbers::pi * std::numbers::pi)) < 1.0e-6,
+                "Revolution with an inner circular loop has an incorrect volume");
+        auto resized_revolution_hole = holed_revolution_document;
+        resized_revolution_hole.sketches.front().circles.front().radius = 0.75;
+        const auto resized_revolution_operations =
+            resized_revolution_hole.kernel_operations();
+        require(zima::kernel::history_fingerprint(resized_revolution_operations, 1) !=
+                    holed_revolution_results.front().source_fingerprint,
+                "Inner Revolution loop is missing from the history fingerprint");
         auto yz_revolution_document =
             zima::document::PartDocument::create_default();
         auto yz_revolution_sketch = zima::sketcher::Sketch::create_default();

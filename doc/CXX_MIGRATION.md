@@ -560,15 +560,20 @@ zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygo
 ## Rotace profilu
 
 Příkaz **Rotace** používá stejný interní Properties a rollback kontrakt jako
-Vytažení. Vstupem je jedna uzavřená smyčka přímých úseček, osa X nebo Y zdrojové
-skici, úhel v intervalu `(0, 360]°` a operace Přičíst/Odečíst. Document Core
-převede lokální osu skici do souřadnic XY/XZ/YZ a do úzkého `RevolutionRequest`
-vloží pouze seřazený profil, bod osy, směr osy a úhel. OCCT se volá až při
+Vytažení. Rotace a Vytažení sdílejí jediný přesný profilový kontrakt: polygony,
+kružnice, vnější smyčky kombinující úsečky a oblouky a aktuálně podporované
+vnitřní kruhové smyčky. Křivky se mezi příkazy nekopírují do druhé reprezentace
+a nepřevádějí se na polygon. Dalšími vstupy jsou osa X nebo Y zdrojové skici,
+úhel v intervalu `(0, 360]°` a operace Přičíst/Odečíst. Document Core převede
+lokální osu skici do souřadnic XY/XZ/YZ a do úzkého `RevolutionRequest` vloží
+profilové smyčky, normálu profilu, bod a směr osy a úhel. OCCT se volá až při
 explicitním OK nebo regeneraci.
 
 Částečná rotace persistuje zvlášť počáteční a koncovou profilovou plochu;
 generované rotační plochy drží vlastníka kontejneru Rotace. Osa a úhel vstupují
 do fingerprintu historie. Kontrolní obdélník délky 10 mm mezi poloměry 5 a
 8 mm musí při plné rotaci kolem osy X vytvořit objem `390π mm³`; při úhlu 180°
-přesně `195π mm³` a obě koncové plochy. Kružnice, oblouky a vnitřní smyčky jsou
-v tomto prvním řezu odmítnuty v Document Core před voláním OCCT.
+přesně `195π mm³` a obě koncové plochy. Kružnice R2 se středem 10 mm od osy
+musí vytvořit přesný torus o objemu `80π² mm³`; stejný profil ze dvou oblouků
+musí dát totožný výsledek. Obdélníkový profil s vnitřní kružnicí R1 na poloměru
+6,5 mm má po plné rotaci kontrolní objem `390π − 13π² mm³`.

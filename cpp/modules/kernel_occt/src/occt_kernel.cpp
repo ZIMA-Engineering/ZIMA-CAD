@@ -425,77 +425,81 @@ void validate_extrusion(const ExtrusionRequest& request) {
     }
 }
 
+TopoDS_Wire make_profile_wire(
+    const ExtrusionRequest::ProfileLoop& profile_variant,
+    const Vec3& profile_normal) {
+    return std::visit([&](const auto& profile) {
+        using Profile = std::decay_t<decltype(profile)>;
+        if constexpr (std::is_same_v<Profile,
+                          ExtrusionRequest::PolygonProfile>) {
+            BRepBuilderAPI_MakePolygon polygon;
+            for (const auto& point : profile.vertices) {
+                polygon.Add(gp_Pnt(point.x, point.y, point.z));
+            }
+            polygon.Close();
+            if (!polygon.IsDone()) {
+                throw std::runtime_error("OCCT polygon profile wire failed");
+            }
+            return polygon.Wire();
+        } else if constexpr (std::is_same_v<Profile,
+                                 ExtrusionRequest::CircleProfile>) {
+            const gp_Dir normal(
+                profile_normal.x, profile_normal.y, profile_normal.z);
+            BRepBuilderAPI_MakeEdge edge(gp_Circ(
+                gp_Ax2(gp_Pnt(profile.center.x, profile.center.y, profile.center.z),
+                       normal),
+                profile.radius));
+            if (!edge.IsDone()) {
+                throw std::runtime_error("OCCT circular profile edge failed");
+            }
+            BRepBuilderAPI_MakeWire circle_wire(edge.Edge());
+            if (!circle_wire.IsDone()) {
+                throw std::runtime_error("OCCT circular profile wire failed");
+            }
+            return circle_wire.Wire();
+        } else {
+            BRepBuilderAPI_MakeWire curved_wire;
+            for (const auto& curve : profile.curves) {
+                const TopoDS_Edge edge = std::visit([](const auto& exact_curve) {
+                    using Curve = std::decay_t<decltype(exact_curve)>;
+                    if constexpr (std::is_same_v<Curve,
+                                      ExtrusionRequest::LineCurve>) {
+                        return BRepBuilderAPI_MakeEdge(
+                            gp_Pnt(exact_curve.start.x, exact_curve.start.y,
+                                   exact_curve.start.z),
+                            gp_Pnt(exact_curve.end.x, exact_curve.end.y,
+                                   exact_curve.end.z)).Edge();
+                    } else {
+                        GC_MakeArcOfCircle arc(
+                            gp_Pnt(exact_curve.start.x, exact_curve.start.y,
+                                   exact_curve.start.z),
+                            gp_Pnt(exact_curve.middle.x, exact_curve.middle.y,
+                                   exact_curve.middle.z),
+                            gp_Pnt(exact_curve.end.x, exact_curve.end.y,
+                                   exact_curve.end.z));
+                        if (!arc.IsDone()) {
+                            throw std::runtime_error("OCCT profile Arc failed");
+                        }
+                        return BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+                    }
+                }, curve);
+                curved_wire.Add(edge);
+            }
+            if (!curved_wire.IsDone()) {
+                throw std::runtime_error("OCCT curved profile wire failed");
+            }
+            return curved_wire.Wire();
+        }
+    }, profile_variant);
+}
+
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id) {
-    const auto make_wire = [&](const auto& profile_variant) {
-        return std::visit([&](const auto& profile) {
-            using Profile = std::decay_t<decltype(profile)>;
-            if constexpr (std::is_same_v<Profile,
-                              ExtrusionRequest::PolygonProfile>) {
-                BRepBuilderAPI_MakePolygon polygon;
-                for (const auto& point : profile.vertices) {
-                    polygon.Add(gp_Pnt(point.x, point.y, point.z));
-                }
-                polygon.Close();
-                if (!polygon.IsDone()) {
-                    throw std::runtime_error("OCCT polygon profile wire failed");
-                }
-                return polygon.Wire();
-            } else if constexpr (std::is_same_v<Profile,
-                                     ExtrusionRequest::CircleProfile>) {
-                const gp_Dir normal(
-                    request.direction.x, request.direction.y, request.direction.z);
-                BRepBuilderAPI_MakeEdge edge(gp_Circ(
-                    gp_Ax2(gp_Pnt(profile.center.x, profile.center.y, profile.center.z),
-                           normal),
-                    profile.radius));
-                if (!edge.IsDone()) {
-                    throw std::runtime_error("OCCT circular profile edge failed");
-                }
-                BRepBuilderAPI_MakeWire circle_wire(edge.Edge());
-                if (!circle_wire.IsDone()) {
-                    throw std::runtime_error("OCCT circular profile wire failed");
-                }
-                return circle_wire.Wire();
-            } else {
-                BRepBuilderAPI_MakeWire curved_wire;
-                for (const auto& curve : profile.curves) {
-                    const TopoDS_Edge edge = std::visit([](const auto& exact_curve) {
-                        using Curve = std::decay_t<decltype(exact_curve)>;
-                        if constexpr (std::is_same_v<Curve,
-                                          ExtrusionRequest::LineCurve>) {
-                            return BRepBuilderAPI_MakeEdge(
-                                gp_Pnt(exact_curve.start.x, exact_curve.start.y,
-                                       exact_curve.start.z),
-                                gp_Pnt(exact_curve.end.x, exact_curve.end.y,
-                                       exact_curve.end.z)).Edge();
-                        } else {
-                            GC_MakeArcOfCircle arc(
-                                gp_Pnt(exact_curve.start.x, exact_curve.start.y,
-                                       exact_curve.start.z),
-                                gp_Pnt(exact_curve.middle.x, exact_curve.middle.y,
-                                       exact_curve.middle.z),
-                                gp_Pnt(exact_curve.end.x, exact_curve.end.y,
-                                       exact_curve.end.z));
-                            if (!arc.IsDone()) {
-                                throw std::runtime_error("OCCT profile Arc failed");
-                            }
-                            return BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
-                        }
-                    }, curve);
-                    curved_wire.Add(edge);
-                }
-                if (!curved_wire.IsDone()) {
-                    throw std::runtime_error("OCCT curved profile wire failed");
-                }
-                return curved_wire.Wire();
-            }
-        }, profile_variant);
-    };
-    std::vector<TopoDS_Wire> wires{make_wire(request.outer_profile)};
+    std::vector<TopoDS_Wire> wires{
+        make_profile_wire(request.outer_profile, request.direction)};
     BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
     for (const auto& inner_profile : request.inner_profiles) {
-        auto inner_wire = make_wire(inner_profile);
+        auto inner_wire = make_profile_wire(inner_profile, request.direction);
         inner_wire.Reverse();
         wires.push_back(std::move(inner_wire));
         face_builder.Add(wires.back());
@@ -566,15 +570,11 @@ PrimitiveData make_extrusion_data(
 }
 
 void validate_revolution(const RevolutionRequest& request) {
-    if (request.profile.size() < 3) {
-        throw std::invalid_argument("Revolution profile requires at least three vertices");
-    }
-    for (const auto& point : request.profile) {
-        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
-            !std::isfinite(point.z)) {
-            throw std::invalid_argument("Revolution profile coordinates must be finite");
-        }
-    }
+    ExtrusionRequest profile_request;
+    profile_request.outer_profile = request.outer_profile;
+    profile_request.inner_profiles = request.inner_profiles;
+    profile_request.direction = request.profile_normal;
+    validate_extrusion(profile_request);
     const double axis_length = std::sqrt(
         request.axis_direction.x * request.axis_direction.x +
         request.axis_direction.y * request.axis_direction.y +
@@ -590,16 +590,15 @@ void validate_revolution(const RevolutionRequest& request) {
 
 PrimitiveData make_revolution_data(
     const RevolutionRequest& request, const std::string& owner_id) {
-    BRepBuilderAPI_MakePolygon polygon;
-    for (const auto& point : request.profile) {
-        polygon.Add(gp_Pnt(point.x, point.y, point.z));
+    std::vector<TopoDS_Wire> wires{
+        make_profile_wire(request.outer_profile, request.profile_normal)};
+    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
+    for (const auto& inner_profile : request.inner_profiles) {
+        auto inner_wire = make_profile_wire(inner_profile, request.profile_normal);
+        inner_wire.Reverse();
+        wires.push_back(std::move(inner_wire));
+        face_builder.Add(wires.back());
     }
-    polygon.Close();
-    if (!polygon.IsDone()) {
-        throw std::runtime_error("OCCT Revolution profile wire failed");
-    }
-    const TopoDS_Wire wire = polygon.Wire();
-    BRepBuilderAPI_MakeFace face_builder(wire, true);
     if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid()) {
         throw std::runtime_error("OCCT Revolution profile face is invalid");
     }
@@ -623,53 +622,58 @@ PrimitiveData make_revolution_data(
             {revolution.LastShape(), {owner_id, "profile_end"}});
     }
     std::size_t edge_index{};
-    for (TopExp_Explorer explorer(wire, TopAbs_EDGE); explorer.More(); explorer.Next()) {
-        const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-        const auto index = std::to_string(edge_index++);
-        const auto& generated = revolution.Generated(edge);
-        for (TopTools_ListIteratorOfListOfShape iterator(generated);
-             iterator.More(); iterator.Next()) {
-            if (iterator.Value().ShapeType() == TopAbs_FACE) {
-                result.faces.push_back(
-                    {iterator.Value(), {owner_id, "side:" + index}});
+    for (const auto& wire : wires) {
+        for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
+             explorer.More(); explorer.Next()) {
+            const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+            const auto index = std::to_string(edge_index++);
+            const auto& generated = revolution.Generated(edge);
+            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() == TopAbs_FACE) {
+                    result.faces.push_back(
+                        {iterator.Value(), {owner_id, "side:" + index}});
+                }
             }
-        }
-        if (request.angle_degrees < 360.0 - 1.0e-9) {
-            const auto first = revolution.FirstShape(edge);
-            const auto last = revolution.LastShape(edge);
-            if (!first.IsNull()) {
-                result.edges.push_back(
-                    {first, {owner_id, "edge:start:" + index}});
-            }
-            if (!last.IsNull()) {
-                result.edges.push_back(
-                    {last, {owner_id, "edge:end:" + index}});
+            if (request.angle_degrees < 360.0 - 1.0e-9) {
+                const auto first = revolution.FirstShape(edge);
+                const auto last = revolution.LastShape(edge);
+                if (!first.IsNull()) {
+                    result.edges.push_back(
+                        {first, {owner_id, "edge:start:" + index}});
+                }
+                if (!last.IsNull()) {
+                    result.edges.push_back(
+                        {last, {owner_id, "edge:end:" + index}});
+                }
             }
         }
     }
     std::size_t vertex_index{};
-    for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
-         explorer.More(); explorer.Next()) {
-        const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
-        const auto index = std::to_string(vertex_index++);
-        const auto& generated = revolution.Generated(vertex);
-        for (TopTools_ListIteratorOfListOfShape iterator(generated);
-             iterator.More(); iterator.Next()) {
-            if (iterator.Value().ShapeType() == TopAbs_EDGE) {
-                result.edges.push_back(
-                    {iterator.Value(), {owner_id, "edge:revolved:" + index}});
+    for (const auto& wire : wires) {
+        for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
+             explorer.More(); explorer.Next()) {
+            const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
+            const auto index = std::to_string(vertex_index++);
+            const auto& generated = revolution.Generated(vertex);
+            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() == TopAbs_EDGE) {
+                    result.edges.push_back(
+                        {iterator.Value(), {owner_id, "edge:revolved:" + index}});
+                }
             }
-        }
-        if (request.angle_degrees < 360.0 - 1.0e-9) {
-            const auto first = revolution.FirstShape(vertex);
-            const auto last = revolution.LastShape(vertex);
-            if (!first.IsNull()) {
-                result.vertices.push_back(
-                    {first, {owner_id, "vertex:start:" + index}});
-            }
-            if (!last.IsNull()) {
-                result.vertices.push_back(
-                    {last, {owner_id, "vertex:end:" + index}});
+            if (request.angle_degrees < 360.0 - 1.0e-9) {
+                const auto first = revolution.FirstShape(vertex);
+                const auto last = revolution.LastShape(vertex);
+                if (!first.IsNull()) {
+                    result.vertices.push_back(
+                        {first, {owner_id, "vertex:start:" + index}});
+                }
+                if (!last.IsNull()) {
+                    result.vertices.push_back(
+                        {last, {owner_id, "vertex:end:" + index}});
+                }
             }
         }
     }

@@ -143,7 +143,10 @@ struct ExtrusionRequest {
 };
 
 struct RevolutionRequest {
-    std::vector<Vec3> profile;
+    ExtrusionRequest::ProfileLoop outer_profile{
+        ExtrusionRequest::PolygonProfile{}};
+    std::vector<ExtrusionRequest::ProfileLoop> inner_profiles;
+    Vec3 profile_normal{0.0, 0.0, 1.0};
     Vec3 axis_point;
     Vec3 axis_direction{1.0, 0.0, 0.0};
     double angle_degrees{360.0};
@@ -306,13 +309,56 @@ struct BodyResult {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else {
-                u64(primitive.profile.size());
-                for (const auto& point : primitive.profile) {
-                    for (const double value : {point.x, point.y, point.z}) {
-                        u64(std::bit_cast<std::uint64_t>(value));
-                    }
+                const auto append_profile = [&](const auto& profile_variant) {
+                    byte(static_cast<std::uint8_t>(profile_variant.index()));
+                    std::visit([&](const auto& profile) {
+                        using Profile = std::decay_t<decltype(profile)>;
+                        if constexpr (std::is_same_v<Profile,
+                                          ExtrusionRequest::PolygonProfile>) {
+                            u64(profile.vertices.size());
+                            for (const auto& point : profile.vertices) {
+                                for (const double value : {point.x, point.y, point.z}) {
+                                    u64(std::bit_cast<std::uint64_t>(value));
+                                }
+                            }
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::CircleProfile>) {
+                            for (const double value : {
+                                    profile.center.x, profile.center.y,
+                                    profile.center.z, profile.radius}) {
+                                u64(std::bit_cast<std::uint64_t>(value));
+                            }
+                        } else {
+                            u64(profile.curves.size());
+                            for (const auto& curve : profile.curves) {
+                                byte(static_cast<std::uint8_t>(curve.index()));
+                                std::visit([&](const auto& exact_curve) {
+                                    const auto point = [&](const Vec3& value) {
+                                        for (const double coordinate : {
+                                                value.x, value.y, value.z}) {
+                                            u64(std::bit_cast<std::uint64_t>(coordinate));
+                                        }
+                                    };
+                                    point(exact_curve.start);
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::ArcCurve>) {
+                                        point(exact_curve.middle);
+                                    }
+                                    point(exact_curve.end);
+                                }, curve);
+                            }
+                        }
+                    }, profile_variant);
+                };
+                append_profile(primitive.outer_profile);
+                u64(primitive.inner_profiles.size());
+                for (const auto& profile : primitive.inner_profiles) {
+                    append_profile(profile);
                 }
                 for (const double value : {
+                        primitive.profile_normal.x, primitive.profile_normal.y,
+                        primitive.profile_normal.z,
                         primitive.axis_point.x, primitive.axis_point.y,
                         primitive.axis_point.z, primitive.axis_direction.x,
                         primitive.axis_direction.y, primitive.axis_direction.z,
