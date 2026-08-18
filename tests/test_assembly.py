@@ -41,6 +41,104 @@ class AssemblyDocumentTests(unittest.TestCase):
         brepgprop.VolumeProperties(shape, properties)
         return abs(float(properties.Mass()))
 
+    @staticmethod
+    def _mate_to(component: ZimaEntity) -> str:
+        return json.dumps([{
+            "source": "",
+            "target": assembly_face_descriptor(AssemblyFaceRef(
+                component.entity_id,
+                FaceRef("source-feature", "face", "0"),
+            )),
+            "type": "plane",
+            "offset": 0.0,
+        }])
+
+    def test_component_suppression_cascades_through_mate_dependencies(self):
+        assembly = create_empty_assembly()
+        first = assembly.create_container("First", ContainerType.COMPONENT)
+        second = assembly.create_container("Second", ContainerType.COMPONENT)
+        third = assembly.create_container("Third", ContainerType.COMPONENT)
+        second.parameters["assembly_mates"] = self._mate_to(first)
+        third.parameters["assembly_mates"] = self._mate_to(second)
+
+        first.suppressed = True
+
+        self.assertTrue(assembly.is_effectively_suppressed(first.entity_id))
+        self.assertTrue(assembly.is_effectively_suppressed(second.entity_id))
+        self.assertTrue(assembly.is_effectively_suppressed(third.entity_id))
+        self.assertEqual(
+            assembly.dependency_suppression_sources(third.entity_id),
+            {first.entity_id},
+        )
+        first.suppressed = False
+        self.assertFalse(assembly.is_effectively_suppressed(second.entity_id))
+        self.assertFalse(assembly.is_effectively_suppressed(third.entity_id))
+
+    def test_component_visibility_does_not_suppress_dependents(self):
+        assembly = create_empty_assembly()
+        source = assembly.create_container("Source", ContainerType.COMPONENT)
+        dependent = assembly.create_container(
+            "Dependent", ContainerType.COMPONENT
+        )
+        dependent.parameters["assembly_mates"] = self._mate_to(source)
+
+        source.user_visible = False
+
+        self.assertFalse(assembly.is_effectively_visible(source.entity_id))
+        self.assertTrue(assembly.is_effectively_visible(dependent.entity_id))
+        self.assertFalse(
+            assembly.is_effectively_suppressed(dependent.entity_id)
+        )
+
+    def test_external_sketch_reference_participates_in_dependency_graph(self):
+        assembly = create_empty_assembly()
+        source = assembly.create_container("Source", ContainerType.COMPONENT)
+        dependent = assembly.create_container(
+            "Dependent", ContainerType.COMPONENT
+        )
+        sketch = ZimaEntity("Sketch", EntityKind.SKETCH)
+        sketch.parameters["external_references"] = json.dumps([{
+            "reference_scope": "assembly_component",
+            "component_id": source.entity_id,
+            "owner_id": source.entity_id,
+        }])
+        dependent.add_child(sketch)
+
+        source.suppressed = True
+
+        self.assertEqual(
+            assembly.assembly_component_dependencies()[dependent.entity_id],
+            {source.entity_id},
+        )
+        self.assertTrue(
+            assembly.is_effectively_suppressed(dependent.entity_id)
+        )
+
+    def test_missing_component_dependency_is_reported_as_error(self):
+        assembly = create_empty_assembly()
+        dependent = assembly.create_container(
+            "Dependent", ContainerType.COMPONENT
+        )
+        missing = ZimaEntity("Missing", EntityKind.CONTAINER)
+        dependent.parameters["assembly_mates"] = self._mate_to(missing)
+
+        self.assertEqual(
+            assembly.assembly_component_dependency_errors(
+                dependent.entity_id
+            ),
+            {missing.entity_id},
+        )
+        self.assertFalse(
+            assembly.is_effectively_suppressed(dependent.entity_id)
+        )
+        dependent.parameters["assembly_reference_error"] = "true"
+        self.assertIn(
+            "reference",
+            assembly.assembly_component_dependency_errors(
+                dependent.entity_id
+            ),
+        )
+
     def test_assembly_component_may_reference_an_assembly(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

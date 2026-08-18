@@ -80,6 +80,26 @@ znovu se sestaví z persistovaných zdrojových dat.
 Podrobnosti jsou v dokumentu
 [Stable Topology Naming](STABLE_TOPOLOGY_NAMING.md).
 
+## Potlačení a graf závislostí
+
+Potlačení komponenty není synonymum pro skrytí. **Skrýt/Odkrýt** mění pouze
+prezentaci instance; komponenta nadále poskytuje všechny své vazby a reference.
+**Potlačit** vyřadí instanci z aktivního modelu sestavy.
+
+Závislosti se odvozují přímo z persistovaných deskriptorů sestavových vazeb a
+z externích referencí skic s rozsahem `assembly_component`. Hrana grafu vede
+od závislé instance ke konkrétní instanci poskytující cílovou referenci. Graf
+pracuje se stabilní identitou výskytu, nikoliv se jménem komponenty nebo pouze
+s identitou sdíleného zdrojového Partu. Jeho sestavení neprochází OCCT geometrii
+a nevyvolává výpočet tělesa.
+
+Ručně potlačená instance spustí rekurzivní efektivní potlačení všech následníků.
+Tento odvozený stav se nezapisuje jako ruční příznak na následníky. Po obnovení
+zdroje se proto uvolní pouze následníci, kteří už nemají jiný potlačený zdroj;
+ostatní ruční potlačení zůstávají zachována. Neexistující komponenta nebo
+nevyřešená persistovaná reference se ze záznamu vazby neodstraňuje. Aktivní
+komponenta s takovou chybou se zobrazí červeně a zůstává opravitelná.
+
 ## Ruční přesun komponenty
 
 Fialový bod počátku ve vlastnostech komponenty slouží k interaktivnímu

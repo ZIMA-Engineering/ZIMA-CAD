@@ -3,10 +3,24 @@
 ## Kompatibilita dokumentů
 
 Soubory `.prtz`, `.asmz` a `.drwz` musí odpovídat aktuální hodnotě
-`format_version` (nyní `10`). ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší
-experimentální formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní
-změna formátu musí zvýšit jeho verzi a případně nabídnout samostatnou řízenou
-migraci.
+`format_version` (nyní `11`). ZIMA-CAD během vývoje nepoužívá tiché fallbacky
+pro starší experimentální formáty: nepodporovanou verzi odmítne. Budoucí
+nekompatibilní změna formátu musí zvýšit jeho verzi a případně nabídnout
+samostatnou řízenou migraci.
+
+## Dialogy Otevřít a Uložit
+
+Společné souborové dialogy ZIMA-CAD zobrazují soubory podle právě zvoleného
+typu souboru. Například filtr dílů nabízí `.prtz`, filtr sestav `.asmz` a filtr
+výkresů `.drwz`; soubory, které aktivnímu filtru neodpovídají, jsou skryté.
+Adresáře zůstávají dostupné pro navigaci a jsou zobrazené před soubory. Obě
+skupiny jsou ve výchozím stavu seřazené podle názvu vzestupně.
+
+Adresář s rezervovaným názvem `0000-index` se v těchto dialozích nezobrazuje. Jde
+o aplikačně spravovaný obsah používaný mimo běžné ruční otevírání a ukládání
+dokumentů. Porovnání názvu nerozlišuje velikost písmen, takže stejné pravidlo
+platí například také pro `0000-INDEX`. Skrytí v dialogu adresář ani jeho obsah
+z disku nemaže.
 
 ## Výchozí šablona dílu
 
@@ -526,6 +540,20 @@ zdrojového souboru. Po rozbalení ukazuje strom obsah zdrojového Partu nebo
 Assembly a lokální počátek instance. Poloha každé komponenty patří výhradně její
 bezprostředně nadřazené Assembly; nadřazená sestava polohuje vnořenou Assembly
 jako jeden celek a nepřebírá vlastnictví vazeb jejích vnitřních komponent.
+
+Kontextové menu komponenty rozlišuje **Skrýt/Odkrýt** a
+**Potlačit/Obnovit**. Skrytí je pouze stav zobrazení: komponent zůstává aktivní,
+jeho vazby a reference zůstávají platné a závislé komponenty se nemění.
+Potlačení komponent vyřadí z aktivního modelu sestavy. Komponenty závislé přes
+sestavové vazby nebo externí reference skic se potom automaticky potlačí také,
+a to rekurzivně přes celý závislý řetězec.
+
+Automatické potlačení následníků není ukládáno jako jejich ruční potlačení.
+Příkaz **Obnovit** na zdrojovém komponentu proto znovu vyhodnotí pouze jeho
+závislý řetězec; neobnovuje všechny komponenty sestavy a ručně potlačené
+komponenty ponechá beze změny. Následník se obnoví, pouze pokud už nemá jiný
+potlačený zdroj. Chybějící nebo neplatná aktivní reference se nemaže: komponent
+se obnoví v červeném chybovém stavu, aby bylo možné vazbu později opravit.
 
 Změny polohy ve Vlastnostech se zobrazují živě přímo ve view. Strom sestavy
 zůstává sestavový i při práci s obsahem vložených dílů. Dvojklik na instanci

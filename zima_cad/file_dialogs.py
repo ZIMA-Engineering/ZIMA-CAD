@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QFileInfo, QSize
+from PySide6.QtCore import (
+    QFileInfo,
+    QModelIndex,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -24,6 +30,45 @@ class ZimaDocumentFileIconProvider(QFileIconProvider):
             if icon_name is not None:
                 return resource_icon(icon_name)
         return super().icon(file_info_or_type)
+
+
+class ZimaDocumentFileProxyModel(QSortFilterProxyModel):
+    """Hide application-managed directories from ZIMA document choosers."""
+
+    HIDDEN_DIRECTORY_NAMES = frozenset({"0000-index"})
+
+    def filterAcceptsRow(
+        self,
+        source_row: int,
+        source_parent: QModelIndex,
+    ) -> bool:
+        source = self.sourceModel()
+        if source is None:
+            return True
+        index = source.index(source_row, 0, source_parent)
+        file_info = source.fileInfo(index)
+        if (
+            file_info.isDir()
+            and file_info.fileName().casefold()
+            in self.HIDDEN_DIRECTORY_NAMES
+        ):
+            return False
+        return super().filterAcceptsRow(source_row, source_parent)
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        source = self.sourceModel()
+        if source is not None:
+            left_is_directory = source.fileInfo(left).isDir()
+            right_is_directory = source.fileInfo(right).isDir()
+            if left_is_directory != right_is_directory:
+                # QSortFilterProxyModel reverses comparisons for descending
+                # order. Compensate so directories remain in the first group.
+                return (
+                    left_is_directory
+                    if self.sortOrder() == Qt.SortOrder.AscendingOrder
+                    else right_is_directory
+                )
+        return super().lessThan(left, right)
 
 
 def create_zima_file_dialog(
@@ -52,6 +97,10 @@ def create_zima_file_dialog(
     filters = [part.strip() for part in name_filter.split(";;") if part.strip()]
     if filters:
         dialog.setNameFilters(filters)
+        # False means non-matching files are hidden rather than merely
+        # disabled. Directories remain available for navigation, except for
+        # the application-managed entries removed by the proxy below.
+        dialog.setOption(QFileDialog.Option.HideNameFilterDetails, False)
     if default_suffix:
         dialog.setDefaultSuffix(default_suffix.lstrip("."))
 
@@ -64,12 +113,22 @@ def create_zima_file_dialog(
 
     provider = ZimaDocumentFileIconProvider()
     dialog.setIconProvider(provider)
+    proxy = ZimaDocumentFileProxyModel(dialog)
+    proxy.setDynamicSortFilter(True)
+    dialog.setProxyModel(proxy)
+    source_model = proxy.sourceModel()
+    if hasattr(source_model, "setNameFilterDisables"):
+        source_model.setNameFilterDisables(False)
     # QFileDialog does not own custom providers consistently across Qt
     # bindings. Retain it for the complete dialog lifetime.
     dialog._zima_document_icon_provider = provider
+    dialog._zima_document_proxy_model = proxy
     for view_type in (QListView, QTreeView):
         for view in dialog.findChildren(view_type):
             view.setIconSize(QSize(20, 20))
+            if isinstance(view, QTreeView):
+                view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+    proxy.sort(0, Qt.SortOrder.AscendingOrder)
     return dialog
 
 

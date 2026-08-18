@@ -22819,6 +22819,23 @@ class MainWindow(QMainWindow):
             for column in range(item.columnCount()):
                 item.setForeground(column, brush)
             item.setToolTip(0, tr("tree.state.suppressed"))
+        elif (
+            self.document is not None
+            and obj.container_type == ContainerType.COMPONENT
+            and self.document.assembly_component_dependency_errors(
+                obj.entity_id
+            )
+        ):
+            brush = QBrush(QColor("#C04020"))
+            for column in range(item.columnCount()):
+                item.setForeground(column, brush)
+        elif (
+            obj.container_type == ContainerType.COMPONENT
+            and not obj.user_visible
+        ):
+            brush = QBrush(QColor("#808080"))
+            for column in range(item.columnCount()):
+                item.setForeground(column, brush)
         elif actively_edited:
             font = item.font(0)
             font.setBold(True)
@@ -29627,6 +29644,7 @@ class MainWindow(QMainWindow):
         properties_action = None
         delete_action = None
         suppress_action = None
+        visibility_action = None
         body_suppress_action = None
         add_action = None
         subtract_action = None
@@ -29710,6 +29728,13 @@ class MainWindow(QMainWindow):
                         tr("menu.context.open_component"),
                     )
                     menu.addSeparator()
+                    visibility_action = menu.addAction(
+                        tr(
+                            "menu.context.hide"
+                            if obj.user_visible
+                            else "menu.context.unhide"
+                        )
+                    )
                 is_generic = (
                     obj.parameters.get("experimental_container") == "true"
                     and obj.container_type != ContainerType.COMPONENT
@@ -29910,6 +29935,12 @@ class MainWindow(QMainWindow):
             and obj is not None
         ):
             self._set_object_suppressed(obj, not obj.suppressed)
+        elif (
+            visibility_action is not None
+            and action == visibility_action
+            and obj is not None
+        ):
+            self._set_object_visible(obj, not obj.user_visible)
         elif body_suppress_action is not None and action == body_suppress_action:
             self._set_body_suppressed(not self.document.body_is_suppressed())
         elif (
@@ -32150,6 +32181,25 @@ class MainWindow(QMainWindow):
         self._select_tree_object(obj.entity_id)
         self.rebuild_view(fit=False)
 
+    def _set_object_visible(self, obj: ZimaEntity, visible: bool) -> None:
+        if (
+            self.document is None
+            or self.document.document_settings.get("type") != "assembly"
+            or obj.container_type != ContainerType.COMPONENT
+        ):
+            return
+        obj.user_visible = visible
+        # Visibility is presentation state. Do not invalidate the Assembly's
+        # persisted/evaluated model packet or trigger dependency calculation.
+        self._native_viewer_scene = None
+        self._assembly_occurrence_records.clear()
+        self._selected_assembly_occurrence_key = None
+        self.selected_face = None
+        self.selected_face_object_id = None
+        self._populate_tree()
+        self._select_tree_object(obj.entity_id)
+        self.rebuild_view(fit=False)
+
     def _set_body_suppressed(self, suppressed: bool) -> None:
         if self.document is None:
             return
@@ -33268,13 +33318,28 @@ class MainWindow(QMainWindow):
             previous_component_transform = self._homogeneous_transform(
                 component.coordinate_system
             )
+            has_invalid_references = any(
+                row.get("source") not in frames
+                or row.get("target") not in frames
+                for row in rows
+            )
             valid = dialog._with_orientation_roles([
                 row for row in rows
                 if row["source"] in frames and row["target"] in frames
             ])
             if not valid:
-                component.parameters["assembly_mates"] = "[]"
+                # Keep broken references editable. Regenerate/restore must
+                # expose the component as erroneous, not silently erase the
+                # user's mate definition.
+                component.parameters["assembly_mates"] = json.dumps(
+                    rows, ensure_ascii=False
+                )
+                component.parameters["assembly_reference_error"] = "true"
                 return
+            if has_invalid_references:
+                component.parameters["assembly_reference_error"] = "true"
+            else:
+                component.parameters.pop("assembly_reference_error", None)
             all_source_normals = np.array(
                 [frames[row["source"]][1] for row in valid],
                 dtype=float,
@@ -33717,6 +33782,7 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError, json.JSONDecodeError):
                 rows = []
             if not rows:
+                component.parameters.pop("assembly_reference_error", None)
                 continue
             self._edit_assembly_component(
                 component,

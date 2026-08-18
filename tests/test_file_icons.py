@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QFileInfo, QSize
+from PySide6.QtCore import QFileInfo, QSize, Qt
 from PySide6.QtWidgets import QApplication, QFileDialog, QListView, QTreeView
 
 from zima_cad.file_dialogs import (
     ZimaDocumentFileIconProvider,
+    ZimaDocumentFileProxyModel,
     create_zima_file_dialog,
 )
 from zima_cad.icons import (
@@ -143,6 +145,70 @@ class DocumentFileIconTests(unittest.TestCase):
         self.assertEqual(dialog.fileMode(), QFileDialog.FileMode.AnyFile)
         self.assertEqual(dialog.acceptMode(), QFileDialog.AcceptMode.AcceptSave)
         self.assertEqual(dialog.defaultSuffix(), "asmz")
+
+    def test_shared_dialog_hides_only_the_managed_index_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "0000-index").mkdir()
+            (root / "0000-INDEX").mkdir()
+            (root / "ordinary-folder").mkdir()
+            (root / "part.prtz").touch()
+            (root / "notes.txt").touch()
+            dialog = create_zima_file_dialog(
+                None,
+                "Open document",
+                root,
+                "Parts (*.prtz)",
+                accept_mode=QFileDialog.AcceptMode.AcceptOpen,
+            )
+            self.addCleanup(dialog.close)
+            proxy = dialog.proxyModel()
+
+            self.assertIsInstance(proxy, ZimaDocumentFileProxyModel)
+            source = proxy.sourceModel()
+            root_index = source.index(str(root))
+            # QFileSystemModel populates directory rows asynchronously.
+            deadline = 100
+            while source.rowCount(root_index) < 5 and deadline:
+                self.application.processEvents()
+                deadline -= 1
+            visible_names = {
+                proxy.data(proxy.index(row, 0, proxy.mapFromSource(root_index)))
+                for row in range(proxy.rowCount(proxy.mapFromSource(root_index)))
+            }
+            self.assertNotIn("0000-index", visible_names)
+            self.assertNotIn("0000-INDEX", visible_names)
+            self.assertIn("ordinary-folder", visible_names)
+
+            proxy_root = proxy.mapFromSource(root_index)
+            proxy.sort(0, Qt.SortOrder.AscendingOrder)
+            self.application.processEvents()
+            ordered_entries = [
+                (
+                    proxy.data(proxy.index(row, 0, proxy_root)),
+                    source.fileInfo(proxy.mapToSource(
+                        proxy.index(row, 0, proxy_root)
+                    )).isDir(),
+                )
+                for row in range(proxy.rowCount(proxy_root))
+            ]
+            first_file = next(
+                (
+                    index
+                    for index, (_name, is_directory)
+                    in enumerate(ordered_entries)
+                    if not is_directory
+                ),
+                len(ordered_entries),
+            )
+            self.assertTrue(all(
+                is_directory
+                for _name, is_directory in ordered_entries[:first_file]
+            ))
+            self.assertTrue(all(
+                not is_directory
+                for _name, is_directory in ordered_entries[first_file:]
+            ))
 
 
 if __name__ == "__main__":

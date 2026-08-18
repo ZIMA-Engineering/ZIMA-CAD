@@ -109,6 +109,8 @@ from zima_cad.topology import (
     EdgeRef,
     FaceRef,
     parse_edge_reference,
+    parse_assembly_edge_descriptor,
+    parse_assembly_face_descriptor,
     TopologyRegistry,
     TopologyResolution,
     TopologyResolutionState,
@@ -891,7 +893,142 @@ class PartDocument:
         # authoritative.  Keep reading the legacy field for file
         # compatibility, but it must no longer leave old documents hidden
         # without any corresponding control in the UI.
+        obj = self.find_entity(entity_id)
+        if obj is None:
+            return False
+        # Assembly component visibility is a presentation-only switch.  It
+        # deliberately does not participate in dependency evaluation.
+        if (
+            self.document_settings.get("type") == "assembly"
+            and obj.container_type == ContainerType.COMPONENT
+            and not obj.user_visible
+        ):
+            return False
         return not self.is_effectively_suppressed(entity_id)
+
+    @staticmethod
+    def _assembly_mate_target_ids(component: ZimaEntity) -> set[str]:
+        """Return component occurrences referenced by persisted mate rows."""
+        try:
+            rows = json.loads(str(component.parameters.get("assembly_mates", "[]")))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return set()
+        result: set[str] = set()
+        for row in rows if isinstance(rows, list) else ():
+            if not isinstance(row, dict):
+                continue
+            descriptor = str(row.get("target", ""))
+            face = parse_assembly_face_descriptor(descriptor)
+            edge = parse_assembly_edge_descriptor(descriptor)
+            if face is not None:
+                result.add(face.instance_id)
+            elif edge is not None:
+                result.add(edge.instance_id)
+            elif descriptor and not descriptor.startswith("assembly"):
+                # Datum/origin descriptors use the owning component id as
+                # their first field.
+                result.add(descriptor.split(":", 1)[0])
+        return result
+
+    def assembly_component_dependencies(self) -> dict[str, set[str]]:
+        """Build the cheap persisted occurrence dependency graph."""
+        if self.document_settings.get("type") != "assembly":
+            return {}
+        components = {
+            obj.entity_id: obj
+            for obj in self.history_objects()
+            if obj.container_type == ContainerType.COMPONENT
+        }
+        result: dict[str, set[str]] = {}
+        for entity_id, component in components.items():
+            dependencies = self._assembly_mate_target_ids(component)
+            pending = list(component.children)
+            while pending:
+                child = pending.pop()
+                pending.extend(child.children)
+                try:
+                    references = json.loads(str(
+                        child.parameters.get("external_references", "[]")
+                    ))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                for reference in references if isinstance(references, list) else ():
+                    if not isinstance(reference, dict):
+                        continue
+                    if reference.get("reference_scope") != "assembly_component":
+                        continue
+                    target_id = str(reference.get(
+                        "component_id", reference.get("owner_id", "")
+                    ))
+                    if target_id:
+                        dependencies.add(target_id)
+            dependencies.discard(entity_id)
+            result[entity_id] = dependencies
+        return result
+
+    def assembly_component_dependency_errors(self, entity_id: str) -> set[str]:
+        """Return unresolved persisted component dependencies."""
+        errors = {
+            dependency_id
+            for dependency_id in self.assembly_component_dependencies().get(
+                entity_id, ()
+            )
+            if self.find_entity(dependency_id) is None
+        }
+        component = self.find_entity(entity_id)
+        if (
+            component is not None
+            and str(component.parameters.get(
+                "assembly_reference_error", "false"
+            )).lower() == "true"
+        ):
+            errors.add("reference")
+        return errors
+
+    def dependency_suppression_sources(self, entity_id: str) -> set[str]:
+        """Find manually suppressed upstream components, cycle safely."""
+        graph = self.assembly_component_dependencies()
+        if entity_id not in graph:
+            return set()
+        sources: set[str] = set()
+        pending = list(graph[entity_id])
+        visited = {entity_id}
+        while pending:
+            dependency_id = pending.pop()
+            if dependency_id in visited:
+                continue
+            visited.add(dependency_id)
+            dependency = self.find_entity(dependency_id)
+            if dependency is None:
+                continue
+            if dependency.suppressed:
+                sources.add(dependency_id)
+                continue
+            pending.extend(graph.get(dependency_id, ()))
+        return sources
+
+    def dependency_suppressed_component_ids(self) -> set[str]:
+        """Calculate the complete suppression cascade in linear graph time."""
+        graph = self.assembly_component_dependencies()
+        dependents: dict[str, set[str]] = {}
+        for dependent_id, dependency_ids in graph.items():
+            for dependency_id in dependency_ids:
+                dependents.setdefault(dependency_id, set()).add(dependent_id)
+        suppressed = {
+            component.entity_id
+            for component in self.history_objects()
+            if component.container_type == ContainerType.COMPONENT
+            and component.suppressed
+        }
+        pending = list(suppressed)
+        while pending:
+            dependency_id = pending.pop()
+            for dependent_id in dependents.get(dependency_id, ()):
+                if dependent_id in suppressed:
+                    continue
+                suppressed.add(dependent_id)
+                pending.append(dependent_id)
+        return suppressed
 
     def is_effectively_suppressed(self, entity_id: str) -> bool:
         obj = self.find_entity(entity_id)
@@ -912,6 +1049,13 @@ class PartDocument:
             if obj.suppressed:
                 return True
             obj = self.find_parent(obj.entity_id)
+        dependency_owner_id = (
+            owning_history_object.entity_id
+            if owning_history_object is not None
+            else entity_id
+        )
+        if self.dependency_suppression_sources(dependency_owner_id):
+            return True
         return False
 
     def create_sketch_on_plane(

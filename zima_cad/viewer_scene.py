@@ -323,8 +323,37 @@ def build_document_viewer_scene_data(
         ):
             assembly_cached_result = None
         component_body_layers: list[ViewerMesh] = []
+        dependency_suppressed_ids = (
+            document.dependency_suppressed_component_ids()
+        )
+        dependency_graph = document.assembly_component_dependencies()
+        component_ids = {
+            obj.entity_id
+            for obj in assembly_objects
+            if obj.container_type == ContainerType.COMPONENT
+        }
+        dependency_error_ids = {
+            obj.entity_id
+            for obj in assembly_objects
+            if obj.container_type == ContainerType.COMPONENT
+            and (
+                dependency_graph.get(obj.entity_id, set()) - component_ids
+                or str(obj.parameters.get(
+                    "assembly_reference_error", "false"
+                )).lower() == "true"
+            )
+        }
+
+        def component_is_visible(component: ZimaEntity) -> bool:
+            # Preserve history-boundary and active-preview semantics from the
+            # document, while reusing the one-pass dependency cascade above.
+            if component.entity_id in dependency_suppressed_ids:
+                return False
+            return document.is_effectively_visible(component.entity_id)
 
         def component_display_color(component: ZimaEntity) -> str:
+            if component.entity_id in dependency_error_ids:
+                return "#C04020"
             source_document = (component_documents or {}).get(
                 component.entity_id
             )
@@ -399,7 +428,10 @@ def build_document_viewer_scene_data(
                 source_document.history_cursor()
             )
             for child in children:
-                if child.container_type != ContainerType.COMPONENT:
+                if (
+                    child.container_type != ContainerType.COMPONENT
+                    or not source_document.is_effectively_visible(child.entity_id)
+                ):
                     continue
                 child_document = (component_documents or {}).get(
                     child.entity_id
@@ -450,6 +482,15 @@ def build_document_viewer_scene_data(
                 )
             return meshes, colors
 
+        if assembly_cached_result is not None and any(
+            obj.container_type == ContainerType.COMPONENT
+            and not component_is_visible(obj)
+            for obj in assembly_objects
+        ):
+            # The persisted packet represents the complete calculated
+            # Assembly. Presentation hiding and dependency suppression are
+            # applied by rebuilding its lightweight component mesh layers.
+            assembly_cached_result = None
         if assembly_cached_result is not None:
             cached_body_result = assembly_cached_result
             cached_body_mesh = assembly_cached_result.mesh
@@ -463,7 +504,7 @@ def build_document_viewer_scene_data(
         for obj in (
             () if assembly_cached_result is not None else assembly_objects
         ):
-            if not document.is_effectively_visible(obj.entity_id):
+            if not component_is_visible(obj):
                 continue
             if obj.container_type != ContainerType.COMPONENT:
                 continue
@@ -628,7 +669,7 @@ def build_document_viewer_scene_data(
             for obj in assembly_objects:
                 if (
                     obj.container_type != ContainerType.COMPONENT
-                    or not document.is_effectively_visible(obj.entity_id)
+                    or not component_is_visible(obj)
                 ):
                     continue
                 source_document = (component_documents or {}).get(
