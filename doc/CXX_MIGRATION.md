@@ -2,14 +2,74 @@
 
 ## Stav rozhodnutí
 
-Tento dokument zachycuje schválený dlouhodobý směr, nikoliv právě aktivní
-přepis. Nejprve se dokončí rozpracované zásadní funkce současné Python verze,
-stabilizuje se datový model a uživatelské kontrakty a doplní se deterministické
-testy. Potom následuje feature freeze a řízená migrace do C++.
+Řízená migrace byla zahájena. Python verze je ve feature freeze: nepřidávají se
+do ní další velké funkční oblasti, ale přijímá opravy blokujících chyb a změny
+nutné k přesnému zachycení referenčního chování. Nedokončené oblasti jako nový
+STEP/DXF framework, Drawing a povrchové modelování se dotáhnou v cílové C++
+architektuře.
 
 Python verze zůstane během migrace referenční implementací. C++ část nesmí být
 považována za náhradu, dokud nad stejnými vstupy neposkytne stejné persistované
 výstupy, geometrické výsledky, chybové stavy a uživatelské chování.
+
+První vertikální řez je v `cpp/`: textový prototyp Part dokumentu, přímý OCCT
+výpočet kvádru, převod na ZIMA `ViewerMesh`, Qt viewer a deterministický test
+objemu, plochy, meshe a save/load. Prototyp používá vlastní příponu `.zcp.json`,
+aby předčasně nepředstíral úplnou kompatibilitu se současným `.prtz`.
+
+Společný C++ `PropertiesSubWindow` a jeden `BoxPropertiesDialog` pro tvorbu i
+editaci zavádějí interní `SubWindow`, pouze OK/Cancel, transakční Cancel a
+potvrzení dvojklikem prostředního tlačítka i nad hlavním oknem. GUI kontrakt je
+automaticky testovaný; OCCT výpočet kvádru proběhne až po úspěšném OK.
+
+Part prototyp nyní vlastní obecnou uspořádanou historii kontejnerů místo
+jednoho speciálního kvádru. Kontejnery mají stabilní unikátní ID a explicitní
+operaci Add/Subtract; první Subtract, duplicitní ID a neplatné rozměry jsou
+deterministicky odmítnuty. Celá historie se vyhodnotí jediným explicitním
+požadavkem adaptéru a UI obdrží pouze výsledný ZIMA mesh a metriky.
+
+Každý kontejner má také persistované posunutí v milimetrech a natočení kolem
+lokálních os X, Y a Z ve stupních. Transformace se aplikuje na operand před
+jeho Boolean operací, takže nejde o zobrazovací zkratku. Test oddělených a
+natočených kvádrů ověřuje, že výsledný objem odpovídá skutečné OCCT geometrii.
+
+`DocumentSession` sjednocuje transakce dokumentu. Každé úspěšné OK vytváří
+právě jednu revizi, Cancel žádnou, Undo/Redo obnovují celý persistovaný stav a
+savepoint určuje indikaci neuložených změn. Nový commit po Undo ruší starou
+Redo větev. Nahrazení nebo zavření změněného dokumentu vyžaduje explicitní
+Save/Discard/Cancel; během otevřeného Properties okna nelze změnit revizi pod
+rozpracovaným dialogem.
+
+První GPU viewer používá OpenGL 3.3 core přes `QOpenGLWidget`. Pozice, normály,
+trojúhelníky a hrany se nahrávají do GPU bufferů; orbit, pan a zoom mění pouze
+kamerové matice. Jeden ray test vytváří společný ordered candidate list pro
+oranžový hover, LMB potvrzení přesné geometrie azurovou barvou a RMB cycling
+před potvrzením. Trojúhelníky stejné persistované plochy se seskupí do jednoho
+kandidáta a zvýrazní se celá přesná plocha. Deterministický test ověřuje pořadí
+překrývajících se zásahů zepředu dozadu, deduplikaci ploch a cyklický návrat ve
+stejné kandidátní sadě.
+
+Plochy kvádru mají sémantické klíče `x_min`, `x_max`, `y_min`, `y_max`,
+`z_min`, `z_max` vlastněné stabilním ID kontejneru. OCCT adaptér propaguje
+jejich původ přes Boolean `Modified/Generated` historii. Rozporný původ
+výsledné plochy se nenahrazuje náhodnou volbou; taková plocha zůstane
+nenabízená, dokud nebude reference jednoznačně opravitelná.
+
+Stejný viewer packet nyní obsahuje původní sémantické hrany a vrcholy kvádru.
+Vrchol je určen kombinací `x_min/x_max : y_min/y_max : z_min/z_max`; hrana je
+kanonicky seřazená dvojice svých koncových vrcholů. Dvanáct hran a osm vrcholů
+proto nezávisí na pořadí OCCT traversal. Boolean historie propaguje přeživší a
+rozdělené původní hrany/vrcholy. Ray-edge a ray-vertex kandidáti vznikají pouze
+z hotového ZIMA viewer packetu a jsou řazeni zepředu dozadu bez dotazu do OCCT.
+
+Viewer nyní nejprve vytvoří jediný společný ordered `ViewerCandidate` seznam
+pro Container, Face, Edge a Vertex. Explicitní selection contract pouze
+odfiltruje povolené druhy z tohoto již existujícího seznamu a nikdy nespouští
+druhý picker. Běžný Part nabízí pouze původní kontejner; aktivní příkaz může
+povolit plochu, hranu nebo vrchol. Hover, LMB potvrzení a RMB cycling stále
+spotřebují stejné pořadí. Zvýraznění respektuje přesnou úroveň kandidáta:
+všechny vlastněné plochy kontejneru, jednu sémantickou plochu, jednu ZIMA
+polyline hrany nebo jeden persistovaný vrchol.
 
 ## Hlavní cíle
 
