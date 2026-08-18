@@ -577,6 +577,14 @@ Obecná cesta `set_dimension_value()` nyní neukládá pouze nové číslo, ale
 transakčně spustí stejnou aplikaci kóty a solver jako Properties. Neplatná hodnota,
 mez nebo konflikt nezmění ani kótu, ani geometrii. Záporný úhel je přitom platný
 úhlový parametr a nesmí být zaměněn za zápornou délku.
+
+První spline řez je otevřená sevřená kubická B-spline s vlastním stabilním ID a
+nejméně čtyřmi seřazenými stabilními ID řídicích bodů. Viewer ji vyhodnocuje ve
+128 intervalech algoritmem de Boor pouze z persistovaných ZIMA dat; tažení
+sdíleného bodu mění křivku bez OCCT. Sketch formát verze 4 ukládá stupeň a pořadí
+bodů. Otevřenou spline Vytažení a Rotace výslovně odmítnou, dokud nevznikne
+uzavřený přesný kernelový profil; viewerová polyline se nesmí stát tělesovou
+geometrií.
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné

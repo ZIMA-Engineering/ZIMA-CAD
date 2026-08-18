@@ -75,6 +75,11 @@ zima::kernel::ExtrusionRequest extrusion_request(
     ExtrusionDirection direction_mode) {
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
+    if (std::any_of(sketch.bsplines.begin(), sketch.bsplines.end(),
+            [](const auto& spline) { return !spline.construction; })) {
+        throw std::runtime_error(
+            "B-spline profiles require an exact kernel contract before solid calculation");
+    }
     zima::kernel::ExtrusionRequest request;
     request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
         ? zima::kernel::Vec3{0.0, 0.0, height}

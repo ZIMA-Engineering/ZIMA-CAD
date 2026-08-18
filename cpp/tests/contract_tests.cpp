@@ -638,6 +638,23 @@ int main() {
                     resized_ellipse.kernel_operations(), 1) !=
                     ellipse_profile_results.front().source_fingerprint,
                 "Ellipse semiaxes are missing from the history fingerprint");
+        auto open_spline_document = zima::document::PartDocument::create_default();
+        auto open_spline_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(open_spline_sketch.add_bspline({
+            {0.0, 0.0}, {10.0, 20.0}, {20.0, -10.0}, {30.0, 0.0}}));
+        const auto open_spline_sketch_id = open_spline_sketch.id;
+        open_spline_document.sketches.push_back(std::move(open_spline_sketch));
+        open_spline_document.history.push_back(
+            zima::document::PartDocument::create_extrusion_container(
+                open_spline_sketch_id));
+        bool open_spline_rejected = false;
+        try {
+            static_cast<void>(open_spline_document.kernel_operations());
+        } catch (const std::runtime_error&) {
+            open_spline_rejected = true;
+        }
+        require(open_spline_rejected,
+                "Open B-spline reached solid calculation without a closed exact profile");
 
         auto revolution_document = zima::document::PartDocument::create_default();
         auto revolution_sketch = zima::sketcher::Sketch::create_default();

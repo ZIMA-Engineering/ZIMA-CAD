@@ -375,6 +375,15 @@ value change immediately solves and updates the owned points or geometry, while
 invalid values, limits, or solver conflicts leave both dimension and geometry
 unchanged. Negative angular values are valid and are never classified as negative
 lengths.
+
+B-spline is introduced as native ZIMA Sketch geometry. The first bounded slice
+is an open clamped cubic B-spline with at least four ordered stable control-point
+references and its own stable curve ID. The viewer evaluates 128 intervals with
+the de Boor algorithm entirely from persisted ZIMA data; moving a shared control
+point updates the curve without OCCT, and deletion removes only truly orphaned
+points. Sketch format version 4 persists degree and ordered control-point IDs.
+Open splines are explicitly rejected by Extrusion and Revolution until a closed
+exact kernel profile contract exists; the viewer polyline is never model geometry.
 Ellipse rotation is a third independent driving/measured dimension in degrees.
 Changing it rotates both persisted axis points about the centre without changing
 either semiaxis; dragging the major point respects an active driving rotation.

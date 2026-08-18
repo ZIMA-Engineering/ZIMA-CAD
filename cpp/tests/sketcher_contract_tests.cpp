@@ -652,6 +652,32 @@ int main() {
         require(ellipse_sketch.ellipses.empty() && ellipse_sketch.points.empty() &&
                     ellipse_sketch.dimensions.empty(),
                 "Ellipse deletion retained dimensions or orphan axis points");
+        auto spline_sketch = zima::sketcher::Sketch::create_default();
+        const auto spline_id = spline_sketch.add_bspline({
+            {0.0, 0.0}, {10.0, 20.0}, {20.0, -10.0}, {30.0, 0.0}});
+        const auto spline_packet = spline_sketch.viewer_mesh();
+        require(spline_sketch.bsplines.size() == 1 &&
+                    spline_packet.edges.size() == 1 &&
+                    spline_packet.edges.front().points.size() == 129 &&
+                    spline_packet.edges.front().reference.semantic_key ==
+                        "bspline:" + spline_id &&
+                    std::abs(spline_packet.edges.front().points.front().x) < 1.0e-9 &&
+                    std::abs(spline_packet.edges.front().points.back().x - 30.0) < 1.0e-9,
+                "Cubic B-spline did not preserve stable identity or clamped endpoints");
+        const auto moved_spline_point =
+            spline_sketch.bsplines.front().control_point_ids[1];
+        require(spline_sketch.move_point(moved_spline_point, 10.0, 30.0) &&
+                    spline_sketch.viewer_mesh().edges.front().points[64].y >
+                        spline_packet.edges.front().points[64].y,
+                "Dragging a B-spline control point did not update the viewer curve");
+        const auto loaded_spline = zima::sketcher::Sketch::from_serialized(
+            spline_sketch.serialized());
+        require(loaded_spline.bsplines == spline_sketch.bsplines &&
+                    loaded_spline.points == spline_sketch.points,
+                "B-spline did not survive current Sketch serialization");
+        spline_sketch.remove_geometry(spline_id);
+        require(spline_sketch.bsplines.empty() && spline_sketch.points.empty(),
+                "B-spline deletion retained orphan control points");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

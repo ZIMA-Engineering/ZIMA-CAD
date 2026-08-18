@@ -69,6 +69,14 @@ struct SketchEllipse {
     bool operator==(const SketchEllipse&) const = default;
 };
 
+struct SketchBSpline {
+    std::string id;
+    std::vector<std::string> control_point_ids;
+    unsigned degree{3};
+    bool construction{};
+    bool operator==(const SketchBSpline&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -111,6 +119,7 @@ public:
     std::vector<SketchCircle> circles;
     std::vector<SketchArc> arcs;
     std::vector<SketchEllipse> ellipses;
+    std::vector<SketchBSpline> bsplines;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -152,6 +161,10 @@ public:
     [[nodiscard]] std::string add_ellipse(
         double center_x, double center_y, double major_x, double major_y,
         double minor_x, double minor_y, bool construction = false,
+        double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_bspline(
+        const std::vector<std::array<double, 2>>& control_points,
+        unsigned degree = 3, bool construction = false,
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
