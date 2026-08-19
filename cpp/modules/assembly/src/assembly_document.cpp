@@ -10,6 +10,7 @@
 #include <fstream>
 #include <random>
 #include <optional>
+#include <numbers>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -1160,16 +1161,129 @@ int AssemblyDocument::remaining_degrees_of_freedom(
     const auto* occurrence = find_occurrence(occurrence_id);
     if (occurrence == nullptr) throw std::invalid_argument("Assembly occurrence does not exist");
     if (occurrence->grounded) return 0;
-    int constrained = 0;
-    for (const auto& mate : mates) {
-        if (mate.suppressed || mate.status != MateStatus::Valid ||
-            mate.dependent.instance_path.occurrence_ids.empty() ||
-            mate.dependent.instance_path.occurrence_ids.front() != occurrence_id) continue;
-        constrained += mate.kind == MateKind::AxisCoincident ? 4
-            : (mate.kind == MateKind::AxisAngle || mate.kind == MateKind::PlaneAngle)
-                ? 1 : 3;
+    const auto residuals = [&](const AssemblyDocument& document) {
+        std::vector<double> values;
+        for (const auto& mate : document.mates) {
+            if (mate.suppressed || mate.status != MateStatus::Valid ||
+                mate.dependent.instance_path.occurrence_ids.empty() ||
+                mate.dependent.instance_path.occurrence_ids.front() != occurrence_id) {
+                continue;
+            }
+            if (mate.kind == MateKind::PointCoincident) {
+                const auto dependent = document.resolve_point(mate.dependent);
+                const auto prerequisite = document.resolve_point(mate.prerequisite);
+                if (dependent.status != MateStatus::Valid ||
+                    prerequisite.status != MateStatus::Valid) continue;
+                values.insert(values.end(), {
+                    dependent.point.x - prerequisite.point.x,
+                    dependent.point.y - prerequisite.point.y,
+                    dependent.point.z - prerequisite.point.z});
+            } else if (mate.kind == MateKind::AxisCoincident) {
+                const auto dependent = document.resolve_axis(mate.dependent);
+                const auto prerequisite = document.resolve_axis(mate.prerequisite);
+                if (dependent.status != MateStatus::Valid ||
+                    prerequisite.status != MateStatus::Valid) continue;
+                const auto orientation = cross(
+                    dependent.axis.direction, prerequisite.axis.direction);
+                const zima::kernel::Vec3 delta{
+                    dependent.axis.point.x - prerequisite.axis.point.x,
+                    dependent.axis.point.y - prerequisite.axis.point.y,
+                    dependent.axis.point.z - prerequisite.axis.point.z};
+                const double axial = dot(delta, prerequisite.axis.direction);
+                values.insert(values.end(), {
+                    orientation.x, orientation.y, orientation.z,
+                    delta.x - axial * prerequisite.axis.direction.x,
+                    delta.y - axial * prerequisite.axis.direction.y,
+                    delta.z - axial * prerequisite.axis.direction.z});
+            } else if (mate.kind == MateKind::PlaneCoincident) {
+                const auto dependent = document.resolve_plane(mate.dependent);
+                const auto prerequisite = document.resolve_plane(mate.prerequisite);
+                if (dependent.status != MateStatus::Valid ||
+                    prerequisite.status != MateStatus::Valid) continue;
+                const auto orientation = cross(
+                    dependent.plane.normal, prerequisite.plane.normal);
+                const zima::kernel::Vec3 delta{
+                    dependent.plane.point.x - prerequisite.plane.point.x,
+                    dependent.plane.point.y - prerequisite.plane.point.y,
+                    dependent.plane.point.z - prerequisite.plane.point.z};
+                values.insert(values.end(), {orientation.x, orientation.y,
+                    orientation.z,
+                    dot(delta, prerequisite.plane.normal) - mate.offset});
+            } else if (mate.kind == MateKind::AxisAngle) {
+                const auto dependent = document.resolve_axis(mate.dependent);
+                const auto prerequisite = document.resolve_axis(mate.prerequisite);
+                if (dependent.status != MateStatus::Valid ||
+                    prerequisite.status != MateStatus::Valid) continue;
+                constexpr double radians = std::numbers::pi / 180.0;
+                const double requested = (mate.flipped
+                    ? 180.0 - mate.angle_degrees : mate.angle_degrees) * radians;
+                values.push_back(dot(dependent.axis.direction,
+                    prerequisite.axis.direction) - std::cos(requested));
+            } else {
+                const auto dependent = document.resolve_plane(mate.dependent);
+                const auto prerequisite = document.resolve_plane(mate.prerequisite);
+                if (dependent.status != MateStatus::Valid ||
+                    prerequisite.status != MateStatus::Valid) continue;
+                constexpr double radians = std::numbers::pi / 180.0;
+                const double requested = (mate.flipped
+                    ? 180.0 - mate.angle_degrees : mate.angle_degrees) * radians;
+                values.push_back(dot(dependent.plane.normal,
+                    prerequisite.plane.normal) - std::cos(requested));
+            }
+        }
+        return values;
+    };
+    const auto baseline = residuals(*this);
+    if (baseline.empty()) return 6;
+    std::vector<std::vector<double>> jacobian(
+        baseline.size(), std::vector<double>(6));
+    for (int coordinate = 0; coordinate < 6; ++coordinate) {
+        auto perturbed = *this;
+        auto* moved = perturbed.find_occurrence(occurrence_id);
+        constexpr double translation_step = 1.0e-5;
+        constexpr double rotation_step_degrees = 1.0e-4;
+        const double step = coordinate < 3
+            ? translation_step : rotation_step_degrees;
+        if (coordinate == 0) moved->placement.x += step;
+        else if (coordinate == 1) moved->placement.y += step;
+        else if (coordinate == 2) moved->placement.z += step;
+        else if (coordinate == 3) moved->placement.rotation_x += step;
+        else if (coordinate == 4) moved->placement.rotation_y += step;
+        else moved->placement.rotation_z += step;
+        const auto changed = residuals(perturbed);
+        if (changed.size() != baseline.size()) continue;
+        const double denominator = coordinate < 3
+            ? step : step * std::numbers::pi / 180.0;
+        for (std::size_t row = 0; row < baseline.size(); ++row) {
+            jacobian[row][coordinate] =
+                (changed[row] - baseline[row]) / denominator;
+        }
     }
-    return std::max(0, 6 - constrained);
+    int rank{};
+    constexpr double rank_tolerance = 1.0e-6;
+    for (int column = 0; column < 6 && rank < static_cast<int>(jacobian.size());
+         ++column) {
+        int pivot = rank;
+        for (int row = rank + 1; row < static_cast<int>(jacobian.size()); ++row) {
+            if (std::abs(jacobian[row][column]) >
+                std::abs(jacobian[pivot][column])) pivot = row;
+        }
+        if (std::abs(jacobian[pivot][column]) <= rank_tolerance) continue;
+        std::swap(jacobian[pivot], jacobian[rank]);
+        const double divisor = jacobian[rank][column];
+        for (int value = column; value < 6; ++value) {
+            jacobian[rank][value] /= divisor;
+        }
+        for (int row = 0; row < static_cast<int>(jacobian.size()); ++row) {
+            if (row == rank) continue;
+            const double factor = jacobian[row][column];
+            for (int value = column; value < 6; ++value) {
+                jacobian[row][value] -= factor * jacobian[rank][value];
+            }
+        }
+        ++rank;
+    }
+    return 6 - rank;
 }
 
 std::unordered_set<std::string>

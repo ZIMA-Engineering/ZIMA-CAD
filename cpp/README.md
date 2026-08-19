@@ -247,6 +247,12 @@ or position conflicts, the component placement is restored to its exact
 pre-calculation state and all affected mates remain explicitly unsupported rather
 than leaving a partial transform behind.
 
+Assembly remaining degrees of freedom are diagnosed from the numerical rank of
+the local persisted mate equations for the exact dependent occurrence. Point,
+axis, plane and angular residuals share that rank calculation, so redundant
+mates do not falsely consume more freedom. The live immediate-component tree
+shows the resulting DOF count; the diagnostic does not invoke OCCT.
+
 Mates now have a complete editing lifecycle. Creation and double-click editing
 reuse the same internal `MatePropertiesDialog`; OK replaces the mate, rebuilds
 its dependency edge, recalculates, and commits one revision. The RMB menu offers
@@ -478,13 +484,13 @@ history rollback remain transient. The same Properties window selects Forward,
 Reverse, or Symmetric direction. Height is always the total extrusion length:
 Forward spans `0…H`, Reverse `−H…0`, and Symmetric `−H/2…H/2` along the persisted
 Sketch normal. Direction is persisted and included in the calculated-history
-fingerprint. The current profile contract deliberately
-accepts one connected closed loop of non-construction straight Segments or one
-outer Circle. A polygon may contain non-overlapping circular holes; an outer
-Circle may contain non-overlapping inner Circles. Document Core explicitly
-classifies outer and inner loops, normalizes polygon orientation, and rejects
-crossing, touching, disjoint, overlapping, or self-intersecting profiles before
-OCCT. Circles cross the kernel boundary as exact centre/radius loops and remain
+fingerprint. The profile contract accepts multiple disconnected regions and
+arbitrarily nested holes. Straight Segment loops, Circles, exact mixed curved
+loops and semantic Text contours participate in one containment classification;
+Text may be combined with ordinary profile geometry without losing editability.
+Document Core rejects crossing, touching, overlapping, degenerate and
+self-intersecting boundaries before OCCT. Circles cross the kernel boundary as
+exact centre/radius loops and remain
 true cylindrical faces rather than tessellated polygons. A single outer loop
 may also combine straight Segments and exact Arcs and may contain circular inner
 loops. An Arc owns its stable geometry ID and explicitly references stable
@@ -494,9 +500,10 @@ Document Core orders those curves through the persisted endpoint geometry; the
 kernel boundary independently
 checks connectivity, closure, finite points, and non-collinear Arc definition.
 OCCT additionally validates the exact face and final solid before returning
-viewer data. OCCT returns a
-prism with stable start, end, outer and inner side, edge and vertex references
-owned by the Extrusion history container.
+viewer data. Sampling is confined to Document Core intersection/containment
+checks; it never replaces the analytical kernel input. OCCT returns a prism
+whose side references derive from stable Sketch boundary IDs rather than OCCT
+wire order. Those IDs also participate in the history fingerprint.
 
 Revolution is the next complete Sketch-to-solid command. It reuses the same
 internal Properties window and transaction/rollback path, with a persisted

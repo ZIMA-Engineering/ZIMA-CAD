@@ -1085,18 +1085,28 @@ PrimitiveData make_extrusion_data(
     PrimitiveData result{prism.Shape(), {}, {}, {}};
     result.faces.push_back({prism.FirstShape(), {owner_id, "profile_start"}});
     result.faces.push_back({prism.LastShape(), {owner_id, "profile_end"}});
+    std::vector<std::string> boundary_ids{request.outer_boundary_id};
+    boundary_ids.insert(boundary_ids.end(), request.inner_boundary_ids.begin(),
+                        request.inner_boundary_ids.end());
     std::size_t edge_index{};
-    for (const auto& wire : wires) {
+    for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
+        std::size_t boundary_edge{};
+        const auto& wire = wires[wire_index];
         for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
-             explorer.More(); explorer.Next()) {
+             explorer.More(); explorer.Next(), ++boundary_edge) {
             const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
             const auto index = std::to_string(edge_index++);
+            const auto stable_index = wire_index < boundary_ids.size() &&
+                    !boundary_ids[wire_index].empty()
+                ? "profile-boundary:" + boundary_ids[wire_index] +
+                    ":edge:" + std::to_string(boundary_edge)
+                : "side:" + index;
             const auto& generated = prism.Generated(edge);
             for (TopTools_ListIteratorOfListOfShape iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
-                        {iterator.Value(), {owner_id, "side:" + index}});
+                        {iterator.Value(), {owner_id, stable_index}});
                 }
             }
             const auto first = prism.FirstShape(edge);
@@ -1218,6 +1228,12 @@ PrimitiveData make_extrusion_data(
                 request.additional_profile_regions[index].outer_profile;
             additional_request.inner_profiles =
                 request.additional_profile_regions[index].inner_profiles;
+            additional_request.profile_region_id =
+                request.additional_profile_regions[index].region_id;
+            additional_request.outer_boundary_id =
+                request.additional_profile_regions[index].outer_boundary_id;
+            additional_request.inner_boundary_ids =
+                request.additional_profile_regions[index].inner_boundary_ids;
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target);
@@ -1345,18 +1361,28 @@ PrimitiveData make_revolution_data(
         result.faces.push_back(
             {revolution.LastShape(), {owner_id, "profile_end"}});
     }
+    std::vector<std::string> boundary_ids{request.outer_boundary_id};
+    boundary_ids.insert(boundary_ids.end(), request.inner_boundary_ids.begin(),
+                        request.inner_boundary_ids.end());
     std::size_t edge_index{};
-    for (const auto& wire : wires) {
+    for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
+        std::size_t boundary_edge{};
+        const auto& wire = wires[wire_index];
         for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
-             explorer.More(); explorer.Next()) {
+             explorer.More(); explorer.Next(), ++boundary_edge) {
             const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
             const auto index = std::to_string(edge_index++);
+            const auto stable_index = wire_index < boundary_ids.size() &&
+                    !boundary_ids[wire_index].empty()
+                ? "profile-boundary:" + boundary_ids[wire_index] +
+                    ":edge:" + std::to_string(boundary_edge)
+                : "side:" + index;
             const auto& generated = revolution.Generated(edge);
             for (TopTools_ListIteratorOfListOfShape iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
-                        {iterator.Value(), {owner_id, "side:" + index}});
+                        {iterator.Value(), {owner_id, stable_index}});
                 }
             }
             if (request.angle_degrees < 360.0 - 1.0e-9) {
@@ -1413,6 +1439,12 @@ PrimitiveData make_revolution_data(
                 request.additional_profile_regions[index].outer_profile;
             additional_request.inner_profiles =
                 request.additional_profile_regions[index].inner_profiles;
+            additional_request.profile_region_id =
+                request.additional_profile_regions[index].region_id;
+            additional_request.outer_boundary_id =
+                request.additional_profile_regions[index].outer_boundary_id;
+            additional_request.inner_boundary_ids =
+                request.additional_profile_regions[index].inner_boundary_ids;
             additional_request.additional_profile_regions.clear();
             auto additional = make_revolution_data(additional_request, owner_id);
             const auto prefix = "region:" + std::to_string(index + 1) + ":";

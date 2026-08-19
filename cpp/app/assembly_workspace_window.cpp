@@ -7106,6 +7106,17 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         }
         else if (!component.visible) label += tr(" [skryto]");
         if (component.grounded) label += tr(" [uzemněno]");
+        if (parent_path.occurrence_ids.empty()) {
+            if (const auto* owner = workspace_.open_assembly(
+                    owner_assembly_document_id)) {
+                const auto& live = owner->session.document();
+                if (live.find_occurrence(component.occurrence_id) != nullptr &&
+                    !component.grounded && !suppressed) {
+                    label += tr(" [%1 DOF]").arg(
+                        live.remaining_degrees_of_freedom(component.occurrence_id));
+                }
+            }
+        }
         auto* item = new QTreeWidgetItem(parent, {label});
         const auto path = parent_path.child(component.occurrence_id);
         item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));

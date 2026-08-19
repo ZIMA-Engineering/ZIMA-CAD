@@ -375,6 +375,13 @@ Odložené jsou zejména:
 - úplné praktické ověření mechanismů v hluboce vnořených a opakovaných
   podsestavách.
 
+Diagnostika stupňů volnosti již nepoužívá prostý součet omezení. Numerický rank
+lokálních rovnic bodových, osových, rovinných a úhlových vazeb rozpozná
+redundantní rovnice a strom živé Assembly zobrazuje výsledný počet DOF bez OCCT.
+Obecný drag a praktické hluboké mechanismové fixture zůstávají cutover bránou,
+nikoli skrytě deklarovanou hotovou paritou; aktuální audit je v
+`doc/CXX_PARITY_AUDIT.md`.
+
 Při návratu k této práci se má navázat na existující transakční API změny
 hodnoty vazby, absolutní meze a stabilní viewer kóty. Tyto části se nemají
 nahrazovat paralelní cestou.
@@ -990,6 +997,14 @@ se, dotýkající se nebo překrývající se kontury, podle hloubky vnoření r
 vnější oblasti a otvory a předá kernelu libovolný počet oddělených oblastí.
 Více znaků i znaky s otvory tak fungují pro Přičíst i Odečíst bez načtení fontu
 nebo volání OCCT při otevření skici.
+
+Stejný obecný profilový kontrakt nyní klasifikuje více oddělených oblastí,
+libovolně vnořené polygonové a kruhové smyčky a kombinaci Textu s běžnou
+geometrií. Analytické kružnice, elipsy, oblouky a B-spline zůstávají přesným
+kernelovým vstupem; vzorkování slouží pouze pro kontrolu průniků a containmentu
+v Document Core. Každá oblast a hranice nese deterministické ID od původních
+Sketch entit do fingerprintu a referencí bočních ploch, takže identitou není
+pořadí hran vrácené OCCT.
 
 Nativní řez **Externí reference** používá Sketch formát verze 19 a Part
 formát verze 22. Read-only entita ukládá stabilní identitu zdrojového dokumentu,

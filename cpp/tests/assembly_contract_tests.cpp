@@ -163,6 +163,15 @@ int main() {
                              resolved_prerequisite_point.point.z) < 1.0e-7 &&
                     point_mated_assembly.remaining_degrees_of_freedom(second_id) == 3,
                 "Point mate did not align persisted original-solid points");
+        auto redundant_point_assembly = point_mated_assembly;
+        redundant_point_assembly.add_mate(
+            zima::assembly::AssemblyDocument::create_mate(
+                "Redundantní bod", zima::assembly::MateKind::PointCoincident,
+                point_mated_assembly.mates.front().dependent,
+                point_mated_assembly.mates.front().prerequisite));
+        redundant_point_assembly.calculate_mates();
+        require(redundant_point_assembly.remaining_degrees_of_freedom(second_id) == 3,
+                "Redundant Assembly mate was counted as three new constraints");
         const auto point_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-point-mate-contract.asmz";
         point_mated_assembly.save(point_mate_path);

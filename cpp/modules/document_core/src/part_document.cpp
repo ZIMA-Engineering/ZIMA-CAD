@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <stdexcept>
 #include <unordered_set>
@@ -60,6 +61,12 @@ void require_default_sketch_feature_placement(const Placement& placement) {
     }
 }
 
+std::string stable_profile_id(std::string prefix, std::vector<std::string> ids) {
+    std::sort(ids.begin(), ids.end());
+    for (const auto& id : ids) prefix += ":" + std::to_string(id.size()) + ":" + id;
+    return prefix;
+}
+
 void validate_extrusion_direction(ExtrusionDirection direction) {
     switch (direction) {
         case ExtrusionDirection::Forward:
@@ -68,6 +75,156 @@ void validate_extrusion_direction(ExtrusionDirection direction) {
             return;
     }
     throw std::runtime_error("Invalid Extrusion direction");
+}
+
+using ProfileLoop = zima::kernel::ExtrusionRequest::ProfileLoop;
+using ProfileRegion = zima::kernel::ExtrusionRequest::ProfileRegion;
+using ProfilePolygon = std::vector<std::array<double, 2>>;
+
+ProfilePolygon sampled_profile_loop(
+    const ProfileLoop& loop, const zima::sketcher::Sketch& sketch) {
+    ProfilePolygon result;
+    const auto local = [&](const zima::kernel::Vec3& point) {
+        return sketch.local_point(point);
+    };
+    const auto append = [&](const std::array<double, 2>& point) {
+        if (result.empty() || std::hypot(result.back()[0] - point[0],
+                                        result.back()[1] - point[1]) > 1.0e-9) {
+            result.push_back(point);
+        }
+    };
+    std::visit([&](const auto& profile) {
+        using Profile = std::decay_t<decltype(profile)>;
+        if constexpr (std::is_same_v<Profile,
+                          zima::kernel::ExtrusionRequest::PolygonProfile>) {
+            for (const auto& point : profile.vertices) append(local(point));
+        } else if constexpr (std::is_same_v<Profile,
+                                 zima::kernel::ExtrusionRequest::CircleProfile>) {
+            const auto center = local(profile.center);
+            for (int index = 0; index < 96; ++index) {
+                const double angle = 2.0 * std::numbers::pi * index / 96.0;
+                append({center[0] + profile.radius * std::cos(angle),
+                        center[1] + profile.radius * std::sin(angle)});
+            }
+        } else if constexpr (std::is_same_v<Profile,
+                                 zima::kernel::ExtrusionRequest::EllipseProfile>) {
+            const auto center = local(profile.center);
+            const auto axis_point = local({
+                profile.center.x + profile.major_axis_direction.x,
+                profile.center.y + profile.major_axis_direction.y,
+                profile.center.z + profile.major_axis_direction.z});
+            const std::array<double, 2> axis{
+                axis_point[0] - center[0], axis_point[1] - center[1]};
+            for (int index = 0; index < 128; ++index) {
+                const double angle = 2.0 * std::numbers::pi * index / 128.0;
+                append({center[0] + axis[0] * profile.major_radius * std::cos(angle) -
+                            axis[1] * profile.minor_radius * std::sin(angle),
+                        center[1] + axis[1] * profile.major_radius * std::cos(angle) +
+                            axis[0] * profile.minor_radius * std::sin(angle)});
+            }
+        } else {
+            for (const auto& curve_variant : profile.curves) {
+                std::visit([&](const auto& curve) {
+                    using Curve = std::decay_t<decltype(curve)>;
+                    if constexpr (std::is_same_v<Curve,
+                                      zima::kernel::ExtrusionRequest::LineCurve>) {
+                        append(local(curve.start));
+                        append(local(curve.end));
+                    } else if constexpr (std::is_same_v<Curve,
+                                             zima::kernel::ExtrusionRequest::ArcCurve>) {
+                        const auto first = local(curve.start);
+                        const auto middle = local(curve.middle);
+                        const auto last = local(curve.end);
+                        const double divisor = 2.0 * (first[0] * (middle[1] - last[1]) +
+                            middle[0] * (last[1] - first[1]) +
+                            last[0] * (first[1] - middle[1]));
+                        if (std::abs(divisor) <= 1.0e-12) {
+                            append(first); append(last); return;
+                        }
+                        const double first_norm = first[0] * first[0] + first[1] * first[1];
+                        const double middle_norm = middle[0] * middle[0] + middle[1] * middle[1];
+                        const double last_norm = last[0] * last[0] + last[1] * last[1];
+                        const std::array<double, 2> center{
+                            (first_norm * (middle[1] - last[1]) +
+                             middle_norm * (last[1] - first[1]) +
+                             last_norm * (first[1] - middle[1])) / divisor,
+                            (first_norm * (last[0] - middle[0]) +
+                             middle_norm * (first[0] - last[0]) +
+                             last_norm * (middle[0] - first[0])) / divisor};
+                        const double radius = std::hypot(
+                            first[0] - center[0], first[1] - center[1]);
+                        double start = std::atan2(first[1] - center[1], first[0] - center[0]);
+                        double mid = std::atan2(middle[1] - center[1], middle[0] - center[0]);
+                        double end = std::atan2(last[1] - center[1], last[0] - center[0]);
+                        while (mid < start) mid += 2.0 * std::numbers::pi;
+                        while (end < start) end += 2.0 * std::numbers::pi;
+                        if (mid > end) end -= 2.0 * std::numbers::pi;
+                        for (int index = 0; index <= 48; ++index) {
+                            const double angle = start + (end - start) * index / 48.0;
+                            append({center[0] + radius * std::cos(angle),
+                                    center[1] + radius * std::sin(angle)});
+                        }
+                    } else if constexpr (std::is_same_v<Curve,
+                                             zima::kernel::ExtrusionRequest::EllipticalArcCurve>) {
+                        const auto center = local(curve.center);
+                        const auto axis_point = local({
+                            curve.center.x + curve.major_axis_direction.x,
+                            curve.center.y + curve.major_axis_direction.y,
+                            curve.center.z + curve.major_axis_direction.z});
+                        const std::array<double, 2> axis{
+                            axis_point[0] - center[0], axis_point[1] - center[1]};
+                        for (int index = 0; index <= 64; ++index) {
+                            const double parameter = curve.start_parameter +
+                                (curve.end_parameter - curve.start_parameter) * index / 64.0;
+                            const double signed_parameter = curve.reversed ? -parameter : parameter;
+                            append({center[0] + axis[0] * curve.major_radius *
+                                        std::cos(signed_parameter) - axis[1] *
+                                        curve.minor_radius * std::sin(signed_parameter),
+                                    center[1] + axis[1] * curve.major_radius *
+                                        std::cos(signed_parameter) + axis[0] *
+                                        curve.minor_radius * std::sin(signed_parameter)});
+                        }
+                    } else {
+                        for (const auto& point : curve.control_points) append(local(point));
+                    }
+                }, curve_variant);
+            }
+        }
+    }, loop);
+    if (result.size() >= 2 && std::hypot(result.front()[0] - result.back()[0],
+                                        result.front()[1] - result.back()[1]) <= 1.0e-9) {
+        result.pop_back();
+    }
+    return result;
+}
+
+std::vector<ProfileRegion> request_regions(
+    zima::kernel::ExtrusionRequest request) {
+    ProfileRegion first;
+    first.region_id = std::move(request.profile_region_id);
+    first.outer_boundary_id = std::move(request.outer_boundary_id);
+    first.inner_boundary_ids = std::move(request.inner_boundary_ids);
+    first.outer_profile = std::move(request.outer_profile);
+    first.inner_profiles = std::move(request.inner_profiles);
+    std::vector<ProfileRegion> regions;
+    regions.push_back(std::move(first));
+    regions.insert(regions.end(),
+        std::make_move_iterator(request.additional_profile_regions.begin()),
+        std::make_move_iterator(request.additional_profile_regions.end()));
+    return regions;
+}
+
+void assign_regions(zima::kernel::ExtrusionRequest& request,
+                    std::vector<ProfileRegion> regions) {
+    if (regions.empty()) throw std::runtime_error("Profile has no solid region");
+    request.profile_region_id = std::move(regions.front().region_id);
+    request.outer_boundary_id = std::move(regions.front().outer_boundary_id);
+    request.inner_boundary_ids = std::move(regions.front().inner_boundary_ids);
+    request.outer_profile = std::move(regions.front().outer_profile);
+    request.inner_profiles = std::move(regions.front().inner_profiles);
+    request.additional_profile_regions.assign(
+        std::make_move_iterator(regions.begin() + 1),
+        std::make_move_iterator(regions.end()));
 }
 
 zima::kernel::ExtrusionRequest extrusion_request(
@@ -219,17 +376,162 @@ zima::kernel::ExtrusionRequest extrusion_request(
             (direction_mode == ExtrusionDirection::Reverse);
         return curve;
     };
-    if (!sketch.texts.empty()) {
-        if (!profile_segments.empty() || !profile_circles.empty() ||
-            !profile_arcs.empty() || !profile_ellipses.empty() ||
-            !profile_elliptical_arcs.empty() || !profile_splines.empty()) {
-            throw std::runtime_error(
-                "Text profile must not be mixed with ordinary Sketch geometry");
+    const bool has_ordinary_profile = !profile_segments.empty() ||
+        !profile_circles.empty() || !profile_arcs.empty() ||
+        !profile_ellipses.empty() || !profile_elliptical_arcs.empty() ||
+        !profile_splines.empty();
+    if (!sketch.texts.empty() && has_ordinary_profile) {
+        auto ordinary_sketch = sketch;
+        ordinary_sketch.texts.clear();
+        auto text_sketch = sketch;
+        text_sketch.segments.clear();
+        text_sketch.circles.clear();
+        text_sketch.arcs.clear();
+        text_sketch.ellipses.clear();
+        text_sketch.elliptical_arcs.clear();
+        text_sketch.bsplines.clear();
+        auto ordinary_request = extrusion_request(
+            ordinary_sketch, height, direction_mode);
+        auto text_request = extrusion_request(text_sketch, height, direction_mode);
+        struct Boundary {
+            std::string id;
+            ProfileLoop loop;
+            ProfilePolygon sample;
+            int parent{-1};
+            double area{};
+        };
+        std::vector<Boundary> boundaries;
+        const auto append_regions = [&](std::vector<ProfileRegion> regions) {
+            for (auto& region : regions) {
+                boundaries.push_back({region.outer_boundary_id,
+                    std::move(region.outer_profile)});
+                for (std::size_t index = 0; index < region.inner_profiles.size(); ++index) {
+                    boundaries.push_back({
+                        index < region.inner_boundary_ids.size()
+                            ? region.inner_boundary_ids[index]
+                            : region.outer_boundary_id + ":inner:" +
+                                std::to_string(index),
+                        std::move(region.inner_profiles[index])});
+                }
+            }
+        };
+        append_regions(request_regions(std::move(ordinary_request)));
+        append_regions(request_regions(std::move(text_request)));
+        const auto cross = [](const auto& a, const auto& b, const auto& c) {
+            return (b[0] - a[0]) * (c[1] - a[1]) -
+                (b[1] - a[1]) * (c[0] - a[0]);
+        };
+        const auto on_segment = [&](const auto& point, const auto& a, const auto& b) {
+            return std::abs(cross(a, b, point)) <= 1.0e-7 &&
+                point[0] >= std::min(a[0], b[0]) - 1.0e-7 &&
+                point[0] <= std::max(a[0], b[0]) + 1.0e-7 &&
+                point[1] >= std::min(a[1], b[1]) - 1.0e-7 &&
+                point[1] <= std::max(a[1], b[1]) + 1.0e-7;
+        };
+        const auto intersects = [&](const auto& a, const auto& b,
+                                     const auto& c, const auto& d) {
+            const double ab_c = cross(a, b, c), ab_d = cross(a, b, d);
+            const double cd_a = cross(c, d, a), cd_b = cross(c, d, b);
+            return ((ab_c > 1.0e-7 && ab_d < -1.0e-7) ||
+                    (ab_c < -1.0e-7 && ab_d > 1.0e-7)) &&
+                       ((cd_a > 1.0e-7 && cd_b < -1.0e-7) ||
+                        (cd_a < -1.0e-7 && cd_b > 1.0e-7)) ||
+                on_segment(c, a, b) || on_segment(d, a, b) ||
+                on_segment(a, c, d) || on_segment(b, c, d);
+        };
+        const auto contains = [](const ProfilePolygon& polygon,
+                                 const std::array<double, 2>& point) {
+            bool inside = false;
+            for (std::size_t i = 0, j = polygon.size() - 1;
+                 i < polygon.size(); j = i++) {
+                const auto& a = polygon[i];
+                const auto& b = polygon[j];
+                if ((a[1] > point[1]) != (b[1] > point[1]) &&
+                    point[0] < (b[0] - a[0]) * (point[1] - a[1]) /
+                            (b[1] - a[1]) + a[0]) inside = !inside;
+            }
+            return inside;
+        };
+        for (auto& boundary : boundaries) {
+            boundary.sample = sampled_profile_loop(boundary.loop, sketch);
+            if (boundary.sample.size() < 3) {
+                throw std::runtime_error("Mixed profile boundary is degenerate");
+            }
+            for (std::size_t index = 0; index < boundary.sample.size(); ++index) {
+                const auto& a = boundary.sample[index];
+                const auto& b = boundary.sample[(index + 1) % boundary.sample.size()];
+                boundary.area += a[0] * b[1] - b[0] * a[1];
+            }
+            boundary.area = std::abs(boundary.area) * 0.5;
         }
+        for (std::size_t first = 0; first < boundaries.size(); ++first) {
+            for (std::size_t second = first + 1; second < boundaries.size(); ++second) {
+                for (std::size_t a = 0; a < boundaries[first].sample.size(); ++a) {
+                    for (std::size_t b = 0; b < boundaries[second].sample.size(); ++b) {
+                        if (intersects(boundaries[first].sample[a],
+                                boundaries[first].sample[(a + 1) %
+                                    boundaries[first].sample.size()],
+                                boundaries[second].sample[b],
+                                boundaries[second].sample[(b + 1) %
+                                    boundaries[second].sample.size()])) {
+                            throw std::runtime_error(
+                                "Mixed profile boundaries overlap or touch");
+                        }
+                    }
+                }
+            }
+        }
+        for (std::size_t index = 0; index < boundaries.size(); ++index) {
+            double parent_area = std::numeric_limits<double>::infinity();
+            for (std::size_t candidate = 0; candidate < boundaries.size(); ++candidate) {
+                if (candidate != index && boundaries[candidate].area > boundaries[index].area &&
+                    contains(boundaries[candidate].sample,
+                             boundaries[index].sample.front()) &&
+                    boundaries[candidate].area < parent_area) {
+                    boundaries[index].parent = static_cast<int>(candidate);
+                    parent_area = boundaries[candidate].area;
+                }
+            }
+        }
+        const auto depth = [&](std::size_t index) {
+            int result{};
+            for (int parent = boundaries[index].parent; parent >= 0;
+                 parent = boundaries[parent].parent) {
+                if (++result > static_cast<int>(boundaries.size())) {
+                    throw std::runtime_error("Mixed profile containment is cyclic");
+                }
+            }
+            return result;
+        };
+        std::vector<ProfileRegion> regions;
+        for (std::size_t index = 0; index < boundaries.size(); ++index) {
+            if (depth(index) % 2 != 0) continue;
+            ProfileRegion region;
+            region.region_id = "profile-region:" + boundaries[index].id;
+            region.outer_boundary_id = boundaries[index].id;
+            region.outer_profile = std::move(boundaries[index].loop);
+            for (std::size_t child = 0; child < boundaries.size(); ++child) {
+                if (boundaries[child].parent == static_cast<int>(index)) {
+                    region.inner_boundary_ids.push_back(boundaries[child].id);
+                    region.inner_profiles.push_back(std::move(boundaries[child].loop));
+                }
+            }
+            regions.push_back(std::move(region));
+        }
+        auto combined = extrusion_request(ordinary_sketch, height, direction_mode);
+        assign_regions(combined, std::move(regions));
+        return combined;
+    }
+    if (!sketch.texts.empty()) {
         using Contour = std::vector<std::array<double, 2>>;
         std::vector<Contour> contours;
+        std::vector<std::string> contour_ids;
         for (const auto& text : sketch.texts) {
-            contours.insert(contours.end(), text.contours.begin(), text.contours.end());
+            for (std::size_t index = 0; index < text.contours.size(); ++index) {
+                contours.push_back(text.contours[index]);
+                contour_ids.push_back(
+                    "text:" + text.id + ":contour:" + std::to_string(index));
+            }
         }
         const auto cross = [](const auto& a, const auto& b, const auto& c) {
             return (b[0] - a[0]) * (c[1] - a[1]) -
@@ -332,10 +634,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
         for (std::size_t index = 0; index < contours.size(); ++index) {
             if (depth(index) % 2 != 0) continue;
             zima::kernel::ExtrusionRequest::ProfileRegion region;
+            region.region_id = "profile-region:" + contour_ids[index];
+            region.outer_boundary_id = contour_ids[index];
             region.outer_profile = polygon_profile(contours[index]);
             for (std::size_t child = 0; child < contours.size(); ++child) {
                 if (parent[child] == static_cast<int>(index)) {
                     region.inner_profiles.push_back(polygon_profile(contours[child]));
+                    region.inner_boundary_ids.push_back(contour_ids[child]);
                 }
             }
             regions.push_back(std::move(region));
@@ -343,6 +648,9 @@ zima::kernel::ExtrusionRequest extrusion_request(
         if (regions.empty()) throw std::runtime_error("Text profile has no solid region");
         request.outer_profile = std::move(regions.front().outer_profile);
         request.inner_profiles = std::move(regions.front().inner_profiles);
+        request.profile_region_id = std::move(regions.front().region_id);
+        request.outer_boundary_id = std::move(regions.front().outer_boundary_id);
+        request.inner_boundary_ids = std::move(regions.front().inner_boundary_ids);
         request.additional_profile_regions.assign(
             std::make_move_iterator(regions.begin() + 1),
             std::make_move_iterator(regions.end()));
@@ -362,11 +670,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
         zima::kernel::ExtrusionRequest::CurvedProfile outer;
         outer.curves.push_back(exact_spline(**closed_spline));
         request.outer_profile = std::move(outer);
+        request.outer_boundary_id = (**closed_spline).id;
+        request.profile_region_id = "profile-region:" + request.outer_boundary_id;
         for (const auto* circle : profile_circles) {
             const auto* center = sketch.find_point(circle->center_point_id);
             request.inner_profiles.push_back(
                 zima::kernel::ExtrusionRequest::CircleProfile{
                     sketch.world_point(center->x, center->y), circle->radius});
+            request.inner_boundary_ids.push_back(circle->id);
         }
         return finalize(std::move(request));
     }
@@ -395,6 +706,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
              (axis_point.y - center_world.y) / major_radius,
              (axis_point.z - center_world.z) / major_radius},
             major_radius, minor_radius};
+        request.outer_boundary_id = ellipse->id;
+        request.profile_region_id = "profile-region:" + ellipse->id;
         return finalize(std::move(request));
     }
     if (!profile_arcs.empty() || !profile_elliptical_arcs.empty() ||
@@ -530,11 +843,16 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 "Curved Extrusion profile contains disconnected loops");
         }
         request.outer_profile = std::move(ordered);
+        std::vector<std::string> curve_ids;
+        for (const auto& curve : curves) curve_ids.push_back(curve.id);
+        request.outer_boundary_id = stable_profile_id("curve-loop", curve_ids);
+        request.profile_region_id = "profile-region:" + request.outer_boundary_id;
         for (const auto* circle : profile_circles) {
             const auto* center = sketch.find_point(circle->center_point_id);
             request.inner_profiles.push_back(
                 zima::kernel::ExtrusionRequest::CircleProfile{
                     sketch.world_point(center->x, center->y), circle->radius});
+            request.inner_boundary_ids.push_back(circle->id);
         }
         return finalize(std::move(request));
     }
@@ -547,39 +865,218 @@ zima::kernel::ExtrusionRequest extrusion_request(
         if (profile_circles.empty()) {
             throw std::runtime_error("Extrusion profile has no closed geometry");
         }
-        const auto outer = *std::max_element(
-            profile_circles.begin(), profile_circles.end(),
-            [](const auto* left, const auto* right) {
-                return left->radius < right->radius;
-            });
-        const auto* outer_center = sketch.find_point(outer->center_point_id);
-        request.outer_profile = circle_profile(outer);
-        std::vector<const zima::sketcher::SketchCircle*> holes;
-        for (const auto* circle : profile_circles) {
-            if (circle == outer) continue;
-            const auto* center = sketch.find_point(circle->center_point_id);
-            const double distance = std::hypot(
-                center->x - outer_center->x, center->y - outer_center->y);
-            if (distance + circle->radius >= outer->radius - 1.0e-9) {
-                throw std::runtime_error(
-                    "Circular extrusion loops must be strictly nested");
-            }
-            holes.push_back(circle);
-            request.inner_profiles.push_back(circle_profile(circle));
-        }
-        for (std::size_t first = 0; first < holes.size(); ++first) {
-            const auto* first_center = sketch.find_point(holes[first]->center_point_id);
-            for (std::size_t second = first + 1; second < holes.size(); ++second) {
+        std::vector<int> parent(profile_circles.size(), -1);
+        for (std::size_t first = 0; first < profile_circles.size(); ++first) {
+            const auto* first_center =
+                sketch.find_point(profile_circles[first]->center_point_id);
+            double parent_radius = std::numeric_limits<double>::infinity();
+            for (std::size_t second = 0; second < profile_circles.size(); ++second) {
+                if (first == second) continue;
                 const auto* second_center =
-                    sketch.find_point(holes[second]->center_point_id);
-                if (std::hypot(first_center->x - second_center->x,
-                               first_center->y - second_center->y) <=
-                    holes[first]->radius + holes[second]->radius + 1.0e-9) {
+                    sketch.find_point(profile_circles[second]->center_point_id);
+                const double distance = std::hypot(
+                    first_center->x - second_center->x,
+                    first_center->y - second_center->y);
+                const double first_radius = profile_circles[first]->radius;
+                const double second_radius = profile_circles[second]->radius;
+                if (distance <= first_radius + second_radius + 1.0e-9 &&
+                    distance + std::min(first_radius, second_radius) >=
+                        std::max(first_radius, second_radius) - 1.0e-9) {
                     throw std::runtime_error(
-                        "Extrusion holes must not overlap or contain each other");
+                        "Circular profile boundaries overlap or touch");
+                }
+                if (distance + first_radius < second_radius - 1.0e-9 &&
+                    second_radius < parent_radius) {
+                    parent[first] = static_cast<int>(second);
+                    parent_radius = second_radius;
                 }
             }
         }
+        const auto depth = [&](std::size_t index) {
+            int result{};
+            for (int current = parent[index]; current >= 0; current = parent[current]) {
+                if (++result > static_cast<int>(profile_circles.size())) {
+                    throw std::runtime_error("Circular profile containment is cyclic");
+                }
+            }
+            return result;
+        };
+        std::vector<ProfileRegion> regions;
+        for (std::size_t index = 0; index < profile_circles.size(); ++index) {
+            if (depth(index) % 2 != 0) continue;
+            ProfileRegion region;
+            region.region_id = "profile-region:" + profile_circles[index]->id;
+            region.outer_boundary_id = profile_circles[index]->id;
+            region.outer_profile = circle_profile(profile_circles[index]);
+            for (std::size_t child = 0; child < profile_circles.size(); ++child) {
+                if (parent[child] == static_cast<int>(index)) {
+                    region.inner_boundary_ids.push_back(profile_circles[child]->id);
+                    region.inner_profiles.push_back(circle_profile(profile_circles[child]));
+                }
+            }
+            regions.push_back(std::move(region));
+        }
+        assign_regions(request, std::move(regions));
+        return finalize(std::move(request));
+    }
+    if (profile_circles.empty()) {
+        std::unordered_map<std::string,
+            std::vector<const zima::sketcher::SketchSegment*>> incident;
+        for (const auto* segment : profile_segments) {
+            incident[segment->first_point_id].push_back(segment);
+            incident[segment->second_point_id].push_back(segment);
+        }
+        for (const auto& [point_id, segments] : incident) {
+            if (segments.size() != 2) {
+                throw std::runtime_error(
+                    "Segment profile must contain closed non-branching loops");
+            }
+        }
+        struct PolygonLoop {
+            ProfilePolygon points;
+            std::vector<std::string> segment_ids;
+            int parent{-1};
+            double area{};
+        };
+        std::vector<PolygonLoop> loops;
+        std::unordered_set<std::string> visited;
+        std::vector<const zima::sketcher::SketchSegment*> starts = profile_segments;
+        std::sort(starts.begin(), starts.end(), [](const auto* left, const auto* right) {
+            return left->id < right->id;
+        });
+        for (const auto* start_segment : starts) {
+            if (visited.contains(start_segment->id)) continue;
+            PolygonLoop loop;
+            std::string start = start_segment->first_point_id;
+            std::string current = start;
+            const zima::sketcher::SketchSegment* previous{};
+            do {
+                const auto* point = sketch.find_point(current);
+                loop.points.push_back({point->x, point->y});
+                auto candidates = incident.at(current);
+                std::sort(candidates.begin(), candidates.end(),
+                    [](const auto* left, const auto* right) { return left->id < right->id; });
+                const auto* next = candidates.front() == previous
+                    ? candidates.back() : candidates.front();
+                if (!visited.insert(next->id).second) {
+                    throw std::runtime_error("Segment profile loop repeats an edge");
+                }
+                loop.segment_ids.push_back(next->id);
+                current = next->first_point_id == current
+                    ? next->second_point_id : next->first_point_id;
+                previous = next;
+            } while (current != start);
+            loops.push_back(std::move(loop));
+        }
+        const auto cross = [](const auto& a, const auto& b, const auto& c) {
+            return (b[0] - a[0]) * (c[1] - a[1]) -
+                (b[1] - a[1]) * (c[0] - a[0]);
+        };
+        const auto on_segment = [&](const auto& point, const auto& a, const auto& b) {
+            return std::abs(cross(a, b, point)) <= 1.0e-9 &&
+                point[0] >= std::min(a[0], b[0]) - 1.0e-9 &&
+                point[0] <= std::max(a[0], b[0]) + 1.0e-9 &&
+                point[1] >= std::min(a[1], b[1]) - 1.0e-9 &&
+                point[1] <= std::max(a[1], b[1]) + 1.0e-9;
+        };
+        const auto intersects = [&](const auto& a, const auto& b,
+                                     const auto& c, const auto& d) {
+            const double ab_c = cross(a, b, c), ab_d = cross(a, b, d);
+            const double cd_a = cross(c, d, a), cd_b = cross(c, d, b);
+            return ((ab_c > 1.0e-9 && ab_d < -1.0e-9) ||
+                    (ab_c < -1.0e-9 && ab_d > 1.0e-9)) &&
+                       ((cd_a > 1.0e-9 && cd_b < -1.0e-9) ||
+                        (cd_a < -1.0e-9 && cd_b > 1.0e-9)) ||
+                on_segment(c, a, b) || on_segment(d, a, b) ||
+                on_segment(a, c, d) || on_segment(b, c, d);
+        };
+        const auto contains = [](const ProfilePolygon& polygon,
+                                 const std::array<double, 2>& point) {
+            bool inside = false;
+            for (std::size_t i = 0, j = polygon.size() - 1;
+                 i < polygon.size(); j = i++) {
+                const auto& a = polygon[i]; const auto& b = polygon[j];
+                if ((a[1] > point[1]) != (b[1] > point[1]) &&
+                    point[0] < (b[0] - a[0]) * (point[1] - a[1]) /
+                            (b[1] - a[1]) + a[0]) inside = !inside;
+            }
+            return inside;
+        };
+        for (std::size_t first = 0; first < loops.size(); ++first) {
+            for (std::size_t edge = 0; edge < loops[first].points.size(); ++edge) {
+                const auto& a = loops[first].points[edge];
+                const auto& b = loops[first].points[(edge + 1) % loops[first].points.size()];
+                loops[first].area += a[0] * b[1] - b[0] * a[1];
+                for (std::size_t other = edge + 1; other < loops[first].points.size(); ++other) {
+                    if (other == edge + 1 || (edge == 0 && other + 1 == loops[first].points.size())) continue;
+                    if (intersects(a, b, loops[first].points[other],
+                            loops[first].points[(other + 1) % loops[first].points.size()])) {
+                        throw std::runtime_error("Segment profile loop self-intersects");
+                    }
+                }
+            }
+            loops[first].area = std::abs(loops[first].area) * 0.5;
+            if (loops[first].area <= 1.0e-12) {
+                throw std::runtime_error("Segment profile loop has zero area");
+            }
+            for (std::size_t second = first + 1; second < loops.size(); ++second) {
+                for (std::size_t a = 0; a < loops[first].points.size(); ++a) {
+                    for (std::size_t b = 0; b < loops[second].points.size(); ++b) {
+                        if (intersects(loops[first].points[a],
+                                loops[first].points[(a + 1) % loops[first].points.size()],
+                                loops[second].points[b],
+                                loops[second].points[(b + 1) % loops[second].points.size()])) {
+                            throw std::runtime_error("Segment profile loops overlap or touch");
+                        }
+                    }
+                }
+            }
+        }
+        for (std::size_t index = 0; index < loops.size(); ++index) {
+            double parent_area = std::numeric_limits<double>::infinity();
+            for (std::size_t candidate = 0; candidate < loops.size(); ++candidate) {
+                if (candidate != index && loops[candidate].area > loops[index].area &&
+                    contains(loops[candidate].points, loops[index].points.front()) &&
+                    loops[candidate].area < parent_area) {
+                    loops[index].parent = static_cast<int>(candidate);
+                    parent_area = loops[candidate].area;
+                }
+            }
+        }
+        const auto depth = [&](std::size_t index) {
+            int result{};
+            for (int current = loops[index].parent; current >= 0; current = loops[current].parent) {
+                if (++result > static_cast<int>(loops.size())) {
+                    throw std::runtime_error("Segment profile containment is cyclic");
+                }
+            }
+            return result;
+        };
+        std::vector<ProfileRegion> regions;
+        for (std::size_t index = 0; index < loops.size(); ++index) {
+            if (depth(index) % 2 != 0) continue;
+            ProfileRegion region;
+            region.outer_boundary_id = stable_profile_id(
+                "segment-loop", loops[index].segment_ids);
+            region.region_id = "profile-region:" + region.outer_boundary_id;
+            zima::kernel::ExtrusionRequest::PolygonProfile outer;
+            for (const auto& point : loops[index].points) {
+                outer.vertices.push_back(sketch.world_point(point[0], point[1]));
+            }
+            region.outer_profile = std::move(outer);
+            for (std::size_t child = 0; child < loops.size(); ++child) {
+                if (loops[child].parent != static_cast<int>(index)) continue;
+                region.inner_boundary_ids.push_back(stable_profile_id(
+                    "segment-loop", loops[child].segment_ids));
+                zima::kernel::ExtrusionRequest::PolygonProfile inner;
+                for (const auto& point : loops[child].points) {
+                    inner.vertices.push_back(sketch.world_point(point[0], point[1]));
+                }
+                region.inner_profiles.push_back(std::move(inner));
+            }
+            regions.push_back(std::move(region));
+        }
+        assign_regions(request, std::move(regions));
         return finalize(std::move(request));
     }
     if (profile_segments.size() < 3) {
@@ -688,6 +1185,10 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 request.outer_profile).vertices;
         std::reverse(vertices.begin(), vertices.end());
     }
+    std::vector<std::string> segment_ids;
+    for (const auto* segment : profile_segments) segment_ids.push_back(segment->id);
+    request.outer_boundary_id = stable_profile_id("segment-loop", segment_ids);
+    request.profile_region_id = "profile-region:" + request.outer_boundary_id;
     const auto circle_inside_polygon = [&](const auto* circle) {
         const auto* center = sketch.find_point(circle->center_point_id);
         bool inside = false;
@@ -723,6 +1224,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 "Circular extrusion hole must lie strictly inside the outer loop");
         }
         request.inner_profiles.push_back(circle_profile(circle));
+        request.inner_boundary_ids.push_back(circle->id);
     }
     for (std::size_t first = 0; first < profile_circles.size(); ++first) {
         const auto* first_center =
@@ -754,6 +1256,9 @@ zima::kernel::RevolutionRequest revolution_request(
     request.outer_profile = source.outer_profile;
     request.inner_profiles = source.inner_profiles;
     request.additional_profile_regions = source.additional_profile_regions;
+    request.profile_region_id = source.profile_region_id;
+    request.outer_boundary_id = source.outer_boundary_id;
+    request.inner_boundary_ids = source.inner_boundary_ids;
     request.profile_normal = source.direction;
     request.axis_point = sketch.world_point(0.0, 0.0);
     if (axis == RevolutionAxis::SketchX) {

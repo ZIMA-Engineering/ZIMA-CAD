@@ -544,9 +544,12 @@ int main() {
                     "Extrusion face lost its stable history owner");
             extrusion_faces.insert(reference.semantic_key);
         }
-        require(extrusion_faces == std::set<std::string>{
-                    "profile_start", "profile_end", "side:0", "side:1",
-                    "side:2", "side:3"},
+        require(extrusion_faces.contains("profile_start") &&
+                    extrusion_faces.contains("profile_end") &&
+                    std::count_if(extrusion_faces.begin(), extrusion_faces.end(),
+                        [](const auto& key) {
+                            return key.starts_with("profile-boundary:segment-loop:");
+                        }) == 4,
                 "Extrusion does not expose stable start/end/side faces");
         require(extrusion_results.front().mesh.original_references.axes.size() == 1 &&
                     extrusion_results.front().mesh.original_references.axes.front().reference.semantic_key ==
@@ -735,12 +738,14 @@ int main() {
         const auto ellipse_boundary = kernel.evaluate_history(
             ellipse_target_document.kernel_operations()).front();
         std::vector<zima::kernel::Vec3> ellipse_side_triangles;
+        std::string ellipse_side_key;
         const auto& ellipse_references = ellipse_boundary.mesh.original_references;
         for (std::size_t triangle = 0;
              triangle < ellipse_references.triangle_references.size(); ++triangle) {
             const auto& reference = ellipse_references.triangle_references[triangle];
             if (reference.owner_id != ellipse_target_owner ||
-                reference.semantic_key != "side:0") continue;
+                !reference.semantic_key.starts_with("profile-boundary:")) continue;
+            ellipse_side_key = reference.semantic_key;
             for (int corner = 0; corner < 3; ++corner) {
                 ellipse_side_triangles.push_back(ellipse_references.vertices[
                     ellipse_references.triangles[triangle * 3 + corner]]);
@@ -757,7 +762,7 @@ int main() {
         ellipse_up_to.extrusion.extent =
             zima::document::ExtrusionExtent::UpToSurface;
         ellipse_up_to.extrusion.target_face = {
-            ellipse_target_owner, "side:0", {}};
+            ellipse_target_owner, ellipse_side_key, {}};
         ellipse_up_to.extrusion.target_surface_triangles = ellipse_side_triangles;
         ellipse_target_document.history.push_back(ellipse_up_to);
         const auto ellipse_up_to_results = kernel.evaluate_history(
@@ -782,12 +787,14 @@ int main() {
         const auto spline_boundary = kernel.evaluate_history(
             spline_target_document.kernel_operations()).front();
         std::vector<zima::kernel::Vec3> spline_side_triangles;
+        std::string spline_side_key;
         const auto& spline_references = spline_boundary.mesh.original_references;
         for (std::size_t triangle = 0;
              triangle < spline_references.triangle_references.size(); ++triangle) {
             const auto& reference = spline_references.triangle_references[triangle];
             if (reference.owner_id != spline_target_owner ||
-                reference.semantic_key != "side:0") continue;
+                !reference.semantic_key.starts_with("profile-boundary:")) continue;
+            spline_side_key = reference.semantic_key;
             for (int corner = 0; corner < 3; ++corner) {
                 spline_side_triangles.push_back(spline_references.vertices[
                     spline_references.triangles[triangle * 3 + corner]]);
@@ -806,7 +813,7 @@ int main() {
         spline_up_to.extrusion.extent =
             zima::document::ExtrusionExtent::UpToSurface;
         spline_up_to.extrusion.target_face = {
-            spline_target_owner, "side:0", {}};
+            spline_target_owner, spline_side_key, {}};
         spline_up_to.extrusion.target_surface_triangles = spline_side_triangles;
         spline_target_document.history.push_back(spline_up_to);
         const auto spline_up_to_results = kernel.evaluate_history(
@@ -906,7 +913,7 @@ int main() {
         for (const auto& reference :
              circular_results.back().mesh.original_references.triangle_references) {
             if (reference.owner_id == circular_cut_id &&
-                reference.semantic_key == "side:0") {
+                reference.semantic_key.starts_with("profile-boundary:")) {
                 circular_side_found = true;
             }
         }
@@ -941,14 +948,11 @@ int main() {
         auto multiple_circle_document = circular_document;
         static_cast<void>(multiple_circle_document.sketches.front().add_circle(
             10.0, 10.0, 2.0));
-        bool disjoint_circles_rejected = false;
-        try {
-            static_cast<void>(multiple_circle_document.kernel_operations());
-        } catch (const std::runtime_error&) {
-            disjoint_circles_rejected = true;
-        }
-        require(disjoint_circles_rejected,
-                "Disjoint circular profile loops reached OCCT");
+        const auto multiple_circle_results = kernel.evaluate_history(
+            multiple_circle_document.kernel_operations());
+        require(std::abs(multiple_circle_results.back().volume -
+                    (16000.0 - 290.0 * std::numbers::pi)) < 1.0e-6,
+                "Disjoint circular profile regions did not share one feature");
 
         auto holed_profile_document = zima::document::PartDocument::create_default();
         auto holed_profile_sketch = zima::sketcher::Sketch::create_default();
@@ -972,7 +976,8 @@ int main() {
         for (const auto& reference :
              holed_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == holed_extrusion_id &&
-                reference.semantic_key == "side:4") {
+                reference.semantic_key.starts_with("profile-boundary:") &&
+                reference.semantic_key.find(":edge:0") != std::string::npos) {
                 hole_side_found = true;
             }
         }
@@ -1006,6 +1011,16 @@ int main() {
             kernel.evaluate_history(text_profile_operations);
         require(std::abs(text_profile_results.front().volume - 670.0) < 1.0e-6,
                 "Multi-glyph Text Extrusion has an incorrect exact volume");
+        bool stable_text_boundary_found = false;
+        for (const auto& reference : text_profile_results.front().mesh
+                 .original_references.triangle_references) {
+            if (reference.semantic_key.find(
+                    "profile-boundary:text:" + profile_text_id + ":contour:0") == 0) {
+                stable_text_boundary_found = true;
+            }
+        }
+        require(stable_text_boundary_found,
+                "Text profile side lost its stable source-boundary identity");
         const auto text_profile_path = std::filesystem::temp_directory_path() /
             "zima-cad-text-profile-contract.prtz";
         text_profile_document.save(text_profile_path);
@@ -1072,6 +1087,27 @@ int main() {
         }
         require(overlapping_text_rejected,
                 "Overlapping Text contours reached the solid kernel");
+
+        auto mixed_profile_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(mixed_profile_sketch.add_rectangle(
+            0.0, 0.0, 10.0, 10.0));
+        auto mixed_text = zima::sketcher::Sketch::create_text();
+        mixed_text.value = "I";
+        mixed_text.contours = {
+            {{15.0, 0.0}, {20.0, 0.0}, {20.0, 10.0}, {15.0, 10.0}}};
+        mixed_profile_sketch.add_text(std::move(mixed_text));
+        auto mixed_profile_document = zima::document::PartDocument::create_default();
+        const auto mixed_profile_sketch_id = mixed_profile_sketch.id;
+        mixed_profile_document.sketches.push_back(std::move(mixed_profile_sketch));
+        auto mixed_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                mixed_profile_sketch_id);
+        mixed_extrusion.extrusion.height = 4.0;
+        mixed_profile_document.history.push_back(std::move(mixed_extrusion));
+        const auto mixed_profile_results = kernel.evaluate_history(
+            mixed_profile_document.kernel_operations());
+        require(std::abs(mixed_profile_results.front().volume - 600.0) < 1.0e-6,
+                "Mixed Text and Segment profile did not create both exact regions");
 
         auto annulus_document = zima::document::PartDocument::create_default();
         auto annulus_sketch = zima::sketcher::Sketch::create_default();
@@ -1158,12 +1194,11 @@ int main() {
         for (const auto& reference :
              arc_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == arc_profile_owner &&
-                reference.semantic_key.starts_with("side:")) {
+                reference.semantic_key.starts_with("profile-boundary:")) {
                 arc_profile_sides.insert(reference.semantic_key);
             }
         }
-        require(arc_profile_sides ==
-                    std::set<std::string>{"side:0", "side:1", "side:2"},
+        require(arc_profile_sides.size() == 3,
                 "Arc, Segment, and circular hole did not retain stable side ownership");
         auto two_arc_document = zima::document::PartDocument::create_default();
         auto two_arc_sketch = zima::sketcher::Sketch::create_default();

@@ -213,9 +213,15 @@ struct ExtrusionRequest {
     using ProfileLoop = std::variant<
         PolygonProfile, CircleProfile, EllipseProfile, CurvedProfile>;
     struct ProfileRegion {
+        std::string region_id;
+        std::string outer_boundary_id;
+        std::vector<std::string> inner_boundary_ids;
         ProfileLoop outer_profile{PolygonProfile{}};
         std::vector<ProfileLoop> inner_profiles;
     };
+    std::string profile_region_id;
+    std::string outer_boundary_id;
+    std::vector<std::string> inner_boundary_ids;
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     std::vector<ProfileRegion> additional_profile_regions;
@@ -231,6 +237,9 @@ struct ExtrusionRequest {
 struct RevolutionRequest {
     ExtrusionRequest::ProfileLoop outer_profile{
         ExtrusionRequest::PolygonProfile{}};
+    std::string profile_region_id;
+    std::string outer_boundary_id;
+    std::vector<std::string> inner_boundary_ids;
     std::vector<ExtrusionRequest::ProfileLoop> inner_profiles;
     std::vector<ExtrusionRequest::ProfileRegion> additional_profile_regions;
     Vec3 profile_normal{0.0, 0.0, 1.0};
@@ -473,12 +482,28 @@ struct BodyResult {
                     }, profile_variant);
                 };
                 append_profile(primitive.outer_profile);
+                u64(primitive.profile_region_id.size());
+                for (const unsigned char value : primitive.profile_region_id) byte(value);
+                u64(primitive.outer_boundary_id.size());
+                for (const unsigned char value : primitive.outer_boundary_id) byte(value);
+                u64(primitive.inner_boundary_ids.size());
+                for (const auto& id : primitive.inner_boundary_ids) {
+                    u64(id.size()); for (const unsigned char value : id) byte(value);
+                }
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
                 }
                 u64(primitive.additional_profile_regions.size());
                 for (const auto& region : primitive.additional_profile_regions) {
+                    u64(region.region_id.size());
+                    for (const unsigned char value : region.region_id) byte(value);
+                    u64(region.outer_boundary_id.size());
+                    for (const unsigned char value : region.outer_boundary_id) byte(value);
+                    u64(region.inner_boundary_ids.size());
+                    for (const auto& id : region.inner_boundary_ids) {
+                        u64(id.size()); for (const unsigned char value : id) byte(value);
+                    }
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());
                     for (const auto& profile : region.inner_profiles) append_profile(profile);
@@ -584,12 +609,28 @@ struct BodyResult {
                     }, profile_variant);
                 };
                 append_profile(primitive.outer_profile);
+                u64(primitive.profile_region_id.size());
+                for (const unsigned char value : primitive.profile_region_id) byte(value);
+                u64(primitive.outer_boundary_id.size());
+                for (const unsigned char value : primitive.outer_boundary_id) byte(value);
+                u64(primitive.inner_boundary_ids.size());
+                for (const auto& id : primitive.inner_boundary_ids) {
+                    u64(id.size()); for (const unsigned char value : id) byte(value);
+                }
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
                 }
                 u64(primitive.additional_profile_regions.size());
                 for (const auto& region : primitive.additional_profile_regions) {
+                    u64(region.region_id.size());
+                    for (const unsigned char value : region.region_id) byte(value);
+                    u64(region.outer_boundary_id.size());
+                    for (const unsigned char value : region.outer_boundary_id) byte(value);
+                    u64(region.inner_boundary_ids.size());
+                    for (const auto& id : region.inner_boundary_ids) {
+                        u64(id.size()); for (const unsigned char value : id) byte(value);
+                    }
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());
                     for (const auto& profile : region.inner_profiles) append_profile(profile);
