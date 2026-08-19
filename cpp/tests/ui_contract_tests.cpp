@@ -265,6 +265,22 @@ int main(int argc, char* argv[]) {
         require(axis_offset != nullptr && !axis_offset->isEnabled(),
                 "Axis mate incorrectly exposed a meaningless axial offset");
         axis_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        auto point_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Body", zima::assembly::MateKind::PointCoincident,
+            {zima::assembly::MateReferenceKind::Point,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "corner:0"},
+            {zima::assembly::MateReferenceKind::Point,
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "corner:0"});
+        auto* point_dialog = new zima::app::MatePropertiesDialog(
+            point_mate, [](zima::assembly::AssemblyMate) {}, &parent);
+        point_dialog->show();
+        application.processEvents();
+        auto* point_offset = point_dialog->findChild<QDoubleSpinBox*>("mateOffset");
+        auto* point_flip = point_dialog->findChild<QCheckBox*>("mateFlipped");
+        require(point_offset != nullptr && !point_offset->isEnabled() &&
+                    point_flip != nullptr && !point_flip->isEnabled(),
+                "Point mate exposed meaningless offset or orientation controls");
+        point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
         auto sketch = zima::sketcher::Sketch::create_default();
         int sketch_commits = 0;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(

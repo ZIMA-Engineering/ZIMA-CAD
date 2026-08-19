@@ -22,24 +22,30 @@ MatePropertiesDialog::MatePropertiesDialog(
     name_ = new QLineEdit(QString::fromStdString(initial_.name), this);
     form->addRow(tr("Název"), name_);
     const bool axis_mate = initial_.kind == zima::assembly::MateKind::AxisCoincident;
+    const bool point_mate = initial_.kind == zima::assembly::MateKind::PointCoincident;
     auto* dependent = new QLineEdit(
         QString::fromStdString(initial_.dependent.semantic_key), this);
     dependent->setReadOnly(true);
-    form->addRow(axis_mate ? tr("Pohyblivá osa") : tr("Pohyblivá plocha"), dependent);
+    form->addRow(axis_mate ? tr("Pohyblivá osa")
+                           : point_mate ? tr("Pohyblivý bod") : tr("Pohyblivá plocha"),
+                 dependent);
     auto* prerequisite = new QLineEdit(
         QString::fromStdString(initial_.prerequisite.semantic_key), this);
     prerequisite->setReadOnly(true);
-    form->addRow(axis_mate ? tr("Referenční osa") : tr("Referenční plocha"), prerequisite);
+    form->addRow(axis_mate ? tr("Referenční osa")
+                           : point_mate ? tr("Referenční bod") : tr("Referenční plocha"),
+                 prerequisite);
     offset_ = new QDoubleSpinBox(this);
     offset_->setRange(-1'000'000.0, 1'000'000.0);
     offset_->setDecimals(3);
     offset_->setSuffix(" mm");
     offset_->setObjectName("mateOffset");
     offset_->setValue(initial_.offset);
-    offset_->setEnabled(!axis_mate);
+    offset_->setEnabled(!axis_mate && !point_mate);
     form->addRow(tr("Odsazení"), offset_);
     flipped_ = new QCheckBox(tr("Obrátit orientaci reference"), this);
     flipped_->setChecked(initial_.flipped);
+    flipped_->setEnabled(!point_mate);
     flipped_->setObjectName("mateFlipped");
     form->addRow(tr("Orientace"), flipped_);
     content_layout()->addLayout(form);

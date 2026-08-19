@@ -69,6 +69,7 @@ private:
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
     QAction* axis_mate_action_{};
+    QAction* point_mate_action_{};
     QDialog* properties_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
@@ -124,6 +125,7 @@ private:
     void regenerate_assembly();
     void start_plane_mate();
     void start_axis_mate();
+    void start_point_mate();
     void start_edge_treatment(zima::document::FeatureKind kind);
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);

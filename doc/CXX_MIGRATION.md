@@ -267,6 +267,12 @@ ustavený díl a neporuší jinou platnou vazbu. Zapnutý Flip vyžaduje opačn�
 normál nebo os, je součástí stejného interního Properties dialogu a přežije
 uložení i opětovný výpočet sestavy.
 
+Sestavový solver podporuje rovněž vazbu bod–bod. Obě strany používají výhradně
+persistované vrcholy původních ZIMA solidů s přesnou instance path; vrcholy
+výsledného OCCT tělesa nejsou nabízeny. Vazba přenese pohyblivý výskyt tak, aby
+se zvolené body shodovaly, odebere tři translační stupně volnosti a nepoužívá
+nesmyslné odsazení ani Flip.
+
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
 ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní

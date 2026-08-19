@@ -214,22 +214,34 @@ ComponentDependencyKind dependency_kind_from_name(const std::string& name) {
 }
 
 const char* mate_reference_kind_name(MateReferenceKind kind) {
-    return kind == MateReferenceKind::Face ? "face" : "axis";
+    switch (kind) {
+    case MateReferenceKind::Face: return "face";
+    case MateReferenceKind::Axis: return "axis";
+    case MateReferenceKind::Point: return "point";
+    }
+    throw std::invalid_argument("Unknown Assembly mate reference kind");
 }
 
 MateReferenceKind mate_reference_kind_from_name(const std::string& name) {
     if (name == "face") return MateReferenceKind::Face;
     if (name == "axis") return MateReferenceKind::Axis;
+    if (name == "point") return MateReferenceKind::Point;
     throw std::runtime_error("Unknown Assembly mate reference kind");
 }
 
 const char* mate_kind_name(MateKind kind) {
-    return kind == MateKind::PlaneCoincident ? "plane_coincident" : "axis_coincident";
+    switch (kind) {
+    case MateKind::PlaneCoincident: return "plane_coincident";
+    case MateKind::AxisCoincident: return "axis_coincident";
+    case MateKind::PointCoincident: return "point_coincident";
+    }
+    throw std::invalid_argument("Unknown Assembly mate kind");
 }
 
 MateKind mate_kind_from_name(const std::string& name) {
     if (name == "plane_coincident") return MateKind::PlaneCoincident;
     if (name == "axis_coincident") return MateKind::AxisCoincident;
+    if (name == "point_coincident") return MateKind::PointCoincident;
     throw std::runtime_error("Unknown Assembly mate kind");
 }
 
@@ -609,6 +621,24 @@ AxisResolution AssemblyDocument::resolve_axis(
     return {MateStatus::Valid, {found->point, found->direction}};
 }
 
+PointResolution AssemblyDocument::resolve_point(
+    const MateReference& reference) const {
+    if (reference.kind != MateReferenceKind::Point) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const auto scene = build_scene();
+    const std::string path = reference.instance_path.encoded();
+    const auto& points = scene.original_references.points;
+    const auto found = std::find_if(points.begin(), points.end(),
+        [&](const auto& point) {
+            return point.reference.instance_path == path &&
+                point.reference.owner_id == reference.owner_id &&
+                point.reference.semantic_key == reference.semantic_key;
+        });
+    if (found == points.end()) return {MateStatus::MissingReference, {}};
+    return {MateStatus::Valid, found->position};
+}
+
 void AssemblyDocument::calculate_mates() {
     constexpr double parallel_tolerance = 1.0e-7;
     std::unordered_map<std::string, ComponentPlacement> original_placements;
@@ -750,6 +780,36 @@ void AssemblyDocument::calculate_mates() {
         occurrence->placement.z += correction.z;
         mate.status = MateStatus::Valid;
     };
+    const auto calculate_point = [&](AssemblyMate& mate) {
+        if (mate.dependent.kind != MateReferenceKind::Point ||
+            mate.prerequisite.kind != MateReferenceKind::Point ||
+            std::abs(mate.offset) > 1.0e-12 || mate.flipped) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            return;
+        }
+        const auto dependent = resolve_point(mate.dependent);
+        const auto prerequisite = resolve_point(mate.prerequisite);
+        if (dependent.status != MateStatus::Valid) {
+            mate.status = dependent.status;
+            return;
+        }
+        if (prerequisite.status != MateStatus::Valid) {
+            mate.status = prerequisite.status;
+            return;
+        }
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            return;
+        }
+        if (!occurrence->grounded) {
+            occurrence->placement.x += prerequisite.point.x - dependent.point.x;
+            occurrence->placement.y += prerequisite.point.y - dependent.point.y;
+            occurrence->placement.z += prerequisite.point.z - dependent.point.z;
+        }
+        mate.status = MateStatus::Valid;
+    };
     for (auto& mate : mates) {
         if (!mate.suppressed && mate.kind == MateKind::AxisCoincident) {
             calculate_axis(mate);
@@ -758,6 +818,11 @@ void AssemblyDocument::calculate_mates() {
     for (auto& mate : mates) {
         if (!mate.suppressed && mate.kind == MateKind::PlaneCoincident) {
             calculate_plane(mate);
+        }
+    }
+    for (auto& mate : mates) {
+        if (!mate.suppressed && mate.kind == MateKind::PointCoincident) {
+            calculate_point(mate);
         }
     }
     std::vector<bool> conflicts(mates.size(), false);
@@ -793,7 +858,7 @@ void AssemblyDocument::calculate_mates() {
                 std::sqrt(
                 radial.x * radial.x + radial.y * radial.y + radial.z * radial.z) >
                 parallel_tolerance;
-        } else {
+        } else if (mate.kind == MateKind::PlaneCoincident) {
             const auto dependent = resolve_plane(mate.dependent);
             const auto prerequisite = resolve_plane(mate.prerequisite);
             if (dependent.status != MateStatus::Valid ||
@@ -813,6 +878,18 @@ void AssemblyDocument::calculate_mates() {
                     ? std::abs(alignment + 1.0)
                     : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
                 std::abs(offset - mate.offset) > parallel_tolerance;
+        } else {
+            const auto dependent = resolve_point(mate.dependent);
+            const auto prerequisite = resolve_point(mate.prerequisite);
+            if (dependent.status != MateStatus::Valid ||
+                prerequisite.status != MateStatus::Valid) {
+                conflicts[index] = true;
+                continue;
+            }
+            conflicts[index] =
+                length({dependent.point.x - prerequisite.point.x,
+                        dependent.point.y - prerequisite.point.y,
+                        dependent.point.z - prerequisite.point.z}) > parallel_tolerance;
         }
     }
     std::unordered_set<std::string> conflicted_occurrences;

@@ -73,8 +73,8 @@ struct ComponentDependency {
     bool operator==(const ComponentDependency&) const = default;
 };
 
-enum class MateReferenceKind { Face, Axis };
-enum class MateKind { PlaneCoincident, AxisCoincident };
+enum class MateReferenceKind { Face, Axis, Point };
+enum class MateKind { PlaneCoincident, AxisCoincident, PointCoincident };
 enum class MateStatus { Uncalculated, Valid, MissingReference, UnsupportedGeometry };
 
 struct MateReference {
@@ -116,6 +116,11 @@ struct ResolvedAxis {
 struct AxisResolution {
     MateStatus status{MateStatus::MissingReference};
     ResolvedAxis axis;
+};
+
+struct PointResolution {
+    MateStatus status{MateStatus::MissingReference};
+    zima::kernel::Vec3 point;
 };
 
 class AssemblyDocument {
@@ -166,6 +171,8 @@ public:
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;
     [[nodiscard]] AxisResolution resolve_axis(
+        const MateReference& reference) const;
+    [[nodiscard]] PointResolution resolve_point(
         const MateReference& reference) const;
     void calculate_mates();
     [[nodiscard]] int remaining_degrees_of_freedom(

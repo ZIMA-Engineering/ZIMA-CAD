@@ -174,6 +174,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_plane_mate(); });
     axis_mate_action_ = assembly->addAction(tr("Vazba osa–osa…"), this,
         [this] { start_axis_mate(); });
+    point_mate_action_ = assembly->addAction(tr("Vazba bod–bod…"), this,
+        [this] { start_point_mate(); });
 }
 
 void AssemblyWorkspaceWindow::create_layout() {
@@ -651,6 +653,17 @@ void AssemblyWorkspaceWindow::start_axis_mate() {
     state_->setText(tr("Vyberte pohyblivou osu."));
 }
 
+void AssemblyWorkspaceWindow::start_point_mate() {
+    if (properties_dialog_ != nullptr ||
+        workspace_.open_assembly(workspace_.active_document_id()) == nullptr ||
+        workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
+    pending_mate_reference_.reset();
+    mate_selection_active_ = true;
+    pending_mate_kind_ = zima::assembly::MateKind::PointCoincident;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex});
+    state_->setText(tr("Vyberte pohyblivý bod původního solidu."));
+}
+
 void AssemblyWorkspaceWindow::start_edge_treatment(
     zima::document::FeatureKind kind) {
     if (properties_dialog_ != nullptr ||
@@ -713,7 +726,10 @@ AssemblyWorkspaceWindow::local_mate_reference(
     const bool axis = candidate.kind == zima::viewer::CandidateKind::Axis &&
         candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
         pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident;
-    if ((!face && !axis) ||
+    const bool point = candidate.kind == zima::viewer::CandidateKind::Vertex &&
+        candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
+        pending_mate_kind_ == zima::assembly::MateKind::PointCoincident;
+    if ((!face && !axis && !point) ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) return std::nullopt;
     auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
     if (!active_occurrence_path_.empty()) {
@@ -728,7 +744,8 @@ AssemblyWorkspaceWindow::local_mate_reference(
     }
     return zima::assembly::MateReference{
         face ? zima::assembly::MateReferenceKind::Face
-             : zima::assembly::MateReferenceKind::Axis,
+             : axis ? zima::assembly::MateReferenceKind::Axis
+                    : zima::assembly::MateReferenceKind::Point,
         std::move(path),
         candidate.owner_id, candidate.semantic_key};
 }
@@ -737,20 +754,24 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     auto reference = local_mate_reference(candidate);
     if (!reference) {
-        state_->setText(tr("Plocha nepatří do aktivní sestavy."));
+        state_->setText(tr("Reference nepatří do aktivní sestavy."));
         return;
     }
     if (!pending_mate_reference_) {
         pending_mate_reference_ = std::move(reference);
         state_->setText(pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
             ? tr("Vyberte pevnou referenční rovinnou plochu.")
-            : tr("Vyberte pevnou referenční osu."));
+            : pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident
+                ? tr("Vyberte pevnou referenční osu.")
+                : tr("Vyberte pevný referenční bod."));
         return;
     }
     try {
         auto mate = zima::assembly::AssemblyDocument::create_mate(
             pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
-                ? "Plocha na plochu" : "Osa na osu",
+                ? "Plocha na plochu"
+                : pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident
+                    ? "Osa na osu" : "Bod na bod",
             pending_mate_kind_,
             std::move(*pending_mate_reference_), std::move(*reference));
         pending_mate_reference_.reset();
@@ -2581,6 +2602,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     plane_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     axis_mate_action_->setEnabled(
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
+    point_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());

@@ -120,6 +120,56 @@ int main() {
         }
         require(loaded_paths == instance_paths,
                 "Assembly save/load changed stable occurrence paths");
+        const auto point_for_path = [&](const std::string& path) {
+            const auto found = std::find_if(
+                loaded_scene.original_references.points.begin(),
+                loaded_scene.original_references.points.end(),
+                [&](const auto& point) {
+                    return point.reference.instance_path == path;
+                });
+            if (found == loaded_scene.original_references.points.end()) {
+                throw std::runtime_error("Original solid point reference is missing");
+            }
+            return *found;
+        };
+        auto point_mated_assembly = loaded;
+        const auto dependent_point_source =
+            point_for_path(zima::assembly::InstancePath{}.child(second_id).encoded());
+        const auto prerequisite_point_source =
+            point_for_path(zima::assembly::InstancePath{}.child(first_id).encoded());
+        point_mated_assembly.add_mate(zima::assembly::AssemblyDocument::create_mate(
+            "Bod na bod", zima::assembly::MateKind::PointCoincident,
+            {zima::assembly::MateReferenceKind::Point,
+             zima::assembly::InstancePath{}.child(second_id),
+             dependent_point_source.reference.owner_id,
+             dependent_point_source.reference.semantic_key},
+            {zima::assembly::MateReferenceKind::Point,
+             zima::assembly::InstancePath{}.child(first_id),
+             prerequisite_point_source.reference.owner_id,
+             prerequisite_point_source.reference.semantic_key}));
+        point_mated_assembly.calculate_mates();
+        const auto resolved_dependent_point = point_mated_assembly.resolve_point(
+            point_mated_assembly.mates.front().dependent);
+        const auto resolved_prerequisite_point = point_mated_assembly.resolve_point(
+            point_mated_assembly.mates.front().prerequisite);
+        require(point_mated_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(resolved_dependent_point.point.x -
+                             resolved_prerequisite_point.point.x) < 1.0e-7 &&
+                    std::abs(resolved_dependent_point.point.y -
+                             resolved_prerequisite_point.point.y) < 1.0e-7 &&
+                    std::abs(resolved_dependent_point.point.z -
+                             resolved_prerequisite_point.point.z) < 1.0e-7 &&
+                    point_mated_assembly.remaining_degrees_of_freedom(second_id) == 3,
+                "Point mate did not align persisted original-solid points");
+        const auto point_mate_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-point-mate-contract.zca.json";
+        point_mated_assembly.save(point_mate_path);
+        const auto loaded_point_mate =
+            zima::assembly::AssemblyDocument::load(point_mate_path);
+        std::filesystem::remove(point_mate_path);
+        require(loaded_point_mate.mates == point_mated_assembly.mates,
+                "Point mate reference did not survive save/load");
         auto mated_assembly = loaded;
         auto plane_mate = zima::assembly::AssemblyDocument::create_mate(
             "Plocha na plochu",
