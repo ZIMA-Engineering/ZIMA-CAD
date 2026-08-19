@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ZIMA_BUILD_TESTS "Build the C++ contract tests" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
     "${OpenCASCADE_MAJOR_VERSION}.${OpenCASCADE_MINOR_VERSION}.${OpenCASCADE_MAINTENANCE_VERSION}")
@@ -98,7 +98,8 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 
 add_executable(zima-cad-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
-    app/drawing_window.cpp app/file_dialog.cpp
+    app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
+    app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
@@ -108,7 +109,8 @@ target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange
-    Qt6::Core Qt6::Gui Qt6::Widgets)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
+set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-drawing-harness
     app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp)

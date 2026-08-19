@@ -196,6 +196,18 @@ int main() {
         }
         require(assembly_cycle_rejected,
                 "Workspace accepted an indirect nested Assembly cycle");
+        workspace.display_top_level(topassembly_id);
+        workspace.activate(part_id);
+        require(workspace.remove(topassembly_id) &&
+                    workspace.find(topassembly_id) == nullptr &&
+                    workspace.active_document_id() == part_id &&
+                    workspace.displayed_document_id() != topassembly_id,
+                "Closing the displayed document lost independent edit activation");
+        require(workspace.remove(part_id) &&
+                    workspace.find(part_id) == nullptr &&
+                    !workspace.active_document_id().empty() &&
+                    workspace.find(workspace.active_document_id()) != nullptr,
+                "Closing the active document did not choose a valid replacement");
         std::cout << "C++ Workspace contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

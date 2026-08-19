@@ -149,12 +149,16 @@ revisioned `AssemblySession` state. Part edits do not implicitly update parent
 Assemblies; insertion and Regenerate explicitly consume authoritative
 in-memory calculated Part results, including unsaved ones.
 
-The canonical `zima-cad-cpp` target provides the common Part, Assembly and Drawing GUI:
-document tabs, unified new/open/save actions, insertion of a selected open Part
-or subassembly, explicit Regenerate, occurrence tree, leaf occurrence picking,
-and Assembly-owned component Properties. The standalone Part and Drawing
-programs are named `zima-cad-part-harness` and `zima-cad-drawing-harness`; they
-exist only for isolated development checks.
+The integrated migration target is `zima-cad-cpp`. The Python application and
+the repository `zima-cad` launcher remain the behavioural and user-facing
+reference until the documented parity gate is complete. The C++ target now
+uses the same empty startup, internal New Document dialog, menu order, document
+tabs, left document tree, common view toolbar and one dynamic application
+toolbar for Part, Assembly and Drawing. It also provides insertion of a selected
+open Part or subassembly, explicit Regenerate, leaf occurrence picking, and
+Assembly-owned component Properties. The standalone Part and Drawing programs
+are named `zima-cad-part-harness` and `zima-cad-drawing-harness`; they exist only
+for isolated development checks.
 
 Drawing dimensions render witness lines, a dimension line, and arrowheads.
 They can be selected independently of views, moved by dragging their label,

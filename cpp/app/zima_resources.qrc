@@ -1,0 +1,41 @@
+<RCC>
+  <qresource prefix="/zima">
+    <file alias="branding/app-icon.svg">../../resources/branding/app-icon.svg</file>
+    <file alias="icons/new.svg">../../resources/icons/new.svg</file>
+    <file alias="icons/open.svg">../../resources/icons/open.svg</file>
+    <file alias="icons/save.svg">../../resources/icons/save.svg</file>
+    <file alias="icons/settings.svg">../../resources/icons/settings.svg</file>
+    <file alias="icons/undo.svg">../../resources/icons/undo.svg</file>
+    <file alias="icons/redo.svg">../../resources/icons/redo.svg</file>
+    <file alias="icons/part.svg">../../resources/icons/part.svg</file>
+    <file alias="icons/assembly.svg">../../resources/icons/assembly.svg</file>
+    <file alias="icons/drawing.svg">../../resources/icons/drawing.svg</file>
+    <file alias="icons/drawing-format.svg">../../resources/icons/drawing-format.svg</file>
+    <file alias="icons/title-block.svg">../../resources/icons/title-block.svg</file>
+    <file alias="icons/select.svg">../../resources/icons/select.svg</file>
+    <file alias="icons/view-fit.svg">../../resources/icons/view-fit.svg</file>
+    <file alias="icons/view-normal.svg">../../resources/icons/view-normal.svg</file>
+    <file alias="icons/origin.svg">../../resources/icons/origin.svg</file>
+    <file alias="icons/point.svg">../../resources/icons/point.svg</file>
+    <file alias="icons/axis.svg">../../resources/icons/axis.svg</file>
+    <file alias="icons/plane.svg">../../resources/icons/plane.svg</file>
+    <file alias="icons/sketch.svg">../../resources/icons/sketch.svg</file>
+    <file alias="icons/sketch-segment.svg">../../resources/icons/sketch-segment.svg</file>
+    <file alias="icons/sketch-rectangle.svg">../../resources/icons/sketch-rectangle.svg</file>
+    <file alias="icons/sketch-circle.svg">../../resources/icons/sketch-circle.svg</file>
+    <file alias="icons/sketch-arc.svg">../../resources/icons/sketch-arc.svg</file>
+    <file alias="icons/sketch-ellipse.svg">../../resources/icons/sketch-ellipse.svg</file>
+    <file alias="icons/sketch-spline.svg">../../resources/icons/sketch-spline.svg</file>
+    <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
+    <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
+    <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
+    <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
+    <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
+    <file alias="icons/box.svg">../../resources/icons/box.svg</file>
+    <file alias="icons/sphere.svg">../../resources/icons/sphere.svg</file>
+    <file alias="icons/cylinder.svg">../../resources/icons/cylinder.svg</file>
+    <file alias="icons/cone.svg">../../resources/icons/cone.svg</file>
+    <file alias="icons/pyramid.svg">../../resources/icons/pyramid.svg</file>
+    <file alias="icons/wedge.svg">../../resources/icons/wedge.svg</file>
+  </qresource>
+</RCC>

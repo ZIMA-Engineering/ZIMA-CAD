@@ -17,6 +17,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QPushButton>
 #include <QTabBar>
 #include <QToolBar>
@@ -251,6 +252,10 @@ class DrawingCanvas final : public QWidget {
 public:
     explicit DrawingCanvas(QWidget* parent = nullptr) : QWidget(parent) {
         setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
+        auto canvas_palette = palette();
+        canvas_palette.setColor(QPalette::Window, QColor("#000000"));
+        setPalette(canvas_palette);
+        setAttribute(Qt::WA_OpaquePaintEvent);
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
         sheet_ = sheet;
@@ -272,7 +277,7 @@ public:
 protected:
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);
-        painter.fillRect(rect(), QColor("#53575b"));
+        painter.fillRect(rect(), QColor("#000000"));
         if (sheet_ == nullptr) return;
         const double margin = 24.0;
         const double zoom = std::min((width() - 2 * margin) / sheet_->width_mm(),
@@ -281,15 +286,16 @@ protected:
                              (height() - sheet_->height_mm() * zoom) * 0.5);
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
                            sheet_->height_mm() * zoom);
-        painter.fillRect(paper, Qt::white);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(QPen(Qt::black, 1.0));
+        painter.setPen(QPen(QColor("#808080"), 1.0));
+        painter.drawRect(paper);
+        painter.setPen(QPen(QColor("#FFFFFF"), 1.0));
         const auto screen=[&](const zima::drawing::Point2& point) {
             return QPointF(origin.x()+point.x*zoom,origin.y()+point.y*zoom);
         };
         const auto pen_color=[](zima::drawing::DrawingPen pen) {
-            return pen == zima::drawing::DrawingPen::Yellow ? QColor("#b58b00")
-                : pen == zima::drawing::DrawingPen::Green ? QColor("#277a3d") : QColor("#111111");
+            return pen == zima::drawing::DrawingPen::Yellow ? QColor("#E6C85C")
+                : pen == zima::drawing::DrawingPen::Green ? QColor("#4DD811") : QColor("#FFFFFF");
         };
         if (sheet_->frame_lines.empty()) {
             const double frame = 10.0 * zoom;
@@ -305,7 +311,7 @@ protected:
         draw_template(sheet_->frame_lines,sheet_->frame_texts);
         draw_template(sheet_->title_block_lines,sheet_->title_block_texts);
         for(const auto& field:sheet_->title_block_fields) {
-            painter.setPen(QColor("#111111")); QFont font=painter.font();
+            painter.setPen(QColor("#FFFFFF")); QFont font=painter.font();
             font.setPixelSize(std::max(1,static_cast<int>(field.height*zoom))); painter.setFont(font);
             QString value=QString::fromStdString(field.value);
             if(field.expression=="&sheet.format") value=QString::fromStdString(
@@ -316,7 +322,7 @@ protected:
         }
         for(std::size_t index=0;index<sheet_->bom_rows.size();++index) {
             const auto& row=sheet_->bom_rows[index]; const double y=sheet_->height_mm()-75.0-index*6.0;
-            painter.setPen(QColor("#111111"));
+            painter.setPen(QColor("#FFFFFF"));
             painter.drawText(screen({sheet_->width_mm()-18.0,y}),QString::number(row.item_number));
             painter.drawText(screen({sheet_->width_mm()-35.0,y}),QString::number(row.quantity));
             painter.drawText(screen({sheet_->width_mm()-100.0,y}),QString::fromStdString(row.name));
@@ -325,8 +331,11 @@ protected:
             if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges) continue;
             painter.setPen(Qt::NoPen);
             for (const auto& triangle : view.projected_triangles) {
-                const int shade = std::clamp(static_cast<int>(255.0 * triangle.light), 0, 255);
-                painter.setBrush(QColor(shade, shade, shade));
+                const double light = std::clamp(triangle.light, 0.0, 1.0);
+                painter.setBrush(QColor(
+                    static_cast<int>(185.0 * light),
+                    static_cast<int>(194.0 * light),
+                    static_cast<int>(204.0 * light)));
                 QPolygonF polygon;
                 for (const auto& point : triangle.points)
                     polygon << QPointF(origin.x() + (view.x + point.x * view.scale) * zoom,
@@ -338,8 +347,8 @@ protected:
             for (const auto& edge : view.projected_edges) {
                 if (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)
                     continue;
-                QPen pen(view.id == selected_ ? QColor("#00bcd4")
-                                              : edge.hidden ? QColor("#777777") : Qt::black,
+                QPen pen(view.id == selected_ ? QColor("#00D1FF")
+                                              : edge.hidden ? QColor("#808080") : QColor("#FFFFFF"),
                          view.id == selected_ ? 2.0 : 1.0);
                 if (edge.hidden) pen.setStyle(Qt::DashLine);
                 painter.setPen(pen);
@@ -353,8 +362,8 @@ protected:
             }
         }
         for (const auto& dimension : sheet_->dimensions) {
-            const QColor dimension_color=dimension.id==selected_dimension_id_ ? QColor("#00bcd4")
-                : dimension.unresolved ? QColor("#c62828") : QColor("#d6a600");
+            const QColor dimension_color=dimension.id==selected_dimension_id_ ? QColor("#00D1FF")
+                : dimension.unresolved ? QColor("#C62828") : QColor("#FFD400");
             painter.setPen(QPen(dimension_color,dimension.id==selected_dimension_id_?2.0:1.0));
             const auto* view = [&]() -> const zima::drawing::DrawingView* {
                 const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
@@ -615,14 +624,18 @@ void DrawingWindow::create_actions() {
     auto* drawing = menuBar()->addMenu(tr("Výkres"));
     add_sheet_action_ = drawing->addAction(tr("Přidat list"), this,
         [this] { add_sheet(); });
+    add_sheet_action_->setObjectName("addDrawingSheetAction");
     remove_sheet_action_ = drawing->addAction(tr("Odstranit list"), this,
         [this] { remove_sheet(); });
+    remove_sheet_action_->setObjectName("removeDrawingSheetAction");
     edit_sheet_action_ = drawing->addAction(tr("Vlastnosti listu…"), this,
         [this] { edit_sheet(); });
+    edit_sheet_action_->setObjectName("editDrawingSheetAction");
     drawing->addAction(tr("Načíst formát…"), this, [this] { load_frame(); });
     drawing->addAction(tr("Načíst razítko…"), this, [this] { load_title_block(); });
     edit_title_block_action_ = drawing->addAction(tr("Hodnoty razítka…"), this,
         [this] { edit_title_block(); });
+    edit_title_block_action_->setObjectName("editDrawingTitleBlockAction");
     drawing->addSeparator();
     insert_view_action_ = drawing->addAction(tr("Vložit pohled…"), this,
         [this] { insert_view(); });
@@ -630,14 +643,19 @@ void DrawingWindow::create_actions() {
     projected_view_action_ = drawing->addAction(
         tr("Vytvořit promítnutý pohled…"), this,
         [this] { create_projected_view(); });
+    projected_view_action_->setObjectName("projectDrawingViewAction");
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
         [this] { edit_selected_view(); });
+    edit_view_action_->setObjectName("editDrawingViewAction");
     regenerate_view_action_ = drawing->addAction(tr("Regenerovat pohled"), this,
         [this] { regenerate_selected_view(); });
+    regenerate_view_action_->setObjectName("regenerateDrawingViewAction");
     delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,
         [this] { delete_selected_view(); });
+    delete_view_action_->setObjectName("deleteDrawingViewAction");
     linear_dimension_action_ = drawing->addAction(tr("Lineární kóta"), this,
         [this] { start_linear_dimension(); });
+    linear_dimension_action_->setObjectName("drawingDimensionAction");
     linear_dimension_action_->setCheckable(true);
 
     drawing_toolbar_ = new QToolBar(tr("Výkres"), this);

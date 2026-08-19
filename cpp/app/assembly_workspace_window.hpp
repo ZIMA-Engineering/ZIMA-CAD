@@ -10,6 +10,8 @@
 #include <vector>
 
 class QAction;
+class QActionGroup;
+class QComboBox;
 class QDialog;
 class QLabel;
 class QKeyEvent;
@@ -20,6 +22,7 @@ class QToolBar;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
+class QSplitter;
 
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
@@ -33,28 +36,56 @@ public:
     AssemblyWorkspaceWindow();
 
 private:
+    enum class ApplicationMode {
+        Modeling,
+        Assembly,
+        SheetMetal,
+        Surface,
+        Piping,
+        Drawing,
+    };
+
     zima::workspace::Workspace workspace_;
     zima::kernel::OcctKernel kernel_;
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
     zima::viewer::MeshView* viewer_{};
     QStackedWidget* workspace_stack_{};
+    QSplitter* document_splitter_{};
     QWidget* model_workspace_{};
     DrawingWindow* drawing_workspace_{};
     QLabel* state_{};
     QToolBar* main_toolbar_{};
-    QToolBar* part_toolbar_{};
-    QToolBar* assembly_toolbar_{};
-    QAction* new_part_action_{};
-    QAction* new_assembly_action_{};
-    QAction* new_drawing_action_{};
+    QToolBar* view_toolbar_{};
+    QToolBar* tools_toolbar_{};
+    QComboBox* standard_view_combo_{};
+    QComboBox* selection_filter_combo_{};
+    QAction* new_document_action_{};
     QAction* open_document_action_{};
+    QAction* close_document_action_{};
     QAction* insert_action_{};
     QMenu* insert_menu_{};
+    QAction* regenerate_document_action_{};
     QAction* regenerate_action_{};
     QAction* save_action_{};
     QAction* undo_action_{};
     QAction* redo_action_{};
+    QAction* fit_view_action_{};
+    QAction* selection_action_{};
+    QAction* wire_action_{};
+    QAction* hidden_edges_action_{};
+    QAction* no_hidden_edges_action_{};
+    QAction* shaded_edges_action_{};
+    QAction* shaded_action_{};
+    QAction* show_origins_action_{};
+    QAction* show_points_action_{};
+    QAction* show_axes_action_{};
+    QAction* show_planes_action_{};
+    QAction* show_sketches_action_{};
+    QActionGroup* display_mode_group_{};
+    QActionGroup* application_group_{};
+    std::array<QAction*, 6> application_actions_{};
+    ApplicationMode active_application_{ApplicationMode::Modeling};
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* sphere_action_{};
@@ -152,14 +183,23 @@ private:
 
     void create_layout();
     void create_actions();
+    void new_document();
+    [[nodiscard]] QString create_document(
+        const QString& document_type, const QString& file_stem);
     void new_assembly();
     void new_part();
     void new_drawing();
+    void close_document(int tab_index = -1);
     void open_document();
     void open_document_path(const QString& path);
     void rebuild_insert_menu();
     [[nodiscard]] bool has_insertable_component() const;
     void insert_component(const std::string& source_document_id);
+    void rebuild_application_toolbar();
+    void update_application_actions();
+    void set_active_application(ApplicationMode mode);
+    void update_document_area_visibility();
+    void regenerate_active_document();
     void regenerate_assembly();
     void start_plane_mate();
     void start_axis_mate();

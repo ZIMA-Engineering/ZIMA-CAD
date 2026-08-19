@@ -16,12 +16,43 @@ class QWheelEvent;
 
 namespace zima::viewer {
 
+enum class DisplayMode {
+    Wire,
+    HiddenEdges,
+    NoHiddenEdges,
+    ShadedWithEdges,
+    Shaded,
+};
+
+enum class StandardView {
+    Isometric,
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+};
+
+enum class ReferenceVisibility {
+    Origins,
+    Points,
+    Axes,
+    Planes,
+    Sketches,
+};
+
 class MeshView final : public QOpenGLWidget, protected QOpenGLFunctions {
 public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
     void fit_all();
+    void set_display_mode(DisplayMode mode);
+    [[nodiscard]] DisplayMode display_mode() const;
+    void set_standard_view(StandardView view);
+    void set_reference_visibility(ReferenceVisibility reference, bool visible);
+    [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     void confirm_container(const std::string& owner_id);
     void confirm_occurrence(const std::string& instance_path);

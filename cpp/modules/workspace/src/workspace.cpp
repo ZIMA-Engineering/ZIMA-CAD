@@ -87,6 +87,31 @@ void Workspace::add_drawing(
     if (displayed_document_id_.empty()) displayed_document_id_ = id;
 }
 
+bool Workspace::remove(const std::string& document_id) {
+    const auto found = std::find_if(documents_.begin(), documents_.end(),
+        [&](const DocumentState& state) { return id_of(state) == document_id; });
+    if (found == documents_.end()) return false;
+    const auto index = static_cast<std::size_t>(std::distance(documents_.begin(), found));
+    const bool removed_active = active_document_id_ == document_id;
+    const bool removed_displayed = displayed_document_id_ == document_id;
+    documents_.erase(found);
+    if (documents_.empty()) {
+        active_document_id_.clear();
+        displayed_document_id_.clear();
+        return true;
+    }
+    const std::string replacement = id_of(documents_[
+        std::min(index, documents_.size() - 1)]);
+    if (removed_displayed) displayed_document_id_ = replacement;
+    if (removed_active) {
+        active_document_id_ = removed_displayed
+            ? replacement
+            : find(displayed_document_id_) != nullptr
+                ? displayed_document_id_ : replacement;
+    }
+    return true;
+}
+
 std::size_t Workspace::size() const { return documents_.size(); }
 
 DocumentState* Workspace::find(const std::string& document_id) {

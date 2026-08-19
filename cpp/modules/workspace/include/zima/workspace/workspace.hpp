@@ -50,6 +50,7 @@ public:
     void add_drawing(
         zima::drawing::DrawingDocument document,
         std::filesystem::path path = {});
+    [[nodiscard]] bool remove(const std::string& document_id);
 
     [[nodiscard]] std::size_t size() const;
     [[nodiscard]] DocumentState* find(const std::string& document_id);

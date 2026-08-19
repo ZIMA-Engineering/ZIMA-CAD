@@ -820,8 +820,9 @@ interní `Qt::SubWindow` se společným OK/Cancel a potvrzením dvojklikem prost
 tlačítka. Souborové volby používají společný nenativní Qt dialog; adresáře jsou
 řazené před soubory a technický adresář `0000-index` se nezobrazuje. Vývojový
 spustitelný cíl `zima-cad-drawing-harness` slouží pouze pro izolované testování;
-uživatelská aplikace `zima-cad-cpp` zpřístupňuje výkres jako třetí typ dokumentu
-ze stejného menu Soubor.
+integrační migrační cíl `zima-cad-cpp` zpřístupňuje výkres jako třetí typ
+dokumentu ze stejného menu Soubor. Hlavním uživatelským spouštěčem zůstává do
+splnění parity Python aplikace `zima-cad`.
 
 Lineární kóta po explicitní regeneraci znovu vyhledá obě stabilní reference,
 přepočítá body i měřenou hodnotu a chybějící či již nerovnoběžnou dvojici ponechá
@@ -839,3 +840,10 @@ Party a Assembly v interním zdrojovém dialogu a používá jejich autoritativn
 aktuální výsledek v paměti, včetně dosud neuložených změn. Uložený soubor je
 pouze náhradní zdroj, pokud dokument není otevřený. Regenerace je nadále výslovná
 a otevřená změna Partu či Assembly sama výkres nepřepočítá.
+
+Společný C++ shell nyní kopíruje základní kompozici referenční Python aplikace:
+start bez dokumentu, interní dialog Nový dokument, pořadí hlavních menu,
+ikonovou lištu s logem, zelené dokumentové záložky, strom dokumentu o minimální
+šířce 280 px, společnou lištu pohledu a jedinou pravou lištu přestavovanou podle
+aktivní aplikace. Qt platforma se v programu nevynucuje; v prostředí Wayland se
+proto používá nativní Wayland backend. X11/XWayland není runtime požadavek.

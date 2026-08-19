@@ -51,6 +51,12 @@ struct MeshView::Impl {
     float view_scale{1.4F};
     float yaw{-0.7F};
     float pitch{0.5F};
+    DisplayMode display_mode{DisplayMode::ShadedWithEdges};
+    bool show_origins{true};
+    bool show_points{true};
+    bool show_axes{true};
+    bool show_planes{true};
+    bool show_sketches{true};
     bool gpu_dirty{true};
 
     [[nodiscard]] QVector3D direction() const {
@@ -61,8 +67,10 @@ struct MeshView::Impl {
     [[nodiscard]] QMatrix4x4 view() const {
         const QVector3D target = center + pan;
         const QVector3D eye = target + direction() * std::max(radius * 4.0F, 4.0F);
+        const QVector3D up = std::abs(direction().z()) > 0.99F
+            ? QVector3D(0.0F, 1.0F, 0.0F) : QVector3D(0.0F, 0.0F, 1.0F);
         QMatrix4x4 result;
-        result.lookAt(eye, target, QVector3D(0.0F, 0.0F, 1.0F));
+        result.lookAt(eye, target, up);
         return result;
     }
 
@@ -240,6 +248,73 @@ void MeshView::fit_all() {
     update();
 }
 
+void MeshView::set_display_mode(DisplayMode mode) {
+    impl_->display_mode = mode;
+    update();
+}
+
+DisplayMode MeshView::display_mode() const { return impl_->display_mode; }
+
+void MeshView::set_standard_view(StandardView view) {
+    constexpr float pi = 3.14159265358979323846F;
+    switch (view) {
+        case StandardView::Isometric:
+            impl_->yaw = -0.7F;
+            impl_->pitch = 0.5F;
+            break;
+        case StandardView::Front:
+            impl_->yaw = -pi / 2.0F;
+            impl_->pitch = 0.0F;
+            break;
+        case StandardView::Back:
+            impl_->yaw = pi / 2.0F;
+            impl_->pitch = 0.0F;
+            break;
+        case StandardView::Left:
+            impl_->yaw = pi;
+            impl_->pitch = 0.0F;
+            break;
+        case StandardView::Right:
+            impl_->yaw = 0.0F;
+            impl_->pitch = 0.0F;
+            break;
+        case StandardView::Top:
+            impl_->yaw = 0.0F;
+            impl_->pitch = pi / 2.0F;
+            break;
+        case StandardView::Bottom:
+            impl_->yaw = 0.0F;
+            impl_->pitch = -pi / 2.0F;
+            break;
+    }
+    impl_->pan = {};
+    impl_->candidates.clear();
+    update();
+}
+
+void MeshView::set_reference_visibility(
+    ReferenceVisibility reference, bool visible) {
+    switch (reference) {
+        case ReferenceVisibility::Origins: impl_->show_origins = visible; break;
+        case ReferenceVisibility::Points: impl_->show_points = visible; break;
+        case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
+        case ReferenceVisibility::Planes: impl_->show_planes = visible; break;
+        case ReferenceVisibility::Sketches: impl_->show_sketches = visible; break;
+    }
+    update();
+}
+
+bool MeshView::reference_visible(ReferenceVisibility reference) const {
+    switch (reference) {
+        case ReferenceVisibility::Origins: return impl_->show_origins;
+        case ReferenceVisibility::Points: return impl_->show_points;
+        case ReferenceVisibility::Axes: return impl_->show_axes;
+        case ReferenceVisibility::Planes: return impl_->show_planes;
+        case ReferenceVisibility::Sketches: return impl_->show_sketches;
+    }
+    return false;
+}
+
 void MeshView::initializeGL() {
     initializeOpenGLFunctions();
     glEnable(GL_DEPTH_TEST);
@@ -333,14 +408,67 @@ void MeshView::paintGL() {
     impl_->program.setAttributeBuffer(
         1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
 
-    impl_->program.setUniformValue("color", QVector4D(0.26F, 0.55F, 0.63F, 1.0F));
-    impl_->triangles.bind();
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(impl_->mesh.triangles.size()),
-                   GL_UNSIGNED_INT, nullptr);
-    impl_->program.setUniformValue("color", QVector4D(0.72F, 0.78F, 0.80F, 1.0F));
-    impl_->lines.bind();
-    glDrawElements(GL_LINES, static_cast<GLsizei>(impl_->line_indices.size()),
-                   GL_UNSIGNED_INT, nullptr);
+    const auto draw_triangles = [&] {
+        impl_->triangles.bind();
+        glDrawElements(GL_TRIANGLES,
+            static_cast<GLsizei>(impl_->mesh.triangles.size()),
+            GL_UNSIGNED_INT, nullptr);
+    };
+    const auto draw_lines = [&] {
+        impl_->lines.bind();
+        glDrawElements(GL_LINES,
+            static_cast<GLsizei>(impl_->line_indices.size()),
+            GL_UNSIGNED_INT, nullptr);
+    };
+    const auto depth_prepass = [&] {
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        draw_triangles();
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    };
+    const auto draw_visible_lines = [&] {
+        glDepthFunc(GL_LEQUAL);
+        draw_lines();
+        glDepthFunc(GL_LESS);
+    };
+    switch (impl_->display_mode) {
+        case DisplayMode::Wire:
+            glDisable(GL_DEPTH_TEST);
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.72F, 0.78F, 0.80F, 1.0F));
+            draw_lines();
+            glEnable(GL_DEPTH_TEST);
+            break;
+        case DisplayMode::HiddenEdges:
+            depth_prepass();
+            glDisable(GL_DEPTH_TEST);
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.32F, 0.35F, 0.38F, 1.0F));
+            draw_lines();
+            glEnable(GL_DEPTH_TEST);
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.80F, 0.84F, 0.86F, 1.0F));
+            draw_visible_lines();
+            break;
+        case DisplayMode::NoHiddenEdges:
+            depth_prepass();
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.80F, 0.84F, 0.86F, 1.0F));
+            draw_visible_lines();
+            break;
+        case DisplayMode::ShadedWithEdges:
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.25F, 0.47F, 0.33F, 1.0F));
+            draw_triangles();
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.82F, 0.85F, 0.86F, 1.0F));
+            draw_visible_lines();
+            break;
+        case DisplayMode::Shaded:
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.25F, 0.47F, 0.33F, 1.0F));
+            draw_triangles();
+            break;
+    }
 
     std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
     QVector4D highlight_color(0.12F, 0.86F, 0.94F, 1.0F);
@@ -375,16 +503,26 @@ void MeshView::paintGL() {
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
 
-    const bool axes_visible = std::find(
+    const bool axes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Axis) != impl_->allowed_kinds.end();
-    const bool sketch_geometry_visible = std::any_of(
+    const bool axes_visible = impl_->show_axes || axes_selectable;
+    const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key.starts_with("segment:") ||
-                edge.reference.semantic_key.starts_with("circle:");
+                edge.reference.semantic_key.starts_with("circle:") ||
+                edge.reference.semantic_key.starts_with("arc:") ||
+                edge.reference.semantic_key.starts_with("ellipse:") ||
+                edge.reference.semantic_key.starts_with("bspline:");
+        });
+    const bool points_visible = impl_->show_points && !impl_->mesh.points.empty();
+    const bool planes_visible = impl_->show_planes && std::any_of(
+        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
+            return edge.reference.semantic_key == "border";
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty();
-    if (axes_visible || sketch_geometry_visible || dimensions_visible ||
+    if (axes_visible || points_visible || planes_visible ||
+        sketch_geometry_visible || dimensions_visible ||
         !impl_->transient_edges.empty() ||
         (highlighted && (
             highlighted->kind == CandidateKind::Edge ||
@@ -408,10 +546,29 @@ void MeshView::paintGL() {
             painter.setPen(QPen(QColor(220, 220, 220), 1.8));
             for (const auto& edge : impl_->mesh.edges) {
                 if (!edge.reference.semantic_key.starts_with("segment:") &&
-                    !edge.reference.semantic_key.starts_with("circle:")) continue;
+                    !edge.reference.semantic_key.starts_with("circle:") &&
+                    !edge.reference.semantic_key.starts_with("arc:") &&
+                    !edge.reference.semantic_key.starts_with("ellipse:") &&
+                    !edge.reference.semantic_key.starts_with("bspline:")) continue;
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }
+            }
+        }
+        if (planes_visible) {
+            painter.setPen(QPen(QColor(90, 180, 225, 180), 1.4, Qt::DashLine));
+            for (const auto& edge : impl_->mesh.edges) {
+                if (edge.reference.semantic_key != "border") continue;
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                }
+            }
+        }
+        if (points_visible) {
+            painter.setPen(QPen(QColor(245, 205, 80), 1.5));
+            painter.setBrush(QColor(245, 205, 80));
+            for (const auto& point : impl_->mesh.points) {
+                painter.drawEllipse(project(point.position), 3.5, 3.5);
             }
         }
         if (!impl_->transient_edges.empty()) {
