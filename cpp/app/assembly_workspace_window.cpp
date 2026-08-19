@@ -485,6 +485,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         connect(action, &QAction::triggered, this,
             [this, sides] { start_sketch_polygon(sides); });
     }
+    sketch_trim_action_ = make_action(tr("Ořezat"), "sketch-trim");
+    sketch_trim_action_->setObjectName("sketchTrimAction");
+    sketch_trim_action_->setEnabled(false);
     sketch_mirror_action_ = make_action(tr("Zrcadlit"), "sketch-mirror");
     sketch_mirror_action_->setObjectName("sketchMirrorAction");
     sketch_mirror_action_->setEnabled(false);
@@ -551,6 +554,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_polyline_action_, &QAction::triggered, this,
         [this] { start_sketch_polyline(); });
     connect(sketch_rectangle_action_, &QAction::triggered, this, [this] { start_sketch_rectangle(); });
+    connect(sketch_trim_action_, &QAction::triggered, this,
+        [this] { start_sketch_trim(); });
     connect(sketch_mirror_action_, &QAction::triggered, this,
         [this] { start_sketch_mirror(); });
     connect(sketch_circle_action_, &QAction::triggered, this, [this] { start_sketch_circle(); });
@@ -921,8 +926,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_fix_point_action_->setEnabled(true);
             state_->setText(tr("Vybrán bod skici."));
         }
+        sketch_trim_action_->setEnabled(
+            !active_sketch_id_.empty() && !sketch_trim_active_);
         sketch_mirror_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_mirror_active_);
+            !active_sketch_id_.empty() && !sketch_mirror_active_ &&
+            !sketch_trim_active_);
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
@@ -948,9 +956,18 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_ellipse_ray(origin, direction);
         preview_sketch_bspline_ray(origin, direction);
     });
+    viewer_->set_command_gesture_callbacks(
+        [this](const auto& candidate, const auto& origin, const auto& direction) {
+            return begin_sketch_trim_gesture(candidate, origin, direction);
+        },
+        [this](const auto& origin, const auto& direction) {
+            update_sketch_trim_gesture(origin, direction);
+        },
+        [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
         return finish_edge_treatment_selection() || finish_sketch_bspline() ||
-            finish_sketch_polyline() || finish_sketch_mirror();
+            finish_sketch_polyline() || finish_sketch_mirror() ||
+            finish_sketch_trim();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -1073,6 +1090,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_polyline_action_->setEnabled(true);
                 sketch_rectangle_action_->setEnabled(true);
                 sketch_polygon_action_->setEnabled(true);
+                sketch_trim_action_->setEnabled(true);
                 sketch_mirror_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
@@ -1478,6 +1496,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_normal_view_action_);
         add_command(selection_action_);
         tools_toolbar_->addSeparator();
+        add_command(sketch_trim_action_);
         add_command(sketch_mirror_action_);
         add_green_separator();
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
@@ -2816,6 +2835,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_polyline_active_ = false;
     sketch_rectangle_active_ = false;
     sketch_polygon_active_ = false;
+    cancel_sketch_trim();
     sketch_mirror_active_ = false;
     sketch_mirror_selecting_sources_ = false;
     sketch_circle_active_ = false;
@@ -2904,6 +2924,209 @@ void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
     sketch_polygon_active_ = false;
     pending_polygon_center_.reset();
     viewer_->set_transient_edges({});
+}
+
+void AssemblyWorkspaceWindow::start_sketch_trim() {
+    if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_trim_preview_ = *sketch;
+    sketch_trim_topology_ = zima::sketcher::sketch_trim_topology(
+        *sketch_trim_preview_, true);
+    sketch_trim_active_ = true;
+    sketch_trim_changed_ = false;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    selected_sketch_point_id_.clear();
+    selection_action_->setChecked(true);
+    viewer_->clear_selection();
+    preserve_view_on_refresh_ = true;
+    refresh_scene();
+    state_->setText(tr(
+        "Ořezání: klikněte na část, nebo tažením přeškrtněte více částí. "
+        "Prostřední klik potvrdí vše jako jednu revizi; Escape vše zahodí."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_trim() {
+    sketch_trim_active_ = false;
+    sketch_trim_changed_ = false;
+    sketch_trim_preview_.reset();
+    sketch_trim_topology_.clear();
+    sketch_trim_path_.clear();
+    sketch_trim_pressed_piece_.reset();
+    if (viewer_ != nullptr) viewer_->set_transient_edges({});
+}
+
+bool AssemblyWorkspaceWindow::begin_sketch_trim_gesture(
+    const std::optional<zima::viewer::ViewerCandidate>& candidate,
+    const zima::kernel::Vec3& origin,
+    const zima::kernel::Vec3& direction) {
+    if (!sketch_trim_active_ || !sketch_trim_preview_) return false;
+    const auto position = sketch_trim_preview_->intersect_ray(origin, direction);
+    if (!position) return false;
+    sketch_trim_path_ = {*position};
+    sketch_trim_pressed_piece_.reset();
+    if (candidate &&
+        candidate->kind == zima::viewer::CandidateKind::SketchTrimPiece &&
+        candidate->owner_id == active_sketch_id_ &&
+        candidate->semantic_key.starts_with("trim_piece:")) {
+        const auto index_text = candidate->semantic_key.substr(11);
+        if (!index_text.empty() && std::all_of(
+                index_text.begin(), index_text.end(), [](unsigned char character) {
+                    return std::isdigit(character) != 0;
+                })) {
+            try {
+                const auto index = static_cast<std::size_t>(std::stoull(index_text));
+                if (index < sketch_trim_topology_.size()) {
+                    sketch_trim_pressed_piece_ = index;
+                    zima::kernel::ViewerEdge highlight;
+                    for (const auto& point : sketch_trim_topology_[index].points) {
+                        highlight.points.push_back(
+                            sketch_trim_preview_->world_point(point[0], point[1]));
+                    }
+                    viewer_->set_transient_edges({std::move(highlight)});
+                }
+            } catch (const std::exception&) {
+                sketch_trim_pressed_piece_.reset();
+            }
+        }
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::update_sketch_trim_gesture(
+    const zima::kernel::Vec3& origin,
+    const zima::kernel::Vec3& direction) {
+    if (!sketch_trim_active_ || !sketch_trim_preview_ ||
+        sketch_trim_path_.empty()) return;
+    const auto position = sketch_trim_preview_->intersect_ray(origin, direction);
+    if (!position) return;
+    const auto& previous = sketch_trim_path_.back();
+    const double distance = std::hypot(
+        (*position)[0] - previous[0], (*position)[1] - previous[1]);
+    if (distance > viewer_->world_tolerance_for_pixels(0.5)) {
+        sketch_trim_path_.push_back(*position);
+    }
+    double path_length = 0.0;
+    for (std::size_t index = 1; index < sketch_trim_path_.size(); ++index) {
+        path_length += std::hypot(
+            sketch_trim_path_[index][0] - sketch_trim_path_[index - 1][0],
+            sketch_trim_path_[index][1] - sketch_trim_path_[index - 1][1]);
+    }
+    std::vector<zima::kernel::ViewerEdge> overlay;
+    if (path_length > viewer_->world_tolerance_for_pixels(3.0)) {
+        const auto crossed = zima::sketcher::sketch_trim_pieces_crossed_by_path(
+            sketch_trim_topology_, sketch_trim_path_,
+            viewer_->world_tolerance_for_pixels(4.0));
+        overlay.reserve(crossed.size() + 1);
+        for (const auto& piece : crossed) {
+            zima::kernel::ViewerEdge edge;
+            for (const auto& point : piece.points) {
+                edge.points.push_back(
+                    sketch_trim_preview_->world_point(point[0], point[1]));
+            }
+            overlay.push_back(std::move(edge));
+        }
+        zima::kernel::ViewerEdge gesture;
+        for (const auto& point : sketch_trim_path_) {
+            gesture.points.push_back(
+                sketch_trim_preview_->world_point(point[0], point[1]));
+        }
+        overlay.push_back(std::move(gesture));
+    } else if (sketch_trim_pressed_piece_ &&
+               *sketch_trim_pressed_piece_ < sketch_trim_topology_.size()) {
+        zima::kernel::ViewerEdge edge;
+        for (const auto& point :
+             sketch_trim_topology_[*sketch_trim_pressed_piece_].points) {
+            edge.points.push_back(
+                sketch_trim_preview_->world_point(point[0], point[1]));
+        }
+        overlay.push_back(std::move(edge));
+    }
+    viewer_->set_transient_edges(std::move(overlay));
+}
+
+void AssemblyWorkspaceWindow::end_sketch_trim_gesture() {
+    if (!sketch_trim_active_ || !sketch_trim_preview_ ||
+        sketch_trim_path_.empty()) return;
+    double path_length = 0.0;
+    for (std::size_t index = 1; index < sketch_trim_path_.size(); ++index) {
+        path_length += std::hypot(
+            sketch_trim_path_[index][0] - sketch_trim_path_[index - 1][0],
+            sketch_trim_path_[index][1] - sketch_trim_path_[index - 1][1]);
+    }
+    std::vector<zima::sketcher::SketchTrimPiece> removed;
+    if (path_length > viewer_->world_tolerance_for_pixels(3.0)) {
+        removed = zima::sketcher::sketch_trim_pieces_crossed_by_path(
+            sketch_trim_topology_, sketch_trim_path_,
+            viewer_->world_tolerance_for_pixels(4.0));
+    } else if (sketch_trim_pressed_piece_ &&
+               *sketch_trim_pressed_piece_ < sketch_trim_topology_.size()) {
+        removed.push_back(sketch_trim_topology_[*sketch_trim_pressed_piece_]);
+    }
+    sketch_trim_path_.clear();
+    sketch_trim_pressed_piece_.reset();
+    viewer_->set_transient_edges({});
+    if (removed.empty()) {
+        state_->setText(tr(
+            "Ořezání: gesto nezasáhlo žádnou ořezatelnou část."));
+        return;
+    }
+    try {
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            *sketch_trim_preview_, removed));
+        sketch_trim_changed_ = true;
+        sketch_trim_topology_ = zima::sketcher::sketch_trim_topology(
+            *sketch_trim_preview_, true);
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr(
+            "Ořezání je pouze v náhledu. Pokračujte, prostřední klik vše "
+            "potvrdí a Escape obnoví původní skicu."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+}
+
+bool AssemblyWorkspaceWindow::finish_sketch_trim() {
+    if (!sketch_trim_active_) return false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || !sketch_trim_preview_) return true;
+    if (!sketch_trim_changed_) {
+        cancel_sketch_trim();
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr("Ořezání ukončeno beze změny."));
+        return true;
+    }
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(
+            next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return true;
+        *sketch = *sketch_trim_preview_;
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        cancel_sketch_trim();
+        viewer_->clear_selection();
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Ořezání skici bylo potvrzeno jako jedna Part revize."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
 }
 
 void AssemblyWorkspaceWindow::start_sketch_mirror() {
@@ -4246,13 +4469,20 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     }
     if (event->key() == Qt::Key_Escape &&
         (sketch_point_active_ || sketch_segment_active_ ||
-         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
+         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
+         sketch_circle_active_ ||
          sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
          sketch_bspline_active_ ||
          sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
+        const bool discarded_trim = sketch_trim_active_ && sketch_trim_changed_;
         cancel_sketch_segment();
+        preserve_view_on_refresh_ = true;
         refresh_scene();
+        if (discarded_trim) {
+            state_->setText(tr(
+                "Ořezání bylo zrušeno; původní skica zůstala beze změny."));
+        }
         event->accept();
         return;
     }
@@ -4416,6 +4646,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
+                             sketch_trim_action_,
                              sketch_mirror_action_,
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
@@ -4518,6 +4749,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         root->setExpanded(true);
         viewer_->set_selection_contract(!selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
+            : sketch_trim_active_
+                ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
             : sketch_mirror_active_
                 ? sketch_mirror_selecting_sources_
                     ? std::vector{zima::viewer::CandidateKind::SketchSegment,
@@ -4561,7 +4794,36 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if (!active_sketch_id_.empty() && sketch.id != active_sketch_id_) {
                     continue;
                 }
-                auto sketch_mesh = sketch.viewer_mesh();
+                const auto* displayed_sketch = sketch_trim_active_ &&
+                        sketch_trim_preview_ && sketch.id == active_sketch_id_
+                    ? &*sketch_trim_preview_ : &sketch;
+                auto sketch_mesh = displayed_sketch->viewer_mesh();
+                if (sketch_trim_active_ && sketch_trim_preview_ &&
+                    sketch.id == active_sketch_id_) {
+                    std::set<std::string> piece_geometry_ids;
+                    for (const auto& piece : sketch_trim_topology_) {
+                        piece_geometry_ids.insert(piece.geometry_id);
+                    }
+                    std::erase_if(sketch_mesh.edges, [&](const auto& edge) {
+                        const auto separator = edge.reference.semantic_key.find(':');
+                        return separator != std::string::npos &&
+                            piece_geometry_ids.contains(
+                                edge.reference.semantic_key.substr(separator + 1));
+                    });
+                    for (std::size_t index = 0;
+                         index < sketch_trim_topology_.size(); ++index) {
+                        zima::kernel::ViewerEdge edge;
+                        edge.reference = {
+                            displayed_sketch->id,
+                            "trim_piece:" + std::to_string(index), {}};
+                        edge.overlay = true;
+                        for (const auto& point : sketch_trim_topology_[index].points) {
+                            edge.points.push_back(
+                                displayed_sketch->world_point(point[0], point[1]));
+                        }
+                        sketch_mesh.edges.push_back(std::move(edge));
+                    }
+                }
                 if (sketch.id != active_sketch_id_) sketch_mesh.axes.clear();
                 append_mesh(display, std::move(sketch_mesh));
             }
@@ -4606,8 +4868,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polygon_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_trim_action_->setEnabled(
+            !active_sketch_id_.empty() && !sketch_trim_active_);
         sketch_mirror_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_mirror_active_);
+            !active_sketch_id_.empty() && !sketch_mirror_active_ &&
+            !sketch_trim_active_);
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
@@ -4637,6 +4902,34 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
         redo_action_->setEnabled(part->session.can_redo());
+        if (sketch_trim_active_) {
+            for (auto* action : {
+                    box_action_, cylinder_action_, sphere_action_, cone_action_,
+                    pyramid_action_, wedge_action_, construction_point_action_,
+                    construction_axis_action_, construction_plane_action_,
+                    extrusion_action_, revolution_action_, fillet_action_,
+                    chamfer_action_, sketch_action_, sketch_point_action_,
+                    sketch_construction_action_, sketch_segment_action_,
+                    sketch_polyline_action_, sketch_rectangle_action_,
+                    sketch_polygon_action_, sketch_trim_action_, sketch_mirror_action_,
+                    sketch_circle_action_, sketch_arc_action_, sketch_ellipse_action_,
+                    sketch_bspline_action_, sketch_horizontal_action_,
+                    sketch_vertical_action_, sketch_coincident_action_,
+                    sketch_parallel_action_, sketch_perpendicular_action_,
+                    sketch_equal_length_action_, sketch_dimension_action_,
+                    sketch_dimension_x_action_, sketch_dimension_y_action_,
+                    sketch_angle_dimension_action_, sketch_radius_dimension_action_,
+                    sketch_diameter_dimension_action_,
+                    sketch_ellipse_major_dimension_action_,
+                    sketch_ellipse_minor_dimension_action_,
+                    sketch_ellipse_rotation_dimension_action_,
+                    sketch_fix_point_action_, finish_sketch_action_,
+                    regenerate_part_action_, regenerate_document_action_,
+                    save_action_, save_as_action_, close_document_action_,
+                    undo_action_, redo_action_}) {
+                action->setEnabled(false);
+            }
+        }
         update_application_actions();
         rebuild_application_toolbar();
         return;
@@ -4735,6 +5028,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_->setEnabled(false);
     sketch_polygon_action_->setEnabled(false);
+    sketch_trim_action_->setEnabled(false);
     sketch_mirror_action_->setEnabled(false);
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);

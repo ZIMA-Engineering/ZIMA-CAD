@@ -23,7 +23,9 @@ add_library(zima_kernel_api INTERFACE)
 target_include_directories(zima_kernel_api INTERFACE
     modules/kernel_api/include)
 
-add_library(zima_sketcher modules/sketcher/src/sketch.cpp)
+add_library(zima_sketcher
+    modules/sketcher/src/sketch.cpp
+    modules/sketcher/src/sketch_trim.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include)
 target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api

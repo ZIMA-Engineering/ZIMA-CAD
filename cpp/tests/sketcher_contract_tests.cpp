@@ -1,4 +1,5 @@
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
 
 #include <algorithm>
@@ -955,6 +956,188 @@ int main() {
         spline_sketch.remove_geometry(spline_id);
         require(spline_sketch.bsplines.empty() && spline_sketch.points.empty(),
                 "B-spline deletion retained orphan control points");
+
+        auto trimmed_cross = zima::sketcher::Sketch::create_default();
+        const auto trimmed_target = trimmed_cross.add_segment(-10.0, 4.0, 10.0, 4.0);
+        static_cast<void>(trimmed_cross.add_segment(0.0, -10.0, 0.0, 10.0));
+        const auto trimmed_target_points = std::array{
+            trimmed_cross.segments.front().first_point_id,
+            trimmed_cross.segments.front().second_point_id};
+        const auto cross_topology = zima::sketcher::sketch_trim_topology(
+            trimmed_cross, false);
+        const auto target_piece_count = std::count_if(
+            cross_topology.begin(), cross_topology.end(), [&](const auto& piece) {
+                return piece.geometry_id == trimmed_target;
+            });
+        const auto right_piece = zima::sketcher::nearest_sketch_trim_piece(
+            cross_topology, {7.0, 4.0}, 0.25);
+        require(target_piece_count == 2 && right_piece &&
+                    right_piece->geometry_id == trimmed_target,
+                "Sketch trim topology did not split or pick a crossed segment");
+        const auto cross_mapping = zima::sketcher::apply_sketch_trim(
+            trimmed_cross, {*right_piece});
+        const auto retained_target = std::find_if(
+            trimmed_cross.segments.begin(), trimmed_cross.segments.end(),
+            [&](const auto& segment) { return segment.id == trimmed_target; });
+        require(cross_mapping.geometry_mapping.at(trimmed_target) ==
+                    std::vector<std::string>{trimmed_target} &&
+                    retained_target != trimmed_cross.segments.end() &&
+                    retained_target->first_point_id == trimmed_target_points[0] &&
+                    std::abs(trimmed_cross.find_point(
+                        retained_target->second_point_id)->x) < 1.0e-6,
+                "Segment trim lost stable identity, original endpoint, or exact survivor");
+
+        auto axis_trim = zima::sketcher::Sketch::create_default();
+        const auto axis_target = axis_trim.add_segment(-8.0, 3.0, 8.0, 3.0);
+        const auto axis_topology = zima::sketcher::sketch_trim_topology(axis_trim, true);
+        require(std::count_if(axis_topology.begin(), axis_topology.end(),
+                    [&](const auto& piece) { return piece.geometry_id == axis_target; }) == 2,
+                "Sketch base Y axis did not create a trim boundary");
+
+        auto construction_trim = zima::sketcher::Sketch::create_default();
+        const auto construction_target = construction_trim.add_segment(
+            -8.0, 4.0, 8.0, 4.0);
+        const auto construction_cutter = construction_trim.add_segment(
+            0.0, -1.0, 0.0, 1.0, 1.0e-6, true);
+        const auto construction_topology =
+            zima::sketcher::sketch_trim_topology(construction_trim, false);
+        require(std::count_if(construction_topology.begin(), construction_topology.end(),
+                    [&](const auto& piece) {
+                        return piece.geometry_id == construction_target;
+                    }) == 2 &&
+                std::none_of(construction_topology.begin(), construction_topology.end(),
+                    [&](const auto& piece) {
+                        return piece.geometry_id == construction_cutter;
+                    }),
+                "Construction line did not cut normal geometry or became trimmable");
+
+        auto whole_trim = zima::sketcher::Sketch::create_default();
+        const auto whole_id = whole_trim.add_segment(2.0, 2.0, 7.0, 2.0);
+        const auto whole_topology = zima::sketcher::sketch_trim_topology(
+            whole_trim, false);
+        require(whole_topology.size() == 1 &&
+                    whole_topology.front().geometry_id == whole_id,
+                "Uncut Sketch geometry did not expose one complete trim piece");
+        const auto whole_mapping = zima::sketcher::apply_sketch_trim(
+            whole_trim, {whole_topology.front()});
+        require(whole_trim.segments.empty() && whole_trim.points.empty() &&
+                    whole_mapping.geometry_mapping.at(whole_id).empty(),
+                "Trimming an uncut Sketch entity did not remove it completely");
+
+        auto circle_trim = zima::sketcher::Sketch::create_default();
+        const auto trim_circle_id = circle_trim.add_circle(0.0, 0.0, 10.0);
+        static_cast<void>(circle_trim.add_segment(-15.0, 0.0, 15.0, 0.0));
+        const auto trim_circle_center = circle_trim.circles.front().center_point_id;
+        const auto circle_topology = zima::sketcher::sketch_trim_topology(
+            circle_trim, false);
+        const auto upper_circle_piece = zima::sketcher::nearest_sketch_trim_piece(
+            circle_topology, {0.0, 10.0}, 0.5);
+        require(upper_circle_piece && upper_circle_piece->geometry_id == trim_circle_id,
+                "Circle trim topology did not expose the selected semicircle");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            circle_trim, {*upper_circle_piece}));
+        const auto trimmed_circle_arc = std::find_if(
+            circle_trim.arcs.begin(), circle_trim.arcs.end(), [&](const auto& arc) {
+                return arc.id == trim_circle_id;
+            });
+        require(circle_trim.circles.empty() &&
+                    trimmed_circle_arc != circle_trim.arcs.end() &&
+                    trimmed_circle_arc->center_point_id == trim_circle_center &&
+                    std::abs(trimmed_circle_arc->radius - 10.0) < 1.0e-7 &&
+                    std::abs(trimmed_circle_arc->end_angle -
+                        trimmed_circle_arc->start_angle -
+                        3.14159265358979323846) < 1.0e-4,
+                "Circle trim did not reconstruct one stable exact-radius Arc");
+
+        auto split_trim = zima::sketcher::Sketch::create_default();
+        const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);
+        static_cast<void>(split_trim.add_segment(
+            -3.0, -1.0, -3.0, 1.0, 1.0e-6, true));
+        static_cast<void>(split_trim.add_segment(
+            3.0, -1.0, 3.0, 1.0, 1.0e-6, true));
+        static_cast<void>(split_trim.add_segment_constraint(
+            split_target, zima::sketcher::ConstraintKind::Horizontal));
+        const auto split_topology = zima::sketcher::sketch_trim_topology(
+            split_trim, false);
+        const auto middle_piece = zima::sketcher::nearest_sketch_trim_piece(
+            split_topology, {0.0, 2.0}, 0.2);
+        require(middle_piece && middle_piece->geometry_id == split_target,
+                "Two trim boundaries did not expose the middle segment piece");
+        const auto split_mapping = zima::sketcher::apply_sketch_trim(
+            split_trim, {*middle_piece});
+        const auto& split_survivors = split_mapping.geometry_mapping.at(split_target);
+        require(split_survivors.size() == 2 &&
+                    split_survivors.front() == split_target &&
+                    split_survivors[0] != split_survivors[1] &&
+                    std::count_if(split_trim.constraints.begin(),
+                        split_trim.constraints.end(), [](const auto& constraint) {
+                            return constraint.kind ==
+                                zima::sketcher::ConstraintKind::Horizontal;
+                        }) == 2,
+                "Split trim lost unique stable IDs or reusable H/V constraints");
+
+        auto path_trim = zima::sketcher::Sketch::create_default();
+        static_cast<void>(path_trim.add_segment(-8.0, -3.0, 8.0, -3.0));
+        static_cast<void>(path_trim.add_segment(-8.0, 3.0, 8.0, 3.0));
+        const auto path_topology = zima::sketcher::sketch_trim_topology(
+            path_trim, false);
+        const auto crossed = zima::sketcher::sketch_trim_pieces_crossed_by_path(
+            path_topology, {{{0.0, -5.0}, {0.0, 5.0}}}, 0.1);
+        require(crossed.size() == 2 &&
+                    crossed[0].geometry_id != crossed[1].geometry_id,
+                "Sketch trim drag path did not select every crossed piece once");
+
+        auto spline_trim = zima::sketcher::Sketch::create_default();
+        const auto trim_spline_id = spline_trim.add_bspline({
+            {-12.0, 0.0}, {-4.0, 0.0}, {4.0, 0.0}, {12.0, 0.0}});
+        static_cast<void>(spline_trim.add_segment(
+            0.0, -2.0, 0.0, 2.0, 1.0e-6, true));
+        const auto spline_trim_topology = zima::sketcher::sketch_trim_topology(
+            spline_trim, false);
+        const auto spline_piece = zima::sketcher::nearest_sketch_trim_piece(
+            spline_trim_topology, {7.0, 0.0}, 0.25);
+        require(spline_piece && spline_piece->geometry_id == trim_spline_id,
+                "B-spline did not participate in persisted trim topology");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            spline_trim, {*spline_piece}));
+        require(spline_trim.bsplines.size() == 1 &&
+                    spline_trim.bsplines.front().id == trim_spline_id &&
+                    !spline_trim.bsplines.front().closed,
+                "B-spline trim did not reconstruct a valid open survivor");
+        spline_trim.validate();
+
+        auto ellipse_cutter = zima::sketcher::Sketch::create_default();
+        const auto trim_ellipse_id = ellipse_cutter.add_ellipse(
+            0.0, 0.0, 8.0, 0.0, 0.0, 4.0);
+        const auto ellipse_cut_target = ellipse_cutter.add_segment(
+            -12.0, 0.0, 12.0, 0.0);
+        const auto ellipse_cut_topology = zima::sketcher::sketch_trim_topology(
+            ellipse_cutter, false);
+        require(std::none_of(ellipse_cut_topology.begin(), ellipse_cut_topology.end(),
+                    [&](const auto& piece) {
+                        return piece.geometry_id == trim_ellipse_id;
+                    }) &&
+                std::count_if(ellipse_cut_topology.begin(), ellipse_cut_topology.end(),
+                    [&](const auto& piece) {
+                        return piece.geometry_id == ellipse_cut_target;
+                    }) == 3,
+                "Ellipse did not create trim boundaries while exact elliptical arcs are pending");
+
+        auto stale_trim = zima::sketcher::Sketch::create_default();
+        static_cast<void>(stale_trim.add_segment(-5.0, 2.0, 5.0, 2.0));
+        auto stale_piece = zima::sketcher::sketch_trim_topology(
+            stale_trim, false).front();
+        stale_piece.start += 0.1;
+        const auto stale_before = stale_trim.serialized();
+        bool stale_rejected = false;
+        try {
+            static_cast<void>(zima::sketcher::apply_sketch_trim(
+                stale_trim, {stale_piece}));
+        } catch (const std::invalid_argument&) {
+            stale_rejected = true;
+        }
+        require(stale_rejected && stale_trim.serialized() == stale_before,
+                "Invalid or stale trim piece partially changed the Sketch");
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

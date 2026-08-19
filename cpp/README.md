@@ -461,6 +461,16 @@ first Segment supplies the target length; the solver scales the second about
 its available endpoints without changing its direction. Fixed endpoints are
 respected, and an immovable mismatch rejects the complete transaction.
 
+Sketch Trim builds its selectable pieces from persisted Sketch/viewer data and
+never traverses OCCT. Base axes and construction lines create cut boundaries
+without becoming trim targets. LMB click and crossing drag share the same
+`SketchTrimPiece` topology; every gesture updates only a transient Sketch copy.
+A short middle click commits the complete session as one Part revision, while
+Escape restores the unchanged source. Segment, Circle/Arc, and B-spline
+reconstruction retain the first surviving geometry ID and reusable
+Horizontal/Vertical segment constraints. Ellipses currently cut other curves
+but remain unselectable until the persisted elliptical-arc type is introduced.
+
 Extrusion is the first Sketch-to-solid vertical slice. The Modeling command is
 enabled only for a selected persisted Sketch and reuses one internal Properties
 window for creation and editing. OK explicitly evaluates the body; Cancel and

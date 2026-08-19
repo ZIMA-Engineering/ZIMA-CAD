@@ -44,8 +44,17 @@ struct MeshView::Impl {
         world_click_callback;
     std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
         world_pointer_callback;
+    std::function<bool(
+        const std::optional<ViewerCandidate>&,
+        const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
+        command_gesture_begin_callback;
+    std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
+        command_gesture_update_callback;
+    std::function<void()> command_gesture_end_callback;
+    bool command_gesture_active{};
     std::function<bool()> short_middle_click_callback;
     bool middle_dragged{};
+    QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     QPoint last_pointer;
     QVector3D center;
@@ -176,6 +185,18 @@ void MeshView::set_world_pointer_callback(std::function<void(
     impl_->world_pointer_callback = std::move(callback);
 }
 
+void MeshView::set_command_gesture_callbacks(
+    std::function<bool(
+        const std::optional<ViewerCandidate>&,
+        const zima::kernel::Vec3&, const zima::kernel::Vec3&)> begin,
+    std::function<void(
+        const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
+    std::function<void()> end) {
+    impl_->command_gesture_begin_callback = std::move(begin);
+    impl_->command_gesture_update_callback = std::move(update);
+    impl_->command_gesture_end_callback = std::move(end);
+}
+
 void MeshView::set_short_middle_click_callback(std::function<bool()> callback) {
     impl_->short_middle_click_callback = std::move(callback);
 }
@@ -197,6 +218,12 @@ void MeshView::set_candidate_drag_callbacks(
 void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
     impl_->transient_edges = std::move(edges);
     update();
+}
+
+double MeshView::world_tolerance_for_pixels(double pixels) const {
+    if (!std::isfinite(pixels) || pixels < 0.0 || height() <= 0) return 0.0;
+    return 2.0 * static_cast<double>(impl_->view_scale) * pixels /
+        static_cast<double>(height());
 }
 
 void MeshView::notify_confirmation() {
@@ -540,6 +567,7 @@ void MeshView::paintGL() {
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key.starts_with("segment:") ||
+                edge.reference.semantic_key.starts_with("trim_piece:") ||
                 edge.reference.semantic_key.starts_with("circle:") ||
                 edge.reference.semantic_key.starts_with("arc:") ||
                 edge.reference.semantic_key.starts_with("ellipse:") ||
@@ -558,6 +586,7 @@ void MeshView::paintGL() {
             highlighted->kind == CandidateKind::Edge ||
             highlighted->kind == CandidateKind::SketchSegment ||
             highlighted->kind == CandidateKind::SketchCurve ||
+            highlighted->kind == CandidateKind::SketchTrimPiece ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
             highlighted->kind == CandidateKind::Dimension ||
@@ -576,6 +605,7 @@ void MeshView::paintGL() {
         if (sketch_geometry_visible) {
             for (const auto& edge : impl_->mesh.edges) {
                 if (!edge.reference.semantic_key.starts_with("segment:") &&
+                    !edge.reference.semantic_key.starts_with("trim_piece:") &&
                     !edge.reference.semantic_key.starts_with("circle:") &&
                     !edge.reference.semantic_key.starts_with("arc:") &&
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
@@ -692,7 +722,8 @@ void MeshView::paintGL() {
                     ? impl_->mesh.original_references.axes : impl_->mesh.axes;
             if ((highlighted->kind == CandidateKind::Edge ||
                  highlighted->kind == CandidateKind::SketchSegment ||
-                 highlighted->kind == CandidateKind::SketchCurve) &&
+                 highlighted->kind == CandidateKind::SketchCurve ||
+                 highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
                 const auto& edge = selectable_edges[highlighted->geometry_index];
@@ -770,7 +801,27 @@ MeshView::ray_at(const QPointF& position) const {
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
-    if (event->button() == Qt::MiddleButton) impl_->middle_dragged = false;
+    if (event->button() == Qt::MiddleButton) {
+        impl_->middle_dragged = false;
+        impl_->middle_press_position = event->position().toPoint();
+    }
+    if (event->button() == Qt::LeftButton &&
+        impl_->command_gesture_begin_callback) {
+        update_candidates(event->position());
+        const auto ray = ray_at(event->position());
+        const std::optional<ViewerCandidate> candidate = impl_->candidates.empty()
+            ? std::nullopt
+            : std::optional{impl_->candidates[impl_->active_candidate]};
+        if (ray && impl_->command_gesture_begin_callback(
+                candidate, ray->first, ray->second)) {
+            impl_->command_gesture_active = true;
+            impl_->confirmed_candidate.reset();
+            impl_->candidates.clear();
+            update();
+            event->accept();
+            return;
+        }
+    }
     if (event->button() == Qt::LeftButton && impl_->world_click_callback) {
         const auto ray = ray_at(event->position());
         if (ray && impl_->world_click_callback(ray->first, ray->second)) {
@@ -813,6 +864,13 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
     const QPoint current = event->position().toPoint();
     const QPoint movement = current - impl_->last_pointer;
     impl_->last_pointer = current;
+    if ((event->buttons() & Qt::LeftButton) && impl_->command_gesture_active) {
+        if (impl_->command_gesture_update_callback) {
+            const auto ray = ray_at(event->position());
+            if (ray) impl_->command_gesture_update_callback(ray->first, ray->second);
+        }
+        return;
+    }
     if ((event->buttons() & Qt::LeftButton) && impl_->drag_active) {
         if (impl_->drag_update_callback) {
             const auto ray = ray_at(event->position());
@@ -821,7 +879,9 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (event->buttons() & Qt::MiddleButton) {
-        if (movement.manhattanLength() > 2) impl_->middle_dragged = true;
+        if ((current - impl_->middle_press_position).manhattanLength() > 2) {
+            impl_->middle_dragged = true;
+        }
         if (event->modifiers() & Qt::ShiftModifier) {
             const QVector3D forward = -impl_->direction();
             const QVector3D right = QVector3D::crossProduct(forward, QVector3D(0, 0, 1)).normalized();
@@ -858,6 +918,18 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
             event->accept();
             return;
         }
+    }
+    if (event->button() == Qt::LeftButton && impl_->command_gesture_active) {
+        if (impl_->command_gesture_update_callback) {
+            const auto ray = ray_at(event->position());
+            if (ray) impl_->command_gesture_update_callback(ray->first, ray->second);
+        }
+        impl_->command_gesture_active = false;
+        if (impl_->command_gesture_end_callback) {
+            impl_->command_gesture_end_callback();
+        }
+        event->accept();
+        return;
     }
     if (event->button() == Qt::LeftButton && impl_->drag_active) {
         impl_->drag_active = false;

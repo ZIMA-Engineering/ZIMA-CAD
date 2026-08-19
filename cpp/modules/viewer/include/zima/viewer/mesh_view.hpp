@@ -65,6 +65,13 @@ public:
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
     void set_world_pointer_callback(std::function<void(
         const zima::kernel::Vec3&, const zima::kernel::Vec3&)> callback);
+    void set_command_gesture_callbacks(
+        std::function<bool(
+            const std::optional<ViewerCandidate>&,
+            const zima::kernel::Vec3&, const zima::kernel::Vec3&)> begin,
+        std::function<void(
+            const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
+        std::function<void()> end);
     void set_short_middle_click_callback(std::function<bool()> callback);
     void set_double_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
@@ -74,6 +81,7 @@ public:
         std::function<void()> end);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
+    [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
 protected:
     void initializeGL() override;

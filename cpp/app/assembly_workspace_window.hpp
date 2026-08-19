@@ -2,6 +2,8 @@
 
 #include <zima/workspace/workspace.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/sketcher/sketch_trim.hpp>
+#include <zima/viewer/picking.hpp>
 
 #include <QMainWindow>
 
@@ -112,6 +114,7 @@ private:
     QAction* sketch_rectangle_action_{};
     QAction* sketch_polygon_action_{};
     QMenu* sketch_polygon_menu_{};
+    QAction* sketch_trim_action_{};
     QAction* sketch_mirror_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
@@ -171,6 +174,12 @@ private:
     bool sketch_polygon_active_{};
     unsigned sketch_polygon_sides_{6};
     std::optional<std::array<double, 2>> pending_polygon_center_;
+    bool sketch_trim_active_{};
+    bool sketch_trim_changed_{};
+    std::optional<zima::sketcher::Sketch> sketch_trim_preview_;
+    std::vector<zima::sketcher::SketchTrimPiece> sketch_trim_topology_;
+    std::vector<std::array<double, 2>> sketch_trim_path_;
+    std::optional<std::size_t> sketch_trim_pressed_piece_;
     bool sketch_mirror_active_{};
     bool sketch_mirror_selecting_sources_{};
     std::vector<std::string> pending_mirror_geometry_ids_;
@@ -262,6 +271,17 @@ private:
     void cancel_sketch_rectangle();
     void start_sketch_polygon(unsigned sides);
     void cancel_sketch_polygon();
+    void start_sketch_trim();
+    void cancel_sketch_trim();
+    [[nodiscard]] bool begin_sketch_trim_gesture(
+        const std::optional<zima::viewer::ViewerCandidate>& candidate,
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction);
+    void update_sketch_trim_gesture(
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction);
+    void end_sketch_trim_gesture();
+    [[nodiscard]] bool finish_sketch_trim();
     void start_sketch_mirror();
     void cancel_sketch_mirror();
     void accept_sketch_mirror_source(

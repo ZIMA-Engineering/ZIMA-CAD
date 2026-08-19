@@ -784,6 +784,22 @@ sdílené; oblouk obrátí parametrickou orientaci a elipsa persistuje i obráce
 orientaci vedlejší poloosy. Zdrojové vazby a kóty se nekopírují. Osa z externí
 reference bude doplněna spolu s C++ vrstvou externích referencí skici; program
 ji do té doby nesimuluje živým dotazem do OCCT.
+
+První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
+persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
+kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,
+ale samy se ořezat nenabízejí. Úsečka, kružnice, oblouk a B-spline lze odstranit
+jedním kliknutím nebo hromadně přeškrtnout LMB gestem. Hover i kliknutí používají
+tentýž uspořádaný viewer kandidát `SketchTrimPiece`; RMB před potvrzením cykluje
+jen tento seznam a zvýrazní přesně jednu část. Každé gesto mění jen kopii skici.
+Krátké MMB uloží všechny změny jako jedinou Part revizi, zatímco Escape obnoví
+beze změny vstupní skicu. První přeživší část zachová ID zdrojové geometrie a
+původní krajní body, další části dostanou nová stabilní ID; vodorovná a svislá
+vazba úsečky se bezpečně přenese na všechny přeživší části. Elipsa zatím slouží
+jen jako přesná mez pro jiné křivky. Její vlastní ořez bude povolen až po zavedení
+persistovaného eliptického oblouku; importovaný blok se ze stejného důvodu
+nenabízí k částečnému ořezu.
+
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné

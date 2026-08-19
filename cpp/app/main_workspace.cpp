@@ -70,6 +70,7 @@ int verify_startup_contract(
     auto* sketch_segment = window.findChild<QAction*>("sketchSegmentAction");
     auto* sketch_polyline = window.findChild<QAction*>("sketchPolylineAction");
     auto* sketch_polygon = window.findChild<QAction*>("sketchPolygonAction");
+    auto* sketch_trim = window.findChild<QAction*>("sketchTrimAction");
     auto* sketch_mirror = window.findChild<QAction*>("sketchMirrorAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
@@ -86,6 +87,7 @@ int verify_startup_contract(
                     sketch_segment != nullptr && sketch_polyline != nullptr &&
                     sketch_polygon != nullptr && sketch_polygon->menu() != nullptr &&
                     sketch_polygon->menu()->actions().size() == 3 &&
+                    sketch_trim != nullptr &&
                     sketch_mirror != nullptr &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
@@ -228,11 +230,13 @@ int verify_startup_contract(
         !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
                     sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
                     sketch_polyline->isEnabled() && sketch_polygon->isEnabled() &&
+                    sketch_trim->isEnabled() &&
                     sketch_mirror->isEnabled() &&
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
         !verify(tools_toolbar->actions().contains(finish_sketch) &&
                     tools_toolbar->actions().contains(sketch_polygon) &&
+                    tools_toolbar->actions().contains(sketch_trim) &&
                     tools_toolbar->actions().contains(sketch_mirror),
                 "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;

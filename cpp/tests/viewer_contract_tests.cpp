@@ -93,6 +93,18 @@ int main() {
         require(dimension_contract.size() == 1 &&
                     dimension_contract.front().owner_id == "sketch",
                 "Dimension selection contract left the common candidate list");
+        zima::kernel::ViewerMesh trim_mesh;
+        trim_mesh.edges.push_back({
+            {{-2.0, 0.0, 5.0}, {2.0, 0.0, 5.0}},
+            {"sketch", "trim_piece:7"}, false, true});
+        const auto trim_contract = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                trim_mesh, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchTrimPiece});
+        require(trim_contract.size() == 1 &&
+                    trim_contract.front().owner_id == "sketch" &&
+                    trim_contract.front().semantic_key == "trim_piece:7",
+                "Trim hover and click did not use one common viewer candidate");
         const auto container_contract = zima::viewer::filter_candidates(
             all_candidates, {zima::viewer::CandidateKind::Container});
         require(container_contract.size() == 2 &&
