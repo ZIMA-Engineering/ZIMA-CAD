@@ -69,6 +69,7 @@ int verify_startup_contract(
     auto* sketch_construction = window.findChild<QAction*>("sketchConstructionAction");
     auto* sketch_segment = window.findChild<QAction*>("sketchSegmentAction");
     auto* sketch_polyline = window.findChild<QAction*>("sketchPolylineAction");
+    auto* sketch_polygon = window.findChild<QAction*>("sketchPolygonAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -82,6 +83,8 @@ int verify_startup_contract(
         !verify(box != nullptr && sketch != nullptr && sketch_normal != nullptr &&
                     sketch_point != nullptr && sketch_construction != nullptr &&
                     sketch_segment != nullptr && sketch_polyline != nullptr &&
+                    sketch_polygon != nullptr && sketch_polygon->menu() != nullptr &&
+                    sketch_polygon->menu()->actions().size() == 3 &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr,
@@ -222,11 +225,12 @@ int verify_startup_contract(
                 "confirming Sketch must add it to the Part tree") ||
         !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
                     sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
-                    sketch_polyline->isEnabled() &&
+                    sketch_polyline->isEnabled() && sketch_polygon->isEnabled() &&
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
-        !verify(tools_toolbar->actions().contains(finish_sketch),
-                "Finish Sketch must be exposed in the shared right toolbar")) {
+        !verify(tools_toolbar->actions().contains(finish_sketch) &&
+                    tools_toolbar->actions().contains(sketch_polygon),
+                "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;
     }
     finish_sketch->trigger();

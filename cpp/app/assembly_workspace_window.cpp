@@ -48,6 +48,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <functional>
 #include <set>
 #include <unordered_map>
@@ -470,6 +471,19 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_polyline_action_->setObjectName("sketchPolylineAction");
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_ = make_action(tr("Obdélník"), "sketch-rectangle");
+    sketch_polygon_menu_ = new QMenu(tr("Mnohoúhelník"), this);
+    sketch_polygon_action_ = sketch_polygon_menu_->menuAction();
+    sketch_polygon_action_->setIcon(resource_icon("sketch-hexagon"));
+    sketch_polygon_action_->setObjectName("sketchPolygonAction");
+    sketch_polygon_action_->setEnabled(false);
+    for (const auto [sides, label] : std::array{
+             std::pair{4U, tr("Čtverec (4 strany)")},
+             std::pair{6U, tr("Šestiúhelník (6 stran)")},
+             std::pair{8U, tr("Osmiúhelník (8 stran)")}}) {
+        auto* action = sketch_polygon_menu_->addAction(label);
+        connect(action, &QAction::triggered, this,
+            [this, sides] { start_sketch_polygon(sides); });
+    }
     sketch_circle_action_ = make_action(tr("Kružnice"), "sketch-circle");
     sketch_arc_action_ = make_action(tr("Oblouk"), "sketch-arc");
     sketch_ellipse_action_ = make_action(tr("Elipsa"), "sketch-ellipse");
@@ -903,6 +917,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (accept_sketch_point_ray(origin, direction)) return true;
         if (accept_sketch_segment_ray(origin, direction)) return true;
         if (accept_sketch_rectangle_ray(origin, direction)) return true;
+        if (accept_sketch_polygon_ray(origin, direction)) return true;
         if (accept_sketch_circle_ray(origin, direction)) return true;
         if (accept_sketch_arc_ray(origin, direction)) return true;
         if (accept_sketch_ellipse_ray(origin, direction)) return true;
@@ -911,6 +926,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         preview_sketch_segment_ray(origin, direction);
         preview_sketch_rectangle_ray(origin, direction);
+        preview_sketch_polygon_ray(origin, direction);
         preview_sketch_circle_ray(origin, direction);
         preview_sketch_arc_ray(origin, direction);
         preview_sketch_ellipse_ray(origin, direction);
@@ -1040,6 +1056,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_segment_action_->setEnabled(true);
                 sketch_polyline_action_->setEnabled(true);
                 sketch_rectangle_action_->setEnabled(true);
+                sketch_polygon_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
                 sketch_ellipse_action_->setEnabled(true);
@@ -1446,7 +1463,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
                              sketch_segment_action_, sketch_polyline_action_,
-                             sketch_rectangle_action_,
+                             sketch_rectangle_action_, sketch_polygon_action_,
                              sketch_circle_action_, sketch_arc_action_,
                              sketch_ellipse_action_, sketch_bspline_action_}) {
             add_command(action);
@@ -2779,6 +2796,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_segment_construction_ = false;
     sketch_polyline_active_ = false;
     sketch_rectangle_active_ = false;
+    sketch_polygon_active_ = false;
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
     sketch_ellipse_active_ = false;
@@ -2787,6 +2805,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_segment_pair_active_ = false;
     pending_segment_start_.reset();
     pending_rectangle_corner_.reset();
+    pending_polygon_center_.reset();
     pending_circle_center_.reset();
     pending_arc_center_.reset();
     pending_arc_start_.reset();
@@ -2831,6 +2850,36 @@ void AssemblyWorkspaceWindow::start_sketch_rectangle() {
 void AssemblyWorkspaceWindow::cancel_sketch_rectangle() {
     sketch_rectangle_active_ = false;
     pending_rectangle_corner_.reset();
+    viewer_->set_transient_edges({});
+}
+
+void AssemblyWorkspaceWindow::start_sketch_polygon(unsigned sides) {
+    if (properties_dialog_ != nullptr ||
+        (sides != 4 && sides != 6 && sides != 8)) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto found = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    if (found == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_polygon_active_ = true;
+    sketch_polygon_sides_ = sides;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    state_->setText(tr("Pravidelný %1úhelník: určete střed. Escape příkaz zruší.")
+        .arg(sides));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
+    sketch_polygon_active_ = false;
+    pending_polygon_center_.reset();
     viewer_->set_transient_edges({});
 }
 
@@ -3124,8 +3173,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
 
 void AssemblyWorkspaceWindow::constrain_selected_segment(
     zima::sketcher::ConstraintKind kind) {
-    if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
-        sketch_arc_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
+    if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
+        sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+        sketch_bspline_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -3307,7 +3357,9 @@ void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
 bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     const zima::viewer::ViewerCandidate& candidate) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_rectangle_active_ || sketch_polygon_active_ ||
+        sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_ || candidate.kind !=
             zima::viewer::CandidateKind::SketchPoint ||
         candidate.owner_id != active_sketch_id_ ||
@@ -3445,7 +3497,7 @@ void AssemblyWorkspaceWindow::end_assembly_mate_drag() {
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_point_active_ || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_circle_active_ ||
+        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
@@ -3488,7 +3540,9 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     const std::string& sketch_id, const std::string& dimension_id,
     zima::sketcher::DimensionKind creation_kind) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_rectangle_active_ || sketch_polygon_active_ ||
+        sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -3636,6 +3690,111 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     const auto d = sketch->world_point(x0, y1);
     viewer_->set_transient_edges({
         {{a, b}, {}}, {{b, c}, {}}, {{c, d}, {}}, {{d, a}, {}}});
+}
+
+bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_polygon_active_) return false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || active_sketch_id_.empty() ||
+        workspace_.displayed_document_id() != workspace_.active_document_id()) {
+        return false;
+    }
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return true;
+    if (!pending_polygon_center_) {
+        pending_polygon_center_ = *position;
+        state_->setText(tr("Pravidelný %1úhelník: určete vrchol na pomocné kružnici.")
+            .arg(sketch_polygon_sides_));
+        return true;
+    }
+    const double radius = std::hypot(
+        (*position)[0] - (*pending_polygon_center_)[0],
+        (*position)[1] - (*pending_polygon_center_)[1]);
+    if (radius <= 1.0e-9) {
+        state_->setText(tr("Mnohoúhelník musí mít nenulový poloměr."));
+        return true;
+    }
+    try {
+        auto next = part->session.document();
+        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (target == next.sketches.end()) return true;
+        static_cast<void>(target->add_regular_polygon(
+            (*pending_polygon_center_)[0], (*pending_polygon_center_)[1],
+            (*position)[0], (*position)[1], sketch_polygon_sides_));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        pending_polygon_center_.reset();
+        viewer_->set_transient_edges({});
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr(
+            "Pravidelný %1úhelník vytvořen. Kliknutím určete střed dalšího.")
+            .arg(sketch_polygon_sides_));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::preview_sketch_polygon_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_polygon_active_ || !pending_polygon_center_) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) {
+        viewer_->set_transient_edges({});
+        return;
+    }
+    const double dx = (*position)[0] - (*pending_polygon_center_)[0];
+    const double dy = (*position)[1] - (*pending_polygon_center_)[1];
+    const double radius = std::hypot(dx, dy);
+    if (radius <= 1.0e-9) {
+        viewer_->set_transient_edges({});
+        return;
+    }
+    const double start_angle = std::atan2(dy, dx);
+    constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    std::vector<zima::kernel::Vec3> vertices;
+    vertices.reserve(sketch_polygon_sides_);
+    for (unsigned index = 0; index < sketch_polygon_sides_; ++index) {
+        const double angle = start_angle + full_turn *
+            static_cast<double>(index) /
+            static_cast<double>(sketch_polygon_sides_);
+        vertices.push_back(sketch->world_point(
+            (*pending_polygon_center_)[0] + radius * std::cos(angle),
+            (*pending_polygon_center_)[1] + radius * std::sin(angle)));
+    }
+    std::vector<zima::kernel::ViewerEdge> preview;
+    preview.reserve(sketch_polygon_sides_ + 1);
+    for (unsigned index = 0; index < sketch_polygon_sides_; ++index) {
+        preview.push_back({{
+            vertices[index], vertices[(index + 1) % sketch_polygon_sides_]}, {}});
+    }
+    zima::kernel::ViewerEdge support_circle;
+    constexpr std::size_t samples = 96;
+    support_circle.points.reserve(samples + 1);
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double angle = full_turn * static_cast<double>(sample) /
+            static_cast<double>(samples);
+        support_circle.points.push_back(sketch->world_point(
+            (*pending_polygon_center_)[0] + radius * std::cos(angle),
+            (*pending_polygon_center_)[1] + radius * std::sin(angle)));
+    }
+    preview.push_back(std::move(support_circle));
+    viewer_->set_transient_edges(std::move(preview));
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
@@ -3916,7 +4075,7 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     }
     if (event->key() == Qt::Key_Escape &&
         (sketch_point_active_ || sketch_segment_active_ ||
-         sketch_rectangle_active_ || sketch_circle_active_ ||
+         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
          sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
          sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
@@ -4084,7 +4243,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_normal_view_action_, sketch_point_action_,
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
-                             sketch_rectangle_action_, sketch_circle_action_,
+                             sketch_rectangle_action_, sketch_polygon_action_,
+                             sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
                              sketch_bspline_action_, finish_sketch_action_,
                              plane_mate_action_, axis_mate_action_, point_mate_action_,
@@ -4260,6 +4420,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_polygon_action_->setEnabled(!active_sketch_id_.empty());
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
@@ -4386,6 +4547,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_segment_action_->setEnabled(false);
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_->setEnabled(false);
+    sketch_polygon_action_->setEnabled(false);
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
     sketch_ellipse_action_->setEnabled(false);

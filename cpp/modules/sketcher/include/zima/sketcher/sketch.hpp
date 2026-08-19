@@ -12,7 +12,8 @@ namespace zima::sketcher {
 
 enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind {
-    Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength
+    Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
+    PointOnCircle
 };
 enum class DimensionKind {
     Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
@@ -121,6 +122,12 @@ struct SolveResult {
     double maximum_residual{};
 };
 
+struct RegularPolygonResult {
+    std::string support_circle_id;
+    std::vector<std::string> segment_ids;
+    std::vector<std::string> vertex_ids;
+};
+
 class Sketch {
 public:
     std::string id;
@@ -164,11 +171,16 @@ public:
     [[nodiscard]] std::string add_segment_pair_constraint(
         const std::string& first_segment_id, const std::string& second_segment_id,
         ConstraintKind kind);
+    [[nodiscard]] std::string add_point_on_circle_constraint(
+        const std::string& point_id, const std::string& circle_id);
     void remove_geometry(const std::string& geometry_id);
     void remove_point(const std::string& point_id);
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] RegularPolygonResult add_regular_polygon(
+        double center_x, double center_y, double rim_x, double rim_y,
+        unsigned sides, double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_circle(
         double center_x, double center_y, double radius,
         bool construction = false, double snap_tolerance = 1.0e-6);

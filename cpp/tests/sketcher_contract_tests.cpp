@@ -1,6 +1,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/viewer/picking.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -420,6 +421,61 @@ int main() {
         require(flat_rectangle_rejected && rectangle.points == rectangle_before_invalid.points &&
                     rectangle.segments == rectangle_before_invalid.segments,
                 "Degenerate rectangle partially changed the Sketch");
+        auto polygon = zima::sketcher::Sketch::create_default();
+        const auto polygon_result = polygon.add_regular_polygon(
+            0.0, 0.0, 10.0, 0.0, 6);
+        const auto point_on_circle_count = std::count_if(
+            polygon.constraints.begin(), polygon.constraints.end(), [](const auto& value) {
+                return value.kind == zima::sketcher::ConstraintKind::PointOnCircle;
+            });
+        const auto equal_length_count = std::count_if(
+            polygon.constraints.begin(), polygon.constraints.end(), [](const auto& value) {
+                return value.kind == zima::sketcher::ConstraintKind::EqualLength;
+            });
+        require(polygon_result.vertex_ids.size() == 6 &&
+                    polygon_result.segment_ids.size() == 6 &&
+                    polygon.points.size() == 7 && polygon.segments.size() == 6 &&
+                    polygon.circles.size() == 1 &&
+                    polygon.circles.front().construction &&
+                    point_on_circle_count == 6 && equal_length_count == 5,
+                "Regular polygon lost its support circle or parametric constraints");
+        const auto polygon_center_id = polygon.circles.front().center_point_id;
+        require(polygon.move_point(polygon_center_id, 5.0, -3.0),
+                "Regular polygon centre could not be moved transactionally");
+        auto polygon_radius = polygon.create_circle_radius_dimension(
+            polygon_result.support_circle_id);
+        polygon_radius.value = 20.0;
+        polygon.apply_dimension(std::move(polygon_radius));
+        const auto* polygon_center = polygon.find_point(polygon_center_id);
+        for (std::size_t index = 0; index < polygon_result.vertex_ids.size(); ++index) {
+            const auto* vertex = polygon.find_point(polygon_result.vertex_ids[index]);
+            const auto* next_vertex = polygon.find_point(
+                polygon_result.vertex_ids[(index + 1) % polygon_result.vertex_ids.size()]);
+            require(std::abs(std::hypot(
+                        vertex->x - polygon_center->x,
+                        vertex->y - polygon_center->y) - 20.0) < 1.0e-7 &&
+                        std::abs(std::hypot(
+                            next_vertex->x - vertex->x,
+                            next_vertex->y - vertex->y) - 20.0) < 1.0e-7,
+                    "Regular hexagon did not regenerate from its support radius");
+        }
+        const auto loaded_polygon = zima::sketcher::Sketch::from_serialized(
+            polygon.serialized());
+        require(loaded_polygon.constraints == polygon.constraints &&
+                    loaded_polygon.circles == polygon.circles &&
+                    loaded_polygon.segments == polygon.segments,
+                "Regular polygon constraints did not survive serialization");
+        const auto polygon_before_invalid = polygon;
+        bool invalid_polygon_rejected = false;
+        try {
+            static_cast<void>(polygon.add_regular_polygon(
+                0.0, 0.0, 10.0, 0.0, 5));
+        } catch (const std::invalid_argument&) {
+            invalid_polygon_rejected = true;
+        }
+        require(invalid_polygon_rejected && polygon.points == polygon_before_invalid.points &&
+                    polygon.constraints == polygon_before_invalid.constraints,
+                "Unsupported regular polygon partially changed the Sketch");
         auto removable_rectangle = rectangle;
         auto removable_dimension = removable_rectangle.create_segment_dimension(
             removable_rectangle.segments.front().id);

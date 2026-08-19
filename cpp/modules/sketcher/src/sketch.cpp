@@ -50,6 +50,7 @@ const char* constraint_name(ConstraintKind kind) {
     case ConstraintKind::Parallel: return "parallel";
     case ConstraintKind::Perpendicular: return "perpendicular";
     case ConstraintKind::EqualLength: return "equal_length";
+    case ConstraintKind::PointOnCircle: return "point_on_circle";
     }
     throw std::invalid_argument("Unknown sketch constraint");
 }
@@ -61,6 +62,7 @@ ConstraintKind constraint_from_name(const std::string& name) {
     if (name == "parallel") return ConstraintKind::Parallel;
     if (name == "perpendicular") return ConstraintKind::Perpendicular;
     if (name == "equal_length") return ConstraintKind::EqualLength;
+    if (name == "point_on_circle") return ConstraintKind::PointOnCircle;
     throw std::runtime_error("Unknown sketch constraint");
 }
 
@@ -246,11 +248,20 @@ void Sketch::validate() const {
             segments.begin(), segments.end(), [&](const auto& segment) {
                 return segment.id == constraint.second_geometry_id;
             });
+        const auto owned_circle = std::find_if(
+            circles.begin(), circles.end(), [&](const auto& circle) {
+                return circle.id == constraint.geometry_id;
+            });
         const bool pair_constraint = is_segment_pair_constraint(constraint.kind);
         const bool segment_constraint = constraint.kind == ConstraintKind::Horizontal ||
             constraint.kind == ConstraintKind::Vertical;
+        const bool point_on_circle =
+            constraint.kind == ConstraintKind::PointOnCircle;
         const bool points_valid = pair_constraint
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
+            : point_on_circle
+                ? find_point(constraint.first_point_id) != nullptr &&
+                  constraint.second_point_id.empty()
             : find_point(constraint.first_point_id) != nullptr &&
               find_point(constraint.second_point_id) != nullptr;
         if (constraint.id.empty() || !ids.insert(constraint.id).second || !points_valid ||
@@ -259,6 +270,9 @@ void Sketch::validate() const {
              owned_segment->second_point_id != constraint.second_point_id)) ||
             (constraint.kind == ConstraintKind::Coincident &&
              (!constraint.geometry_id.empty() || !constraint.second_geometry_id.empty())) ||
+            (point_on_circle && (owned_circle == circles.end() ||
+             owned_circle->center_point_id == constraint.first_point_id ||
+             !constraint.second_geometry_id.empty())) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -409,6 +423,47 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     const double original_y = point->y;
     point->x = x;
     point->y = y;
+    const double translation_x = x - original_x;
+    const double translation_y = y - original_y;
+    std::set<std::string> translated_circle_points;
+    for (const auto& circle : next.circles) {
+        if (circle.center_point_id != point_id) continue;
+        for (const auto& constraint : next.constraints) {
+            if (constraint.suppressed ||
+                constraint.kind != ConstraintKind::PointOnCircle ||
+                constraint.geometry_id != circle.id ||
+                !translated_circle_points.insert(constraint.first_point_id).second) {
+                continue;
+            }
+            auto* attached = next.find_point(constraint.first_point_id);
+            if (attached == nullptr || (attached->fixed &&
+                (std::abs(translation_x) > 1.0e-12 ||
+                 std::abs(translation_y) > 1.0e-12))) {
+                return false;
+            }
+            attached->x += translation_x;
+            attached->y += translation_y;
+        }
+    }
+    for (const auto& constraint : next.constraints) {
+        if (constraint.suppressed ||
+            constraint.kind != ConstraintKind::PointOnCircle ||
+            constraint.first_point_id != point_id) continue;
+        auto circle = std::find_if(next.circles.begin(), next.circles.end(),
+            [&](const auto& value) { return value.id == constraint.geometry_id; });
+        if (circle == next.circles.end()) return false;
+        const auto* center = next.find_point(circle->center_point_id);
+        const double requested_radius = std::hypot(x - center->x, y - center->y);
+        if (requested_radius <= 1.0e-12) return false;
+        const bool driven = std::any_of(
+            next.dimensions.begin(), next.dimensions.end(), [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    (dimension.kind == DimensionKind::Radius ||
+                     dimension.kind == DimensionKind::Diameter) &&
+                    dimension.geometry_id == circle->id;
+            });
+        if (!driven) circle->radius = requested_radius;
+    }
     constexpr double full_turn = 2.0 * 3.14159265358979323846;
     const auto driving_radius = [&](const SketchArc& arc) {
         return std::find_if(next.dimensions.begin(), next.dimensions.end(),
@@ -615,8 +670,8 @@ std::string Sketch::add_segment(
 
 std::string Sketch::add_segment_constraint(
     const std::string& segment_id, ConstraintKind kind) {
-    if (kind == ConstraintKind::Coincident) {
-        throw std::invalid_argument("Coincident is a point-to-point constraint");
+    if (kind != ConstraintKind::Horizontal && kind != ConstraintKind::Vertical) {
+        throw std::invalid_argument("Constraint is not a single-segment constraint");
     }
     const auto segment = std::find_if(segments.begin(), segments.end(),
         [&](const auto& value) { return value.id == segment_id; });
@@ -707,6 +762,39 @@ std::string Sketch::add_segment_pair_constraint(
     const auto result = next.solve();
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Segment-pair constraint conflicts with existing geometry");
+    }
+    *this = std::move(next);
+    return id;
+}
+
+std::string Sketch::add_point_on_circle_constraint(
+    const std::string& point_id, const std::string& circle_id) {
+    const auto* point = find_point(point_id);
+    const auto circle = std::find_if(circles.begin(), circles.end(),
+        [&](const auto& value) { return value.id == circle_id; });
+    if (point == nullptr || circle == circles.end() ||
+        circle->center_point_id == point_id) {
+        throw std::invalid_argument("Point-on-circle constraint input is invalid");
+    }
+    if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
+            return !constraint.suppressed &&
+                constraint.kind == ConstraintKind::PointOnCircle &&
+                constraint.first_point_id == point_id &&
+                constraint.geometry_id == circle_id;
+        })) {
+        throw std::invalid_argument("Point already lies on this circle by constraint");
+    }
+    auto next = *this;
+    SketchConstraint constraint;
+    constraint.id = make_id();
+    constraint.kind = ConstraintKind::PointOnCircle;
+    constraint.first_point_id = point_id;
+    constraint.geometry_id = circle_id;
+    const auto id = constraint.id;
+    next.constraints.push_back(std::move(constraint));
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Point-on-circle constraint conflicts with existing geometry");
     }
     *this = std::move(next);
     return id;
@@ -954,6 +1042,70 @@ std::vector<std::string> Sketch::add_rectangle(
     next.validate();
     *this = std::move(next);
     return ids;
+}
+
+RegularPolygonResult Sketch::add_regular_polygon(
+    double center_x, double center_y, double rim_x, double rim_y,
+    unsigned sides, double snap_tolerance) {
+    for (const double value : {center_x, center_y, rim_x, rim_y, snap_tolerance}) {
+        require_finite(value, "regular polygon parameter");
+    }
+    const double radius = std::hypot(rim_x - center_x, rim_y - center_y);
+    if ((sides != 4 && sides != 6 && sides != 8) ||
+        radius <= 1.0e-12 || snap_tolerance < 0.0) {
+        throw std::invalid_argument(
+            "Regular polygon requires 4, 6, or 8 sides and a positive radius");
+    }
+    auto next = *this;
+    RegularPolygonResult result;
+    result.support_circle_id = next.add_circle(
+        center_x, center_y, radius, true, snap_tolerance);
+    const auto support = std::find_if(next.circles.begin(), next.circles.end(),
+        [&](const auto& value) { return value.id == result.support_circle_id; });
+    const auto* center = next.find_point(support->center_point_id);
+    const double actual_center_x = center->x;
+    const double actual_center_y = center->y;
+    const double start_angle = std::atan2(
+        rim_y - actual_center_y, rim_x - actual_center_x);
+    constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    std::vector<std::array<double, 2>> vertices;
+    vertices.reserve(sides);
+    result.vertex_ids.reserve(sides);
+    for (unsigned index = 0; index < sides; ++index) {
+        const double angle = start_angle + full_turn *
+            static_cast<double>(index) / static_cast<double>(sides);
+        const std::array<double, 2> vertex{
+            actual_center_x + radius * std::cos(angle),
+            actual_center_y + radius * std::sin(angle)};
+        vertices.push_back(vertex);
+        result.vertex_ids.push_back(next.add_point(
+            vertex[0], vertex[1], snap_tolerance));
+    }
+    std::unordered_set<std::string> unique_vertices(
+        result.vertex_ids.begin(), result.vertex_ids.end());
+    if (unique_vertices.size() != sides) {
+        throw std::invalid_argument(
+            "Regular polygon vertices collapse onto existing sketch points");
+    }
+    result.segment_ids.reserve(sides);
+    for (unsigned index = 0; index < sides; ++index) {
+        const auto& first = vertices[index];
+        const auto& second = vertices[(index + 1) % sides];
+        result.segment_ids.push_back(next.add_segment(
+            first[0], first[1], second[0], second[1], snap_tolerance));
+    }
+    for (const auto& vertex_id : result.vertex_ids) {
+        static_cast<void>(next.add_point_on_circle_constraint(
+            vertex_id, result.support_circle_id));
+    }
+    for (std::size_t index = 1; index < result.segment_ids.size(); ++index) {
+        static_cast<void>(next.add_segment_pair_constraint(
+            result.segment_ids.front(), result.segment_ids[index],
+            ConstraintKind::EqualLength));
+    }
+    next.validate();
+    *this = std::move(next);
+    return result;
 }
 
 std::string Sketch::add_circle(
@@ -1373,6 +1525,32 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         bool immovable_conflict = false;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::PointOnCircle) {
+                auto circle = std::find_if(circles.begin(), circles.end(),
+                    [&](const auto& value) {
+                        return value.id == constraint.geometry_id;
+                    });
+                auto* point = find_point(constraint.first_point_id);
+                const auto* center = find_point(circle->center_point_id);
+                const double dx = point->x - center->x;
+                const double dy = point->y - center->y;
+                const double distance = std::hypot(dx, dy);
+                if (distance <= tolerance) {
+                    immovable_conflict = true;
+                    continue;
+                }
+                const double residual = distance - circle->radius;
+                maximum_residual = std::max(maximum_residual, std::abs(residual));
+                if (std::abs(residual) > tolerance) {
+                    if (point->fixed) {
+                        circle->radius = distance;
+                    } else {
+                        point->x = center->x + dx * circle->radius / distance;
+                        point->y = center->y + dy * circle->radius / distance;
+                    }
+                }
+                continue;
+            }
             if (is_segment_pair_constraint(constraint.kind)) {
                 const auto first_segment = std::find_if(segments.begin(), segments.end(),
                     [&](const auto& value) { return value.id == constraint.geometry_id; });
@@ -1567,6 +1745,17 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         std::vector<double> result;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::PointOnCircle) {
+                const auto circle = std::find_if(circles.begin(), circles.end(),
+                    [&](const auto& value) {
+                        return value.id == constraint.geometry_id;
+                    });
+                const auto* point = find_point(constraint.first_point_id);
+                const auto* center = find_point(circle->center_point_id);
+                result.push_back(std::hypot(
+                    point->x - center->x, point->y - center->y) - circle->radius);
+                continue;
+            }
             if (is_segment_pair_constraint(constraint.kind)) {
                 const auto first_segment = std::find_if(segments.begin(), segments.end(),
                     [&](const auto& value) { return value.id == constraint.geometry_id; });
@@ -2068,7 +2257,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 6},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 7},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -2084,7 +2273,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 6) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 7) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;

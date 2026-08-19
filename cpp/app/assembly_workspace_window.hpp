@@ -110,6 +110,8 @@ private:
     QAction* sketch_segment_action_{};
     QAction* sketch_polyline_action_{};
     QAction* sketch_rectangle_action_{};
+    QAction* sketch_polygon_action_{};
+    QMenu* sketch_polygon_menu_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
     QAction* sketch_ellipse_action_{};
@@ -165,6 +167,9 @@ private:
     bool sketch_polyline_active_{};
     bool sketch_rectangle_active_{};
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
+    bool sketch_polygon_active_{};
+    unsigned sketch_polygon_sides_{6};
+    std::optional<std::array<double, 2>> pending_polygon_center_;
     bool sketch_circle_active_{};
     std::optional<std::array<double, 2>> pending_circle_center_;
     bool sketch_arc_active_{};
@@ -250,6 +255,8 @@ private:
     void cancel_sketch_segment();
     void start_sketch_rectangle();
     void cancel_sketch_rectangle();
+    void start_sketch_polygon(unsigned sides);
+    void cancel_sketch_polygon();
     void start_sketch_circle();
     void cancel_sketch_circle();
     void start_sketch_arc();
@@ -269,6 +276,10 @@ private:
     bool accept_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_rectangle_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_polygon_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void preview_sketch_polygon_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_circle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);

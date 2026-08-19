@@ -758,12 +758,20 @@ mez nebo konflikt nezmění ani kótu, ani geometrii. Záporný úhel je přitom
 úhlový parametr a nesmí být zaměněn za zápornou délku.
 
 B-spline má interaktivní zadávání řídicích bodů, stabilní ID, odstranění a jedno
-interní okno Vlastnosti pro stupeň, souřadnice i uzavření. Sketch formát verze 5
+interní okno Vlastnosti pro stupeň, souřadnice i uzavření. Aktuální Sketch formát
 ukládá otevřenou sevřenou i uzavřenou periodickou křivku. Viewer obě vyhodnocuje
 de Boorovým algoritmem pouze z persistovaných ZIMA dat. Vytažení a Rotace předají
 přesné póly, stupeň a periodicitu přes kernel API do OCCT; podporovaný je smíšený
 uzavřený profil úseček, oblouků a otevřených spline i samostatná periodická vnější
 spline s kruhovými otvory. Viewerová polyline není tělesová geometrie.
+
+Pravidelný mnohoúhelník nabízí 4, 6 nebo 8 stran a vzniká dvěma body: středem a
+prvním vrcholem na opsané kružnici. Nejde pouze o jednorázově vypočtenou sadu
+čar. Sketch formát verze 7 ukládá konstrukční kružnici, vazbu každého vrcholu
+na tuto kružnici a vazby stejných délek stran. Přesun středu přeloží kružnici i
+všechny její vázané vrcholy; řídicí změna poloměru regeneruje celý profil bez
+OCCT. Toolbar používá jedno menu Mnohoúhelník pro všechny tři podporované počty
+stran a během druhého bodu zobrazuje transientní obrys i pomocnou kružnici.
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné
