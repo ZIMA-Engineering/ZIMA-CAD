@@ -2244,11 +2244,26 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         (kind != zima::document::FeatureKind::Fillet &&
          kind != zima::document::FeatureKind::Chamfer)) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id() || part->session.document().history.empty()) return;
+    if (part == nullptr || part->session.document().history.empty()) return;
+    if (workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr &&
+        !resolve_active_occurrence(part->session.document().document_id)) {
+        state_->setText(tr(
+            "Fillet/Chamfer vyžaduje přesně aktivovaný výskyt Partu."));
+        return;
+    }
     edge_treatment_selection_ = kind;
     pending_edge_treatment_edges_.clear();
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
+    const auto active_occurrence = resolve_active_occurrence(
+        part->session.document().document_id);
+    viewer_->set_candidate_filter(
+        [expected_path = active_occurrence.value_or(std::string{})](
+            const auto& candidate) {
+            return candidate.kind == zima::viewer::CandidateKind::Edge &&
+                candidate.geometry ==
+                    zima::viewer::CandidateGeometry::OriginalReference &&
+                candidate.instance_path == expected_path;
+        });
     state_->setText(kind == zima::document::FeatureKind::Fillet
         ? tr("Vyberte jednu nebo více původních hran. Krátké MMB výběr dokončí.")
         : tr("Vyberte jednu nebo více původních hran. Krátké MMB výběr dokončí."));
@@ -2259,10 +2274,27 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
     if (!edge_treatment_selection_) return;
     if (candidate.kind != zima::viewer::CandidateKind::Edge ||
         candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
-        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
-        !candidate.instance_path.empty()) {
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
         state_->setText(tr("Vyberte hranu původního solidu aktivního Partu."));
         return;
+    }
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    const auto* assembly =
+        workspace_.open_assembly(workspace_.displayed_document_id());
+    if (part == nullptr) return;
+    if (assembly == nullptr) {
+        if (!candidate.instance_path.empty()) {
+            state_->setText(tr("Vyberte hranu aktivního Partu."));
+            return;
+        }
+    } else {
+        const auto active_occurrence = resolve_active_occurrence(
+            part->session.document().document_id);
+        if (!active_occurrence || candidate.instance_path != *active_occurrence) {
+            state_->setText(tr(
+                "Vyberte hranu přesného aktivního výskytu Partu."));
+            return;
+        }
     }
     const zima::kernel::EdgeReference edge{candidate.owner_id, candidate.semantic_key, {}};
     if (std::find(pending_edge_treatment_edges_.begin(),
@@ -2318,13 +2350,19 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     if (extrusion_target_dialog_ == nullptr ||
         candidate.kind != zima::viewer::CandidateKind::Face ||
         candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
-        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
-        !candidate.instance_path.empty()) {
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
         state_->setText(tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
+    const auto active_occurrence = resolve_active_occurrence(
+        part->session.document().document_id);
+    if (!active_occurrence || candidate.instance_path != *active_occurrence) {
+        state_->setText(tr(
+            "Vyberte plochu přesného aktivního výskytu Partu."));
+        return;
+    }
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 normal;
     bool resolved = false;
@@ -2990,6 +3028,18 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_extrusion_target_request([this, dialog] {
             extrusion_target_dialog_ = dialog;
             viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+            const auto* part =
+                workspace_.open_part(workspace_.active_document_id());
+            const auto expected_path = part == nullptr
+                ? std::optional<std::string>{}
+                : resolve_active_occurrence(part->session.document().document_id);
+            viewer_->set_candidate_filter(
+                [path = expected_path.value_or(std::string{})](const auto& candidate) {
+                    return candidate.kind == zima::viewer::CandidateKind::Face &&
+                        candidate.geometry ==
+                            zima::viewer::CandidateGeometry::OriginalReference &&
+                        candidate.instance_path == path;
+                });
             state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
         });
         dialog->set_preview_callback([this, part_id](const auto& preview) {
@@ -5957,7 +6007,9 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape && edge_treatment_selection_) {
         edge_treatment_selection_.reset();
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+        pending_edge_treatment_edges_.clear();
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
         state_->setText(tr("Zaoblení nebo sražení zrušeno."));
         event->accept();
         return;
