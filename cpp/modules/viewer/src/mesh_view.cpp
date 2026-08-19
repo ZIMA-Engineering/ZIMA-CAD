@@ -532,8 +532,10 @@ void MeshView::paintGL() {
     impl_->vertex_array.release();
 
     const bool axes_selectable = std::find(
-        impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
-        CandidateKind::Axis) != impl_->allowed_kinds.end();
+            impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+            CandidateKind::Axis) != impl_->allowed_kinds.end() ||
+        std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+            CandidateKind::SketchAxis) != impl_->allowed_kinds.end();
     const bool axes_visible = impl_->show_axes || axes_selectable;
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
@@ -559,7 +561,8 @@ void MeshView::paintGL() {
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
             highlighted->kind == CandidateKind::Dimension ||
-            highlighted->kind == CandidateKind::Axis))) {
+            highlighted->kind == CandidateKind::Axis ||
+            highlighted->kind == CandidateKind::SketchAxis))) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
             QVector4D clip = mvp * QVector4D(
@@ -704,7 +707,8 @@ void MeshView::paintGL() {
                 painter.setBrush(color);
                 painter.drawEllipse(project(
                     selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
-            } else if (highlighted->kind == CandidateKind::Axis &&
+            } else if ((highlighted->kind == CandidateKind::Axis ||
+                        highlighted->kind == CandidateKind::SketchAxis) &&
                        highlighted->geometry_index < selectable_axes.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
                 const auto& axis = selectable_axes[highlighted->geometry_index];

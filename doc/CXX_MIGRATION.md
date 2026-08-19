@@ -767,11 +767,23 @@ spline s kruhovými otvory. Viewerová polyline není tělesová geometrie.
 
 Pravidelný mnohoúhelník nabízí 4, 6 nebo 8 stran a vzniká dvěma body: středem a
 prvním vrcholem na opsané kružnici. Nejde pouze o jednorázově vypočtenou sadu
-čar. Sketch formát verze 7 ukládá konstrukční kružnici, vazbu každého vrcholu
+čar. Sketch formát verze 8 ukládá konstrukční kružnici, vazbu každého vrcholu
 na tuto kružnici a vazby stejných délek stran. Přesun středu přeloží kružnici i
 všechny její vázané vrcholy; řídicí změna poloměru regeneruje celý profil bez
 OCCT. Toolbar používá jedno menu Mnohoúhelník pro všechny tři podporované počty
 stran a během druhého bodu zobrazuje transientní obrys i pomocnou kružnici.
+
+Příkaz **Zrcadlit** pracuje pouze s persistovanými body a geometrií Sketcheru.
+Lze do něj vstoupit s předem vybranou položkou, nebo postupně LMB nasbírat více
+bodů, úseček a křivek; krátké MMB uzavře výběr objektů. Osou je konstrukční či
+běžná úsečka nebo základní osa X/Y aktivní skici, kterou další krátké MMB
+potvrdí. Teprve toto potvrzení vytvoří jednu Part revizi. Každý nový bod dostane
+vazbu symetrie na původní bod a persistovanou osu, takže přesun originálu i osy
+regeneruje zrcadlenou geometrii solverem bez OCCT. Sdílené body zůstávají
+sdílené; oblouk obrátí parametrickou orientaci a elipsa persistuje i obrácenou
+orientaci vedlejší poloosy. Zdrojové vazby a kóty se nekopírují. Osa z externí
+reference bude doplněna spolu s C++ vrstvou externích referencí skici; program
+ji do té doby nesimuluje živým dotazem do OCCT.
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné

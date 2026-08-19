@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace zima::sketcher {
@@ -51,6 +52,7 @@ const char* constraint_name(ConstraintKind kind) {
     case ConstraintKind::Perpendicular: return "perpendicular";
     case ConstraintKind::EqualLength: return "equal_length";
     case ConstraintKind::PointOnCircle: return "point_on_circle";
+    case ConstraintKind::Symmetric: return "symmetric";
     }
     throw std::invalid_argument("Unknown sketch constraint");
 }
@@ -63,6 +65,7 @@ ConstraintKind constraint_from_name(const std::string& name) {
     if (name == "perpendicular") return ConstraintKind::Perpendicular;
     if (name == "equal_length") return ConstraintKind::EqualLength;
     if (name == "point_on_circle") return ConstraintKind::PointOnCircle;
+    if (name == "symmetric") return ConstraintKind::Symmetric;
     throw std::runtime_error("Unknown sketch constraint");
 }
 
@@ -108,6 +111,46 @@ bool is_segment_pair_constraint(ConstraintKind kind) {
     return kind == ConstraintKind::Parallel ||
         kind == ConstraintKind::Perpendicular ||
         kind == ConstraintKind::EqualLength;
+}
+
+std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+sketch_axis_line(const Sketch& sketch, const std::string& axis_id) {
+    if (axis_id == "sketch_axis:x") {
+        return std::pair{std::array{0.0, 0.0}, std::array{1.0, 0.0}};
+    }
+    if (axis_id == "sketch_axis:y") {
+        return std::pair{std::array{0.0, 0.0}, std::array{0.0, 1.0}};
+    }
+    const auto axis = std::find_if(
+        sketch.segments.begin(), sketch.segments.end(),
+        [&](const auto& value) { return value.id == axis_id; });
+    if (axis == sketch.segments.end()) return std::nullopt;
+    const auto* first = sketch.find_point(axis->first_point_id);
+    const auto* second = sketch.find_point(axis->second_point_id);
+    if (first == nullptr || second == nullptr) return std::nullopt;
+    return std::pair{
+        std::array{first->x, first->y},
+        std::array{second->x - first->x, second->y - first->y}};
+}
+
+std::array<double, 2> reflected_position(
+    const std::array<double, 2>& position,
+    const std::array<double, 2>& axis_origin,
+    const std::array<double, 2>& axis_direction) {
+    const double length_squared =
+        axis_direction[0] * axis_direction[0] +
+        axis_direction[1] * axis_direction[1];
+    if (length_squared <= 1.0e-24) {
+        throw std::invalid_argument("Sketch mirror axis has zero length");
+    }
+    const double parameter =
+        ((position[0] - axis_origin[0]) * axis_direction[0] +
+         (position[1] - axis_origin[1]) * axis_direction[1]) /
+        length_squared;
+    const double projection_x = axis_origin[0] + parameter * axis_direction[0];
+    const double projection_y = axis_origin[1] + parameter * axis_direction[1];
+    return {2.0 * projection_x - position[0],
+            2.0 * projection_y - position[1]};
 }
 
 }  // namespace
@@ -202,6 +245,7 @@ void Sketch::validate() const {
         const auto* center = find_point(ellipse.center_point_id);
         const auto* major = find_point(ellipse.major_point_id);
         const auto* minor = find_point(ellipse.minor_point_id);
+        const double orientation = ellipse.reversed ? -1.0 : 1.0;
         if (ellipse.id.empty() || !ids.insert(ellipse.id).second ||
             center == nullptr || major == nullptr || minor == nullptr ||
             ellipse.center_point_id == ellipse.major_point_id ||
@@ -217,8 +261,10 @@ void Sketch::validate() const {
                 major->y - (center->y + ellipse.major_radius * std::sin(ellipse.rotation))) >
                 1.0e-7 ||
             std::hypot(
-                minor->x - (center->x - ellipse.minor_radius * std::sin(ellipse.rotation)),
-                minor->y - (center->y + ellipse.minor_radius * std::cos(ellipse.rotation))) >
+                minor->x - (center->x - orientation * ellipse.minor_radius *
+                    std::sin(ellipse.rotation)),
+                minor->y - (center->y + orientation * ellipse.minor_radius *
+                    std::cos(ellipse.rotation))) >
                 1.0e-7) {
             throw std::runtime_error("Sketch ellipse axis references are inconsistent");
         }
@@ -257,6 +303,11 @@ void Sketch::validate() const {
             constraint.kind == ConstraintKind::Vertical;
         const bool point_on_circle =
             constraint.kind == ConstraintKind::PointOnCircle;
+        const bool symmetric = constraint.kind == ConstraintKind::Symmetric;
+        const auto symmetry_axis = symmetric
+            ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
+        const bool symmetry_axis_valid = symmetry_axis &&
+            std::hypot(symmetry_axis->second[0], symmetry_axis->second[1]) > 1.0e-12;
         const bool points_valid = pair_constraint
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
             : point_on_circle
@@ -273,6 +324,8 @@ void Sketch::validate() const {
             (point_on_circle && (owned_circle == circles.end() ||
              owned_circle->center_point_id == constraint.first_point_id ||
              !constraint.second_geometry_id.empty())) ||
+            (symmetric && (constraint.first_point_id == constraint.second_point_id ||
+             !symmetry_axis_valid || !constraint.second_geometry_id.empty())) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -528,6 +581,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* center = next.find_point(ellipse.center_point_id);
         auto* major = next.find_point(ellipse.major_point_id);
         auto* minor = next.find_point(ellipse.minor_point_id);
+        const double orientation = ellipse.reversed ? -1.0 : 1.0;
         if (ellipse.center_point_id == point_id) {
             const double dx = x - original_x;
             const double dy = y - original_y;
@@ -542,16 +596,20 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             if (radius <= 1.0e-12 || minor->fixed) return false;
             ellipse.major_radius = radius;
             ellipse.rotation = std::atan2(y - center->y, x - center->x);
-            minor->x = center->x - ellipse.minor_radius * std::sin(ellipse.rotation);
-            minor->y = center->y + ellipse.minor_radius * std::cos(ellipse.rotation);
+            minor->x = center->x - orientation * ellipse.minor_radius *
+                std::sin(ellipse.rotation);
+            minor->y = center->y + orientation * ellipse.minor_radius *
+                std::cos(ellipse.rotation);
         } else if (ellipse.minor_point_id == point_id) {
-            const double projected =
+            const double projected = orientation * (
                 -(x - center->x) * std::sin(ellipse.rotation) +
-                 (y - center->y) * std::cos(ellipse.rotation);
+                 (y - center->y) * std::cos(ellipse.rotation));
             if (std::abs(projected) <= 1.0e-12) return false;
             ellipse.minor_radius = std::abs(projected);
-            minor->x = center->x - ellipse.minor_radius * std::sin(ellipse.rotation);
-            minor->y = center->y + ellipse.minor_radius * std::cos(ellipse.rotation);
+            minor->x = center->x - orientation * ellipse.minor_radius *
+                std::sin(ellipse.rotation);
+            minor->y = center->y + orientation * ellipse.minor_radius *
+                std::cos(ellipse.rotation);
         }
     }
     const auto solved = next.solve();
@@ -800,6 +858,43 @@ std::string Sketch::add_point_on_circle_constraint(
     return id;
 }
 
+std::string Sketch::add_symmetric_constraint(
+    const std::string& source_point_id,
+    const std::string& mirrored_point_id,
+    const std::string& axis_id) {
+    if (source_point_id.empty() || mirrored_point_id.empty() ||
+        source_point_id == mirrored_point_id ||
+        find_point(source_point_id) == nullptr ||
+        find_point(mirrored_point_id) == nullptr ||
+        !sketch_axis_line(*this, axis_id)) {
+        throw std::invalid_argument("Symmetric constraint input is invalid");
+    }
+    if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
+            return !constraint.suppressed &&
+                constraint.kind == ConstraintKind::Symmetric &&
+                constraint.first_point_id == source_point_id &&
+                constraint.second_point_id == mirrored_point_id &&
+                constraint.geometry_id == axis_id;
+        })) {
+        throw std::invalid_argument("Points already own this symmetric constraint");
+    }
+    auto next = *this;
+    SketchConstraint constraint;
+    constraint.id = make_id();
+    constraint.kind = ConstraintKind::Symmetric;
+    constraint.first_point_id = source_point_id;
+    constraint.second_point_id = mirrored_point_id;
+    constraint.geometry_id = axis_id;
+    const auto id = constraint.id;
+    next.constraints.push_back(std::move(constraint));
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Symmetric constraint conflicts with existing geometry");
+    }
+    *this = std::move(next);
+    return id;
+}
+
 void Sketch::remove_geometry(const std::string& geometry_id) {
     if (geometry_id.empty()) throw std::invalid_argument("Geometry ID is required");
     auto next = *this;
@@ -853,10 +948,37 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
     if (segment_count + circle_count + arc_count + ellipse_count + spline_count != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
+    const auto point_has_geometry_owner = [&](const std::string& point_id) {
+        return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
+                return value.first_point_id == point_id || value.second_point_id == point_id;
+            }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
+                return value.center_point_id == point_id;
+            }) || std::any_of(next.arcs.begin(), next.arcs.end(), [&](const auto& value) {
+                return value.center_point_id == point_id ||
+                    value.start_point_id == point_id || value.end_point_id == point_id;
+            }) || std::any_of(next.ellipses.begin(), next.ellipses.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == point_id ||
+                        value.major_point_id == point_id || value.minor_point_id == point_id;
+            }) || std::any_of(next.bsplines.begin(), next.bsplines.end(),
+                [&](const auto& value) {
+                    return std::find(value.control_point_ids.begin(),
+                                     value.control_point_ids.end(), point_id) !=
+                        value.control_point_ids.end();
+            });
+    };
+    const auto removed_unshared_point = [&](const std::string& point_id) {
+        return !point_id.empty() &&
+            std::find(candidate_point_ids.begin(), candidate_point_ids.end(), point_id) !=
+                candidate_point_ids.end() &&
+            !point_has_geometry_owner(point_id);
+    };
     std::erase_if(next.constraints,
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
-                value.second_geometry_id == geometry_id;
+                value.second_geometry_id == geometry_id ||
+                removed_unshared_point(value.first_point_id) ||
+                removed_unshared_point(value.second_point_id);
         });
     std::erase_if(next.dimensions,
         [&](const auto& value) { return value.geometry_id == geometry_id; });
@@ -1102,6 +1224,174 @@ RegularPolygonResult Sketch::add_regular_polygon(
         static_cast<void>(next.add_segment_pair_constraint(
             result.segment_ids.front(), result.segment_ids[index],
             ConstraintKind::EqualLength));
+    }
+    next.validate();
+    *this = std::move(next);
+    return result;
+}
+
+MirroredGeometryResult Sketch::mirror_geometry(
+    const std::vector<std::string>& entity_ids,
+    const std::string& axis_id, double snap_tolerance) {
+    if (entity_ids.empty() || axis_id.empty() ||
+        !std::isfinite(snap_tolerance) || snap_tolerance < 0.0) {
+        throw std::invalid_argument("Sketch mirror input is invalid");
+    }
+    const std::unordered_set<std::string> selected(
+        entity_ids.begin(), entity_ids.end());
+    const auto axis = sketch_axis_line(*this, axis_id);
+    if (selected.size() != entity_ids.size() || !axis ||
+        selected.contains(axis_id)) {
+        throw std::invalid_argument(
+            "Sketch mirror sources must be unique and exclude a valid mirror axis");
+    }
+    if (std::hypot(axis->second[0], axis->second[1]) <= 1.0e-12) {
+        throw std::invalid_argument("Sketch mirror axis has zero length");
+    }
+    for (const auto& entity_id : entity_ids) {
+        const std::size_t count =
+            static_cast<std::size_t>(std::count_if(
+                points.begin(), points.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                segments.begin(), segments.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                circles.begin(), circles.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                arcs.begin(), arcs.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                ellipses.begin(), ellipses.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                bsplines.begin(), bsplines.end(), [&](const auto& value) {
+                    return value.id == entity_id;
+                }));
+        if (count != 1) {
+            throw std::invalid_argument(
+                "Sketch mirror source entity does not exist uniquely");
+        }
+    }
+
+    auto next = *this;
+    MirroredGeometryResult result;
+    std::unordered_map<std::string, std::string> point_map;
+    std::vector<std::string> source_point_order;
+    const auto map_point = [&](const std::string& source_id) {
+        if (const auto existing = point_map.find(source_id);
+            existing != point_map.end()) {
+            return existing->second;
+        }
+        const auto* source = find_point(source_id);
+        if (source == nullptr) {
+            throw std::runtime_error("Sketch mirror source point is missing");
+        }
+        const auto coordinate = reflected_position(
+            {source->x, source->y}, axis->first, axis->second);
+        auto mirrored = create_point(coordinate[0], coordinate[1]);
+        mirrored.construction = source->construction;
+        mirrored.fixed = false;
+        const auto mirrored_id = mirrored.id;
+        next.points.push_back(std::move(mirrored));
+        point_map.emplace(source_id, mirrored_id);
+        source_point_order.push_back(source_id);
+        result.point_ids.push_back(mirrored_id);
+        return mirrored_id;
+    };
+
+    for (const auto& entity_id : entity_ids) {
+        if (find_point(entity_id) != nullptr) {
+            static_cast<void>(map_point(entity_id));
+            continue;
+        }
+        std::string mirrored_id;
+        if (const auto source = std::find_if(segments.begin(), segments.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            source != segments.end()) {
+            auto mirrored = create_segment(
+                map_point(source->first_point_id),
+                map_point(source->second_point_id), source->construction);
+            mirrored_id = mirrored.id;
+            next.segments.push_back(std::move(mirrored));
+        } else if (const auto source = std::find_if(circles.begin(), circles.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            source != circles.end()) {
+            SketchCircle mirrored{
+                make_id(), map_point(source->center_point_id),
+                source->radius, source->construction};
+            mirrored_id = mirrored.id;
+            next.circles.push_back(std::move(mirrored));
+        } else if (const auto source = std::find_if(arcs.begin(), arcs.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            source != arcs.end()) {
+            const auto center_id = map_point(source->center_point_id);
+            const auto start_id = map_point(source->end_point_id);
+            const auto end_id = map_point(source->start_point_id);
+            const auto* center = next.find_point(center_id);
+            const auto* start = next.find_point(start_id);
+            const double start_angle = std::atan2(
+                start->y - center->y, start->x - center->x);
+            SketchArc mirrored{
+                make_id(), center_id, start_id, end_id, source->radius,
+                start_angle, start_angle + (source->end_angle - source->start_angle),
+                source->construction};
+            mirrored_id = mirrored.id;
+            next.arcs.push_back(std::move(mirrored));
+        } else if (const auto source = std::find_if(ellipses.begin(), ellipses.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            source != ellipses.end()) {
+            const auto center_id = map_point(source->center_point_id);
+            const auto major_id = map_point(source->major_point_id);
+            const auto minor_id = map_point(source->minor_point_id);
+            const auto* center = next.find_point(center_id);
+            const auto* major = next.find_point(major_id);
+            const double rotation = std::atan2(
+                major->y - center->y, major->x - center->x);
+            SketchEllipse mirrored{
+                make_id(), center_id, major_id, minor_id,
+                source->major_radius, source->minor_radius, rotation,
+                source->construction, !source->reversed};
+            mirrored_id = mirrored.id;
+            next.ellipses.push_back(std::move(mirrored));
+        } else {
+            const auto spline_source = std::find_if(bsplines.begin(), bsplines.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            SketchBSpline mirrored;
+            mirrored.id = make_id();
+            mirrored.degree = spline_source->degree;
+            mirrored.closed = spline_source->closed;
+            mirrored.construction = spline_source->construction;
+            for (const auto& point_id : spline_source->control_point_ids) {
+                mirrored.control_point_ids.push_back(map_point(point_id));
+            }
+            mirrored_id = mirrored.id;
+            next.bsplines.push_back(std::move(mirrored));
+        }
+        result.geometry_ids.push_back(std::move(mirrored_id));
+    }
+
+    for (const auto& source_id : source_point_order) {
+        const auto& mirrored_id = point_map.at(source_id);
+        SketchConstraint constraint;
+        constraint.id = make_id();
+        constraint.kind = ConstraintKind::Symmetric;
+        constraint.first_point_id = source_id;
+        constraint.second_point_id = mirrored_id;
+        constraint.geometry_id = axis_id;
+        next.constraints.push_back(std::move(constraint));
+    }
+    next.validate();
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Conflicting ||
+        solved.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Sketch mirror symmetry could not be solved");
     }
     next.validate();
     *this = std::move(next);
@@ -1475,8 +1765,11 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         } else {
             ellipse->minor_radius = dimension_value;
             auto* point = next.find_point(ellipse->minor_point_id);
-            point->x = center->x - dimension_value * std::sin(ellipse->rotation);
-            point->y = center->y + dimension_value * std::cos(ellipse->rotation);
+            const double orientation = ellipse->reversed ? -1.0 : 1.0;
+            point->x = center->x - orientation * dimension_value *
+                std::sin(ellipse->rotation);
+            point->y = center->y + orientation * dimension_value *
+                std::cos(ellipse->rotation);
         }
     } else if (dimension_kind == DimensionKind::EllipseRotation) {
         const auto ellipse = std::find_if(next.ellipses.begin(), next.ellipses.end(),
@@ -1488,10 +1781,13 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         const auto* center = next.find_point(ellipse->center_point_id);
         auto* major = next.find_point(ellipse->major_point_id);
         auto* minor = next.find_point(ellipse->minor_point_id);
+        const double orientation = ellipse->reversed ? -1.0 : 1.0;
         major->x = center->x + ellipse->major_radius * std::cos(ellipse->rotation);
         major->y = center->y + ellipse->major_radius * std::sin(ellipse->rotation);
-        minor->x = center->x - ellipse->minor_radius * std::sin(ellipse->rotation);
-        minor->y = center->y + ellipse->minor_radius * std::cos(ellipse->rotation);
+        minor->x = center->x - orientation * ellipse->minor_radius *
+            std::sin(ellipse->rotation);
+        minor->y = center->y + orientation * ellipse->minor_radius *
+            std::cos(ellipse->rotation);
     }
     next.validate();
     const auto result = next.solve();
@@ -1507,6 +1803,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
     const auto original_points = points;
     const auto original_circles = circles;
     const auto original_arcs = arcs;
+    const auto original_ellipses = ellipses;
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto move_pair = [](SketchPoint& first, SketchPoint& second,
@@ -1520,11 +1817,78 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         return true;
     };
+    const auto synchronize_curves = [&]() {
+        constexpr double full_turn = 2.0 * 3.14159265358979323846;
+        for (auto& arc : arcs) {
+            const auto* center = find_point(arc.center_point_id);
+            const auto* start = find_point(arc.start_point_id);
+            const auto* end = find_point(arc.end_point_id);
+            const double start_radius = std::hypot(
+                start->x - center->x, start->y - center->y);
+            const double end_radius = std::hypot(
+                end->x - center->x, end->y - center->y);
+            if (start_radius <= tolerance || end_radius <= tolerance ||
+                std::abs(start_radius - end_radius) > 1.0e-7) return false;
+            arc.radius = (start_radius + end_radius) * 0.5;
+            arc.start_angle = std::atan2(
+                start->y - center->y, start->x - center->x);
+            arc.end_angle = std::atan2(
+                end->y - center->y, end->x - center->x);
+            while (arc.end_angle <= arc.start_angle) arc.end_angle += full_turn;
+            if (arc.end_angle - arc.start_angle >= full_turn - 1.0e-10) return false;
+        }
+        for (auto& ellipse : ellipses) {
+            const auto* center = find_point(ellipse.center_point_id);
+            const auto* major = find_point(ellipse.major_point_id);
+            const auto* minor = find_point(ellipse.minor_point_id);
+            const double major_x = major->x - center->x;
+            const double major_y = major->y - center->y;
+            const double minor_x = minor->x - center->x;
+            const double minor_y = minor->y - center->y;
+            const double major_radius = std::hypot(major_x, major_y);
+            const double minor_radius = std::hypot(minor_x, minor_y);
+            if (major_radius <= tolerance || minor_radius <= tolerance ||
+                std::abs(major_x * minor_x + major_y * minor_y) >
+                    1.0e-7 * major_radius * minor_radius) return false;
+            const double orientation = ellipse.reversed ? -1.0 : 1.0;
+            if (orientation * (major_x * minor_y - major_y * minor_x) <= 0.0) {
+                return false;
+            }
+            ellipse.major_radius = major_radius;
+            ellipse.minor_radius = minor_radius;
+            ellipse.rotation = std::atan2(major_y, major_x);
+        }
+        return true;
+    };
     for (std::size_t iteration = 0; iteration < maximum_iterations; ++iteration) {
         maximum_residual = 0.0;
         bool immovable_conflict = false;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Symmetric) {
+                const auto axis = sketch_axis_line(*this, constraint.geometry_id);
+                auto* source = find_point(constraint.first_point_id);
+                auto* mirrored = find_point(constraint.second_point_id);
+                if (!axis || source == nullptr || mirrored == nullptr) {
+                    immovable_conflict = true;
+                    continue;
+                }
+                const auto desired = reflected_position(
+                    {source->x, source->y}, axis->first, axis->second);
+                const double dx = desired[0] - mirrored->x;
+                const double dy = desired[1] - mirrored->y;
+                const double residual = std::hypot(dx, dy);
+                maximum_residual = std::max(maximum_residual, residual);
+                if (residual > tolerance) {
+                    if (mirrored->fixed) {
+                        immovable_conflict = true;
+                    } else {
+                        mirrored->x = desired[0];
+                        mirrored->y = desired[1];
+                    }
+                }
+                continue;
+            }
             if (constraint.kind == ConstraintKind::PointOnCircle) {
                 auto circle = std::find_if(circles.begin(), circles.end(),
                     [&](const auto& value) {
@@ -1618,6 +1982,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 immovable_conflict = true;
             }
         }
+        if (!synchronize_curves()) immovable_conflict = true;
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
             if (dimension.kind == DimensionKind::EllipseRotation) {
@@ -1633,10 +1998,13 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 const auto* center = find_point(ellipse->center_point_id);
                 auto* major = find_point(ellipse->major_point_id);
                 auto* minor = find_point(ellipse->minor_point_id);
+                const double orientation = ellipse->reversed ? -1.0 : 1.0;
                 major->x = center->x + ellipse->major_radius * std::cos(desired);
                 major->y = center->y + ellipse->major_radius * std::sin(desired);
-                minor->x = center->x - ellipse->minor_radius * std::sin(desired);
-                minor->y = center->y + ellipse->minor_radius * std::cos(desired);
+                minor->x = center->x - orientation * ellipse->minor_radius *
+                    std::sin(desired);
+                minor->y = center->y + orientation * ellipse->minor_radius *
+                    std::cos(desired);
                 continue;
             }
             if (dimension.kind == DimensionKind::EllipseMajorRadius ||
@@ -1654,7 +2022,8 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                         ? ellipse->major_point_id : ellipse->minor_point_id);
                 const double angle = dimension.kind == DimensionKind::EllipseMajorRadius
                     ? ellipse->rotation
-                    : ellipse->rotation + 3.14159265358979323846 / 2.0;
+                    : ellipse->rotation + (ellipse->reversed ? -1.0 : 1.0) *
+                        3.14159265358979323846 / 2.0;
                 axis_point->x = center->x + radius * std::cos(angle);
                 axis_point->y = center->y + radius * std::sin(angle);
                 continue;
@@ -1721,6 +2090,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             points = original_points;
             circles = original_circles;
             arcs = original_arcs;
+            ellipses = original_ellipses;
             return {SolveStatus::Conflicting, 0, maximum_residual};
         }
         if (maximum_residual <= tolerance) break;
@@ -1729,6 +2099,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         points = original_points;
         circles = original_circles;
         arcs = original_arcs;
+        ellipses = original_ellipses;
         return {SolveStatus::Conflicting, 0, maximum_residual};
     }
     for (const auto& segment : segments) {
@@ -1738,6 +2109,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             points = original_points;
             circles = original_circles;
             arcs = original_arcs;
+            ellipses = original_ellipses;
             return {SolveStatus::Conflicting, 0, 0.0};
         }
     }
@@ -1745,6 +2117,16 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         std::vector<double> result;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Symmetric) {
+                const auto axis = sketch_axis_line(*this, constraint.geometry_id);
+                const auto* source = find_point(constraint.first_point_id);
+                const auto* mirrored = find_point(constraint.second_point_id);
+                const auto desired = reflected_position(
+                    {source->x, source->y}, axis->first, axis->second);
+                result.push_back(mirrored->x - desired[0]);
+                result.push_back(mirrored->y - desired[1]);
+                continue;
+            }
             if (constraint.kind == ConstraintKind::PointOnCircle) {
                 const auto circle = std::find_if(circles.begin(), circles.end(),
                     [&](const auto& value) {
@@ -1897,6 +2279,22 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         return world_point(point.x, point.y);
     };
     zima::kernel::ViewerMesh result;
+    double axis_half_extent = 50.0;
+    for (const auto& point : points) {
+        axis_half_extent = std::max(
+            axis_half_extent, 1.25 * std::max(std::abs(point.x), std::abs(point.y)));
+    }
+    const auto origin = world_point(0.0, 0.0);
+    const auto x_end = world_point(1.0, 0.0);
+    const auto y_end = world_point(0.0, 1.0);
+    result.axes.push_back({
+        origin,
+        {x_end.x - origin.x, x_end.y - origin.y, x_end.z - origin.z},
+        axis_half_extent * 2.0, {id, "sketch_axis:x", {}}});
+    result.axes.push_back({
+        origin,
+        {y_end.x - origin.x, y_end.y - origin.y, y_end.z - origin.z},
+        axis_half_extent * 2.0, {id, "sketch_axis:y", {}}});
     result.points.reserve(points.size());
     for (const auto& point : points) {
         result.points.push_back({project(point), {id, "point:" + point.id, {}}});
@@ -2023,6 +2421,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     }
     for (const auto& ellipse : ellipses) {
         const auto* center = find_point(ellipse.center_point_id);
+        const double orientation = ellipse.reversed ? -1.0 : 1.0;
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "ellipse:" + ellipse.id, {}};
         edge.construction = ellipse.construction;
@@ -2035,9 +2434,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             const double local_y = ellipse.minor_radius * std::sin(parameter);
             edge.points.push_back(world_point(
                 center->x + local_x * std::cos(ellipse.rotation) -
-                    local_y * std::sin(ellipse.rotation),
+                    orientation * local_y * std::sin(ellipse.rotation),
                 center->y + local_x * std::sin(ellipse.rotation) +
-                    local_y * std::cos(ellipse.rotation)));
+                    orientation * local_y * std::cos(ellipse.rotation)));
         }
         result.edges.push_back(std::move(edge));
     }
@@ -2229,7 +2628,7 @@ std::string Sketch::serialized() const {
         {"minor_point", ellipse.minor_point_id},
         {"major_radius", ellipse.major_radius},
         {"minor_radius", ellipse.minor_radius}, {"rotation", ellipse.rotation},
-        {"construction", ellipse.construction}});
+        {"construction", ellipse.construction}, {"reversed", ellipse.reversed}});
     nlohmann::json spline_values = nlohmann::json::array();
     for (const auto& spline : bsplines) spline_values.push_back({
         {"id", spline.id}, {"control_points", spline.control_point_ids},
@@ -2257,7 +2656,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 7},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 8},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -2273,7 +2672,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 7) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 8) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -2302,7 +2701,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("minor_point").get<std::string>(),
         value.at("major_radius").get<double>(),
         value.at("minor_radius").get<double>(), value.at("rotation").get<double>(),
-        value.at("construction").get<bool>()});
+        value.at("construction").get<bool>(), value.at("reversed").get<bool>()});
     for (const auto& value : root.at("bsplines")) sketch.bsplines.push_back({
         value.at("id").get<std::string>(),
         value.at("control_points").get<std::vector<std::string>>(),

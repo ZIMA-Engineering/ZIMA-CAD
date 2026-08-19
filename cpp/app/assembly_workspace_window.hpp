@@ -112,6 +112,7 @@ private:
     QAction* sketch_rectangle_action_{};
     QAction* sketch_polygon_action_{};
     QMenu* sketch_polygon_menu_{};
+    QAction* sketch_mirror_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
     QAction* sketch_ellipse_action_{};
@@ -170,6 +171,10 @@ private:
     bool sketch_polygon_active_{};
     unsigned sketch_polygon_sides_{6};
     std::optional<std::array<double, 2>> pending_polygon_center_;
+    bool sketch_mirror_active_{};
+    bool sketch_mirror_selecting_sources_{};
+    std::vector<std::string> pending_mirror_geometry_ids_;
+    std::string pending_mirror_axis_id_;
     bool sketch_circle_active_{};
     std::optional<std::array<double, 2>> pending_circle_center_;
     bool sketch_arc_active_{};
@@ -257,6 +262,13 @@ private:
     void cancel_sketch_rectangle();
     void start_sketch_polygon(unsigned sides);
     void cancel_sketch_polygon();
+    void start_sketch_mirror();
+    void cancel_sketch_mirror();
+    void accept_sketch_mirror_source(
+        const zima::viewer::ViewerCandidate& candidate);
+    void accept_sketch_mirror_axis(
+        const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] bool finish_sketch_mirror();
     void start_sketch_circle();
     void cancel_sketch_circle();
     void start_sketch_arc();

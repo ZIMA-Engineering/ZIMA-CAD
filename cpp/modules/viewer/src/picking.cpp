@@ -275,7 +275,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& axis : ordered_axis_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
-            result.push_back({CandidateKind::Axis, axis.distance, axis.axis,
+            const auto kind = axis.reference.semantic_key.starts_with("sketch_axis:")
+                ? CandidateKind::SketchAxis : CandidateKind::Axis;
+            result.push_back({kind, axis.distance, axis.axis,
                               axis.reference.owner_id, axis.reference.semantic_key,
                               axis.reference.instance_path, geometry});
         }
@@ -303,6 +305,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;
+        case CandidateKind::SketchAxis: return 1;
         case CandidateKind::SketchSegment: return 2;
         case CandidateKind::Edge: return 2;
         case CandidateKind::Face: return 3;

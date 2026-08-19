@@ -51,6 +51,7 @@
 #include <cmath>
 #include <functional>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <type_traits>
 
@@ -484,6 +485,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         connect(action, &QAction::triggered, this,
             [this, sides] { start_sketch_polygon(sides); });
     }
+    sketch_mirror_action_ = make_action(tr("Zrcadlit"), "sketch-mirror");
+    sketch_mirror_action_->setObjectName("sketchMirrorAction");
+    sketch_mirror_action_->setEnabled(false);
     sketch_circle_action_ = make_action(tr("Kružnice"), "sketch-circle");
     sketch_arc_action_ = make_action(tr("Oblouk"), "sketch-arc");
     sketch_ellipse_action_ = make_action(tr("Elipsa"), "sketch-ellipse");
@@ -547,6 +551,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_polyline_action_, &QAction::triggered, this,
         [this] { start_sketch_polyline(); });
     connect(sketch_rectangle_action_, &QAction::triggered, this, [this] { start_sketch_rectangle(); });
+    connect(sketch_mirror_action_, &QAction::triggered, this,
+        [this] { start_sketch_mirror(); });
     connect(sketch_circle_action_, &QAction::triggered, this, [this] { start_sketch_circle(); });
     connect(sketch_arc_action_, &QAction::triggered, this, [this] { start_sketch_arc(); });
     connect(sketch_ellipse_action_, &QAction::triggered, this, [this] { start_sketch_ellipse(); });
@@ -784,6 +790,14 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_sketch_segment_pair(candidate);
             return;
         }
+        if (sketch_mirror_active_) {
+            if (sketch_mirror_selecting_sources_) {
+                accept_sketch_mirror_source(candidate);
+            } else {
+                accept_sketch_mirror_axis(candidate);
+            }
+            return;
+        }
         sketch_ellipse_major_dimension_action_->setEnabled(false);
         sketch_ellipse_minor_dimension_action_->setEnabled(false);
         sketch_ellipse_rotation_dimension_action_->setEnabled(false);
@@ -907,6 +921,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_fix_point_action_->setEnabled(true);
             state_->setText(tr("Vybrán bod skici."));
         }
+        sketch_mirror_action_->setEnabled(
+            !active_sketch_id_.empty() && !sketch_mirror_active_);
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
@@ -934,7 +950,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_short_middle_click_callback([this] {
         return finish_edge_treatment_selection() || finish_sketch_bspline() ||
-            finish_sketch_polyline();
+            finish_sketch_polyline() || finish_sketch_mirror();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -1057,6 +1073,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_polyline_action_->setEnabled(true);
                 sketch_rectangle_action_->setEnabled(true);
                 sketch_polygon_action_->setEnabled(true);
+                sketch_mirror_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
                 sketch_ellipse_action_->setEnabled(true);
@@ -1461,6 +1478,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_normal_view_action_);
         add_command(selection_action_);
         tools_toolbar_->addSeparator();
+        add_command(sketch_mirror_action_);
+        add_green_separator();
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
                              sketch_segment_action_, sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
@@ -2797,6 +2816,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_polyline_active_ = false;
     sketch_rectangle_active_ = false;
     sketch_polygon_active_ = false;
+    sketch_mirror_active_ = false;
+    sketch_mirror_selecting_sources_ = false;
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
     sketch_ellipse_active_ = false;
@@ -2806,6 +2827,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_segment_start_.reset();
     pending_rectangle_corner_.reset();
     pending_polygon_center_.reset();
+    pending_mirror_geometry_ids_.clear();
+    pending_mirror_axis_id_.clear();
     pending_circle_center_.reset();
     pending_arc_center_.reset();
     pending_arc_start_.reset();
@@ -2881,6 +2904,152 @@ void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
     sketch_polygon_active_ = false;
     pending_polygon_center_.reset();
     viewer_->set_transient_edges({});
+}
+
+void AssemblyWorkspaceWindow::start_sketch_mirror() {
+    if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const std::string source_id = !selected_sketch_segment_id_.empty()
+        ? selected_sketch_segment_id_
+        : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
+        : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
+        : !selected_sketch_ellipse_id_.empty() ? selected_sketch_ellipse_id_
+        : !selected_sketch_bspline_id_.empty() ? selected_sketch_bspline_id_
+        : selected_sketch_point_id_;
+    cancel_sketch_segment();
+    sketch_mirror_active_ = true;
+    sketch_mirror_selecting_sources_ = source_id.empty();
+    if (!source_id.empty()) pending_mirror_geometry_ids_ = {source_id};
+    selected_sketch_segment_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    selected_sketch_point_id_.clear();
+    viewer_->clear_selection();
+    viewer_->set_selection_contract(sketch_mirror_selecting_sources_
+        ? std::vector{zima::viewer::CandidateKind::SketchSegment,
+                      zima::viewer::CandidateKind::SketchPoint,
+                      zima::viewer::CandidateKind::SketchCurve}
+        : std::vector{zima::viewer::CandidateKind::SketchSegment,
+                      zima::viewer::CandidateKind::SketchAxis});
+    sketch_mirror_action_->setEnabled(false);
+    state_->setText(sketch_mirror_selecting_sources_
+        ? tr("Zrcadlení: vybírejte geometrii a body; prostředním kliknutím výběr dokončete.")
+        : tr("Zrcadlení: vyberte úsečku nebo osu X/Y skici. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_mirror() {
+    sketch_mirror_active_ = false;
+    sketch_mirror_selecting_sources_ = false;
+    pending_mirror_geometry_ids_.clear();
+    pending_mirror_axis_id_.clear();
+}
+
+void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!sketch_mirror_active_ || !sketch_mirror_selecting_sources_ ||
+        candidate.owner_id != active_sketch_id_) return;
+    std::string source_id;
+    if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
+        candidate.semantic_key.starts_with("segment:")) {
+        source_id = candidate.semantic_key.substr(8);
+    } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
+               candidate.semantic_key.starts_with("point:")) {
+        source_id = candidate.semantic_key.substr(6);
+    } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
+        for (const std::string_view prefix : {
+                std::string_view{"circle:"}, std::string_view{"arc:"},
+                std::string_view{"ellipse:"}, std::string_view{"bspline:"}}) {
+            if (candidate.semantic_key.starts_with(prefix)) {
+                source_id = candidate.semantic_key.substr(prefix.size());
+                break;
+            }
+        }
+    }
+    if (source_id.empty()) return;
+    const auto selected = std::find(
+        pending_mirror_geometry_ids_.begin(), pending_mirror_geometry_ids_.end(),
+        source_id);
+    if (selected == pending_mirror_geometry_ids_.end()) {
+        pending_mirror_geometry_ids_.push_back(std::move(source_id));
+    } else {
+        pending_mirror_geometry_ids_.erase(selected);
+    }
+    viewer_->clear_selection();
+    state_->setText(tr(
+        "Zrcadlení: vybráno %1 položek; prostředním kliknutím pokračujte na osu.")
+        .arg(pending_mirror_geometry_ids_.size()));
+}
+
+void AssemblyWorkspaceWindow::accept_sketch_mirror_axis(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!sketch_mirror_active_ || pending_mirror_geometry_ids_.empty() ||
+        candidate.owner_id != active_sketch_id_) return;
+    std::string axis_id;
+    if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
+        candidate.semantic_key.starts_with("segment:")) {
+        axis_id = candidate.semantic_key.substr(8);
+    } else if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
+               (candidate.semantic_key == "sketch_axis:x" ||
+                candidate.semantic_key == "sketch_axis:y")) {
+        axis_id = candidate.semantic_key;
+    } else {
+        return;
+    }
+    if (std::find(pending_mirror_geometry_ids_.begin(),
+                  pending_mirror_geometry_ids_.end(), axis_id) !=
+        pending_mirror_geometry_ids_.end()) {
+        state_->setText(tr("Zdrojová úsečka nemůže být současně osou zrcadlení."));
+        return;
+    }
+    pending_mirror_axis_id_ = std::move(axis_id);
+    state_->setText(tr(
+        "Osa zrcadlení vybrána. Krátkým prostředním kliknutím zrcadlení potvrďte."));
+}
+
+bool AssemblyWorkspaceWindow::finish_sketch_mirror() {
+    if (!sketch_mirror_active_) return false;
+    if (sketch_mirror_selecting_sources_) {
+        if (pending_mirror_geometry_ids_.empty()) {
+            state_->setText(tr("Zrcadlení: vyberte alespoň jednu geometrii nebo bod."));
+            return true;
+        }
+        sketch_mirror_selecting_sources_ = false;
+        viewer_->clear_selection();
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment,
+                                         zima::viewer::CandidateKind::SketchAxis});
+        state_->setText(tr(
+            "Zrcadlení: vyberte úsečku nebo osu X/Y skici. Escape příkaz zruší."));
+        return true;
+    }
+    if (pending_mirror_geometry_ids_.empty() || pending_mirror_axis_id_.empty()) {
+        state_->setText(tr("Zrcadlení: nejprve vyberte osu."));
+        return true;
+    }
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return false;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return false;
+        static_cast<void>(sketch->mirror_geometry(
+            pending_mirror_geometry_ids_, pending_mirror_axis_id_));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        cancel_sketch_mirror();
+        viewer_->clear_selection();
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Geometrie skici byla zrcadlena jako jedna Part revize."));
+        return true;
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+        return true;
+    }
 }
 
 void AssemblyWorkspaceWindow::start_sketch_circle() {
@@ -3174,7 +3343,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
 void AssemblyWorkspaceWindow::constrain_selected_segment(
     zima::sketcher::ConstraintKind kind) {
     if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_ellipse_active_ ||
         sketch_bspline_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
@@ -3330,7 +3500,7 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
 
 void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
     if (properties_dialog_ != nullptr || sketch_coincident_active_ ||
-        sketch_segment_pair_active_ ||
+        sketch_segment_pair_active_ || sketch_mirror_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -3358,7 +3528,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     const zima::viewer::ViewerCandidate& candidate) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_ || candidate.kind !=
             zima::viewer::CandidateKind::SketchPoint ||
@@ -3497,7 +3667,8 @@ void AssemblyWorkspaceWindow::end_assembly_mate_drag() {
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_point_active_ || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
+        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_mirror_active_ ||
+        sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
@@ -3541,7 +3712,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     zima::sketcher::DimensionKind creation_kind) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -4076,7 +4247,8 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape &&
         (sketch_point_active_ || sketch_segment_active_ ||
          sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
-         sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
+         sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+         sketch_bspline_active_ ||
          sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
         cancel_sketch_segment();
@@ -4244,6 +4416,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
+                             sketch_mirror_action_,
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
                              sketch_bspline_action_, finish_sketch_action_,
@@ -4345,6 +4518,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         root->setExpanded(true);
         viewer_->set_selection_contract(!selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
+            : sketch_mirror_active_
+                ? sketch_mirror_selecting_sources_
+                    ? std::vector{zima::viewer::CandidateKind::SketchSegment,
+                                  zima::viewer::CandidateKind::SketchPoint,
+                                  zima::viewer::CandidateKind::SketchCurve}
+                    : std::vector{zima::viewer::CandidateKind::SketchSegment,
+                                  zima::viewer::CandidateKind::SketchAxis}
             : sketch_coincident_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchPoint}
             : sketch_segment_pair_active_
@@ -4378,7 +4558,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             zima::kernel::ViewerMesh display = calculated.empty()
                 ? zima::kernel::ViewerMesh{} : calculated.back().mesh;
             for (const auto& sketch : document.sketches) {
-                append_mesh(display, sketch.viewer_mesh());
+                if (!active_sketch_id_.empty() && sketch.id != active_sketch_id_) {
+                    continue;
+                }
+                auto sketch_mesh = sketch.viewer_mesh();
+                if (sketch.id != active_sketch_id_) sketch_mesh.axes.clear();
+                append_mesh(display, std::move(sketch_mesh));
             }
             append_mesh(display, document.construction_viewer_mesh());
             viewer_->set_mesh(std::move(display), !preserve_view_on_refresh_);
@@ -4421,6 +4606,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polygon_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_mirror_action_->setEnabled(
+            !active_sketch_id_.empty() && !sketch_mirror_active_);
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
@@ -4548,6 +4735,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_->setEnabled(false);
     sketch_polygon_action_->setEnabled(false);
+    sketch_mirror_action_->setEnabled(false);
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
     sketch_ellipse_action_->setEnabled(false);

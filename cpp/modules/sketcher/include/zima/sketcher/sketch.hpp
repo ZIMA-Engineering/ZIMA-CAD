@@ -13,7 +13,7 @@ namespace zima::sketcher {
 enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind {
     Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
-    PointOnCircle
+    PointOnCircle, Symmetric
 };
 enum class DimensionKind {
     Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
@@ -67,6 +67,7 @@ struct SketchEllipse {
     double minor_radius{};
     double rotation{};
     bool construction{};
+    bool reversed{};
     bool operator==(const SketchEllipse&) const = default;
 };
 
@@ -128,6 +129,11 @@ struct RegularPolygonResult {
     std::vector<std::string> vertex_ids;
 };
 
+struct MirroredGeometryResult {
+    std::vector<std::string> geometry_ids;
+    std::vector<std::string> point_ids;
+};
+
 class Sketch {
 public:
     std::string id;
@@ -173,6 +179,10 @@ public:
         ConstraintKind kind);
     [[nodiscard]] std::string add_point_on_circle_constraint(
         const std::string& point_id, const std::string& circle_id);
+    [[nodiscard]] std::string add_symmetric_constraint(
+        const std::string& source_point_id,
+        const std::string& mirrored_point_id,
+        const std::string& axis_id);
     void remove_geometry(const std::string& geometry_id);
     void remove_point(const std::string& point_id);
     [[nodiscard]] std::vector<std::string> add_rectangle(
@@ -181,6 +191,10 @@ public:
     [[nodiscard]] RegularPolygonResult add_regular_polygon(
         double center_x, double center_y, double rim_x, double rim_y,
         unsigned sides, double snap_tolerance = 1.0e-6);
+    [[nodiscard]] MirroredGeometryResult mirror_geometry(
+        const std::vector<std::string>& entity_ids,
+        const std::string& axis_id,
+        double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_circle(
         double center_x, double center_y, double radius,
         bool construction = false, double snap_tolerance = 1.0e-6);

@@ -56,7 +56,8 @@ int main() {
                 "Sketch did not round-trip its stable graph and limits");
         const auto mesh = sketch.viewer_mesh();
         require(mesh.triangles.empty() && mesh.edges.size() == 1 &&
-                    mesh.points.size() == 2 && mesh.dimensions.size() == 1 &&
+                    mesh.points.size() == 2 && mesh.axes.size() == 2 &&
+                    mesh.dimensions.size() == 1 &&
                     mesh.edges.front().reference.owner_id == sketch.id &&
                     mesh.edges.front().reference.semantic_key.rfind("segment:", 0) == 0 &&
                     mesh.edges.front().overlay,
@@ -67,6 +68,13 @@ int main() {
             {zima::viewer::CandidateKind::SketchSegment});
         require(candidates.size() == 1 && candidates.front().owner_id == sketch.id,
                 "Sketch edge did not use the common viewer candidate list");
+        const auto axis_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {12.5, 0.0, 10.0}, {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchAxis});
+        require(axis_candidates.size() == 1 &&
+                    axis_candidates.front().semantic_key == "sketch_axis:x",
+                "Sketch base axis did not use its dedicated selection contract");
         const auto dimension_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 mesh, {12.5, 5.0, 10.0}, {0.0, 0.0, -1.0}, 0.25),
@@ -476,6 +484,170 @@ int main() {
         require(invalid_polygon_rejected && polygon.points == polygon_before_invalid.points &&
                     polygon.constraints == polygon_before_invalid.constraints,
                 "Unsupported regular polygon partially changed the Sketch");
+        auto mirrored = zima::sketcher::Sketch::create_default();
+        const auto mirror_axis = mirrored.add_segment(
+            0.0, -20.0, 0.0, 20.0, 1.0e-6, true);
+        const auto mirror_first = mirrored.add_segment(2.0, 1.0, 4.0, 1.0);
+        const auto mirror_second = mirrored.add_segment(4.0, 1.0, 4.0, 3.0);
+        static_cast<void>(mirrored.add_segment_constraint(
+            mirror_first, zima::sketcher::ConstraintKind::Horizontal));
+        static_cast<void>(mirrored.add_segment_constraint(
+            mirror_second, zima::sketcher::ConstraintKind::Vertical));
+        static_cast<void>(mirrored.add_segment_pair_constraint(
+            mirror_first, mirror_second,
+            zima::sketcher::ConstraintKind::EqualLength));
+        const auto mirrored_pair = mirrored.mirror_geometry(
+            {mirror_first, mirror_second}, mirror_axis);
+        require(mirrored_pair.geometry_ids.size() == 2,
+                "Sketch mirror did not return two new segment identities");
+        const auto mirrored_first = std::find_if(
+            mirrored.segments.begin(), mirrored.segments.end(), [&](const auto& value) {
+                return value.id == mirrored_pair.geometry_ids[0];
+            });
+        const auto mirrored_second = std::find_if(
+            mirrored.segments.begin(), mirrored.segments.end(), [&](const auto& value) {
+                return value.id == mirrored_pair.geometry_ids[1];
+            });
+        require(mirrored_first != mirrored.segments.end() &&
+                    mirrored_second != mirrored.segments.end(),
+                "Sketch mirror did not return its new segment identities");
+        const auto* mirrored_start = mirrored.find_point(
+            mirrored_first->first_point_id);
+        const auto* mirrored_corner = mirrored.find_point(
+            mirrored_first->second_point_id);
+        const auto* mirrored_end = mirrored.find_point(
+            mirrored_second->second_point_id);
+        require(mirrored_first->second_point_id == mirrored_second->first_point_id &&
+                    std::abs(mirrored_start->x + 2.0) < 1.0e-9 &&
+                    std::abs(mirrored_corner->x + 4.0) < 1.0e-9 &&
+                    std::abs(mirrored_end->x + 4.0) < 1.0e-9 &&
+                    mirrored.constraints.size() == 6,
+                "Sketch mirror lost reflected coordinates, shared topology, or constraints");
+        require(std::count_if(
+                    mirrored.constraints.begin(), mirrored.constraints.end(),
+                    [](const auto& constraint) {
+                        return constraint.kind ==
+                            zima::sketcher::ConstraintKind::Symmetric;
+                    }) == 3 &&
+                    std::none_of(
+                        mirrored.constraints.begin(), mirrored.constraints.end(),
+                        [&](const auto& constraint) {
+                            return constraint.geometry_id == mirrored_first->id ||
+                                constraint.geometry_id == mirrored_second->id ||
+                                constraint.second_geometry_id == mirrored_first->id ||
+                                constraint.second_geometry_id == mirrored_second->id;
+                        }),
+                "Sketch mirror copied source constraints instead of creating symmetry");
+        const auto source_circle = mirrored.add_circle(3.0, 2.0, 4.0, true);
+        const auto source_arc = mirrored.add_arc(
+            3.0, 0.0, 5.0, 0.0, 3.0, 2.0);
+        const auto source_ellipse = mirrored.add_ellipse(
+            4.0, 0.0, 7.0, 0.0, 4.0, 2.0);
+        const auto source_spline = mirrored.add_bspline(
+            {{{2.0, 5.0}, {3.0, 6.0}, {4.0, 6.0}, {5.0, 5.0}}});
+        const auto mirrored_curves = mirrored.mirror_geometry(
+            {source_circle, source_arc, source_ellipse, source_spline}, mirror_axis);
+        require(mirrored_curves.geometry_ids.size() == 4,
+                "Sketch mirror did not return four new curve identities");
+        const auto reflected_circle = std::find_if(
+            mirrored.circles.begin(), mirrored.circles.end(), [&](const auto& value) {
+                return value.id == mirrored_curves.geometry_ids[0];
+            });
+        const auto reflected_arc = std::find_if(
+            mirrored.arcs.begin(), mirrored.arcs.end(), [&](const auto& value) {
+                return value.id == mirrored_curves.geometry_ids[1];
+            });
+        const auto reflected_ellipse = std::find_if(
+            mirrored.ellipses.begin(), mirrored.ellipses.end(), [&](const auto& value) {
+                return value.id == mirrored_curves.geometry_ids[2];
+            });
+        const auto reflected_spline = std::find_if(
+            mirrored.bsplines.begin(), mirrored.bsplines.end(), [&](const auto& value) {
+                return value.id == mirrored_curves.geometry_ids[3];
+            });
+        require(reflected_circle != mirrored.circles.end() &&
+                    reflected_arc != mirrored.arcs.end() &&
+                    reflected_ellipse != mirrored.ellipses.end() &&
+                    reflected_spline != mirrored.bsplines.end(),
+                "Sketch mirror did not preserve the selected curve kinds");
+        const auto* reflected_circle_center = mirrored.find_point(
+            reflected_circle->center_point_id);
+        const auto* reflected_arc_start = mirrored.find_point(
+            reflected_arc->start_point_id);
+        const auto* reflected_ellipse_center = mirrored.find_point(
+            reflected_ellipse->center_point_id);
+        const auto* reflected_spline_first = mirrored.find_point(
+            reflected_spline->control_point_ids.front());
+        const auto source_ellipse_value = std::find_if(
+            mirrored.ellipses.begin(), mirrored.ellipses.end(), [&](const auto& value) {
+                return value.id == source_ellipse;
+            });
+        require(reflected_circle->construction &&
+                    std::abs(reflected_circle_center->x + 3.0) < 1.0e-9 &&
+                    std::abs(reflected_arc_start->x + 3.0) < 1.0e-9 &&
+                    std::abs(reflected_arc_start->y - 2.0) < 1.0e-9 &&
+                    std::abs(reflected_ellipse_center->x + 4.0) < 1.0e-9 &&
+                    std::abs(reflected_spline_first->x + 2.0) < 1.0e-9 &&
+                    source_ellipse_value != mirrored.ellipses.end() &&
+                    reflected_ellipse->reversed != source_ellipse_value->reversed,
+                "Sketch mirror changed curve type, orientation, or construction state");
+        const auto source_circle_value = std::find_if(
+            mirrored.circles.begin(), mirrored.circles.end(), [&](const auto& value) {
+                return value.id == source_circle;
+            });
+        const auto source_circle_center_id = source_circle_value->center_point_id;
+        const auto reflected_circle_center_id = reflected_circle->center_point_id;
+        const auto axis_value = std::find_if(
+            mirrored.segments.begin(), mirrored.segments.end(), [&](const auto& value) {
+                return value.id == mirror_axis;
+            });
+        const auto axis_first_id = axis_value->first_point_id;
+        const auto axis_second_id = axis_value->second_point_id;
+        require(mirrored.move_point(source_circle_center_id, 6.0, 4.0) &&
+                    std::abs(mirrored.find_point(reflected_circle_center_id)->x + 6.0) <
+                        1.0e-8 &&
+                    std::abs(mirrored.find_point(reflected_circle_center_id)->y - 4.0) <
+                        1.0e-8,
+                "Moving mirror source did not solve its persisted symmetry constraint");
+        require(mirrored.move_point(axis_first_id, 2.0, -20.0) &&
+                    mirrored.move_point(axis_second_id, 2.0, 20.0) &&
+                    std::abs(mirrored.find_point(reflected_circle_center_id)->x + 2.0) <
+                        1.0e-8 &&
+                    std::abs(mirrored.find_point(reflected_circle_center_id)->y - 4.0) <
+                        1.0e-8,
+                "Moving mirror axis did not regenerate its driven geometry");
+        const auto mirror_source_point = mirrored.add_point(11.0, 13.0);
+        const auto mirrored_point = mirrored.mirror_geometry(
+            {mirror_source_point}, "sketch_axis:x");
+        require(mirrored_point.geometry_ids.empty() &&
+                    mirrored_point.point_ids.size() == 1 &&
+                    std::abs(mirrored.find_point(mirrored_point.point_ids.front())->x -
+                        11.0) < 1.0e-9 &&
+                    std::abs(mirrored.find_point(mirrored_point.point_ids.front())->y +
+                        13.0) < 1.0e-9 &&
+                    mirrored.move_point(mirror_source_point, 12.0, 14.0) &&
+                    std::abs(mirrored.find_point(mirrored_point.point_ids.front())->x -
+                        12.0) < 1.0e-8 &&
+                    std::abs(mirrored.find_point(mirrored_point.point_ids.front())->y +
+                        14.0) < 1.0e-8,
+                "Point mirror about a persisted Sketch axis is not associative");
+        const auto loaded_mirror = zima::sketcher::Sketch::from_serialized(
+            mirrored.serialized());
+        require(loaded_mirror.constraints == mirrored.constraints &&
+                    loaded_mirror.ellipses == mirrored.ellipses &&
+                    loaded_mirror.viewer_mesh().axes.size() == 2,
+                "Mirror symmetry or reflected ellipse orientation did not round-trip");
+        const auto mirror_before_invalid = mirrored;
+        bool mirror_axis_source_rejected = false;
+        try {
+            static_cast<void>(mirrored.mirror_geometry({mirror_axis}, mirror_axis));
+        } catch (const std::invalid_argument&) {
+            mirror_axis_source_rejected = true;
+        }
+        require(mirror_axis_source_rejected &&
+                    mirrored.points == mirror_before_invalid.points &&
+                    mirrored.segments == mirror_before_invalid.segments,
+                "Invalid Sketch mirror partially changed its source graph");
         auto removable_rectangle = rectangle;
         auto removable_dimension = removable_rectangle.create_segment_dimension(
             removable_rectangle.segments.front().id);
