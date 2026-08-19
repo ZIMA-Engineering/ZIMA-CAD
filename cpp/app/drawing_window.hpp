@@ -33,6 +33,9 @@ private:
     void add_sheet();
     void remove_sheet();
     void edit_sheet();
+    void load_frame();
+    void load_title_block();
+    void edit_title_block();
     void insert_view();
     void create_projected_view();
     void edit_selected_view();

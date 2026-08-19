@@ -803,7 +803,8 @@ musí dát totožný výsledek. Obdélníkový profil s vnitřní kružnicí R1 
 
 ## C++ základ technického výkresu
 
-Výkres má vlastní modul `zima_drawing` a současný dokumentový formát verze 1.
+Výkres má vlastní modul `zima_drawing`; současný dokumentový formát verze 2
+navíc persistuje kamerové báze, vložené šablony a BOM.
 Formát záměrně nenačítá starší prototypové výkresy. Dokument persistuje listy,
 jejich formát A4–A0, metodu promítání, modelové pohledy a lineární kóty. Pohled
 drží ID a cestu zdrojového Partu nebo Assembly, stabilní reference promítnutých
@@ -819,3 +820,12 @@ interní `Qt::SubWindow` se společným OK/Cancel a potvrzením dvojklikem prost
 tlačítka. Souborové volby zůstávají systémovými dialogy. Samostatný spustitelný
 cíl `zima-cad-drawing-cpp` slouží pro izolované testování; společná workspace
 aplikace zpřístupňuje nový výkres ze stejného menu Soubor.
+
+Lineární kóta po explicitní regeneraci znovu vyhledá obě stabilní reference,
+přepočítá body i měřenou hodnotu a chybějící či již nerovnoběžnou dvojici ponechá
+viditelnou jako červeně nerozřešenou. Osm směrů promítnutého pohledu používá
+persistovanou ortonormální bázi a rozlišuje první a třetí kvadrant; pohyb potomka
+je omezen na jeho projekční paprsek. Formát `.frmz` a razítko `.tblz` se při
+výslovném načtení převedou na C++ čáry, texty a editovatelná pole vložená přímo
+do `.drwz`. Otevření hotového výkresu proto šablony znovu nečte. Pohled sestavy
+vytvoří základní BOM seskupený podle bezprostředních komponent a jejich množství.

@@ -14,6 +14,15 @@ enum class SheetFormat { A4, A3, A2, A1, A0 };
 enum class ProjectionMethod { FirstAngle, ThirdAngle };
 enum class ViewOrientation { Front, Back, Left, Right, Top, Bottom, Isometric };
 enum class DisplayStyle { VisibleEdges, HiddenEdges, ShadedWithEdges };
+enum class ProjectionDirection {
+    None, Right, TopRight, Top, TopLeft, Left, BottomLeft, Bottom, BottomRight
+};
+
+struct ProjectionCamera {
+    zima::kernel::Vec3 horizontal{-1.0, 0.0, 0.0};
+    zima::kernel::Vec3 vertical{0.0, 0.0, 1.0};
+    zima::kernel::Vec3 depth{0.0, -1.0, 0.0};
+};
 
 struct Point2 {
     double x{};
@@ -41,6 +50,8 @@ struct DrawingView {
     std::filesystem::path source_path;
     std::string parent_view_id;
     ViewOrientation orientation{ViewOrientation::Front};
+    ProjectionCamera camera;
+    ProjectionDirection projection_direction{ProjectionDirection::None};
     DisplayStyle display_style{DisplayStyle::VisibleEdges};
     double x{100.0};
     double y{100.0};
@@ -58,6 +69,22 @@ struct LinearDimension {
     Point2 second_point;
     Point2 label_position;
     double measured_value{};
+    bool unresolved{};
+};
+
+enum class DrawingPen { White, Green, Yellow };
+struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; };
+struct TemplateText {
+    std::string text; Point2 position; double height{2.5};
+    DrawingPen pen{DrawingPen::Green}; std::string alignment{"left"};
+};
+struct TitleBlockField {
+    std::string id; std::string expression; std::string value;
+    Point2 position; double height{2.5}; bool editable{};
+};
+struct BomRow {
+    int item_number{}; int quantity{1}; std::string name;
+    std::string designation; std::string material;
 };
 
 struct DrawingSheet {
@@ -68,6 +95,12 @@ struct DrawingSheet {
     double default_scale{1.0};
     std::vector<DrawingView> views;
     std::vector<LinearDimension> dimensions;
+    std::vector<TemplateLine> frame_lines;
+    std::vector<TemplateText> frame_texts;
+    std::vector<TemplateLine> title_block_lines;
+    std::vector<TemplateText> title_block_texts;
+    std::vector<TitleBlockField> title_block_fields;
+    std::vector<BomRow> bom_rows;
 
     [[nodiscard]] double width_mm() const;
     [[nodiscard]] double height_mm() const;
@@ -98,5 +131,15 @@ public:
     const zima::kernel::ViewerMesh& mesh, ViewOrientation orientation);
 [[nodiscard]] std::vector<ProjectedTriangle> project_triangles(
     const zima::kernel::ViewerMesh& mesh, ViewOrientation orientation);
+[[nodiscard]] ProjectionCamera standard_camera(ViewOrientation orientation);
+[[nodiscard]] ProjectionCamera projected_camera(
+    const ProjectionCamera& parent, ProjectionDirection direction,
+    ProjectionMethod method);
+[[nodiscard]] std::vector<ProjectedEdge> project_edges(
+    const zima::kernel::ViewerMesh& mesh, const ProjectionCamera& camera);
+void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path);
+void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path& path);
+[[nodiscard]] std::vector<ProjectedTriangle> project_triangles(
+    const zima::kernel::ViewerMesh& mesh, const ProjectionCamera& camera);
 
 }  // namespace zima::drawing
