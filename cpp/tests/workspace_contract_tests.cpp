@@ -156,6 +156,28 @@ int main() {
         require(maximum_y(workspace.open_assembly(topassembly_id)
                     ->session.document().build_scene()) == old_nested_maximum_y,
                 "Nested Part edit implicitly regenerated a top-level Assembly");
+        const auto live_nested_scene = workspace.build_scene_with_part_override(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            workspace.open_part(part_id)->session.calculated_boundaries().back());
+        require(maximum_y(live_nested_scene) > old_nested_maximum_y,
+                "Active nested Part occurrence did not display its live calculated state");
+        require(std::any_of(live_nested_scene.original_references
+                    .triangle_references.begin(),
+                    live_nested_scene.original_references.triangle_references.end(),
+                    [&](const auto& reference) {
+                        return reference.instance_path == expected_nested_path;
+                    }) &&
+                std::any_of(live_nested_scene.original_references
+                    .triangle_references.begin(),
+                    live_nested_scene.original_references.triangle_references.end(),
+                    [&](const auto& reference) {
+                        return reference.instance_path == direct_part_path;
+                    }),
+                "Live nested Part display lost target or passive sibling identity");
+        require(maximum_y(workspace.open_assembly(topassembly_id)
+                    ->session.document().build_scene()) == old_nested_maximum_y,
+                "Live nested Part display mutated the parent Assembly snapshot");
         auto renamed_subassembly = workspace.open_assembly(subassembly_id)
             ->session.document();
         renamed_subassembly.components.front().name = "Přejmenovaný vnitřní díl";

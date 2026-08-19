@@ -6596,7 +6596,20 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(document.build_scene());
         }
     } else {
-        viewer_->set_mesh(document.build_scene());
+        const auto* active_part =
+            workspace_.open_part(workspace_.active_document_id());
+        const auto active_occurrence = active_part == nullptr
+            ? std::optional<std::string>{}
+            : resolve_active_occurrence(active_part->session.document().document_id);
+        if (active_occurrence && !active_occurrence->empty() &&
+            !active_part->session.calculated_boundaries().empty()) {
+            viewer_->set_mesh(workspace_.build_scene_with_part_override(
+                document.document_id,
+                zima::assembly::InstancePath::decode(*active_occurrence),
+                active_part->session.calculated_boundaries().back()));
+        } else {
+            viewer_->set_mesh(document.build_scene());
+        }
     }
     state_->setText(document.components.empty()
         ? has_insertable_component()
