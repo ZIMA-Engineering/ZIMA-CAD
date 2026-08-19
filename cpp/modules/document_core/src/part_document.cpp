@@ -730,12 +730,17 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
     for (const auto& object : constructions) {
         if (object.kind == ConstructionKind::Point) {
             mesh.points.push_back({object.origin, {object.id, "point", {}}});
+            mesh.original_references.points.push_back(
+                {object.origin, {object.id, "point", {}}});
             continue;
         }
         const auto normal = normalized(object.direction);
         if (object.kind == ConstructionKind::Axis) {
             mesh.axes.push_back({object.origin, normal, object.display_size,
                                  {object.id, "axis", {}}});
+            mesh.original_references.axes.push_back(
+                {object.origin, normal, object.display_size,
+                 {object.id, "axis", {}}});
             continue;
         }
         const auto helper = std::abs(normal.z) < 0.9

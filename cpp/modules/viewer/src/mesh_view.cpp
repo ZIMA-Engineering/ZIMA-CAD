@@ -635,10 +635,18 @@ void MeshView::paintGL() {
         impl_->mesh.points.begin(), impl_->mesh.points.end(), [](const auto& point) {
             return point.reference.semantic_key.starts_with("external_point:");
         });
+    const bool points_selectable = std::find(
+            impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+            CandidateKind::Vertex) != impl_->allowed_kinds.end() ||
+        std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+            CandidateKind::SketchPoint) != impl_->allowed_kinds.end();
     const bool points_visible =
-        (impl_->show_points && !impl_->mesh.points.empty()) ||
+        ((impl_->show_points || points_selectable) && !impl_->mesh.points.empty()) ||
         external_points_visible;
-    const bool planes_visible = impl_->show_planes && std::any_of(
+    const bool planes_selectable = std::find(
+        impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+        CandidateKind::Face) != impl_->allowed_kinds.end();
+    const bool planes_visible = (impl_->show_planes || planes_selectable) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key == "border";
         });
@@ -717,7 +725,7 @@ void MeshView::paintGL() {
             for (const auto& point : impl_->mesh.points) {
                 const bool external = point.reference.semantic_key.starts_with(
                     "external_point:");
-                if ((!external && !impl_->show_points) ||
+                if ((!external && !impl_->show_points && !points_selectable) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
                     const QColor color = point.reference.semantic_key.ends_with(

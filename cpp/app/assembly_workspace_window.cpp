@@ -60,6 +60,22 @@
 namespace zima::app {
 namespace {
 
+void append_reference_geometry(
+    zima::kernel::ViewerReferenceGeometry& target,
+    zima::kernel::ViewerReferenceGeometry source) {
+    const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(
+        target.vertices.end(), source.vertices.begin(), source.vertices.end());
+    for (const auto index : source.triangles) {
+        target.triangles.push_back(index + vertex_offset);
+    }
+    target.triangle_references.insert(target.triangle_references.end(),
+        source.triangle_references.begin(), source.triangle_references.end());
+    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+}
+
 void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source) {
     const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
     target.vertices.insert(target.vertices.end(), source.vertices.begin(), source.vertices.end());
@@ -71,25 +87,8 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.dimensions.insert(target.dimensions.end(),
         source.dimensions.begin(), source.dimensions.end());
-    auto& target_references = target.original_references;
-    auto& source_references = source.original_references;
-    const auto reference_vertex_offset =
-        static_cast<std::uint32_t>(target_references.vertices.size());
-    target_references.vertices.insert(target_references.vertices.end(),
-        source_references.vertices.begin(), source_references.vertices.end());
-    for (const auto index : source_references.triangles) {
-        target_references.triangles.push_back(index + reference_vertex_offset);
-    }
-    target_references.triangle_references.insert(
-        target_references.triangle_references.end(),
-        source_references.triangle_references.begin(),
-        source_references.triangle_references.end());
-    target_references.edges.insert(target_references.edges.end(),
-        source_references.edges.begin(), source_references.edges.end());
-    target_references.points.insert(target_references.points.end(),
-        source_references.points.begin(), source_references.points.end());
-    target_references.axes.insert(target_references.axes.end(),
-        source_references.axes.begin(), source_references.axes.end());
+    append_reference_geometry(
+        target.original_references, std::move(source.original_references));
 }
 
 using SketchPosition = std::array<double, 2>;
@@ -158,16 +157,29 @@ std::set<std::string> sketch_external_reference_source_owners(
     for (std::size_t index = 0; index < first_consumer; ++index) {
         owners.insert(document.history[index].id);
     }
+    for (const auto& construction : document.constructions) {
+        owners.insert(construction.id);
+    }
     return owners;
+}
+
+zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
+    const zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
+    zima::kernel::ViewerReferenceGeometry source;
+    if (!calculated_boundaries.empty()) {
+        source = calculated_boundaries.back().mesh.original_references;
+    }
+    append_reference_geometry(source,
+        document.construction_viewer_mesh().original_references);
+    return source;
 }
 
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
-    const zima::kernel::ViewerReferenceGeometry empty_source;
-    const auto& source = calculated_boundaries.empty()
-        ? empty_source
-        : calculated_boundaries.back().mesh.original_references;
+    const auto source = sketch_external_reference_source_geometry(
+        document, calculated_boundaries);
     bool changed = false;
     for (auto& sketch : document.sketches) {
         const auto allowed_owners = sketch_external_reference_source_owners(
@@ -3026,8 +3038,9 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             } else {
                 next.constructions.push_back(std::move(committed));
             }
-            target_part->session.commit(
-                std::move(next), target_part->session.calculated_boundaries());
+            auto calculated = target_part->session.calculated_boundaries();
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            target_part->session.commit(std::move(next), std::move(calculated));
         }, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -3067,8 +3080,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             } else {
                 next.sketches.push_back(std::move(committed));
             }
-            target_part->session.commit(
-                std::move(next), target_part->session.calculated_boundaries());
+            auto calculated = target_part->session.calculated_boundaries();
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            target_part->session.commit(std::move(next), std::move(calculated));
         }, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -3368,13 +3382,10 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             }
             reference.cached_points = *projected;
         } else {
-            const auto& calculated = part->session.calculated_boundaries();
-            if (calculated.empty()) {
-                throw std::runtime_error(
-                    "Persisted source face geometry is unavailable");
-            }
+            const auto source = sketch_external_reference_source_geometry(
+                next, part->session.calculated_boundaries());
             const auto projected = sketch->project_external_face(
-                calculated.back().mesh.original_references,
+                source,
                 {candidate.owner_id, candidate.semantic_key,
                  candidate.instance_path});
             if (!projected) {

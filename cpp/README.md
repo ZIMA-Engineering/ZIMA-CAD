@@ -542,6 +542,9 @@ a dependency cycle. An axis perpendicular to the Sketch plane is rejected as a
 degenerate projection. Face boundaries are reconstructed from persisted viewer
 triangles into one or more closed paths; open, non-manifold, and zero-area
 projections are rejected. Assembly-occurrence support remains a subsequent slice.
+Construction points, axes, and planes are exposed through the same persisted
+original-reference packet. Confirming their Properties, or changing the target
+Sketch plane, reprojects dependent external references without invoking OCCT.
 
 ## Linux build
 

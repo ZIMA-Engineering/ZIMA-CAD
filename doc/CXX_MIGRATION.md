@@ -1010,3 +1010,10 @@ se odmítne. Hranice plochy se bez OCCT odvodí z persistovaných trojúhelník�
 spojí do jedné nebo více uzavřených kontur a odmítne otevřený, nemanifoldní či
 plošně degenerovaný výsledek. Assembly occurrence zdroje zůstávají samostatným
 dalším řezem; žádná kompatibilní větev se nepřidává.
+
+Konstrukční bod a osa se nyní vedle své viditelné geometrie zapisují také do
+`OriginalReference` packetu; konstrukční rovina již používá persistované
+referenční trojúhelníky. Všechny tři druhy jsou bezpečné lokální zdroje bez
+vazby na pořadí historie. OK jejich Vlastností a OK Vlastností cílové skici
+spustí pouze aplikační reprojekci externích referencí nad hotovými viewer daty,
+nikoli skrytý výpočet OCCT.

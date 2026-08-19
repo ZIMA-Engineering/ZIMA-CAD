@@ -458,6 +458,12 @@ pravé tlačítko cykluje společný seznam kandidátů a levé tlačítko ulož
 jako jednu Part revizi. Režim zůstane aktivní pro další výběr a ukončí se
 opětovným stisknutím tlačítka.
 
+Konstrukční bod, osa a rovina stejného Partu jsou rovněž platné zdroje.
+Konstrukční geometrie není členem historie tělesa a nemůže vytvořit zpětnou
+závislost na výsledku skici. Potvrzení změny jejích Vlastností obnoví navázané
+projekce bez výpočtu OCCT; změna roviny nebo odsazení cílové skici stejným
+způsobem znovu promítne všechny její externí reference.
+
 Uložená externí hrana, osa a obrys plochy se kreslí hnědou čárkovanou čarou
 a vrchol hnědým křížkem. Plocha může uložit více uzavřených kontur, například
 vnější obrys a otvory. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo

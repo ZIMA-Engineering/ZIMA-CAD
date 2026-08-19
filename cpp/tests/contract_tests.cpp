@@ -471,8 +471,46 @@ int main() {
         require(construction_mesh.points.size() == 1 &&
                     construction_mesh.axes.size() == 1 &&
                     construction_mesh.edges.size() == 1 &&
+                    construction_mesh.original_references.points.size() == 1 &&
+                    construction_mesh.original_references.points.front().reference.owner_id ==
+                        point.id &&
+                    construction_mesh.original_references.axes.size() == 1 &&
+                    construction_mesh.original_references.axes.front().reference.owner_id ==
+                        axis.id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
+        auto construction_reference_sketch = zima::sketcher::Sketch::create_default();
+        auto point_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Point);
+        point_reference.source_document_id = constructions.document_id;
+        point_reference.source_owner_id = point.id;
+        point_reference.source_semantic_key = "point";
+        point_reference.cached_points = {{0.0, 0.0}};
+        construction_reference_sketch.add_external_reference(point_reference);
+        auto axis_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Axis);
+        axis_reference.source_document_id = constructions.document_id;
+        axis_reference.source_owner_id = axis.id;
+        axis_reference.source_semantic_key = "axis";
+        axis_reference.cached_points = {{-1.0, 0.0}, {1.0, 0.0}};
+        construction_reference_sketch.add_external_reference(axis_reference);
+        auto plane_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Face);
+        plane_reference.source_document_id = constructions.document_id;
+        plane_reference.source_owner_id = plane.id;
+        plane_reference.source_semantic_key = "plane";
+        plane_reference.cached_paths = {{{-1.0, -1.0}, {1.0, -1.0},
+            {1.0, 1.0}, {-1.0, 1.0}, {-1.0, -1.0}}};
+        construction_reference_sketch.add_external_reference(plane_reference);
+        require(construction_reference_sketch.refresh_external_references(
+                    constructions.document_id,
+                    construction_mesh.original_references) &&
+                    construction_reference_sketch.external_references[0].cached_points ==
+                        std::vector<std::array<double, 2>>{{1.0, 2.0}} &&
+                    !construction_reference_sketch.external_references[0].broken &&
+                    !construction_reference_sketch.external_references[1].broken &&
+                    !construction_reference_sketch.external_references[2].broken,
+                "Construction external references did not resolve from viewer data");
         const auto construction_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-constructions-contract.prtz";
         constructions.save(construction_path);
