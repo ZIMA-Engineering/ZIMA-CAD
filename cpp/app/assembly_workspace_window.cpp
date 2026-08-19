@@ -572,6 +572,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_horizontal_action_ = make_action(tr("Vodorovná úsečka"));
     sketch_vertical_action_ = make_action(tr("Svislá úsečka"));
     sketch_coincident_action_ = make_action(tr("Shodnost bodů"));
+    sketch_midpoint_action_ = make_action(tr("Bod ve středu"));
+    sketch_midpoint_action_->setObjectName("sketchMidpointAction");
     sketch_parallel_action_ = make_action(tr("Rovnoběžnost úseček"));
     sketch_perpendicular_action_ = make_action(tr("Kolmost úseček"));
     sketch_equal_length_action_ = make_action(tr("Stejná délka úseček"));
@@ -643,6 +645,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_vertical_action_, &QAction::triggered, this, [this] {
         constrain_selected_segment(zima::sketcher::ConstraintKind::Vertical); });
     connect(sketch_coincident_action_, &QAction::triggered, this, [this] { start_sketch_coincident(); });
+    connect(sketch_midpoint_action_, &QAction::triggered, this,
+        [this] { start_sketch_midpoint(); });
     connect(sketch_parallel_action_, &QAction::triggered, this, [this] {
         start_sketch_segment_pair(zima::sketcher::ConstraintKind::Parallel); });
     connect(sketch_perpendicular_action_, &QAction::triggered, this, [this] {
@@ -865,6 +869,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (sketch_coincident_active_) {
             accept_sketch_coincident_point(candidate);
+            return;
+        }
+        if (sketch_midpoint_active_) {
+            accept_sketch_midpoint_selection(candidate);
             return;
         }
         if (sketch_segment_pair_active_) {
@@ -1207,6 +1215,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_elliptical_arc_action_->setEnabled(true);
                 sketch_bspline_action_->setEnabled(true);
                 sketch_coincident_action_->setEnabled(true);
+                sketch_midpoint_action_->setEnabled(true);
                 sketch_parallel_action_->setEnabled(true);
                 sketch_perpendicular_action_->setEnabled(true);
                 sketch_equal_length_action_->setEnabled(true);
@@ -1621,7 +1630,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
         add_green_separator();
         for (auto* action : {sketch_horizontal_action_, sketch_vertical_action_,
-                             sketch_coincident_action_, sketch_parallel_action_,
+                             sketch_coincident_action_, sketch_midpoint_action_,
+                             sketch_parallel_action_,
                              sketch_perpendicular_action_, sketch_equal_length_action_,
                              sketch_fix_point_action_}) {
             add_command(action);
@@ -2961,6 +2971,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_elliptical_arc_active_ = false;
     sketch_bspline_active_ = false;
     sketch_coincident_active_ = false;
+    sketch_midpoint_active_ = false;
     sketch_segment_pair_active_ = false;
     pending_segment_start_.reset();
     pending_rectangle_corner_.reset();
@@ -2979,6 +2990,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_elliptical_arc_reversed_ = false;
     pending_bspline_points_.clear();
     pending_coincident_point_id_.clear();
+    pending_midpoint_point_id_.clear();
     pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
 }
@@ -3735,7 +3747,8 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
     if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
-        sketch_bspline_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
+        sketch_bspline_active_ || sketch_coincident_active_ || sketch_midpoint_active_ ||
+        sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -3782,6 +3795,70 @@ void AssemblyWorkspaceWindow::start_sketch_coincident() {
 void AssemblyWorkspaceWindow::cancel_sketch_coincident() {
     sketch_coincident_active_ = false;
     pending_coincident_point_id_.clear();
+}
+
+void AssemblyWorkspaceWindow::start_sketch_midpoint() {
+    if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_midpoint_active_ = true;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    selected_sketch_point_id_.clear();
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchPoint});
+    state_->setText(tr("Bod ve středu: vyberte bod. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_midpoint() {
+    sketch_midpoint_active_ = false;
+    pending_midpoint_point_id_.clear();
+}
+
+void AssemblyWorkspaceWindow::accept_sketch_midpoint_selection(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!sketch_midpoint_active_ || candidate.owner_id != active_sketch_id_) return;
+    if (pending_midpoint_point_id_.empty()) {
+        if (candidate.kind != zima::viewer::CandidateKind::SketchPoint ||
+            !candidate.semantic_key.starts_with("point:")) return;
+        pending_midpoint_point_id_ = candidate.semantic_key.substr(6);
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
+        state_->setText(tr("Bod ve středu: vyberte úsečku nebo konstrukční čáru."));
+        return;
+    }
+    if (candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
+        !candidate.semantic_key.starts_with("segment:")) return;
+    const auto segment_id = candidate.semantic_key.substr(8);
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return;
+        static_cast<void>(sketch->add_midpoint_constraint(
+            pending_midpoint_point_id_, segment_id));
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        pending_midpoint_point_id_.clear();
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr(
+            "Vazba bodu ve středu byla vytvořena. Vyberte bod další vazby."));
+    } catch (const std::exception& error) {
+        state_->setText(tr("Vazbu bodu ve středu nelze vytvořit: %1")
+            .arg(QString::fromUtf8(error.what())));
+    }
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
@@ -3890,6 +3967,7 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
 
 void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
     if (properties_dialog_ != nullptr || sketch_coincident_active_ ||
+        sketch_midpoint_active_ ||
         sketch_segment_pair_active_ || sketch_mirror_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -3921,7 +3999,8 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ ||
-        sketch_coincident_active_ || sketch_segment_pair_active_ || candidate.kind !=
+        sketch_coincident_active_ || sketch_midpoint_active_ ||
+        sketch_segment_pair_active_ || candidate.kind !=
             zima::viewer::CandidateKind::SketchPoint ||
         candidate.owner_id != active_sketch_id_ ||
         !candidate.semantic_key.starts_with("point:")) return false;
@@ -4062,7 +4141,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
-        sketch_coincident_active_ ||
+        sketch_coincident_active_ || sketch_midpoint_active_ ||
         sketch_segment_pair_active_) return false;
     const std::string geometry_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
@@ -4110,7 +4189,8 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ ||
-        sketch_coincident_active_ || sketch_segment_pair_active_) return;
+        sketch_coincident_active_ || sketch_midpoint_active_ ||
+        sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
             workspace_.active_document_id()) return;
@@ -4883,7 +4963,7 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
          sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
          sketch_elliptical_arc_active_ ||
          sketch_bspline_active_ ||
-         sketch_coincident_active_ ||
+         sketch_coincident_active_ || sketch_midpoint_active_ ||
          sketch_segment_pair_active_)) {
         const bool discarded_trim = sketch_trim_active_ && sketch_trim_changed_;
         cancel_sketch_segment();
@@ -5171,6 +5251,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                   zima::viewer::CandidateKind::SketchAxis}
             : sketch_coincident_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchPoint}
+            : sketch_midpoint_active_
+                ? pending_midpoint_point_id_.empty()
+                    ? std::vector{zima::viewer::CandidateKind::SketchPoint}
+                    : std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_segment_pair_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchSegment}
             : active_sketch_id_.empty()
@@ -5292,6 +5376,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_midpoint_action_->setEnabled(!active_sketch_id_.empty());
         sketch_parallel_action_->setEnabled(!active_sketch_id_.empty());
         sketch_perpendicular_action_->setEnabled(!active_sketch_id_.empty());
         sketch_equal_length_action_->setEnabled(!active_sketch_id_.empty());
@@ -5328,6 +5413,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     sketch_elliptical_arc_action_,
                     sketch_bspline_action_, sketch_horizontal_action_,
                     sketch_vertical_action_, sketch_coincident_action_,
+                    sketch_midpoint_action_,
                     sketch_parallel_action_, sketch_perpendicular_action_,
                     sketch_equal_length_action_, sketch_dimension_action_,
                     sketch_dimension_x_action_, sketch_dimension_y_action_,
@@ -5451,6 +5537,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);
+    sketch_midpoint_action_->setEnabled(false);
     sketch_parallel_action_->setEnabled(false);
     sketch_perpendicular_action_->setEnabled(false);
     sketch_equal_length_action_->setEnabled(false);

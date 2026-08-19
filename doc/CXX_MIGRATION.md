@@ -767,7 +767,7 @@ spline s kruhovými otvory. Viewerová polyline není tělesová geometrie.
 
 Pravidelný mnohoúhelník nabízí 4, 6 nebo 8 stran a vzniká dvěma body: středem a
 prvním vrcholem na opsané kružnici. Nejde pouze o jednorázově vypočtenou sadu
-čar. Sketch formát verze 9 ukládá konstrukční kružnici, vazbu každého vrcholu
+čar. Sketch formát od verze 9 ukládá konstrukční kružnici, vazbu každého vrcholu
 na tuto kružnici a vazby stejných délek stran. Přesun středu přeloží kružnici i
 všechny její vázané vrcholy; řídicí změna poloměru regeneruje celý profil bez
 OCCT. Toolbar používá jedno menu Mnohoúhelník pro všechny tři podporované počty
@@ -784,6 +784,16 @@ sdílené; oblouk obrátí parametrickou orientaci a elipsa persistuje i obráce
 orientaci vedlejší poloosy. Zdrojové vazby a kóty se nekopírují. Osa z externí
 reference bude doplněna spolu s C++ vrstvou externích referencí skici; program
 ji do té doby nesimuluje živým dotazem do OCCT.
+
+Sketch formát verze 10 a Part formát verze 13 přidávají vazbu **Bod ve středu**.
+Persistuje stabilní ID cílového bodu a vlastnící úsečky; její konce se vždy
+rozřeší z aktuálního Sketch modelu. Solver používá dvě přesné rovnice pro průměr
+souřadnic a při volných bodech rozloží korekci jako projekci na jejich dostupné
+stupně volnosti. Tři pevné body v rozporu vrátí konflikt a veřejné API zachová
+původní skicu. Nativní GUI vybírá nejprve `SketchPoint` a potom
+`SketchSegment` ze stejného společného pořadí kandidátů vieweru. Do druhého
+výběru nic nepersistuje; platná dvojice vytvoří jedinou Part revizi a Escape
+rozpracovaný příkaz pouze zruší.
 
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,

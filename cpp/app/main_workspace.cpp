@@ -74,6 +74,7 @@ int verify_startup_contract(
     auto* sketch_mirror = window.findChild<QAction*>("sketchMirrorAction");
     auto* sketch_elliptical_arc =
         window.findChild<QAction*>("sketchEllipticalArcAction");
+    auto* sketch_midpoint = window.findChild<QAction*>("sketchMidpointAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -92,6 +93,7 @@ int verify_startup_contract(
                     sketch_trim != nullptr &&
                     sketch_mirror != nullptr &&
                     sketch_elliptical_arc != nullptr &&
+                    sketch_midpoint != nullptr &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr,
@@ -236,13 +238,15 @@ int verify_startup_contract(
                     sketch_trim->isEnabled() &&
                     sketch_mirror->isEnabled() &&
                     sketch_elliptical_arc->isEnabled() &&
+                    sketch_midpoint->isEnabled() &&
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
         !verify(tools_toolbar->actions().contains(finish_sketch) &&
                     tools_toolbar->actions().contains(sketch_polygon) &&
                     tools_toolbar->actions().contains(sketch_trim) &&
                     tools_toolbar->actions().contains(sketch_mirror) &&
-                    tools_toolbar->actions().contains(sketch_elliptical_arc),
+                    tools_toolbar->actions().contains(sketch_elliptical_arc) &&
+                    tools_toolbar->actions().contains(sketch_midpoint),
                 "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;
     }

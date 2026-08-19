@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 12, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 13, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -498,6 +498,13 @@ z kontextové nabídky ve stromu skici.
 U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára je reference,
 druhá se srovná a nese symbol rovnoběžnosti. První čára se nepřepočítává.
 Pokud je druhá čára již směrově zavazbená, ohlásí se konflikt.
+
+Nativní vazba **Bod ve středu** se zadává výběrem samostatného bodu a potom
+úsečky nebo konstrukční čáry. Bod se asociativně sváže s přesným průměrem obou
+konců; jeden z koncových bodů téže čáry proto nelze zvolit jako cílový bod.
+Po úspěchu vznikne jedna vratná Part revize a příkaz čeká na bod další vazby.
+`Escape` zruší pouze rozpracovaný výběr. Pokud jsou všechny tři body pevné a
+jejich poloha si odporuje, vazba se odmítne bez částečné změny skici.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice

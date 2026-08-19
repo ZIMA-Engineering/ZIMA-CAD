@@ -53,6 +53,7 @@ const char* constraint_name(ConstraintKind kind) {
     case ConstraintKind::EqualLength: return "equal_length";
     case ConstraintKind::PointOnCircle: return "point_on_circle";
     case ConstraintKind::Symmetric: return "symmetric";
+    case ConstraintKind::Midpoint: return "midpoint";
     }
     throw std::invalid_argument("Unknown sketch constraint");
 }
@@ -66,6 +67,7 @@ ConstraintKind constraint_from_name(const std::string& name) {
     if (name == "equal_length") return ConstraintKind::EqualLength;
     if (name == "point_on_circle") return ConstraintKind::PointOnCircle;
     if (name == "symmetric") return ConstraintKind::Symmetric;
+    if (name == "midpoint") return ConstraintKind::Midpoint;
     throw std::runtime_error("Unknown sketch constraint");
 }
 
@@ -388,13 +390,14 @@ void Sketch::validate() const {
         const bool point_on_circle =
             constraint.kind == ConstraintKind::PointOnCircle;
         const bool symmetric = constraint.kind == ConstraintKind::Symmetric;
+        const bool midpoint = constraint.kind == ConstraintKind::Midpoint;
         const auto symmetry_axis = symmetric
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
             std::hypot(symmetry_axis->second[0], symmetry_axis->second[1]) > 1.0e-12;
         const bool points_valid = pair_constraint
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
-            : point_on_circle
+            : point_on_circle || midpoint
                 ? find_point(constraint.first_point_id) != nullptr &&
                   constraint.second_point_id.empty()
             : find_point(constraint.first_point_id) != nullptr &&
@@ -410,6 +413,10 @@ void Sketch::validate() const {
              !constraint.second_geometry_id.empty())) ||
             (symmetric && (constraint.first_point_id == constraint.second_point_id ||
              !symmetry_axis_valid || !constraint.second_geometry_id.empty())) ||
+            (midpoint && (owned_segment == segments.end() ||
+             owned_segment->first_point_id == constraint.first_point_id ||
+             owned_segment->second_point_id == constraint.first_point_id ||
+             !constraint.second_geometry_id.empty())) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -1079,6 +1086,39 @@ std::string Sketch::add_symmetric_constraint(
     const auto result = next.solve();
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Symmetric constraint conflicts with existing geometry");
+    }
+    *this = std::move(next);
+    return id;
+}
+
+std::string Sketch::add_midpoint_constraint(
+    const std::string& point_id, const std::string& segment_id) {
+    const auto* point = find_point(point_id);
+    const auto segment = std::find_if(segments.begin(), segments.end(),
+        [&](const auto& value) { return value.id == segment_id; });
+    if (point == nullptr || segment == segments.end() ||
+        segment->first_point_id == point_id || segment->second_point_id == point_id) {
+        throw std::invalid_argument("Midpoint constraint input is invalid");
+    }
+    if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
+            return !constraint.suppressed &&
+                constraint.kind == ConstraintKind::Midpoint &&
+                constraint.first_point_id == point_id &&
+                constraint.geometry_id == segment_id;
+        })) {
+        throw std::invalid_argument("Point already owns this midpoint constraint");
+    }
+    auto next = *this;
+    SketchConstraint constraint;
+    constraint.id = make_id();
+    constraint.kind = ConstraintKind::Midpoint;
+    constraint.first_point_id = point_id;
+    constraint.geometry_id = segment_id;
+    const auto id = constraint.id;
+    next.constraints.push_back(std::move(constraint));
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Midpoint constraint conflicts with existing geometry");
     }
     *this = std::move(next);
     return id;
@@ -2273,6 +2313,44 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         bool immovable_conflict = false;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Midpoint) {
+                const auto segment = std::find_if(segments.begin(), segments.end(),
+                    [&](const auto& value) {
+                        return value.id == constraint.geometry_id;
+                    });
+                auto* point = find_point(constraint.first_point_id);
+                auto* first = find_point(segment->first_point_id);
+                auto* second = find_point(segment->second_point_id);
+                const double residual_x =
+                    point->x - (first->x + second->x) * 0.5;
+                const double residual_y =
+                    point->y - (first->y + second->y) * 0.5;
+                const double residual = std::hypot(residual_x, residual_y);
+                maximum_residual = std::max(maximum_residual, residual);
+                if (residual > tolerance) {
+                    double denominator{};
+                    if (!point->fixed) denominator += 1.0;
+                    if (!first->fixed) denominator += 0.25;
+                    if (!second->fixed) denominator += 0.25;
+                    if (denominator <= 0.0) {
+                        immovable_conflict = true;
+                    } else {
+                        if (!point->fixed) {
+                            point->x -= residual_x / denominator;
+                            point->y -= residual_y / denominator;
+                        }
+                        if (!first->fixed) {
+                            first->x += 0.5 * residual_x / denominator;
+                            first->y += 0.5 * residual_y / denominator;
+                        }
+                        if (!second->fixed) {
+                            second->x += 0.5 * residual_x / denominator;
+                            second->y += 0.5 * residual_y / denominator;
+                        }
+                    }
+                }
+                continue;
+            }
             if (constraint.kind == ConstraintKind::Symmetric) {
                 const auto axis = sketch_axis_line(*this, constraint.geometry_id);
                 auto* source = find_point(constraint.first_point_id);
@@ -2528,6 +2606,18 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         std::vector<double> result;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Midpoint) {
+                const auto segment = std::find_if(segments.begin(), segments.end(),
+                    [&](const auto& value) {
+                        return value.id == constraint.geometry_id;
+                    });
+                const auto* point = find_point(constraint.first_point_id);
+                const auto* first = find_point(segment->first_point_id);
+                const auto* second = find_point(segment->second_point_id);
+                result.push_back(point->x - (first->x + second->x) * 0.5);
+                result.push_back(point->y - (first->y + second->y) * 0.5);
+                continue;
+            }
             if (constraint.kind == ConstraintKind::Symmetric) {
                 const auto axis = sketch_axis_line(*this, constraint.geometry_id);
                 const auto* source = find_point(constraint.first_point_id);
@@ -3098,7 +3188,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 9},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 10},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -3115,7 +3205,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 9) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 10) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;

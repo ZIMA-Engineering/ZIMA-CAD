@@ -124,6 +124,7 @@ private:
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
     QAction* sketch_coincident_action_{};
+    QAction* sketch_midpoint_action_{};
     QAction* sketch_parallel_action_{};
     QAction* sketch_perpendicular_action_{};
     QAction* sketch_equal_length_action_{};
@@ -204,6 +205,8 @@ private:
     std::vector<std::array<double, 2>> pending_bspline_points_;
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
+    bool sketch_midpoint_active_{};
+    std::string pending_midpoint_point_id_;
     bool sketch_segment_pair_active_{};
     std::string pending_pair_segment_id_;
     zima::sketcher::ConstraintKind pending_pair_kind_{
@@ -347,6 +350,10 @@ private:
     void start_sketch_coincident();
     void cancel_sketch_coincident();
     void accept_sketch_coincident_point(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_midpoint();
+    void cancel_sketch_midpoint();
+    void accept_sketch_midpoint_selection(
         const zima::viewer::ViewerCandidate& candidate);
     void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
     void accept_sketch_segment_pair(

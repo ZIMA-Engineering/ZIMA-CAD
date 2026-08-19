@@ -292,6 +292,98 @@ int main() {
         require(duplicate_coincident_rejected &&
                     coincident.constraints == coincident_before_duplicate.constraints,
                 "Reversed duplicate coincident constraint was accepted");
+        auto midpoint = zima::sketcher::Sketch::create_default();
+        const auto midpoint_segment = midpoint.add_segment(0.0, 0.0, 8.0, 4.0);
+        midpoint.find_point(midpoint.segments.front().first_point_id)->fixed = true;
+        midpoint.find_point(midpoint.segments.front().second_point_id)->fixed = true;
+        const auto midpoint_point = midpoint.add_point(30.0, -10.0);
+        static_cast<void>(midpoint.add_midpoint_constraint(
+            midpoint_point, midpoint_segment));
+        const auto* solved_midpoint = midpoint.find_point(midpoint_point);
+        require(midpoint.constraints.size() == 1 &&
+                    midpoint.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::Midpoint &&
+                    midpoint.constraints.front().first_point_id == midpoint_point &&
+                    midpoint.constraints.front().geometry_id == midpoint_segment &&
+                    std::abs(solved_midpoint->x - 4.0) < 1.0e-8 &&
+                    std::abs(solved_midpoint->y - 2.0) < 1.0e-8,
+                "Midpoint constraint did not place a point at the segment midpoint");
+        const auto loaded_midpoint = zima::sketcher::Sketch::from_serialized(
+            midpoint.serialized());
+        require(loaded_midpoint.constraints == midpoint.constraints &&
+                    loaded_midpoint.points == midpoint.points,
+                "Midpoint constraint did not survive Sketch serialization");
+        bool duplicate_midpoint_rejected = false;
+        try {
+            static_cast<void>(midpoint.add_midpoint_constraint(
+                midpoint_point, midpoint_segment));
+        } catch (const std::invalid_argument&) {
+            duplicate_midpoint_rejected = true;
+        }
+        bool endpoint_midpoint_rejected = false;
+        try {
+            static_cast<void>(midpoint.add_midpoint_constraint(
+                midpoint.segments.front().first_point_id, midpoint_segment));
+        } catch (const std::invalid_argument&) {
+            endpoint_midpoint_rejected = true;
+        }
+        require(duplicate_midpoint_rejected && endpoint_midpoint_rejected &&
+                    midpoint.constraints.size() == 1,
+                "Duplicate or endpoint Midpoint constraint was accepted");
+        auto driven_midpoint = zima::sketcher::Sketch::create_default();
+        const auto driven_midpoint_segment =
+            driven_midpoint.add_segment(0.0, 0.0, 10.0, 4.0);
+        const auto driven_midpoint_point = driven_midpoint.add_point(20.0, 5.0);
+        driven_midpoint.find_point(driven_midpoint_point)->fixed = true;
+        const double driven_dx_before =
+            driven_midpoint.points[1].x - driven_midpoint.points[0].x;
+        const double driven_dy_before =
+            driven_midpoint.points[1].y - driven_midpoint.points[0].y;
+        static_cast<void>(driven_midpoint.add_midpoint_constraint(
+            driven_midpoint_point, driven_midpoint_segment));
+        const auto* driven_first = driven_midpoint.find_point(
+            driven_midpoint.segments.front().first_point_id);
+        const auto* driven_second = driven_midpoint.find_point(
+            driven_midpoint.segments.front().second_point_id);
+        require(std::abs((driven_first->x + driven_second->x) * 0.5 - 20.0) <
+                        1.0e-8 &&
+                    std::abs((driven_first->y + driven_second->y) * 0.5 - 5.0) <
+                        1.0e-8 &&
+                    std::abs(driven_second->x - driven_first->x -
+                             driven_dx_before) < 1.0e-8 &&
+                    std::abs(driven_second->y - driven_first->y -
+                             driven_dy_before) < 1.0e-8,
+                "Fixed Midpoint point did not translate its free segment rigidly");
+        auto fixed_midpoint = zima::sketcher::Sketch::create_default();
+        const auto fixed_midpoint_segment =
+            fixed_midpoint.add_segment(0.0, 0.0, 10.0, 0.0);
+        fixed_midpoint.find_point(
+            fixed_midpoint.segments.front().first_point_id)->fixed = true;
+        fixed_midpoint.find_point(
+            fixed_midpoint.segments.front().second_point_id)->fixed = true;
+        const auto fixed_midpoint_point = fixed_midpoint.add_point(2.0, 3.0);
+        fixed_midpoint.find_point(fixed_midpoint_point)->fixed = true;
+        const auto fixed_midpoint_before = fixed_midpoint;
+        bool fixed_midpoint_rejected = false;
+        try {
+            static_cast<void>(fixed_midpoint.add_midpoint_constraint(
+                fixed_midpoint_point, fixed_midpoint_segment));
+        } catch (const std::runtime_error&) {
+            fixed_midpoint_rejected = true;
+        }
+        require(fixed_midpoint_rejected &&
+                    fixed_midpoint.points == fixed_midpoint_before.points &&
+                    fixed_midpoint.constraints == fixed_midpoint_before.constraints,
+                "Conflicting fixed Midpoint relation partially changed the Sketch");
+        auto midpoint_without_point = loaded_midpoint;
+        midpoint_without_point.remove_point(midpoint_point);
+        require(midpoint_without_point.constraints.empty() &&
+                    midpoint_without_point.segments.size() == 1,
+                "Deleting a Midpoint point removed its unrelated segment");
+        midpoint.remove_geometry(midpoint_segment);
+        require(midpoint.constraints.empty() &&
+                    midpoint.find_point(midpoint_point) != nullptr,
+                "Deleting a Midpoint segment retained its constraint or deleted its point");
         auto parallel = zima::sketcher::Sketch::create_default();
         const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
         const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);
