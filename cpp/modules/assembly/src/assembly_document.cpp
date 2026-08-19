@@ -305,6 +305,13 @@ nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
         {"manually_suppressed", snapshot.manually_suppressed},
         {"dependency_suppressed", snapshot.dependency_suppressed},
         {"visible", snapshot.visible}, {"grounded", snapshot.grounded},
+        {"placement", {
+            {"x", snapshot.placement.x}, {"y", snapshot.placement.y},
+            {"z", snapshot.placement.z},
+            {"rotation_x", snapshot.placement.rotation_x},
+            {"rotation_y", snapshot.placement.rotation_y},
+            {"rotation_z", snapshot.placement.rotation_z},
+        }},
         {"children", std::move(children)},
     };
 }
@@ -319,6 +326,14 @@ OccurrenceSnapshot load_snapshot(const nlohmann::json& source) {
     snapshot.dependency_suppressed = source.at("dependency_suppressed").get<bool>();
     snapshot.visible = source.at("visible").get<bool>();
     snapshot.grounded = source.at("grounded").get<bool>();
+    const auto& placement = source.at("placement");
+    snapshot.placement = {
+        placement.at("x").get<double>(), placement.at("y").get<double>(),
+        placement.at("z").get<double>(),
+        placement.at("rotation_x").get<double>(),
+        placement.at("rotation_y").get<double>(),
+        placement.at("rotation_z").get<double>(),
+    };
     if (snapshot.occurrence_id.empty() || snapshot.name.empty() ||
         snapshot.source_document_id.empty()) {
         throw std::runtime_error("Nested Assembly snapshot identity is invalid");
@@ -344,6 +359,15 @@ void validate_snapshot_list(const std::vector<OccurrenceSnapshot>& snapshots) {
         if (snapshot.source_kind == ComponentSourceKind::Part &&
             !snapshot.children.empty()) {
             throw std::runtime_error("Part snapshot must not contain child occurrences");
+        }
+        for (const double value : {
+                snapshot.placement.x, snapshot.placement.y, snapshot.placement.z,
+                snapshot.placement.rotation_x, snapshot.placement.rotation_y,
+                snapshot.placement.rotation_z}) {
+            if (!std::isfinite(value)) {
+                throw std::runtime_error(
+                    "Nested Assembly snapshot placement must be finite");
+            }
         }
         validate_snapshot_list(snapshot.children);
     }
@@ -441,7 +465,8 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
             component.source_kind, component.suppressed,
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
-            component.visible, component.grounded, component.nested_snapshot});
+            component.visible, component.grounded, component.placement,
+            component.nested_snapshot});
     }
     return result;
 }
@@ -1412,7 +1437,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 5 ||
+        root.at("format_version").get<int>() != 6 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1582,7 +1607,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         mates_json.push_back(std::move(serialized));
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 5},
+        {"format", "zima-cad-cpp"}, {"format_version", 6},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

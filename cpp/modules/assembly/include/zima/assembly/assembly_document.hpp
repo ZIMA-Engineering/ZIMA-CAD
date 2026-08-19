@@ -43,6 +43,7 @@ struct OccurrenceSnapshot {
     bool dependency_suppressed{};
     bool visible{true};
     bool grounded{};
+    ComponentPlacement placement;
     std::vector<OccurrenceSnapshot> children;
     bool operator==(const OccurrenceSnapshot&) const = default;
 };

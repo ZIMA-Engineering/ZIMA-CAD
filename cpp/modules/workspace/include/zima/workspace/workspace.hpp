@@ -74,6 +74,22 @@ public:
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path) const;
+    [[nodiscard]] zima::kernel::Vec3 occurrence_point_to_scene(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        const zima::kernel::Vec3& local_point) const;
+    [[nodiscard]] zima::kernel::Vec3 occurrence_point_from_scene(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        const zima::kernel::Vec3& scene_point) const;
+    [[nodiscard]] zima::kernel::Vec3 occurrence_direction_to_scene(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        const zima::kernel::Vec3& local_direction) const;
+    [[nodiscard]] zima::kernel::Vec3 occurrence_direction_from_scene(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        const zima::kernel::Vec3& scene_direction) const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path,

@@ -3,6 +3,8 @@
 
 #include <iostream>
 #include <algorithm>
+#include <cmath>
+#include <tuple>
 #include <set>
 #include <stdexcept>
 
@@ -96,6 +98,12 @@ int main() {
         workspace.add_assembly(std::move(subassembly), "subassembly.asmz");
         const std::string nested_part_occurrence = workspace.insert_open_part(
             subassembly_id, part_id, "Vnitřní díl");
+        auto placed_subassembly = workspace.open_assembly(subassembly_id)
+            ->session.document();
+        placed_subassembly.find_occurrence(nested_part_occurrence)->placement = {
+            10.0, 0.0, 0.0, 0.0, 0.0, 90.0};
+        workspace.open_assembly(subassembly_id)->session.commit(
+            std::move(placed_subassembly));
         auto topassembly = zima::assembly::AssemblyDocument::create_default();
         topassembly.name = "Horní sestava";
         const std::string topassembly_id = topassembly.document_id;
@@ -128,6 +136,46 @@ int main() {
                     resolved_nested->occurrence_id == nested_part_occurrence &&
                     resolved_nested->source_document_id == part_id,
                 "Workspace did not resolve exact nested occurrence ownership");
+        const auto scene_point = workspace.occurrence_point_to_scene(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            {1.0, 2.0, 3.0});
+        require(std::abs(scene_point.x - 8.0) < 1.0e-9 &&
+                    std::abs(scene_point.y - 1.0) < 1.0e-9 &&
+                    std::abs(scene_point.z - 3.0) < 1.0e-9,
+                "Nested occurrence point transform did not compose placements");
+        const auto local_point = workspace.occurrence_point_from_scene(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path), scene_point);
+        require(std::abs(local_point.x - 1.0) < 1.0e-9 &&
+                    std::abs(local_point.y - 2.0) < 1.0e-9 &&
+                    std::abs(local_point.z - 3.0) < 1.0e-9,
+                "Nested occurrence point transform did not round-trip");
+        const auto scene_direction = workspace.occurrence_direction_to_scene(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            {1.0, 2.0, 0.0});
+        const auto local_direction = workspace.occurrence_direction_from_scene(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            scene_direction);
+        require(std::abs(scene_direction.x + 2.0) < 1.0e-9 &&
+                    std::abs(scene_direction.y - 1.0) < 1.0e-9 &&
+                    std::abs(local_direction.x - 1.0) < 1.0e-9 &&
+                    std::abs(local_direction.y - 2.0) < 1.0e-9,
+                "Nested occurrence direction transform did not round-trip");
+        auto moved_source_assembly = workspace.open_assembly(subassembly_id)
+            ->session.document();
+        moved_source_assembly.find_occurrence(nested_part_occurrence)->placement.x = 100.0;
+        workspace.open_assembly(subassembly_id)->session.commit(
+            std::move(moved_source_assembly));
+        const auto persisted_scene_point = workspace.occurrence_point_to_scene(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            {1.0, 2.0, 3.0});
+        require(std::abs(persisted_scene_point.x - 8.0) < 1.0e-9 &&
+                    std::abs(persisted_scene_point.y - 1.0) < 1.0e-9,
+                "Open source placement leaked through the parent Assembly snapshot");
         const auto rollback_scene = workspace.build_scene_with_part_override(
             topassembly_id,
             zima::assembly::InstancePath::decode(expected_nested_path), {});
@@ -148,7 +196,9 @@ int main() {
         };
         const double old_nested_maximum_y = maximum_y(nested_scene);
         auto changed_again = workspace.open_part(part_id)->session.document();
-        changed_again.history.front().box.width *= 2.0;
+        changed_again.history.front().box.width += 17.0;
+        changed_again.history.front().box.length += 19.0;
+        changed_again.history.front().box.height += 23.0;
         auto changed_again_calculation =
             kernel.evaluate_history(changed_again.kernel_operations());
         workspace.open_part(part_id)->session.commit(
@@ -156,11 +206,37 @@ int main() {
         require(maximum_y(workspace.open_assembly(topassembly_id)
                     ->session.document().build_scene()) == old_nested_maximum_y,
                 "Nested Part edit implicitly regenerated a top-level Assembly");
+        auto live_boundary =
+            workspace.open_part(part_id)->session.calculated_boundaries().back();
+        for (auto& vertex : live_boundary.mesh.vertices) vertex.z += 7.0;
+        for (auto& vertex : live_boundary.mesh.original_references.vertices) {
+            vertex.z += 7.0;
+        }
         const auto live_nested_scene = workspace.build_scene_with_part_override(
             topassembly_id,
             zima::assembly::InstancePath::decode(expected_nested_path),
-            workspace.open_part(part_id)->session.calculated_boundaries().back());
-        require(maximum_y(live_nested_scene) > old_nested_maximum_y,
+            std::move(live_boundary));
+        const auto vertices_for_path = [](const zima::kernel::ViewerMesh& scene,
+                                           const std::string& instance_path) {
+            std::set<std::tuple<double, double, double>> result;
+            const auto& references = scene.original_references;
+            for (std::size_t triangle = 0;
+                 triangle < references.triangle_references.size(); ++triangle) {
+                if (references.triangle_references[triangle].instance_path !=
+                    instance_path) {
+                    continue;
+                }
+                for (std::size_t corner = 0; corner < 3; ++corner) {
+                    const auto& vertex =
+                        references.vertices[
+                            references.triangles[triangle * 3 + corner]];
+                    result.emplace(vertex.x, vertex.y, vertex.z);
+                }
+            }
+            return result;
+        };
+        require(vertices_for_path(live_nested_scene, expected_nested_path) !=
+                    vertices_for_path(nested_scene, expected_nested_path),
                 "Active nested Part occurrence did not display its live calculated state");
         require(std::any_of(live_nested_scene.original_references
                     .triangle_references.begin(),
@@ -207,8 +283,10 @@ int main() {
         std::filesystem::remove(nested_save_path);
         require(loaded_nested.find_occurrence(subassembly_occurrence)
                     ->nested_snapshot.front().name ==
-                        "Přejmenovaný vnitřní díl",
-                "Nested structural snapshot did not survive save/load");
+                        "Přejmenovaný vnitřní díl" &&
+                    std::abs(loaded_nested.find_occurrence(subassembly_occurrence)
+                        ->nested_snapshot.front().placement.x - 100.0) < 1.0e-9,
+                "Nested structural snapshot or placement did not survive save/load");
         bool assembly_cycle_rejected = false;
         try {
             static_cast<void>(workspace.insert_open_assembly(

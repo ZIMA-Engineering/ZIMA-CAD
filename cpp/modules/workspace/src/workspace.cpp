@@ -1,6 +1,7 @@
 #include <zima/workspace/workspace.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <stdexcept>
 #include <unordered_set>
@@ -29,6 +30,97 @@ void append_mesh(zima::kernel::ViewerMesh& target,
 zima::kernel::BodyResult part_result(const PartState& part) {
     auto result = part.session.calculated_boundaries().back();
     append_mesh(result.mesh, part.session.document().construction_viewer_mesh());
+    return result;
+}
+
+zima::kernel::Vec3 apply_placement(
+    zima::kernel::Vec3 point,
+    const zima::assembly::ComponentPlacement& placement,
+    bool translate) {
+    constexpr double radians = 3.14159265358979323846 / 180.0;
+    const double cx = std::cos(placement.rotation_x * radians);
+    const double sx = std::sin(placement.rotation_x * radians);
+    const double cy = std::cos(placement.rotation_y * radians);
+    const double sy = std::sin(placement.rotation_y * radians);
+    const double cz = std::cos(placement.rotation_z * radians);
+    const double sz = std::sin(placement.rotation_z * radians);
+    point = {point.x, cx * point.y - sx * point.z,
+             sx * point.y + cx * point.z};
+    point = {cy * point.x + sy * point.z, point.y,
+             -sy * point.x + cy * point.z};
+    point = {cz * point.x - sz * point.y, sz * point.x + cz * point.y,
+             point.z};
+    if (translate) {
+        point.x += placement.x;
+        point.y += placement.y;
+        point.z += placement.z;
+    }
+    return point;
+}
+
+zima::kernel::Vec3 remove_placement(
+    zima::kernel::Vec3 point,
+    const zima::assembly::ComponentPlacement& placement,
+    bool translate) {
+    constexpr double radians = 3.14159265358979323846 / 180.0;
+    if (translate) {
+        point.x -= placement.x;
+        point.y -= placement.y;
+        point.z -= placement.z;
+    }
+    const double cz = std::cos(placement.rotation_z * radians);
+    const double sz = std::sin(placement.rotation_z * radians);
+    const double cy = std::cos(placement.rotation_y * radians);
+    const double sy = std::sin(placement.rotation_y * radians);
+    const double cx = std::cos(placement.rotation_x * radians);
+    const double sx = std::sin(placement.rotation_x * radians);
+    point = {cz * point.x + sz * point.y, -sz * point.x + cz * point.y,
+             point.z};
+    point = {cy * point.x - sy * point.z, point.y,
+             sy * point.x + cy * point.z};
+    return {point.x, cx * point.y + sx * point.z,
+            -sx * point.y + cx * point.z};
+}
+
+struct PersistedOccurrence {
+    std::string occurrence_id;
+    std::string source_document_id;
+    zima::assembly::ComponentSourceKind source_kind;
+    zima::assembly::ComponentPlacement placement;
+};
+
+std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
+    const Workspace& workspace,
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path) {
+    if (instance_path.occurrence_ids.empty()) return std::nullopt;
+    const auto* top = workspace.open_assembly(top_assembly_document_id);
+    if (top == nullptr) return std::nullopt;
+    std::vector<PersistedOccurrence> result;
+    const std::vector<zima::assembly::OccurrenceSnapshot>* snapshots = nullptr;
+    for (std::size_t depth = 0; depth < instance_path.occurrence_ids.size(); ++depth) {
+        if (depth == 0) {
+            const auto* occurrence = top->session.document().find_occurrence(
+                instance_path.occurrence_ids[depth]);
+            if (occurrence == nullptr) return std::nullopt;
+            result.push_back({occurrence->occurrence_id,
+                occurrence->source_document_id, occurrence->source_kind,
+                occurrence->placement});
+            snapshots = &occurrence->nested_snapshot;
+        } else {
+            const auto found = std::find_if(snapshots->begin(), snapshots->end(),
+                [&](const auto& snapshot) {
+                    return snapshot.occurrence_id == instance_path.occurrence_ids[depth];
+                });
+            if (found == snapshots->end()) return std::nullopt;
+            result.push_back({found->occurrence_id, found->source_document_id,
+                              found->source_kind, found->placement});
+            snapshots = &found->children;
+        }
+        if (depth + 1 < instance_path.occurrence_ids.size() &&
+            result.back().source_kind !=
+                zima::assembly::ComponentSourceKind::Assembly) return std::nullopt;
+    }
     return result;
 }
 
@@ -209,24 +301,71 @@ const std::vector<DocumentState>& Workspace::documents() const { return document
 std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path) const {
-    if (instance_path.occurrence_ids.empty()) return std::nullopt;
-    std::string owner_id = top_assembly_document_id;
-    for (std::size_t depth = 0; depth < instance_path.occurrence_ids.size(); ++depth) {
-        const auto* owner = open_assembly(owner_id);
-        if (owner == nullptr) return std::nullopt;
-        const auto* occurrence = owner->session.document().find_occurrence(
-            instance_path.occurrence_ids[depth]);
-        if (occurrence == nullptr) return std::nullopt;
-        if (depth + 1 == instance_path.occurrence_ids.size()) {
-            return OccurrenceAddress{
-                owner_id, occurrence->occurrence_id, occurrence->source_document_id,
-                occurrence->source_kind, instance_path};
-        }
-        if (occurrence->source_kind !=
-            zima::assembly::ComponentSourceKind::Assembly) return std::nullopt;
-        owner_id = occurrence->source_document_id;
+    const auto chain = persisted_occurrence_chain(
+        *this, top_assembly_document_id, instance_path);
+    if (!chain) return std::nullopt;
+    const auto& occurrence = chain->back();
+    const std::string owner_id = chain->size() == 1
+        ? top_assembly_document_id
+        : (*chain)[chain->size() - 2].source_document_id;
+    return OccurrenceAddress{owner_id, occurrence.occurrence_id,
+        occurrence.source_document_id, occurrence.source_kind, instance_path};
+}
+
+zima::kernel::Vec3 Workspace::occurrence_point_to_scene(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path,
+    const zima::kernel::Vec3& local_point) const {
+    const auto chain = persisted_occurrence_chain(
+        *this, top_assembly_document_id, instance_path);
+    if (!chain) {
+        throw std::invalid_argument("Occurrence point transform requires an exact path");
     }
-    return std::nullopt;
+    auto result = local_point;
+    for (auto occurrence = chain->rbegin(); occurrence != chain->rend(); ++occurrence) {
+        result = apply_placement(result, occurrence->placement, true);
+    }
+    return result;
+}
+
+zima::kernel::Vec3 Workspace::occurrence_point_from_scene(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path,
+    const zima::kernel::Vec3& scene_point) const {
+    const auto chain = persisted_occurrence_chain(
+        *this, top_assembly_document_id, instance_path);
+    if (!chain) {
+        throw std::invalid_argument("Occurrence point transform requires an exact path");
+    }
+    auto result = scene_point;
+    for (const auto& occurrence : *chain) {
+        result = remove_placement(result, occurrence.placement, true);
+    }
+    return result;
+}
+
+zima::kernel::Vec3 Workspace::occurrence_direction_to_scene(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path,
+    const zima::kernel::Vec3& local_direction) const {
+    const auto scene_origin = occurrence_point_to_scene(
+        top_assembly_document_id, instance_path, {});
+    const auto scene_endpoint = occurrence_point_to_scene(
+        top_assembly_document_id, instance_path, local_direction);
+    return {scene_endpoint.x - scene_origin.x, scene_endpoint.y - scene_origin.y,
+            scene_endpoint.z - scene_origin.z};
+}
+
+zima::kernel::Vec3 Workspace::occurrence_direction_from_scene(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path,
+    const zima::kernel::Vec3& scene_direction) const {
+    const auto local_origin = occurrence_point_from_scene(
+        top_assembly_document_id, instance_path, {});
+    const auto local_endpoint = occurrence_point_from_scene(
+        top_assembly_document_id, instance_path, scene_direction);
+    return {local_endpoint.x - local_origin.x, local_endpoint.y - local_origin.y,
+            local_endpoint.z - local_origin.z};
 }
 
 zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
@@ -237,24 +376,19 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     if (!address || address->source_kind != zima::assembly::ComponentSourceKind::Part) {
         throw std::invalid_argument("Part override requires an exact leaf Part occurrence");
     }
-    std::vector<zima::assembly::PartOccurrence> chain;
-    std::string owner_id = top_assembly_document_id;
-    for (const auto& occurrence_id : instance_path.occurrence_ids) {
-        const auto* owner = open_assembly(owner_id);
-        const auto* occurrence = owner == nullptr
-            ? nullptr : owner->session.document().find_occurrence(occurrence_id);
-        if (occurrence == nullptr) {
-            throw std::runtime_error("Part override occurrence chain is unavailable");
-        }
-        chain.push_back(*occurrence);
-        owner_id = occurrence->source_document_id;
+    const auto chain = persisted_occurrence_chain(
+        *this, top_assembly_document_id, instance_path);
+    if (!chain) {
+        throw std::runtime_error("Part override occurrence chain is unavailable");
     }
-    for (auto iterator = chain.rbegin(); iterator != chain.rend(); ++iterator) {
+    for (auto iterator = chain->rbegin(); iterator != chain->rend(); ++iterator) {
         auto wrapper = zima::assembly::AssemblyDocument::create_default();
-        iterator->suppressed = false;
-        iterator->visible = true;
-        iterator->calculated_source = std::move(calculated_source);
-        wrapper.components.push_back(std::move(*iterator));
+        auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Part override", iterator->source_document_id, {},
+            std::move(calculated_source));
+        occurrence.occurrence_id = iterator->occurrence_id;
+        occurrence.placement = iterator->placement;
+        wrapper.components.push_back(std::move(occurrence));
         calculated_source = {};
         calculated_source.mesh = wrapper.build_scene();
     }
