@@ -3,10 +3,14 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
+#include <QStringList>
 
 #include <exception>
+#include <algorithm>
 
 namespace zima::app {
 namespace {
@@ -14,6 +18,9 @@ namespace {
 QString primitive_label(zima::document::FeatureKind kind) {
     return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
         : kind == zima::document::FeatureKind::Sphere ? QObject::tr("koule")
+        : kind == zima::document::FeatureKind::Cone ? QObject::tr("kužele")
+        : kind == zima::document::FeatureKind::Pyramid ? QObject::tr("jehlanu")
+        : kind == zima::document::FeatureKind::Wedge ? QObject::tr("klínu")
         : kind == zima::document::FeatureKind::Extrusion
             ? QObject::tr("vytažení")
         : kind == zima::document::FeatureKind::Revolution
@@ -41,6 +48,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                   ? tr("Nový válec")
                   : initial.feature_kind == zima::document::FeatureKind::Sphere
                       ? tr("Nová koule")
+                  : initial.feature_kind == zima::document::FeatureKind::Cone
+                      ? tr("Nový kužel")
+                  : initial.feature_kind == zima::document::FeatureKind::Pyramid
+                      ? tr("Nový jehlan")
+                  : initial.feature_kind == zima::document::FeatureKind::Wedge
+                      ? tr("Nový klín")
                   : initial.feature_kind == zima::document::FeatureKind::Extrusion
                       ? tr("Nové vytažení")
                   : initial.feature_kind == zima::document::FeatureKind::Revolution
@@ -95,6 +108,35 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     } else if (initial.feature_kind == zima::document::FeatureKind::Sphere) {
         radius_ = dimension(initial.sphere.radius, "sphereRadius");
         form->addRow(tr("Poloměr"), radius_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::Cone) {
+        radius_ = dimension(initial.cone.bottom_radius, "coneBottomRadius");
+        top_radius_ = dimension(std::max(initial.cone.top_radius, 0.001), "coneTopRadius");
+        top_radius_->setRange(0.0, 1'000'000.0);
+        top_radius_->setValue(initial.cone.top_radius);
+        height_ = dimension(initial.cone.height, "coneHeight");
+        form->addRow(tr("Dolní poloměr"), radius_);
+        form->addRow(tr("Horní poloměr"), top_radius_);
+        form->addRow(tr("Výška"), height_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::Pyramid) {
+        length_ = dimension(initial.pyramid.length, "pyramidLength");
+        width_ = dimension(initial.pyramid.width, "pyramidWidth");
+        height_ = dimension(initial.pyramid.height, "pyramidHeight");
+        form->addRow(tr("Délka základny"), length_);
+        form->addRow(tr("Šířka základny"), width_);
+        form->addRow(tr("Výška"), height_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::Wedge) {
+        length_ = dimension(initial.wedge.length, "wedgeLength");
+        width_ = dimension(initial.wedge.width, "wedgeWidth");
+        height_ = dimension(initial.wedge.height, "wedgeHeight");
+        top_offset_ = dimension(std::max(initial.wedge.top_offset, 0.001), "wedgeTopOffset");
+        top_offset_->setRange(0.0, initial.wedge.length);
+        top_offset_->setValue(initial.wedge.top_offset);
+        connect(length_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            top_offset_, &QDoubleSpinBox::setMaximum);
+        form->addRow(tr("Délka"), length_);
+        form->addRow(tr("Šířka"), width_);
+        form->addRow(tr("Výška"), height_);
+        form->addRow(tr("Odsazení horní hrany"), top_offset_);
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion) {
         auto* sketch = new QLabel(QString::fromStdString(initial.extrusion.sketch_id), this);
         sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -116,6 +158,60 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         extrusion_direction_->setCurrentIndex(
             extrusion_direction_->findData(direction));
         form->addRow(tr("Směr"), extrusion_direction_);
+        extrusion_extent_ = new QComboBox(this);
+        extrusion_extent_->setObjectName("extrusionExtent");
+        extrusion_extent_->addItem(tr("Číselná délka"), "blind");
+        extrusion_extent_->addItem(tr("Až k ploše/rovině"), "up_to");
+        extrusion_extent_->addItem(tr("Skrz vše (odečíst)"), "through_all");
+        const char* extent = (initial.extrusion.extent ==
+                zima::document::ExtrusionExtent::UpToPlane ||
+                initial.extrusion.extent ==
+                    zima::document::ExtrusionExtent::UpToSurface) ? "up_to"
+            : initial.extrusion.extent == zima::document::ExtrusionExtent::ThroughAll
+                ? "through_all" : "blind";
+        extrusion_extent_->setCurrentIndex(extrusion_extent_->findData(extent));
+        form->addRow(tr("Rozsah"), extrusion_extent_);
+        extrusion_target_ = new QLabel(this);
+        extrusion_target_->setObjectName("extrusionTarget");
+        extrusion_target_->setText(initial.extrusion.target_face.valid()
+            ? QString::fromStdString(initial.extrusion.target_face.owner_id + " / " +
+                                      initial.extrusion.target_face.semantic_key)
+            : tr("Nevybráno"));
+        auto* select_target = new QPushButton(tr("Vybrat plochu ve view"), this);
+        select_target->setObjectName("selectExtrusionTarget");
+        auto* target_row = new QWidget(this);
+        auto* target_layout = new QHBoxLayout(target_row);
+        target_layout->setContentsMargins(0, 0, 0, 0);
+        target_layout->addWidget(extrusion_target_, 1);
+        target_layout->addWidget(select_target);
+        form->addRow(tr("Cíl"), target_row);
+        connect(select_target, &QPushButton::clicked, this, [this] {
+            if (extrusion_target_request_) extrusion_target_request_();
+        });
+        connect(extrusion_extent_, &QComboBox::currentIndexChanged,
+            this, [this, select_target](int) {
+                const bool target = extrusion_extent_->currentData() == "up_to";
+                if (target && extrusion_direction_->currentData() == "symmetric") {
+                    extrusion_direction_->setCurrentIndex(
+                        extrusion_direction_->findData("forward"));
+                }
+                extrusion_target_->setEnabled(target);
+                select_target->setEnabled(target);
+                height_->setEnabled(extrusion_extent_->currentData() == "blind");
+                notify_preview();
+            });
+        connect(height_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this] { notify_preview(); });
+        connect(extrusion_direction_, &QComboBox::currentIndexChanged,
+            this, [this] { notify_preview(); });
+        if (operation_ != nullptr) {
+            connect(operation_, &QComboBox::currentIndexChanged,
+                this, [this] { notify_preview(); });
+        }
+        const bool target_enabled = extrusion_extent_->currentData() == "up_to";
+        extrusion_target_->setEnabled(target_enabled);
+        select_target->setEnabled(target_enabled);
+        height_->setEnabled(extrusion_extent_->currentData() == "blind");
     } else if (initial.feature_kind == zima::document::FeatureKind::Revolution) {
         auto* sketch = new QLabel(
             QString::fromStdString(initial.revolution.sketch_id), this);
@@ -144,11 +240,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         source->setWordWrap(true);
         form->addRow(tr("Zdrojový soubor"), source);
     } else {
-        auto* edge = new QLabel(
-            QString::fromStdString(initial.edge_treatment.edge.owner_id + " / " +
-                                    initial.edge_treatment.edge.semantic_key), this);
-        edge->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        form->addRow(tr("Hrana"), edge);
+        QStringList references;
+        for (const auto& edge : initial.edge_treatment.edges) {
+            references.push_back(QString::fromStdString(
+                edge.owner_id + " / " + edge.semantic_key));
+        }
+        auto* edge_list = new QLabel(references.join("\n"), this);
+        edge_list->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        form->addRow(tr("Hrany"), edge_list);
         treatment_size_ = dimension(initial.edge_treatment.size, "edgeTreatmentSize");
         form->addRow(initial.feature_kind == zima::document::FeatureKind::Fillet
             ? tr("Poloměr") : tr("Vzdálenost"), treatment_size_);
@@ -168,6 +267,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     if (initial.feature_kind == zima::document::FeatureKind::Box ||
         initial.feature_kind == zima::document::FeatureKind::Cylinder ||
         initial.feature_kind == zima::document::FeatureKind::Sphere ||
+        initial.feature_kind == zima::document::FeatureKind::Cone ||
+        initial.feature_kind == zima::document::FeatureKind::Pyramid ||
+        initial.feature_kind == zima::document::FeatureKind::Wedge ||
         initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         translation_ = {
             placement(initial.placement.x, false),
@@ -200,13 +302,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     });
 }
 
-bool PrimitivePropertiesDialog::submit() {
+zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     const QString name = name_->text().trimmed();
-    if (name.isEmpty()) {
-        error_->setText(tr("Název nesmí být prázdný."));
-        name_->setFocus();
-        return false;
-    }
     auto result = initial_;
     result.name = name.toStdString();
     if (operation_ != nullptr) {
@@ -220,6 +317,13 @@ bool PrimitivePropertiesDialog::submit() {
         result.cylinder = {radius_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
         result.sphere = {radius_->value()};
+    } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
+        result.cone = {radius_->value(), top_radius_->value(), height_->value()};
+    } else if (result.feature_kind == zima::document::FeatureKind::Pyramid) {
+        result.pyramid = {length_->value(), width_->value(), height_->value()};
+    } else if (result.feature_kind == zima::document::FeatureKind::Wedge) {
+        result.wedge = {length_->value(), width_->value(), height_->value(),
+                        top_offset_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.height = height_->value();
         const QString direction =
@@ -229,6 +333,14 @@ bool PrimitivePropertiesDialog::submit() {
             : direction == "symmetric"
                 ? zima::document::ExtrusionDirection::Symmetric
                 : zima::document::ExtrusionDirection::Forward;
+        const QString extent = extrusion_extent_->currentData().toString();
+        result.extrusion.extent = extent == "up_to"
+            ? (result.extrusion.target_surface_triangles.empty()
+                ? zima::document::ExtrusionExtent::UpToPlane
+                : zima::document::ExtrusionExtent::UpToSurface)
+            : extent == "through_all"
+                ? zima::document::ExtrusionExtent::ThroughAll
+                : zima::document::ExtrusionExtent::Blind;
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
         result.revolution.axis =
             revolution_axis_->currentData().toString() == "sketch_y"
@@ -238,9 +350,68 @@ bool PrimitivePropertiesDialog::submit() {
     } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
         result.edge_treatment.size = treatment_size_->value();
     }
+    return result;
+}
+
+void PrimitivePropertiesDialog::set_extrusion_target(
+    zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
+    zima::kernel::Vec3 normal) {
+    initial_.extrusion.target_face = std::move(reference);
+    initial_.extrusion.target_plane_origin = origin;
+    initial_.extrusion.target_plane_normal = normal;
+    initial_.extrusion.target_surface_triangles.clear();
+    extrusion_target_->setText(QString::fromStdString(
+        initial_.extrusion.target_face.owner_id + " / " +
+        initial_.extrusion.target_face.semantic_key));
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_extrusion_surface_target(
+    zima::kernel::FaceReference reference,
+    std::vector<zima::kernel::Vec3> triangles) {
+    initial_.extrusion.target_face = std::move(reference);
+    initial_.extrusion.target_surface_triangles = std::move(triangles);
+    extrusion_target_->setText(QString::fromStdString(
+        initial_.extrusion.target_face.owner_id + " / " +
+        initial_.extrusion.target_face.semantic_key));
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_extrusion_target_request(
+    std::function<void()> callback) {
+    extrusion_target_request_ = std::move(callback);
+}
+
+void PrimitivePropertiesDialog::set_preview_callback(
+    std::function<void(const zima::document::HistoryContainer&)> callback) {
+    preview_ = std::move(callback);
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::notify_preview() {
+    if (preview_) preview_(values());
+}
+
+bool PrimitivePropertiesDialog::submit() {
+    if (name_->text().trimmed().isEmpty()) {
+        error_->setText(tr("Název nesmí být prázdný."));
+        name_->setFocus();
+        return false;
+    }
+    auto result = values();
+    if (result.feature_kind == zima::document::FeatureKind::Extrusion &&
+        (result.extrusion.extent == zima::document::ExtrusionExtent::UpToPlane ||
+         result.extrusion.extent == zima::document::ExtrusionExtent::UpToSurface) &&
+        !result.extrusion.target_face.valid()) {
+        error_->setText(tr("Vyberte cílovou rovinnou plochu."));
+        return false;
+    }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
         result.feature_kind == zima::document::FeatureKind::Cylinder ||
         result.feature_kind == zima::document::FeatureKind::Sphere ||
+        result.feature_kind == zima::document::FeatureKind::Cone ||
+        result.feature_kind == zima::document::FeatureKind::Pyramid ||
+        result.feature_kind == zima::document::FeatureKind::Wedge ||
         result.feature_kind == zima::document::FeatureKind::ImportedStep) {
         result.placement = {
             translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),

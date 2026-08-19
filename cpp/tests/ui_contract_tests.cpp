@@ -1,4 +1,5 @@
 #include "primitive_properties_dialog.hpp"
+#include "construction_properties_dialog.hpp"
 #include "component_properties_dialog.hpp"
 #include "mate_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
@@ -143,6 +144,85 @@ int main(int argc, char* argv[]) {
         require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
                     committed_sphere.sphere.radius == 27.0,
                 "Sphere Properties did not commit its radius");
+        auto cone_initial = zima::document::PartDocument::create_cone_container();
+        zima::document::HistoryContainer committed_cone;
+        auto* cone_dialog = new zima::app::PrimitivePropertiesDialog(
+            cone_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_cone = std::move(value);
+            }, &parent);
+        cone_dialog->show();
+        application.processEvents();
+        cone_dialog->findChild<QDoubleSpinBox*>("coneBottomRadius")->setValue(25.0);
+        cone_dialog->findChild<QDoubleSpinBox*>("coneTopRadius")->setValue(5.0);
+        cone_dialog->findChild<QDoubleSpinBox*>("coneHeight")->setValue(70.0);
+        cone_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_cone.feature_kind == zima::document::FeatureKind::Cone &&
+                    committed_cone.cone.bottom_radius == 25.0 &&
+                    committed_cone.cone.top_radius == 5.0 &&
+                    committed_cone.cone.height == 70.0,
+                "Cone Properties did not commit exact parameters");
+
+        auto pyramid_initial = zima::document::PartDocument::create_pyramid_container();
+        zima::document::HistoryContainer committed_pyramid;
+        auto* pyramid_dialog = new zima::app::PrimitivePropertiesDialog(
+            pyramid_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_pyramid = std::move(value);
+            }, &parent);
+        pyramid_dialog->show();
+        application.processEvents();
+        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidLength")->setValue(30.0);
+        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidWidth")->setValue(20.0);
+        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidHeight")->setValue(40.0);
+        pyramid_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_pyramid.feature_kind == zima::document::FeatureKind::Pyramid &&
+                    committed_pyramid.pyramid.length == 30.0 &&
+                    committed_pyramid.pyramid.width == 20.0 &&
+                    committed_pyramid.pyramid.height == 40.0,
+                "Pyramid Properties did not commit exact parameters");
+
+        auto wedge_initial = zima::document::PartDocument::create_wedge_container();
+        zima::document::HistoryContainer committed_wedge;
+        auto* wedge_dialog = new zima::app::PrimitivePropertiesDialog(
+            wedge_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_wedge = std::move(value);
+            }, &parent);
+        wedge_dialog->show();
+        application.processEvents();
+        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeLength")->setValue(60.0);
+        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeWidth")->setValue(25.0);
+        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeHeight")->setValue(35.0);
+        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeTopOffset")->setValue(18.0);
+        wedge_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_wedge.feature_kind == zima::document::FeatureKind::Wedge &&
+                    committed_wedge.wedge.length == 60.0 &&
+                    committed_wedge.wedge.width == 25.0 &&
+                    committed_wedge.wedge.height == 35.0 &&
+                    committed_wedge.wedge.top_offset == 18.0,
+                "Wedge Properties did not commit exact parameters");
+
+        auto axis_initial = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Axis);
+        zima::document::ConstructionObject committed_axis;
+        auto* construction_axis_dialog = new zima::app::ConstructionPropertiesDialog(
+            axis_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_axis = std::move(value);
+            }, &parent);
+        construction_axis_dialog->show();
+        application.processEvents();
+        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionX")->setValue(12.0);
+        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDirectionX")->setValue(1.0);
+        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDirectionZ")->setValue(0.0);
+        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDisplaySize")->setValue(80.0);
+        construction_axis_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_axis.kind == zima::document::ConstructionKind::Axis &&
+                    committed_axis.origin.x == 12.0 &&
+                    committed_axis.direction.x == 1.0 &&
+                    committed_axis.display_size == 80.0,
+                "Construction Properties did not commit exact parameters");
 
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
@@ -160,16 +240,27 @@ int main(int argc, char* argv[]) {
             extrusion_dialog->findChild<QDoubleSpinBox*>("extrusionHeight");
         auto* extrusion_direction =
             extrusion_dialog->findChild<QComboBox*>("extrusionDirection");
+        auto* extrusion_extent =
+            extrusion_dialog->findChild<QComboBox*>("extrusionExtent");
         require(extrusion_height != nullptr,
                 "Extrusion dialog does not expose its height");
         require(extrusion_direction != nullptr,
                 "Extrusion dialog does not expose its direction");
+        require(extrusion_extent != nullptr,
+                "Extrusion dialog does not expose its extent");
         require(extrusion_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty(),
                 "Extrusion dialog exposes an ignored placement");
         extrusion_height->setValue(48.0);
         extrusion_direction->setCurrentIndex(
             extrusion_direction->findData("symmetric"));
+        int preview_updates = 0;
+        extrusion_dialog->set_preview_callback(
+            [&](const auto&) { ++preview_updates; });
+        extrusion_extent->setCurrentIndex(
+            extrusion_extent->findData("up_to"));
+        extrusion_dialog->set_extrusion_target(
+            {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
         extrusion_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(extrusion_commits == 1 &&
@@ -178,7 +269,11 @@ int main(int argc, char* argv[]) {
                     committed_extrusion.extrusion.sketch_id == "sketch-profile" &&
                     committed_extrusion.extrusion.height == 48.0 &&
                     committed_extrusion.extrusion.direction ==
-                        zima::document::ExtrusionDirection::Symmetric,
+                        zima::document::ExtrusionDirection::Forward &&
+                    committed_extrusion.extrusion.extent ==
+                        zima::document::ExtrusionExtent::UpToPlane &&
+                    committed_extrusion.extrusion.target_face.owner_id ==
+                        "datum-plane" && preview_updates >= 2,
                 "Extrusion Properties did not preserve its Sketch or height");
 
         auto revolution_initial =

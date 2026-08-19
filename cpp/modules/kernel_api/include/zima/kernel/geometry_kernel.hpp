@@ -135,7 +135,33 @@ struct SphereRequest {
     Vec3 rotation_degrees;
 };
 
+struct ConeRequest {
+    double bottom_radius{20.0};
+    double top_radius{};
+    double height{50.0};
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
+struct PyramidRequest {
+    double length{40.0};
+    double width{40.0};
+    double height{50.0};
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
+struct WedgeRequest {
+    double length{60.0};
+    double width{40.0};
+    double height{40.0};
+    double top_offset{30.0};
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
 struct ExtrusionRequest {
+    enum class Extent { Blind, UpToPlane, UpToSurface, ThroughAll };
     struct PolygonProfile {
         std::vector<Vec3> vertices;
     };
@@ -173,6 +199,12 @@ struct ExtrusionRequest {
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     Vec3 direction{0.0, 0.0, 10.0};
+    Extent extent{Extent::Blind};
+    FaceReference target_face;
+    bool target_is_datum{};
+    Vec3 target_plane_origin;
+    Vec3 target_plane_normal{0.0, 0.0, 1.0};
+    std::vector<Vec3> target_surface_triangles;
 };
 
 struct RevolutionRequest {
@@ -193,13 +225,13 @@ struct StepRequest {
 enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };
 
 struct FilletRequest {
-    EdgeReference edge;
+    std::vector<EdgeReference> edges;
     EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
     double radius{1.0};
 };
 
 struct ChamferRequest {
-    EdgeReference edge;
+    std::vector<EdgeReference> edges;
     EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
     double distance{1.0};
 };
@@ -213,7 +245,8 @@ struct BoxOperation {
 };
 
 using PrimitiveRequest = std::variant<
-    BoxRequest, CylinderRequest, SphereRequest, ExtrusionRequest, RevolutionRequest,
+    BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
+    ExtrusionRequest, RevolutionRequest,
     StepRequest, FilletRequest, ChamferRequest>;
 
 struct HistoryOperation {
@@ -316,6 +349,30 @@ struct BodyResult {
                         primitive.rotation_degrees.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
+            } else if constexpr (std::is_same_v<Request, ConeRequest>) {
+                for (const double value : {primitive.bottom_radius,
+                        primitive.top_radius, primitive.height,
+                        primitive.translation.x, primitive.translation.y,
+                        primitive.translation.z, primitive.rotation_degrees.x,
+                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else if constexpr (std::is_same_v<Request, PyramidRequest>) {
+                for (const double value : {primitive.length, primitive.width,
+                        primitive.height, primitive.translation.x,
+                        primitive.translation.y, primitive.translation.z,
+                        primitive.rotation_degrees.x, primitive.rotation_degrees.y,
+                        primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else if constexpr (std::is_same_v<Request, WedgeRequest>) {
+                for (const double value : {primitive.length, primitive.width,
+                        primitive.height, primitive.top_offset,
+                        primitive.translation.x, primitive.translation.y,
+                        primitive.translation.z, primitive.rotation_degrees.x,
+                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
@@ -388,6 +445,24 @@ struct BodyResult {
                         primitive.direction.x, primitive.direction.y,
                         primitive.direction.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
+                }
+                byte(static_cast<std::uint8_t>(primitive.extent));
+                u64(primitive.target_face.owner_id.size());
+                for (const unsigned char value : primitive.target_face.owner_id) byte(value);
+                u64(primitive.target_face.semantic_key.size());
+                for (const unsigned char value : primitive.target_face.semantic_key) byte(value);
+                byte(primitive.target_is_datum);
+                for (const double value : {primitive.target_plane_origin.x,
+                        primitive.target_plane_origin.y, primitive.target_plane_origin.z,
+                        primitive.target_plane_normal.x, primitive.target_plane_normal.y,
+                        primitive.target_plane_normal.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+                u64(primitive.target_surface_triangles.size());
+                for (const auto& point : primitive.target_surface_triangles) {
+                    for (const double value : {point.x, point.y, point.z}) {
+                        u64(std::bit_cast<std::uint64_t>(value));
+                    }
                 }
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                 const auto append_profile = [&](const auto& profile_variant) {
@@ -472,10 +547,13 @@ struct BodyResult {
                 u64(primitive.component_path.size());
                 for (const unsigned char value : primitive.component_path) byte(value);
             } else {
-                u64(primitive.edge.owner_id.size());
-                for (const unsigned char value : primitive.edge.owner_id) byte(value);
-                u64(primitive.edge.semantic_key.size());
-                for (const unsigned char value : primitive.edge.semantic_key) byte(value);
+                u64(primitive.edges.size());
+                for (const auto& edge : primitive.edges) {
+                    u64(edge.owner_id.size());
+                    for (const unsigned char value : edge.owner_id) byte(value);
+                    u64(edge.semantic_key.size());
+                    for (const unsigned char value : edge.semantic_key) byte(value);
+                }
                 byte(static_cast<std::uint8_t>(primitive.origin));
                 if constexpr (std::is_same_v<Request, FilletRequest>) {
                     u64(std::bit_cast<std::uint64_t>(primitive.radius));

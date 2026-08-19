@@ -114,7 +114,7 @@ int main() {
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"fillet", zima::kernel::FilletRequest{
-                selected_box_edge,
+                {selected_box_edge},
                 zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
              zima::kernel::BooleanOperation::Add},
         });
@@ -126,7 +126,7 @@ int main() {
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"chamfer", zima::kernel::ChamferRequest{
-                selected_box_edge,
+                {selected_box_edge},
                 zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
              zima::kernel::BooleanOperation::Add},
         });
@@ -134,6 +134,18 @@ int main() {
                     chamfer_boundaries.back().volume < body.volume &&
                     chamfer_boundaries.back().volume > body.volume - 1000.0,
                 "Original-edge Chamfer did not produce a valid bounded solid");
+        const auto multi_fillet_boundaries = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"multi-fillet", zima::kernel::FilletRequest{{
+                body.mesh.original_references.edges[0].reference,
+                body.mesh.original_references.edges[1].reference},
+                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 2.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(multi_fillet_boundaries.size() == 2 &&
+                    multi_fillet_boundaries.back().volume < body.volume,
+                "Multi-edge Fillet did not treat all selected edges");
         zima::kernel::BoxRequest resized_rotated{135.0, 62.0, 47.0};
         resized_rotated.rotation_degrees = {17.0, 29.0, 41.0};
         const auto regenerated = kernel.evaluate_boxes({
@@ -239,6 +251,35 @@ int main() {
                         .triangle_references.front().semantic_key == "surface" &&
                     sphere_boundaries.front().mesh.original_references.axes.size() == 3,
                 "Sphere geometry or stable references are incomplete");
+        zima::kernel::ConeRequest cone;
+        cone.bottom_radius = 10.0;
+        cone.top_radius = 5.0;
+        cone.height = 20.0;
+        const auto cone_boundaries = kernel.evaluate_history({
+            {"cone", cone, zima::kernel::BooleanOperation::Add},
+        });
+        const double cone_volume = std::numbers::pi * 20.0 *
+            (100.0 + 50.0 + 25.0) / 3.0;
+        require(cone_boundaries.size() == 1 &&
+                    std::abs(cone_boundaries.front().volume - cone_volume) < 1e-5 &&
+                    cone_boundaries.front().mesh.original_references.axes.size() == 1,
+                "Cone geometry or stable axis is incorrect");
+        zima::kernel::PyramidRequest pyramid;
+        pyramid.length = 30.0; pyramid.width = 20.0; pyramid.height = 40.0;
+        const auto pyramid_boundaries = kernel.evaluate_history({
+            {"pyramid", pyramid, zima::kernel::BooleanOperation::Add}});
+        require(pyramid_boundaries.size() == 1 &&
+                    std::abs(pyramid_boundaries.front().volume - 8000.0) < 1e-5 &&
+                    pyramid_boundaries.front().mesh.original_references.axes.size() == 3,
+                "Pyramid geometry or references are incorrect");
+        zima::kernel::WedgeRequest wedge;
+        wedge.length = 60.0; wedge.width = 40.0;
+        wedge.height = 40.0; wedge.top_offset = 30.0;
+        const auto wedge_boundaries = kernel.evaluate_history({
+            {"wedge", wedge, zima::kernel::BooleanOperation::Add}});
+        require(wedge_boundaries.size() == 1 && wedge_boundaries.front().volume > 0.0 &&
+                    wedge_boundaries.front().mesh.original_references.axes.size() == 3,
+                "Wedge geometry or references are incorrect");
         std::set<std::string> cylinder_edges;
         bool sampled_circle = false;
         for (const auto& edge : cylinder_boundaries.front().mesh.original_references.edges) {
@@ -382,6 +423,65 @@ int main() {
                     loaded_sphere.history.front().sphere.radius == 22.0 &&
                     loaded_sphere_results.size() == 1,
                 "Sphere document did not survive save/load");
+        auto cone_document = zima::document::PartDocument::create_default();
+        auto cone_container = zima::document::PartDocument::create_cone_container();
+        cone_container.cone = {18.0, 7.0, 42.0};
+        cone_document.history.push_back(cone_container);
+        const auto cone_results = kernel.evaluate_history(cone_document.kernel_operations());
+        const auto cone_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-cone-contract.zcp.json";
+        cone_document.save(cone_path, cone_results);
+        const auto loaded_cone = zima::document::PartDocument::load(cone_path);
+        std::filesystem::remove(cone_path);
+        require(loaded_cone.history.front().feature_kind ==
+                    zima::document::FeatureKind::Cone &&
+                    loaded_cone.history.front().cone.top_radius == 7.0,
+                "Cone document did not survive save/load");
+        auto poly_document = zima::document::PartDocument::create_default();
+        auto pyramid_container = zima::document::PartDocument::create_pyramid_container();
+        pyramid_container.pyramid = {35.0, 25.0, 45.0};
+        auto wedge_container = zima::document::PartDocument::create_wedge_container();
+        wedge_container.wedge = {70.0, 30.0, 20.0, 15.0};
+        wedge_container.placement.x = 100.0;
+        poly_document.history = {pyramid_container, wedge_container};
+        const auto poly_results = kernel.evaluate_history(poly_document.kernel_operations());
+        const auto poly_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-poly-primitives-contract.zcp.json";
+        poly_document.save(poly_path, poly_results);
+        const auto loaded_poly = zima::document::PartDocument::load(poly_path);
+        std::filesystem::remove(poly_path);
+        require(loaded_poly.history.size() == 2 &&
+                    loaded_poly.history[0].feature_kind == zima::document::FeatureKind::Pyramid &&
+                    loaded_poly.history[1].feature_kind == zima::document::FeatureKind::Wedge &&
+                    loaded_poly.history[1].wedge.top_offset == 15.0,
+                "Pyramid/Wedge documents did not survive save/load");
+        auto constructions = zima::document::PartDocument::create_default();
+        auto point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        point.origin = {1.0, 2.0, 3.0};
+        auto axis = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Axis);
+        axis.direction = {1.0, 0.0, 0.0};
+        auto plane = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        plane.display_size = 75.0;
+        constructions.constructions = {point, axis, plane};
+        const auto construction_mesh = constructions.construction_viewer_mesh();
+        require(construction_mesh.points.size() == 1 &&
+                    construction_mesh.axes.size() == 1 &&
+                    construction_mesh.edges.size() == 1 &&
+                    construction_mesh.original_references.triangle_references.size() == 2,
+                "Construction objects did not produce persisted ZIMA references");
+        const auto construction_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-constructions-contract.zcp.json";
+        constructions.save(construction_path);
+        const auto loaded_constructions =
+            zima::document::PartDocument::load(construction_path);
+        std::filesystem::remove(construction_path);
+        require(loaded_constructions.constructions.size() == 3 &&
+                    loaded_constructions.constructions[0].origin.z == 3.0 &&
+                    loaded_constructions.constructions[2].display_size == 75.0,
+                "Construction objects did not survive save/load");
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();
         extrusion_sketch.name = "Obdélníkový profil";
@@ -460,6 +560,262 @@ int main() {
                         zima::document::ExtrusionDirection::Symmetric &&
                     loaded_extrusion_results.size() == 1,
                 "Extrusion document did not survive save/load");
+        auto up_to_document = zima::document::PartDocument::create_default();
+        auto up_to_base = zima::document::PartDocument::create_box_container();
+        up_to_base.box = {20.0, 20.0, 10.0};
+        up_to_document.history.push_back(up_to_base);
+        auto up_to_sketch = zima::sketcher::Sketch::create_default();
+        up_to_sketch.plane_offset = 10.0;
+        static_cast<void>(up_to_sketch.add_rectangle(0.0, 0.0, 10.0, 10.0));
+        const auto up_to_sketch_id = up_to_sketch.id;
+        up_to_document.sketches.push_back(std::move(up_to_sketch));
+        auto target_plane = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        target_plane.origin = {0.0, 0.0, 30.0};
+        const auto target_plane_id = target_plane.id;
+        up_to_document.constructions.push_back(target_plane);
+        auto up_to = zima::document::PartDocument::create_extrusion_container(
+            up_to_sketch_id);
+        up_to.extrusion.extent = zima::document::ExtrusionExtent::UpToPlane;
+        up_to.extrusion.target_face = {target_plane_id, "plane", {}};
+        up_to.extrusion.target_plane_origin = target_plane.origin;
+        up_to.extrusion.target_plane_normal = target_plane.direction;
+        up_to_document.history.push_back(up_to);
+        const auto up_to_preview = up_to_document.extrusion_preview_edges(up_to);
+        require(!up_to_preview.empty() && std::any_of(
+                    up_to_preview.begin(), up_to_preview.end(), [](const auto& edge) {
+                        return std::any_of(edge.points.begin(), edge.points.end(),
+                            [](const auto& point) {
+                                return std::abs(point.z - 30.0) < 1e-9;
+                            });
+                    }),
+                "Up-to-plane cyan wire does not terminate on its target");
+        const auto up_to_results =
+            kernel.evaluate_history(up_to_document.kernel_operations());
+        require(up_to_results.size() == 2 &&
+                    std::abs(up_to_results.back().volume - 6000.0) < 1e-6,
+                "Up-to-plane Extrusion did not clip at the datum plane");
+        auto inclined_document = up_to_document;
+        inclined_document.constructions.front().direction = {-0.5, 0.0, 1.0};
+        inclined_document.history.back().extrusion.target_plane_normal =
+            {-0.5, 0.0, 1.0};
+        const auto inclined_results =
+            kernel.evaluate_history(inclined_document.kernel_operations());
+        require(std::abs(inclined_results.back().volume - 6250.0) < 1e-5,
+                "Inclined Up-to plane was flattened or clipped on the wrong side");
+        auto face_target_document = zima::document::PartDocument::create_default();
+        auto face_target_base = zima::document::PartDocument::create_box_container();
+        face_target_base.box = {20.0, 20.0, 10.0};
+        const auto face_target_base_id = face_target_base.id;
+        face_target_document.history.push_back(face_target_base);
+        auto face_target_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(face_target_sketch.add_rectangle(0.0, 0.0, 10.0, 10.0));
+        const auto face_target_sketch_id = face_target_sketch.id;
+        face_target_document.sketches.push_back(std::move(face_target_sketch));
+        auto face_target_cut = zima::document::PartDocument::create_extrusion_container(
+            face_target_sketch_id);
+        face_target_cut.combine_mode = zima::document::CombineMode::Subtract;
+        face_target_cut.extrusion.extent =
+            zima::document::ExtrusionExtent::UpToPlane;
+        face_target_cut.extrusion.target_face = {
+            face_target_base_id, "z_max", {}};
+        face_target_cut.extrusion.target_plane_origin = {0.0, 0.0, 10.0};
+        face_target_cut.extrusion.target_plane_normal = {0.0, 0.0, 1.0};
+        face_target_document.history.push_back(face_target_cut);
+        const auto face_target_results =
+            kernel.evaluate_history(face_target_document.kernel_operations());
+        require(std::abs(face_target_results.back().volume - 3000.0) < 1e-6,
+                "Up-to stable original face did not resolve at its history boundary");
+        auto curved_target_document = zima::document::PartDocument::create_default();
+        auto curved_target_sphere =
+            zima::document::PartDocument::create_sphere_container();
+        curved_target_sphere.sphere.radius = 20.0;
+        const auto curved_target_owner = curved_target_sphere.id;
+        curved_target_document.history.push_back(curved_target_sphere);
+        const auto sphere_boundary =
+            kernel.evaluate_history(curved_target_document.kernel_operations()).front();
+        std::vector<zima::kernel::Vec3> sphere_triangles;
+        const auto& sphere_references = sphere_boundary.mesh.original_references;
+        for (std::size_t triangle = 0;
+             triangle < sphere_references.triangle_references.size(); ++triangle) {
+            const auto& reference = sphere_references.triangle_references[triangle];
+            if (reference.owner_id != curved_target_owner ||
+                reference.semantic_key != "surface") continue;
+            for (int corner = 0; corner < 3; ++corner) {
+                sphere_triangles.push_back(sphere_references.vertices[
+                    sphere_references.triangles[triangle * 3 + corner]]);
+            }
+        }
+        auto curved_target_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(curved_target_sketch.add_rectangle(
+            1.0, 1.0, 10.0, 10.0));
+        const auto curved_target_sketch_id = curved_target_sketch.id;
+        curved_target_document.sketches.push_back(std::move(curved_target_sketch));
+        auto curved_target_cut =
+            zima::document::PartDocument::create_extrusion_container(
+                curved_target_sketch_id);
+        curved_target_cut.combine_mode = zima::document::CombineMode::Subtract;
+        curved_target_cut.extrusion.extent =
+            zima::document::ExtrusionExtent::UpToSurface;
+        curved_target_cut.extrusion.target_face = {
+            curved_target_owner, "surface", {}};
+        curved_target_cut.extrusion.target_surface_triangles = sphere_triangles;
+        curved_target_document.history.push_back(curved_target_cut);
+        const auto curved_preview =
+            curved_target_document.extrusion_preview_edges(curved_target_cut);
+        double curved_minimum_z = std::numeric_limits<double>::infinity();
+        double curved_maximum_z = -std::numeric_limits<double>::infinity();
+        for (const auto& edge : curved_preview) {
+            if (edge.reference.semantic_key != "preview:end") continue;
+            for (const auto& point : edge.points) {
+                curved_minimum_z = std::min(curved_minimum_z, point.z);
+                curved_maximum_z = std::max(curved_maximum_z, point.z);
+            }
+        }
+        require(curved_maximum_z - curved_minimum_z > 2.0,
+                "Curved Up-to preview was flattened to one scalar endpoint");
+        const auto curved_target_results =
+            kernel.evaluate_history(curved_target_document.kernel_operations());
+        require(curved_target_results.size() == 2 &&
+                    curved_target_results.back().volume > 0.0 &&
+                    curved_target_results.back().volume < sphere_boundary.volume,
+                "Up-to curved surface did not cut the source sphere");
+
+        auto ellipse_target_document = zima::document::PartDocument::create_default();
+        auto ellipse_target_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(ellipse_target_sketch.add_ellipse(
+            0.0, 0.0, 20.0, 0.0, 0.0, 10.0));
+        const auto ellipse_target_sketch_id = ellipse_target_sketch.id;
+        ellipse_target_document.sketches.push_back(std::move(ellipse_target_sketch));
+        auto ellipse_target_feature =
+            zima::document::PartDocument::create_extrusion_container(
+                ellipse_target_sketch_id);
+        ellipse_target_feature.extrusion.height = 30.0;
+        const auto ellipse_target_owner = ellipse_target_feature.id;
+        ellipse_target_document.history.push_back(ellipse_target_feature);
+        const auto ellipse_boundary = kernel.evaluate_history(
+            ellipse_target_document.kernel_operations()).front();
+        std::vector<zima::kernel::Vec3> ellipse_side_triangles;
+        const auto& ellipse_references = ellipse_boundary.mesh.original_references;
+        for (std::size_t triangle = 0;
+             triangle < ellipse_references.triangle_references.size(); ++triangle) {
+            const auto& reference = ellipse_references.triangle_references[triangle];
+            if (reference.owner_id != ellipse_target_owner ||
+                reference.semantic_key != "side:0") continue;
+            for (int corner = 0; corner < 3; ++corner) {
+                ellipse_side_triangles.push_back(ellipse_references.vertices[
+                    ellipse_references.triangles[triangle * 3 + corner]]);
+            }
+        }
+        auto transverse_sketch = zima::sketcher::Sketch::create_default();
+        transverse_sketch.plane = zima::sketcher::SketchPlane::YZ;
+        transverse_sketch.plane_offset = -30.0;
+        static_cast<void>(transverse_sketch.add_rectangle(1.0, 5.0, 5.0, 10.0));
+        const auto transverse_sketch_id = transverse_sketch.id;
+        ellipse_target_document.sketches.push_back(std::move(transverse_sketch));
+        auto ellipse_up_to = zima::document::PartDocument::create_extrusion_container(
+            transverse_sketch_id);
+        ellipse_up_to.extrusion.extent =
+            zima::document::ExtrusionExtent::UpToSurface;
+        ellipse_up_to.extrusion.target_face = {
+            ellipse_target_owner, "side:0", {}};
+        ellipse_up_to.extrusion.target_surface_triangles = ellipse_side_triangles;
+        ellipse_target_document.history.push_back(ellipse_up_to);
+        const auto ellipse_up_to_results = kernel.evaluate_history(
+            ellipse_target_document.kernel_operations());
+        require(ellipse_up_to_results.size() == 2 &&
+                    ellipse_up_to_results.back().volume > ellipse_boundary.volume,
+                "Extrusion could not terminate on an elliptic Extrusion surface");
+
+        auto spline_target_document = zima::document::PartDocument::create_default();
+        auto spline_target_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(spline_target_sketch.add_bspline({
+            {-20.0, 0.0}, {-15.0, 15.0}, {0.0, 22.0}, {15.0, 15.0},
+            {20.0, 0.0}, {10.0, -18.0}, {-10.0, -18.0}}, 3, true));
+        const auto spline_target_sketch_id = spline_target_sketch.id;
+        spline_target_document.sketches.push_back(std::move(spline_target_sketch));
+        auto spline_target_feature =
+            zima::document::PartDocument::create_extrusion_container(
+                spline_target_sketch_id);
+        spline_target_feature.extrusion.height = 30.0;
+        const auto spline_target_owner = spline_target_feature.id;
+        spline_target_document.history.push_back(spline_target_feature);
+        const auto spline_boundary = kernel.evaluate_history(
+            spline_target_document.kernel_operations()).front();
+        std::vector<zima::kernel::Vec3> spline_side_triangles;
+        const auto& spline_references = spline_boundary.mesh.original_references;
+        for (std::size_t triangle = 0;
+             triangle < spline_references.triangle_references.size(); ++triangle) {
+            const auto& reference = spline_references.triangle_references[triangle];
+            if (reference.owner_id != spline_target_owner ||
+                reference.semantic_key != "side:0") continue;
+            for (int corner = 0; corner < 3; ++corner) {
+                spline_side_triangles.push_back(spline_references.vertices[
+                    spline_references.triangles[triangle * 3 + corner]]);
+            }
+        }
+        auto spline_transverse_sketch = zima::sketcher::Sketch::create_default();
+        spline_transverse_sketch.plane = zima::sketcher::SketchPlane::YZ;
+        spline_transverse_sketch.plane_offset = -30.0;
+        static_cast<void>(spline_transverse_sketch.add_rectangle(
+            1.0, 5.0, 5.0, 10.0));
+        const auto spline_transverse_id = spline_transverse_sketch.id;
+        spline_target_document.sketches.push_back(
+            std::move(spline_transverse_sketch));
+        auto spline_up_to = zima::document::PartDocument::create_extrusion_container(
+            spline_transverse_id);
+        spline_up_to.extrusion.extent =
+            zima::document::ExtrusionExtent::UpToSurface;
+        spline_up_to.extrusion.target_face = {
+            spline_target_owner, "side:0", {}};
+        spline_up_to.extrusion.target_surface_triangles = spline_side_triangles;
+        spline_target_document.history.push_back(spline_up_to);
+        const auto spline_up_to_results = kernel.evaluate_history(
+            spline_target_document.kernel_operations());
+        require(spline_up_to_results.size() == 2 &&
+                    spline_up_to_results.back().volume > spline_boundary.volume,
+                "Extrusion could not terminate on a B-spline Extrusion surface");
+        const auto spline_target_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-spline-up-to-contract.zcp.json";
+        spline_target_document.save(spline_target_path, spline_up_to_results);
+        const auto loaded_spline_target =
+            zima::document::PartDocument::load(spline_target_path);
+        std::filesystem::remove(spline_target_path);
+        require(loaded_spline_target.history.back().extrusion.extent ==
+                    zima::document::ExtrusionExtent::UpToSurface &&
+                    loaded_spline_target.history.back().extrusion
+                        .target_surface_triangles.size() ==
+                        spline_side_triangles.size(),
+                "B-spline Up-to target triangulation did not survive save/load");
+        const auto up_to_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-up-to-contract.zcp.json";
+        up_to_document.save(up_to_path, up_to_results);
+        const auto loaded_up_to = zima::document::PartDocument::load(up_to_path);
+        std::filesystem::remove(up_to_path);
+        require(loaded_up_to.history.back().extrusion.extent ==
+                    zima::document::ExtrusionExtent::UpToPlane &&
+                    loaded_up_to.history.back().extrusion.target_face.owner_id ==
+                        target_plane_id,
+                "Up-to-plane target did not survive save/load");
+
+        auto through_document = zima::document::PartDocument::create_default();
+        auto through_base = zima::document::PartDocument::create_box_container();
+        through_base.box = {20.0, 20.0, 10.0};
+        through_document.history.push_back(through_base);
+        auto through_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(through_sketch.add_rectangle(0.0, 0.0, 5.0, 5.0));
+        const auto through_sketch_id = through_sketch.id;
+        through_document.sketches.push_back(std::move(through_sketch));
+        auto through = zima::document::PartDocument::create_extrusion_container(
+            through_sketch_id);
+        through.combine_mode = zima::document::CombineMode::Subtract;
+        through.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
+        through_document.history.push_back(through);
+        const auto through_results =
+            kernel.evaluate_history(through_document.kernel_operations());
+        require(through_results.size() == 2 &&
+                    std::abs(through_results.back().volume - 3750.0) < 1e-6,
+                "Through-all subtractive Extrusion did not cross the complete body");
         auto misplaced_extrusion = extrusion_document;
         misplaced_extrusion.history.front().placement.x = 5.0;
         bool misplaced_extrusion_rejected = false;
@@ -1036,6 +1392,22 @@ int main() {
         calculated_session.mark_saved();
         require(!calculated_session.is_dirty(),
                 "Saving regenerated derived data did not update its savepoint");
+
+        auto long_history = zima::document::PartDocument::create_default();
+        for (int index = 0; index < 25; ++index) {
+            auto feature = zima::document::PartDocument::create_box_container();
+            feature.box = {10.0, 10.0, 10.0};
+            feature.placement.x = index * 8.0;
+            long_history.history.push_back(std::move(feature));
+        }
+        const auto long_boundaries =
+            kernel.evaluate_history(long_history.kernel_operations());
+        require(long_boundaries.size() == long_history.history.size() &&
+                    std::abs(long_boundaries.back().volume - 20'200.0) < 1.0e-6 &&
+                    long_boundaries.back().source_fingerprint ==
+                        zima::kernel::history_fingerprint(
+                            long_history.kernel_operations(), 25),
+                "Long Part history lost a boundary, volume, or fingerprint");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

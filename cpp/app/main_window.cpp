@@ -47,6 +47,12 @@ void MainWindow::create_actions() {
     modeling->addAction(tr("Válec…"), this, [this] { show_cylinder_properties(); });
     modeling->addAction(tr("Koule…"), this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Sphere); });
+    modeling->addAction(tr("Kužel…"), this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Cone); });
+    modeling->addAction(tr("Jehlan…"), this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Pyramid); });
+    modeling->addAction(tr("Klín…"), this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Wedge); });
     modeling->addAction(tr("Regenerovat"), this, [this] { regenerate(); });
 }
 
@@ -246,6 +252,9 @@ void MainWindow::show_primitive_properties(
         (feature_kind == zima::document::FeatureKind::Extrusion ||
          feature_kind == zima::document::FeatureKind::Revolution ||
          feature_kind == zima::document::FeatureKind::Sphere ||
+         feature_kind == zima::document::FeatureKind::Cone ||
+         feature_kind == zima::document::FeatureKind::Pyramid ||
+         feature_kind == zima::document::FeatureKind::Wedge ||
          feature_kind == zima::document::FeatureKind::Fillet ||
          feature_kind == zima::document::FeatureKind::Chamfer)) return;
     const auto* edited = container_id.empty()
@@ -263,6 +272,12 @@ void MainWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_cylinder_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
+        : feature_kind == zima::document::FeatureKind::Cone
+            ? zima::document::PartDocument::create_cone_container()
+        : feature_kind == zima::document::FeatureKind::Pyramid
+            ? zima::document::PartDocument::create_pyramid_container()
+        : feature_kind == zima::document::FeatureKind::Wedge
+            ? zima::document::PartDocument::create_wedge_container()
             : zima::document::PartDocument::create_box_container();
     const bool allow_subtract = !document.history.empty() &&
         !(edit_mode && document.history.front().id == initial.id);

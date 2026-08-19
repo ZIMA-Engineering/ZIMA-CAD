@@ -21,6 +21,8 @@ namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::app {
 
+class PrimitivePropertiesDialog;
+
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
     AssemblyWorkspaceWindow();
@@ -40,6 +42,12 @@ private:
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* sphere_action_{};
+    QAction* cone_action_{};
+    QAction* pyramid_action_{};
+    QAction* wedge_action_{};
+    QAction* construction_point_action_{};
+    QAction* construction_axis_action_{};
+    QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
     QAction* revolution_action_{};
     QAction* fillet_action_{};
@@ -84,6 +92,8 @@ private:
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
     std::optional<zima::document::FeatureKind> edge_treatment_selection_;
+    std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
+    PrimitivePropertiesDialog* extrusion_target_dialog_{};
     std::string active_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
@@ -139,6 +149,8 @@ private:
     void start_plane_angle_mate();
     void start_edge_treatment(zima::document::FeatureKind kind);
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] bool finish_edge_treatment_selection();
+    void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] std::optional<zima::assembly::MateReference>
         local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
@@ -150,6 +162,8 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void show_construction_properties(
+        zima::document::ConstructionKind kind, const std::string& object_id = {});
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);

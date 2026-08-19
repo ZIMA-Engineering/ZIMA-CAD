@@ -23,6 +23,15 @@ public:
         bool allow_subtract,
         CommitCallback commit,
         QWidget* parent);
+    void set_extrusion_target(
+        zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
+        zima::kernel::Vec3 normal);
+    void set_extrusion_surface_target(
+        zima::kernel::FaceReference reference,
+        std::vector<zima::kernel::Vec3> triangles);
+    void set_extrusion_target_request(std::function<void()> callback);
+    void set_preview_callback(
+        std::function<void(const zima::document::HistoryContainer&)> callback);
 
 protected:
     bool submit() override;
@@ -36,13 +45,21 @@ private:
     QDoubleSpinBox* width_{};
     QDoubleSpinBox* height_{};
     QDoubleSpinBox* radius_{};
+    QDoubleSpinBox* top_radius_{};
+    QDoubleSpinBox* top_offset_{};
     QComboBox* extrusion_direction_{};
+    QComboBox* extrusion_extent_{};
+    QLabel* extrusion_target_{};
+    std::function<void()> extrusion_target_request_;
+    std::function<void(const zima::document::HistoryContainer&)> preview_;
     QComboBox* revolution_axis_{};
     QDoubleSpinBox* angle_{};
     QDoubleSpinBox* treatment_size_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};
+    [[nodiscard]] zima::document::HistoryContainer values() const;
+    void notify_preview();
 };
 
 }  // namespace zima::app

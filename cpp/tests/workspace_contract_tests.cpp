@@ -18,6 +18,12 @@ int main() {
         zima::kernel::OcctKernel kernel;
         auto part = zima::document::PartDocument::create_default();
         part.history.push_back(zima::document::PartDocument::create_box_container());
+        part.constructions.push_back(zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point));
+        part.constructions.push_back(zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Axis));
+        part.constructions.push_back(zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane));
         auto part_calculation = kernel.evaluate_history(part.kernel_operations());
         auto assembly = zima::assembly::AssemblyDocument::create_default();
         const std::string part_id = part.document_id;
@@ -41,6 +47,17 @@ int main() {
             ->session.document().find_occurrence(occurrence_id);
         require(inserted != nullptr && inserted->source_document_id == part_id,
                 "Workspace did not insert the authoritative open Part");
+        require(inserted->calculated_source.mesh.points.size() >= 1 &&
+                    inserted->calculated_source.mesh.axes.size() >= 1 &&
+                    std::any_of(
+                        inserted->calculated_source.mesh.original_references
+                            .triangle_references.begin(),
+                        inserted->calculated_source.mesh.original_references
+                            .triangle_references.end(),
+                        [](const auto& reference) {
+                            return reference.semantic_key == "plane";
+                        }),
+                "Part construction references were not captured by Assembly insertion");
         const double old_volume = inserted->calculated_source.volume;
         auto changed_part = workspace.open_part(part_id)->session.document();
         changed_part.history.front().box.length *= 2.0;

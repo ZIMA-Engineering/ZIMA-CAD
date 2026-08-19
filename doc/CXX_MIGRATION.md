@@ -206,6 +206,51 @@ Přičíst/Odečíst a placement. Koule vlastní persistovanou analytickou ploch
 nepoužívá topologii výsledného OCCT tělesa. Výpočet probíhá jen při OK nebo
 regeneraci a Part formát 6 ukládá poloměr, umístění i viewer packet.
 
+Kužel i komolý kužel používají společný kontejner a dialog s dolním poloměrem,
+horním poloměrem a výškou. Horní poloměr může být nulový pro skutečnou špičku;
+oba poloměry současně nulové jsou neplatné. Persistované reference vlastní
+plochy `z_min`, volitelnou `z_max`, plášť `side`, původní hrany/body a osu.
+Aktuální Part formát 11 ukládá parametry, placement i vypočtený viewer packet.
+
+Jehlan a klín dokončují základní sadu objemových primitiv. Oba používají
+stejný interní Properties dialog, historii, placement a explicitní výpočet při
+OK nebo regeneraci. Jehlan ukládá délku, šířku a výšku; klín navíc polohu horní
+hrany. Jejich původní plochy, hrany, body a osy jsou persistované ZIMA viewer
+reference, takže výběr ani pozdější editace neprocházejí živou OCCT topologii.
+
+Konstrukční bod, osa a rovina jsou samostatné persistované ZIMA objekty mimo
+OCCT historii tělesa. Bod ukládá polohu, osa polohu a směr, rovina polohu,
+normálu a zobrazovací velikost. Jejich tvorba i editace používá stejné interní
+Properties okno s OK/Cancel a viewer sestavuje jejich body, osy a skrytou
+výběrovou plochu přímo z dokumentu. Při vložení nebo explicitní regeneraci
+sestavy se tyto reference přibalí k poslednímu vypočtenému výsledku Partu.
+
+Zaoblení a sražení nyní persistují uspořádaný seznam původních hran namísto
+jediné hrany. LMB postupně přidává hrany ze společného viewer pickeru a krátké
+MMB dokončí výběr a otevře Properties; OCCT pak všechny hrany zpracuje v jedné
+operaci. Regresní test pokrývá také 25prvkovou historii, všechny její hranice,
+výsledný objem a fingerprint posledního výpočtu.
+
+Vytažení má vedle číselné délky také rovinné **Až k ploše/rovině** a pro
+odečítání **Skrz vše**. Až k ukládá stabilní `FaceReference` i zmrazený počátek
+a normálu podpůrné roviny; při regeneraci ověří, že běžná cílová plocha stále
+existuje na předchozí hranici historie. Datumová rovina je čistý ZIMA objekt.
+Azurový drát se při změně délky, směru, rozsahu nebo cíle skládá přímo ze
+vzorkovaných hran skici a analytického průsečíku s rovinou, bez OCCT. Teprve OK
+nebo regenerace vytvoří přesah a ořízne jej OCCT nekonečnou podpůrnou rovinou.
+Skrz vše vytvoří oboustranný odečítací nástroj a je odmítnuto pro operaci
+Přičíst. Testy pokrývají kolmou i nakloněnou cílovou rovinu, viewer náhled,
+uložení reference a otvor procházející celým tělesem.
+
+Stejný rozsah **Až k ploše** přijímá také obecnou zakřivenou plochu. Dokument
+ukládá stabilní původní `FaceReference` a trojúhelníky této jediné plochy.
+Azurový náhled protíná každý vzorkovaný paprsek profilu s persistovanými
+trojúhelníky a nekoliduje proto s hranicí OCCT. Při OK/regeneraci se reference
+ověří na skutečné vstupní hranici historie, dohledá se přesná OCCT plocha a
+přesah vytažení se ořízne jejím povrchem. Není zde zvláštní eliptická nebo
+spline výjimka: regresní sada používá kouli, plochu vytažené elipsy i plochu
+vytažené uzavřené B-spline a ověřuje také uložení triangulace.
+
 První Assembly datový řez zavádí `AssemblyDocument`, bezprostředně vlastněné
 `PartOccurrence` a samostatnou `InstancePath`. Každá komponenta drží stabilní
 occurrence ID, identitu a cestu zdrojového Partu, vlastní umístění a poslední

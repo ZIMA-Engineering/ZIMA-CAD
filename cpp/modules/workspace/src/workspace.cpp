@@ -6,6 +6,33 @@
 #include <unordered_set>
 
 namespace zima::workspace {
+namespace {
+
+void append_mesh(zima::kernel::ViewerMesh& target,
+                 const zima::kernel::ViewerMesh& source) {
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    auto& references = target.original_references;
+    const auto offset = static_cast<std::uint32_t>(references.vertices.size());
+    references.vertices.insert(references.vertices.end(),
+        source.original_references.vertices.begin(),
+        source.original_references.vertices.end());
+    for (const auto index : source.original_references.triangles) {
+        references.triangles.push_back(offset + index);
+    }
+    references.triangle_references.insert(references.triangle_references.end(),
+        source.original_references.triangle_references.begin(),
+        source.original_references.triangle_references.end());
+}
+
+zima::kernel::BodyResult part_result(const PartState& part) {
+    auto result = part.session.calculated_boundaries().back();
+    append_mesh(result.mesh, part.session.document().construction_viewer_mesh());
+    return result;
+}
+
+}  // namespace
 
 const std::string& Workspace::id_of(const DocumentState& state) {
     return std::visit([](const auto& document) -> const std::string& {
@@ -261,7 +288,7 @@ std::string Workspace::insert_open_part(
     auto next = assembly->session.document();
     auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
         std::move(occurrence_name), part_document_id, part->path,
-        calculated.back());
+        part_result(*part));
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -347,7 +374,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
             throw std::runtime_error(
                 "An open Assembly dependency has no calculated Part result");
         }
-        occurrence.calculated_source = calculated.back();
+        occurrence.calculated_source = part_result(*part);
         occurrence.source_path = part->path;
     }
     recursion_stack.pop_back();

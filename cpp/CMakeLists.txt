@@ -54,6 +54,7 @@ target_link_libraries(zima_kernel_occt
     PUBLIC zima_kernel_api
     PRIVATE TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo
             TKTopAlgo TKPrim TKBO TKBool TKMesh)
+target_link_libraries(zima_kernel_occt PRIVATE TKOffset)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
 target_link_libraries(zima_kernel_occt PRIVATE
     TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
@@ -87,6 +88,7 @@ target_link_libraries(zima-cad-cpp PRIVATE
 add_executable(zima-cad-workspace-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
+    app/construction_properties_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
@@ -104,6 +106,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
+        app/construction_properties_dialog.cpp
         app/component_properties_dialog.cpp app/mate_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)

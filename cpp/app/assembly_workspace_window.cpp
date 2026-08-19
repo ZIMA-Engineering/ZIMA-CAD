@@ -2,6 +2,7 @@
 #include "component_properties_dialog.hpp"
 #include "mate_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "construction_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
 #include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
@@ -98,6 +99,18 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { show_primitive_properties(zima::document::FeatureKind::Cylinder); });
     sphere_action_ = modeling->addAction(tr("Koule…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Sphere); });
+    cone_action_ = modeling->addAction(tr("Kužel…"), this,
+        [this] { show_primitive_properties(zima::document::FeatureKind::Cone); });
+    pyramid_action_ = modeling->addAction(tr("Jehlan…"), this,
+        [this] { show_primitive_properties(zima::document::FeatureKind::Pyramid); });
+    wedge_action_ = modeling->addAction(tr("Klín…"), this,
+        [this] { show_primitive_properties(zima::document::FeatureKind::Wedge); });
+    construction_point_action_ = modeling->addAction(tr("Konstrukční bod…"), this,
+        [this] { show_construction_properties(zima::document::ConstructionKind::Point); });
+    construction_axis_action_ = modeling->addAction(tr("Konstrukční osa…"), this,
+        [this] { show_construction_properties(zima::document::ConstructionKind::Axis); });
+    construction_plane_action_ = modeling->addAction(tr("Konstrukční rovina…"), this,
+        [this] { show_construction_properties(zima::document::ConstructionKind::Plane); });
     extrusion_action_ = modeling->addAction(tr("Vytažení…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Extrusion); });
     revolution_action_ = modeling->addAction(tr("Rotace…"), this,
@@ -203,6 +216,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if (extrusion_target_dialog_ != nullptr) {
+            accept_extrusion_target(candidate);
+            return;
+        }
         if (edge_treatment_selection_) {
             accept_edge_treatment(candidate);
             return;
@@ -365,7 +382,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_short_middle_click_callback([this] {
-        return finish_sketch_bspline();
+        return finish_edge_treatment_selection() || finish_sketch_bspline();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -456,9 +473,21 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_fix_point_action_->setEnabled(false);
                 return;
             }
+            if (item->data(0, Qt::UserRole + 3).toString() == "part-construction") {
+                const auto* part = workspace_.open_part(workspace_.active_document_id());
+                const auto* object = part == nullptr ? nullptr
+                    : part->session.document().find_construction(
+                        item->data(0, Qt::UserRole).toString().toStdString());
+                if (object != nullptr) show_construction_properties(
+                    object->kind, object->id);
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 viewer_->confirm_container(
                     item->data(0, Qt::UserRole).toString().toStdString());
+            } else if (item->data(0, Qt::UserRole + 3).toString() ==
+                       "part-construction") {
+                return;
             } else {
                 viewer_->confirm_occurrence(
                     item->data(0, Qt::UserRole + 1).toString().toStdString());
@@ -521,6 +550,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* container = part == nullptr
                     ? nullptr : part->session.document().find_container(id);
                 if (container != nullptr) show_primitive_properties(container->feature_kind, id);
+            } else if (item->data(0, Qt::UserRole + 3).toString() ==
+                       "part-construction") {
+                const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
+                const auto* part = workspace_.open_part(workspace_.active_document_id());
+                const auto* object = part == nullptr
+                    ? nullptr : part->session.document().find_construction(id);
+                if (object != nullptr) show_construction_properties(object->kind, id);
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
                 show_sketch_properties(
                     item->data(0, Qt::UserRole).toString().toStdString());
@@ -716,10 +752,11 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
     if (part == nullptr || workspace_.displayed_document_id() !=
             workspace_.active_document_id() || part->session.document().history.empty()) return;
     edge_treatment_selection_ = kind;
+    pending_edge_treatment_edges_.clear();
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
     state_->setText(kind == zima::document::FeatureKind::Fillet
-        ? tr("Vyberte původní hranu pro zaoblení.")
-        : tr("Vyberte původní hranu pro sražení."));
+        ? tr("Vyberte jednu nebo více původních hran. Krátké MMB výběr dokončí.")
+        : tr("Vyberte jednu nebo více původních hran. Krátké MMB výběr dokončí."));
 }
 
 void AssemblyWorkspaceWindow::accept_edge_treatment(
@@ -732,14 +769,32 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
         state_->setText(tr("Vyberte hranu původního solidu aktivního Partu."));
         return;
     }
+    const zima::kernel::EdgeReference edge{candidate.owner_id, candidate.semantic_key, {}};
+    if (std::find(pending_edge_treatment_edges_.begin(),
+                  pending_edge_treatment_edges_.end(), edge) ==
+        pending_edge_treatment_edges_.end()) {
+        pending_edge_treatment_edges_.push_back(edge);
+    }
+    state_->setText(tr("Vybrané hrany: %1. Krátké MMB otevře vlastnosti.")
+        .arg(pending_edge_treatment_edges_.size()));
+}
+
+bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
+    if (!edge_treatment_selection_) return false;
+    if (pending_edge_treatment_edges_.empty()) {
+        state_->setText(tr("Nejprve vyberte alespoň jednu hranu."));
+        return true;
+    }
     const auto kind = *edge_treatment_selection_;
     edge_treatment_selection_.reset();
-    const zima::kernel::EdgeReference edge{candidate.owner_id, candidate.semantic_key, {}};
     auto initial = kind == zima::document::FeatureKind::Fillet
-        ? zima::document::PartDocument::create_fillet_container(edge)
-        : zima::document::PartDocument::create_chamfer_container(edge);
+        ? zima::document::PartDocument::create_fillet_container(
+            pending_edge_treatment_edges_)
+        : zima::document::PartDocument::create_chamfer_container(
+            pending_edge_treatment_edges_);
+    pending_edge_treatment_edges_.clear();
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    if (part == nullptr) return true;
     const std::string part_id = part->session.document().document_id;
     auto* dialog = new PrimitivePropertiesDialog(
         initial, false, false,
@@ -758,6 +813,92 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
         refresh_scene();
     });
     dialog->show();
+    return true;
+}
+
+void AssemblyWorkspaceWindow::accept_extrusion_target(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (extrusion_target_dialog_ == nullptr ||
+        candidate.kind != zima::viewer::CandidateKind::Face ||
+        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
+        !candidate.instance_path.empty()) {
+        state_->setText(tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
+        return;
+    }
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 normal;
+    bool resolved = false;
+    std::vector<zima::kernel::Vec3> surface_triangles;
+    if (const auto* construction =
+            part->session.document().find_construction(candidate.owner_id);
+        construction != nullptr &&
+        construction->kind == zima::document::ConstructionKind::Plane) {
+        origin = construction->origin;
+        normal = construction->direction;
+        resolved = true;
+    } else if (!part->session.calculated_boundaries().empty()) {
+        const auto& references = part->session.calculated_boundaries().back()
+            .mesh.original_references;
+        for (std::size_t triangle = 0;
+             triangle < references.triangle_references.size(); ++triangle) {
+            const auto& reference = references.triangle_references[triangle];
+            if (reference.owner_id != candidate.owner_id ||
+                reference.semantic_key != candidate.semantic_key) continue;
+            const auto first = references.vertices[
+                references.triangles[triangle * 3]];
+            const auto second = references.vertices[
+                references.triangles[triangle * 3 + 1]];
+            const auto third = references.vertices[
+                references.triangles[triangle * 3 + 2]];
+            const zima::kernel::Vec3 a{second.x - first.x, second.y - first.y,
+                                       second.z - first.z};
+            const zima::kernel::Vec3 b{third.x - first.x, third.y - first.y,
+                                       third.z - first.z};
+            normal = {a.y * b.z - a.z * b.y,
+                      a.z * b.x - a.x * b.z,
+                      a.x * b.y - a.y * b.x};
+            const double length = std::sqrt(normal.x * normal.x +
+                                            normal.y * normal.y +
+                                            normal.z * normal.z);
+            if (length <= 1e-12) continue;
+            normal = {normal.x / length, normal.y / length, normal.z / length};
+            origin = first;
+            resolved = true;
+            for (std::size_t other = 0;
+                 other < references.triangle_references.size(); ++other) {
+                if (references.triangle_references[other] != reference) continue;
+                for (int corner = 0; corner < 3; ++corner) {
+                    const auto& point = references.vertices[
+                        references.triangles[other * 3 + corner]];
+                    surface_triangles.push_back(point);
+                    const double distance = (point.x - origin.x) * normal.x +
+                        (point.y - origin.y) * normal.y +
+                        (point.z - origin.z) * normal.z;
+                    if (std::abs(distance) > 1e-6) resolved = false;
+                }
+            }
+            break;
+        }
+    }
+    if (!resolved && !surface_triangles.empty()) {
+        extrusion_target_dialog_->set_extrusion_surface_target(
+            {candidate.owner_id, candidate.semantic_key, {}},
+            std::move(surface_triangles));
+        extrusion_target_dialog_ = nullptr;
+        state_->setText(tr("Zakřivená cílová plocha vytažení byla nastavena."));
+        return;
+    }
+    if (!resolved) {
+        state_->setText(tr("Vybraná plocha není rovinná."));
+        return;
+    }
+    extrusion_target_dialog_->set_extrusion_target(
+        {candidate.owner_id, candidate.semantic_key, {}}, origin, normal);
+    extrusion_target_dialog_ = nullptr;
+    state_->setText(tr("Cílová plocha vytažení byla nastavena."));
 }
 
 std::optional<zima::assembly::MateReference>
@@ -1191,6 +1332,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_cylinder_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
+        : feature_kind == zima::document::FeatureKind::Cone
+            ? zima::document::PartDocument::create_cone_container()
+        : feature_kind == zima::document::FeatureKind::Pyramid
+            ? zima::document::PartDocument::create_pyramid_container()
+        : feature_kind == zima::document::FeatureKind::Wedge
+            ? zima::document::PartDocument::create_wedge_container()
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(active_sketch_id_)
         : feature_kind == zima::document::FeatureKind::Revolution
@@ -1215,6 +1362,25 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             auto calculated = calculate_part(next);
             target_part->session.commit(std::move(next), std::move(calculated));
         }, this);
+    if (feature_kind == zima::document::FeatureKind::Extrusion) {
+        dialog->set_extrusion_target_request([this, dialog] {
+            extrusion_target_dialog_ = dialog;
+            viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+            state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
+        });
+        dialog->set_preview_callback([this, part_id](const auto& preview) {
+            const auto* preview_part = workspace_.open_part(part_id);
+            if (preview_part == nullptr) return;
+            try {
+                viewer_->set_transient_edges(
+                    preview_part->session.document().extrusion_preview_edges(preview));
+                state_->setText(tr("Azurový drát zobrazuje náhled vytažení."));
+            } catch (const std::exception& error) {
+                viewer_->set_transient_edges({});
+                state_->setText(QString::fromUtf8(error.what()));
+            }
+        });
+    }
     properties_dialog_ = dialog;
     if (edit_index) {
         part_rollback_ = PartRollbackContext{
@@ -1223,7 +1389,48 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
+        extrusion_target_dialog_ = nullptr;
+        viewer_->set_transient_edges({});
         part_rollback_.reset();
+        refresh_tabs();
+        refresh_scene();
+    });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::show_construction_properties(
+    zima::document::ConstructionKind kind, const std::string& object_id) {
+    if (properties_dialog_ != nullptr) return;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto* edited = object_id.empty() ? nullptr
+        : part->session.document().find_construction(object_id);
+    if (!object_id.empty() && (edited == nullptr || edited->kind != kind)) return;
+    const bool edit_mode = edited != nullptr;
+    const auto initial = edit_mode ? *edited
+        : zima::document::PartDocument::create_construction(kind);
+    const std::string part_id = part->session.document().document_id;
+    auto* dialog = new ConstructionPropertiesDialog(
+        initial, edit_mode,
+        [this, part_id, edit_mode](zima::document::ConstructionObject committed) {
+            auto* target_part = workspace_.open_part(part_id);
+            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
+            auto next = target_part->session.document();
+            if (edit_mode) {
+                auto* target = next.find_construction(committed.id);
+                if (target == nullptr) {
+                    throw std::runtime_error("Construction object no longer exists");
+                }
+                *target = std::move(committed);
+            } else {
+                next.constructions.push_back(std::move(committed));
+            }
+            target_part->session.commit(
+                std::move(next), target_part->session.calculated_boundaries());
+        }, this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this] {
+        properties_dialog_ = nullptr;
         refresh_tabs();
         refresh_scene();
     });
@@ -2608,6 +2815,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
             item->setExpanded(true);
         }
+        for (const auto& object : document.constructions) {
+            auto* item = new QTreeWidgetItem(root, {QString::fromStdString(object.name)});
+            item->setData(0, Qt::UserRole, QString::fromStdString(object.id));
+            item->setData(0, Qt::UserRole + 3, "part-construction");
+        }
         root->setExpanded(true);
         viewer_->set_selection_contract(sketch_coincident_active_
             ? std::vector{zima::viewer::CandidateKind::SketchPoint}
@@ -2632,6 +2844,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             for (const auto& sketch : document.sketches) {
                 append_mesh(display, sketch.viewer_mesh());
             }
+            append_mesh(display, document.construction_viewer_mesh());
             viewer_->set_mesh(std::move(display), !preserve_view_on_refresh_);
             preserve_view_on_refresh_ = false;
         }
@@ -2645,6 +2858,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
         sphere_action_->setEnabled(true);
+        cone_action_->setEnabled(true);
+        pyramid_action_->setEnabled(true);
+        wedge_action_->setEnabled(true);
+        construction_point_action_->setEnabled(true);
+        construction_axis_action_->setEnabled(true);
+        construction_plane_action_->setEnabled(true);
         extrusion_action_->setEnabled(!active_sketch_id_.empty());
         revolution_action_->setEnabled(!active_sketch_id_.empty());
         sketch_action_->setEnabled(true);
@@ -2730,6 +2949,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
     sphere_action_->setEnabled(active_part != nullptr);
+    cone_action_->setEnabled(active_part != nullptr);
+    pyramid_action_->setEnabled(active_part != nullptr);
+    wedge_action_->setEnabled(active_part != nullptr);
+    construction_point_action_->setEnabled(active_part != nullptr);
+    construction_axis_action_->setEnabled(active_part != nullptr);
+    construction_plane_action_->setEnabled(active_part != nullptr);
     extrusion_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
     revolution_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
     sketch_action_->setEnabled(active_part != nullptr);
