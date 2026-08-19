@@ -292,9 +292,22 @@ int main(int argc, char* argv[]) {
         angle_dialog->show();
         application.processEvents();
         auto* angle_value = angle_dialog->findChild<QDoubleSpinBox*>("mateAngle");
+        auto* mate_lower_enabled =
+            angle_dialog->findChild<QCheckBox*>("mateLowerEnabled");
+        auto* mate_upper_enabled =
+            angle_dialog->findChild<QCheckBox*>("mateUpperEnabled");
+        auto* mate_lower = angle_dialog->findChild<QDoubleSpinBox*>("mateLowerLimit");
+        auto* mate_upper = angle_dialog->findChild<QDoubleSpinBox*>("mateUpperLimit");
         require(angle_value != nullptr && angle_value->isEnabled() &&
-                    angle_value->suffix().contains("°"),
+                    angle_value->suffix().contains("°") && mate_lower_enabled &&
+                    mate_upper_enabled && mate_lower && mate_upper,
                 "Axis angle mate does not expose a degree-valued editor");
+        angle_value->setValue(60.0);
+        mate_lower_enabled->setChecked(true);
+        mate_upper_enabled->setChecked(true);
+        application.processEvents();
+        require(mate_lower->value() == 0.0 && mate_upper->value() == 60.0,
+                "New Assembly mate limits did not default to zero and current value");
         angle_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
         auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
             "Úhel ploch", zima::assembly::MateKind::PlaneAngle,

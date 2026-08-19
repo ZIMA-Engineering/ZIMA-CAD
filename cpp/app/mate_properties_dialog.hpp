@@ -30,6 +30,10 @@ private:
     QLineEdit* name_{};
     QDoubleSpinBox* offset_{};
     QDoubleSpinBox* angle_{};
+    QCheckBox* lower_enabled_{};
+    QDoubleSpinBox* lower_{};
+    QCheckBox* upper_enabled_{};
+    QDoubleSpinBox* upper_{};
     QCheckBox* flipped_{};
     QLabel* error_{};
 };

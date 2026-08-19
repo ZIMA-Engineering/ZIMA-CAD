@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -95,6 +96,8 @@ struct AssemblyMate {
     MateReference prerequisite;
     double offset{};
     double angle_degrees{};
+    std::optional<double> lower_limit;
+    std::optional<double> upper_limit;
     bool flipped{};
     MateStatus status{MateStatus::Uncalculated};
     bool suppressed{};

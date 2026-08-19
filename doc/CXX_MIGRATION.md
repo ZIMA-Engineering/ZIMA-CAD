@@ -280,6 +280,12 @@ takže vazba odebere právě jeden rotační stupeň volnosti a neurčuje svévo
 zbývající natočení. Flip volí doplňkový úhel a hodnota i vypočtená orientace
 přežijí uložení a opakovanou regeneraci.
 
+Hodnotové sestavové vazby mají stejné nezávislé absolutní dolní a horní meze
+jako kóty Sketcheru. Platí pro rovinné odsazení a úhlové vazby; bezhodnotové
+vazby osa–osa a bod–bod je záměrně nenabízejí. Při prvním zapnutí se dolní mez
+předvyplní nulou a horní současnou hodnotou. Obrácené meze nebo hodnota mimo
+rozsah jsou odmítnuty před výpočtem a meze se persistují v Assembly formátu 5.
+
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
 ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní

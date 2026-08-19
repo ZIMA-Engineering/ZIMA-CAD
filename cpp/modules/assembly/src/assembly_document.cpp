@@ -509,14 +509,27 @@ AssemblyMate AssemblyDocument::create_mate(
         throw std::invalid_argument("Assembly mate definition is invalid");
     }
     return {make_id(), std::move(name), kind, std::move(dependent),
-            std::move(prerequisite), offset, 0.0, false,
+            std::move(prerequisite), offset, 0.0, std::nullopt, std::nullopt, false,
             MateStatus::Uncalculated, false};
 }
 
 void AssemblyDocument::add_mate(AssemblyMate mate) {
+    const bool angular = mate.kind == MateKind::AxisAngle ||
+        mate.kind == MateKind::PlaneAngle;
+    const bool value_mate = angular || mate.kind == MateKind::PlaneCoincident;
+    const double value = angular ? mate.angle_degrees : mate.offset;
     if (mate.mate_id.empty() || mate.name.empty() || !std::isfinite(mate.offset) ||
         !std::isfinite(mate.angle_degrees) || mate.angle_degrees < 0.0 ||
         mate.angle_degrees > 180.0 ||
+        (mate.lower_limit && !std::isfinite(*mate.lower_limit)) ||
+        (mate.upper_limit && !std::isfinite(*mate.upper_limit)) ||
+        (!value_mate && (mate.lower_limit || mate.upper_limit)) ||
+        (mate.lower_limit && mate.upper_limit &&
+            *mate.lower_limit > *mate.upper_limit) ||
+        (mate.lower_limit && value < *mate.lower_limit) ||
+        (mate.upper_limit && value > *mate.upper_limit) ||
+        (angular && ((mate.lower_limit && *mate.lower_limit < 0.0) ||
+                     (mate.upper_limit && *mate.upper_limit > 180.0))) ||
         mate.dependent.instance_path.occurrence_ids.empty() ||
         mate.prerequisite.instance_path.occurrence_ids.empty() ||
         mate.dependent.instance_path.occurrence_ids.front() ==
@@ -1236,7 +1249,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 4 ||
+        root.at("format_version").get<int>() != 5 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported C++ Assembly document format");
     }
@@ -1328,6 +1341,12 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         mate.prerequisite = load_reference(source.at("prerequisite"));
         mate.offset = source.at("offset").get<double>();
         mate.angle_degrees = source.at("angle_degrees").get<double>();
+        if (source.contains("lower_limit")) {
+            mate.lower_limit = source.at("lower_limit").get<double>();
+        }
+        if (source.contains("upper_limit")) {
+            mate.upper_limit = source.at("upper_limit").get<double>();
+        }
         mate.flipped = source.at("flipped").get<bool>();
         mate.status = mate_status_from_name(source.at("status").get<std::string>());
         mate.suppressed = source.at("suppressed").get<bool>();
@@ -1385,7 +1404,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
     };
     nlohmann::json mates_json = nlohmann::json::array();
     for (const auto& mate : mates) {
-        mates_json.push_back({
+        nlohmann::json serialized = {
             {"mate_id", mate.mate_id}, {"name", mate.name},
             {"kind", mate_kind_name(mate.kind)},
             {"dependent", serialize_reference(mate.dependent)},
@@ -1394,10 +1413,13 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"flipped", mate.flipped},
             {"status", mate_status_name(mate.status)},
             {"suppressed", mate.suppressed},
-        });
+        };
+        if (mate.lower_limit) serialized["lower_limit"] = *mate.lower_limit;
+        if (mate.upper_limit) serialized["upper_limit"] = *mate.upper_limit;
+        mates_json.push_back(std::move(serialized));
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 4},
+        {"format", "zima-cad-cpp"}, {"format_version", 5},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

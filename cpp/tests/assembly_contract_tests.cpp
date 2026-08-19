@@ -180,6 +180,8 @@ int main() {
              zima::assembly::InstancePath{}.child(first_id),
              "same-source-container", "axis:z"});
         angle_mate.angle_degrees = 60.0;
+        angle_mate.lower_limit = 30.0;
+        angle_mate.upper_limit = 90.0;
         angled_assembly.add_mate(std::move(angle_mate));
         angled_assembly.calculate_mates();
         const auto angled_dependent = angled_assembly.resolve_axis(
@@ -204,6 +206,31 @@ int main() {
                     angled_assembly.components.back().placement.rotation_z ==
                     angled_placement.rotation_z,
                 "Axis angle mate was not idempotent");
+        const auto limited_mate_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-limited-mate-contract.zca.json";
+        angled_assembly.save(limited_mate_path);
+        const auto loaded_limited_mate =
+            zima::assembly::AssemblyDocument::load(limited_mate_path);
+        std::filesystem::remove(limited_mate_path);
+        require(loaded_limited_mate.mates.front().lower_limit == 30.0 &&
+                    loaded_limited_mate.mates.front().upper_limit == 90.0,
+                "Assembly mate absolute limits did not survive save/load");
+        auto invalid_limited_angle = zima::assembly::AssemblyDocument::create_mate(
+            "Neplatný úhel", zima::assembly::MateKind::AxisAngle,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "axis:z"});
+        invalid_limited_angle.angle_degrees = 20.0;
+        invalid_limited_angle.lower_limit = 30.0;
+        bool rejected_outside_limit = false;
+        auto invalid_limited_assembly = loaded;
+        try { invalid_limited_assembly.add_mate(std::move(invalid_limited_angle)); }
+        catch (const std::invalid_argument&) { rejected_outside_limit = true; }
+        require(rejected_outside_limit,
+                "Assembly accepted a mate value outside its absolute limits");
         auto plane_angled_assembly = loaded;
         auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
             "Úhel ploch", zima::assembly::MateKind::PlaneAngle,
