@@ -694,7 +694,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
                               object.origin.z + a * first.z + b * second.z};
         }
         mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
-                               corners[0]}, {object.id, "border", {}}});
+                               corners[0]}, {object.id, "border", {}}, false, true});
         auto& references = mesh.original_references;
         const auto offset = static_cast<std::uint32_t>(references.vertices.size());
         references.vertices.insert(references.vertices.end(), corners.begin(), corners.end());

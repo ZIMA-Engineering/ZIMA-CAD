@@ -60,6 +60,10 @@ struct AxisReference {
 struct ViewerEdge {
     std::vector<Vec3> points;
     EdgeReference reference;
+    bool construction{};
+    // Screen-space helpers (Sketcher and construction planes) are painted as
+    // UI overlays. Calculated body topology stays in the depth-tested GL pass.
+    bool overlay{};
 };
 
 struct ViewerPoint {

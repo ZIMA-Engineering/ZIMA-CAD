@@ -5,6 +5,7 @@
 
 #include <QMainWindow>
 
+#include <filesystem>
 #include <optional>
 #include <array>
 #include <vector>
@@ -47,6 +48,7 @@ private:
 
     zima::workspace::Workspace workspace_;
     zima::kernel::OcctKernel kernel_;
+    std::filesystem::path working_directory_{std::filesystem::current_path()};
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
     zima::viewer::MeshView* viewer_{};
@@ -68,6 +70,8 @@ private:
     QAction* regenerate_document_action_{};
     QAction* regenerate_action_{};
     QAction* save_action_{};
+    QAction* save_as_action_{};
+    QAction* working_directory_action_{};
     QAction* undo_action_{};
     QAction* redo_action_{};
     QAction* fit_view_action_{};
@@ -100,7 +104,11 @@ private:
     QAction* fillet_action_{};
     QAction* chamfer_action_{};
     QAction* sketch_action_{};
+    QAction* sketch_normal_view_action_{};
+    QAction* sketch_point_action_{};
+    QAction* sketch_construction_action_{};
     QAction* sketch_segment_action_{};
+    QAction* sketch_polyline_action_{};
     QAction* sketch_rectangle_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
@@ -122,6 +130,7 @@ private:
     QAction* sketch_ellipse_minor_dimension_action_{};
     QAction* sketch_ellipse_rotation_dimension_action_{};
     QAction* sketch_fix_point_action_{};
+    QAction* finish_sketch_action_{};
     QAction* regenerate_part_action_{};
     QAction* plane_mate_action_{};
     QAction* axis_mate_action_{};
@@ -142,14 +151,18 @@ private:
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     std::string active_sketch_id_;
+    std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
     std::string selected_sketch_arc_id_;
     std::string selected_sketch_ellipse_id_;
     std::string selected_sketch_bspline_id_;
     std::string selected_sketch_point_id_;
+    bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
     bool sketch_segment_active_{};
+    bool sketch_segment_construction_{};
+    bool sketch_polyline_active_{};
     bool sketch_rectangle_active_{};
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
     bool sketch_circle_active_{};
@@ -215,6 +228,9 @@ private:
         local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();
     void save_active_document();
+    void save_active_document_as();
+    void set_working_directory();
+    void show_about();
     void import_file();
     void import_step_into_assembly(const std::filesystem::path& path);
     void export_file();
@@ -226,7 +242,11 @@ private:
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);
-    void start_sketch_segment();
+    void align_active_sketch_view();
+    void finish_active_sketch();
+    void start_sketch_point();
+    void start_sketch_segment(bool construction = false);
+    void start_sketch_polyline();
     void cancel_sketch_segment();
     void start_sketch_rectangle();
     void cancel_sketch_rectangle();
@@ -239,6 +259,9 @@ private:
     void start_sketch_bspline();
     void cancel_sketch_bspline();
     bool finish_sketch_bspline();
+    bool finish_sketch_polyline();
+    bool accept_sketch_point_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_segment_ray(

@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
+#include <QOpenGLVertexArrayObject>
 #include <QPainter>
 #include <QVector3D>
 #include <QVector4D>
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace zima::viewer {
@@ -23,8 +25,9 @@ struct MeshView::Impl {
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
-    QOpenGLBuffer lines{QOpenGLBuffer::IndexBuffer};
-    std::vector<std::uint32_t> line_indices;
+    QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
+    QOpenGLVertexArrayObject vertex_array;
+    std::vector<std::pair<GLint, GLsizei>> line_ranges;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::vector<ViewerCandidate> candidates;
     std::size_t active_candidate{};
@@ -95,6 +98,7 @@ MeshView::MeshView(QWidget* parent)
 MeshView::~MeshView() {
     if (context() != nullptr) {
         makeCurrent();
+        impl_->vertex_array.destroy();
         impl_->vertices.destroy();
         impl_->triangles.destroy();
         impl_->lines.destroy();
@@ -339,10 +343,13 @@ void MeshView::initializeGL() {
         " normalize(vec3(0.35, 0.45, 1.0))));"
         " fragmentColor = vec4(color.rgb * light, color.a); }\n");
     impl_->program.link();
+    impl_->vertex_array.create();
+    impl_->vertex_array.bind();
     impl_->vertices.create();
     impl_->triangles.create();
     impl_->lines.create();
     upload_mesh();
+    impl_->vertex_array.release();
 }
 
 void MeshView::resizeGL(int, int) {}
@@ -350,7 +357,6 @@ void MeshView::resizeGL(int, int) {}
 void MeshView::upload_mesh() {
     if (!isValid() || !impl_->gpu_dirty) return;
     std::vector<QVector3D> normals(impl_->mesh.vertices.size());
-    impl_->line_indices.clear();
     for (std::size_t offset = 0; offset + 2 < impl_->mesh.triangles.size(); offset += 3) {
         const auto a = impl_->mesh.triangles[offset];
         const auto b = impl_->mesh.triangles[offset + 1];
@@ -369,7 +375,6 @@ void MeshView::upload_mesh() {
             normals[b] += normal;
             normals[c] += normal;
         }
-        impl_->line_indices.insert(impl_->line_indices.end(), {a, b, b, c, c, a});
     }
     std::vector<float> vertex_data;
     vertex_data.reserve(impl_->mesh.vertices.size() * 6);
@@ -386,39 +391,60 @@ void MeshView::upload_mesh() {
     impl_->triangles.bind();
     impl_->triangles.allocate(impl_->mesh.triangles.data(),
         static_cast<int>(impl_->mesh.triangles.size() * sizeof(std::uint32_t)));
+
+    std::vector<float> line_data;
+    impl_->line_ranges.clear();
+    for (const auto& edge : impl_->mesh.edges) {
+        if (edge.overlay || edge.points.size() < 2) continue;
+        const auto first = static_cast<GLint>(line_data.size() / 6);
+        const auto count = static_cast<GLsizei>(edge.points.size());
+        impl_->line_ranges.emplace_back(first, count);
+        for (const auto& point : edge.points) {
+            line_data.insert(line_data.end(), {
+                static_cast<float>(point.x), static_cast<float>(point.y),
+                static_cast<float>(point.z), 0.0F, 0.0F, 1.0F});
+        }
+    }
     impl_->lines.bind();
-    impl_->lines.allocate(impl_->line_indices.data(),
-        static_cast<int>(impl_->line_indices.size() * sizeof(std::uint32_t)));
+    impl_->lines.allocate(line_data.data(),
+        static_cast<int>(line_data.size() * sizeof(float)));
     impl_->gpu_dirty = false;
 }
 
 void MeshView::paintGL() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    impl_->vertex_array.bind();
     if (impl_->gpu_dirty) upload_mesh();
-    if (!impl_->program.isLinked()) return;
+    if (!impl_->program.isLinked()) {
+        impl_->vertex_array.release();
+        return;
+    }
     impl_->program.bind();
     const QMatrix4x4 view = impl_->view();
     impl_->program.setUniformValue("mvp",
         impl_->projection(width(), height()) * view);
     impl_->program.setUniformValue("normalMatrix", view.normalMatrix());
-    impl_->vertices.bind();
-    impl_->program.enableAttributeArray(0);
-    impl_->program.setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * sizeof(float));
-    impl_->program.enableAttributeArray(1);
-    impl_->program.setAttributeBuffer(
-        1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
+    const auto bind_attributes = [&](QOpenGLBuffer& buffer) {
+        buffer.bind();
+        impl_->program.enableAttributeArray(0);
+        impl_->program.setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * sizeof(float));
+        impl_->program.enableAttributeArray(1);
+        impl_->program.setAttributeBuffer(
+            1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
+    };
 
     const auto draw_triangles = [&] {
+        bind_attributes(impl_->vertices);
         impl_->triangles.bind();
         glDrawElements(GL_TRIANGLES,
             static_cast<GLsizei>(impl_->mesh.triangles.size()),
             GL_UNSIGNED_INT, nullptr);
     };
     const auto draw_lines = [&] {
-        impl_->lines.bind();
-        glDrawElements(GL_LINES,
-            static_cast<GLsizei>(impl_->line_indices.size()),
-            GL_UNSIGNED_INT, nullptr);
+        bind_attributes(impl_->lines);
+        for (const auto& [first, count] : impl_->line_ranges) {
+            glDrawArrays(GL_LINE_STRIP, first, count);
+        }
     };
     const auto depth_prepass = [&] {
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -482,6 +508,7 @@ void MeshView::paintGL() {
                         highlighted->kind == CandidateKind::Face)) {
         glDisable(GL_DEPTH_TEST);
         impl_->program.setUniformValue("color", highlight_color);
+        bind_attributes(impl_->vertices);
         impl_->triangles.bind();
         for (std::size_t triangle = 0;
              triangle < impl_->mesh.triangle_references.size(); ++triangle) {
@@ -502,6 +529,7 @@ void MeshView::paintGL() {
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
+    impl_->vertex_array.release();
 
     const bool axes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
@@ -543,13 +571,15 @@ void MeshView::paintGL() {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
         if (sketch_geometry_visible) {
-            painter.setPen(QPen(QColor(220, 220, 220), 1.8));
             for (const auto& edge : impl_->mesh.edges) {
                 if (!edge.reference.semantic_key.starts_with("segment:") &&
                     !edge.reference.semantic_key.starts_with("circle:") &&
                     !edge.reference.semantic_key.starts_with("arc:") &&
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
                     !edge.reference.semantic_key.starts_with("bspline:")) continue;
+                painter.setPen(edge.construction
+                    ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
+                    : QPen(QColor(220, 220, 220), 1.8));
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }

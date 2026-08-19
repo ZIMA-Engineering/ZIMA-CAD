@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPalette>
+#include <QOpenGLWidget>
 #include <QPushButton>
 #include <QPixmap>
 #include <QRadioButton>
@@ -31,6 +32,24 @@ bool verify(bool condition, const char* message) {
     return condition;
 }
 
+bool contains_rendered_geometry(const QImage& image) {
+    if (image.isNull() || image.width() < 2 || image.height() < 2) return false;
+    const QColor background = image.pixelColor(0, 0);
+    std::size_t sampled{};
+    std::size_t changed{};
+    for (int y = 0; y < image.height(); y += 4) {
+        for (int x = 0; x < image.width(); x += 4) {
+            const QColor pixel = image.pixelColor(x, y);
+            const int distance = std::abs(pixel.red() - background.red()) +
+                std::abs(pixel.green() - background.green()) +
+                std::abs(pixel.blue() - background.blue());
+            ++sampled;
+            if (distance > 24) ++changed;
+        }
+    }
+    return sampled != 0 && changed * 20 > sampled;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
@@ -44,17 +63,35 @@ int verify_startup_contract(
     auto* view_toolbar = window.findChild<QToolBar*>("viewToolbar");
     auto* tools_toolbar = window.findChild<QToolBar*>("toolsToolbar");
     auto* box = window.findChild<QAction*>("boxAction");
+    auto* sketch = window.findChild<QAction*>("sketchAction");
+    auto* sketch_normal = window.findChild<QAction*>("sketchNormalViewAction");
+    auto* sketch_point = window.findChild<QAction*>("sketchPointAction");
+    auto* sketch_construction = window.findChild<QAction*>("sketchConstructionAction");
+    auto* sketch_segment = window.findChild<QAction*>("sketchSegmentAction");
+    auto* sketch_polyline = window.findChild<QAction*>("sketchPolylineAction");
+    auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
+    auto* extrusion = window.findChild<QAction*>("extrusionAction");
+    auto* about = window.findChild<QAction*>("aboutAction");
+    auto* save_as = window.findChild<QAction*>("saveDocumentAsAction");
+    auto* working_directory = window.findChild<QAction*>("workingDirectoryAction");
     auto* new_document = window.findChild<QAction*>("newDocumentAction");
     if (!verify(tabs != nullptr && tree != nullptr, "document navigation is missing") ||
         !verify(splitter != nullptr && main_toolbar != nullptr &&
                     view_toolbar != nullptr && tools_toolbar != nullptr,
                 "Python-compatible workspace shell is missing") ||
-        !verify(box != nullptr && new_document != nullptr,
+        !verify(box != nullptr && sketch != nullptr && sketch_normal != nullptr &&
+                    sketch_point != nullptr && sketch_construction != nullptr &&
+                    sketch_segment != nullptr && sketch_polyline != nullptr &&
+                    finish_sketch != nullptr &&
+                    extrusion != nullptr && about != nullptr && save_as != nullptr &&
+                    working_directory != nullptr && new_document != nullptr,
                 "primary actions are missing") ||
         !verify(tabs->count() == 0 && !splitter->isVisible() &&
                     window.windowTitle() == QStringLiteral("ZIMA-CAD — Bez dokumentu"),
                 "application must start without a document") ||
-        !verify(main_toolbar->isVisible(), "main toolbar must remain available")) {
+        !verify(main_toolbar->isVisible() && !save_as->isEnabled() &&
+                    working_directory->isEnabled(),
+                "startup file-command state is invalid")) {
         return 1;
     }
 
@@ -92,7 +129,8 @@ int verify_startup_contract(
                     tabs->tabText(0) == part_name + QStringLiteral(".prtz"),
                 "new Part must open in the common document tabs") ||
         !verify(splitter->isVisible() && box->isEnabled() && tools_toolbar->isVisible(),
-                "Part workspace and Modeling commands must become visible")) {
+                "Part workspace and Modeling commands must become visible") ||
+        !verify(save_as->isEnabled(), "Save As must be available for an open document")) {
         return 1;
     }
 
@@ -143,6 +181,59 @@ int verify_startup_contract(
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {
+        return 1;
+    }
+    if (!part_capture_path.isEmpty()) {
+        QOpenGLWidget* model_viewer{};
+        for (auto* child : window.findChildren<QObject*>()) {
+            if (child->objectName() == QStringLiteral("modelWorkspace")) {
+                model_viewer = dynamic_cast<QOpenGLWidget*>(child);
+                break;
+            }
+        }
+        if (!verify(model_viewer != nullptr, "model viewer widget is missing")) {
+            return 1;
+        }
+        const QImage framebuffer = model_viewer->grabFramebuffer();
+        if (!verify(!framebuffer.isNull(), "native Qt viewer framebuffer is null") ||
+            !verify(contains_rendered_geometry(framebuffer),
+                    "native Qt viewer framebuffer contains no body geometry") ||
+            !verify(framebuffer.save(
+                        part_capture_path + QStringLiteral(".viewer.png")),
+                    "native Qt viewer framebuffer save failed")) {
+            return 1;
+        }
+    }
+
+    sketch->trigger();
+    application.processEvents();
+    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    buttons = properties == nullptr
+        ? nullptr : properties->findChild<QDialogButtonBox*>();
+    if (!verify(buttons != nullptr,
+                "Sketch must use the shared in-application Properties window")) {
+        return 1;
+    }
+    buttons->button(QDialogButtonBox::Ok)->click();
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    if (!verify(tree->topLevelItem(0)->childCount() == 2,
+                "confirming Sketch must add it to the Part tree") ||
+        !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
+                    sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
+                    sketch_polyline->isEnabled() &&
+                    finish_sketch->isEnabled(),
+                "active Sketch is missing its basic editing command set") ||
+        !verify(tools_toolbar->actions().contains(finish_sketch),
+                "Finish Sketch must be exposed in the shared right toolbar")) {
+        return 1;
+    }
+    finish_sketch->trigger();
+    application.processEvents();
+    if (!verify(!tools_toolbar->actions().contains(finish_sketch) &&
+                    !sketch_segment->isEnabled() && extrusion->isEnabled(),
+                "finishing Sketch must leave editing while retaining its model source")) {
         return 1;
     }
 
@@ -211,6 +302,18 @@ int verify_startup_contract(
                 "native Qt Drawing capture failed")) {
         return 1;
     }
+    about->trigger();
+    application.processEvents();
+    auto* about_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    auto* about_buttons = about_dialog == nullptr
+        ? nullptr : about_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(about_buttons != nullptr &&
+                    about_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "About must use the shared in-application SubWindow contract")) {
+        return 1;
+    }
+    about_buttons->button(QDialogButtonBox::Ok)->click();
+    application.processEvents();
     return 0;
 }
 
@@ -218,8 +321,11 @@ int verify_startup_contract(
 
 int main(int argc, char* argv[]) {
     QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setDepthBufferSize(24);
+    format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
     application.setApplicationName("ZIMA-CAD");

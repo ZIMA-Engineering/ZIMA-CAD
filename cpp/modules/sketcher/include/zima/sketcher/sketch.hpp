@@ -151,9 +151,12 @@ public:
     void set_point_fixed(const std::string& point_id, bool fixed);
     [[nodiscard]] bool move_point(
         const std::string& point_id, double x, double y);
+    [[nodiscard]] std::string add_point(
+        double x, double y, double snap_tolerance = 1.0e-6,
+        bool construction = false);
     [[nodiscard]] std::string add_segment(
         double first_x, double first_y, double second_x, double second_y,
-        double snap_tolerance = 1.0e-6);
+        double snap_tolerance = 1.0e-6, bool construction = false);
     [[nodiscard]] std::string add_segment_constraint(
         const std::string& segment_id, ConstraintKind kind);
     [[nodiscard]] std::string add_coincident_constraint(
@@ -162,6 +165,7 @@ public:
         const std::string& first_segment_id, const std::string& second_segment_id,
         ConstraintKind kind);
     void remove_geometry(const std::string& geometry_id);
+    void remove_point(const std::string& point_id);
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);

@@ -3,7 +3,23 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIMA_CAD_PYTHON="$PROJECT_ROOT/runtime/linux/python/bin/python"
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+
+# Prefer the native backend of the active desktop session. An explicit
+# QT_QPA_PLATFORM always wins; when neither display protocol is advertised,
+# leave the choice to Qt (useful for headless/offscreen environments).
+if [[ -z "${QT_QPA_PLATFORM:-}" ]]; then
+    if [[ "${XDG_SESSION_TYPE:-}" == "wayland" \
+        && -n "${WAYLAND_DISPLAY:-}" ]]; then
+        export QT_QPA_PLATFORM=wayland
+    elif [[ "${XDG_SESSION_TYPE:-}" == "x11" \
+        && -n "${DISPLAY:-}" ]]; then
+        export QT_QPA_PLATFORM=xcb
+    elif [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        export QT_QPA_PLATFORM=wayland
+    elif [[ -n "${DISPLAY:-}" ]]; then
+        export QT_QPA_PLATFORM=xcb
+    fi
+fi
 
 # GPU selection is portable and overrideable:
 #   auto   - use NVIDIA PRIME on a hybrid NVIDIA system, system GPU otherwise

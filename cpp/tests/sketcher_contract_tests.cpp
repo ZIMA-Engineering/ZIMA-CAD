@@ -57,7 +57,8 @@ int main() {
         require(mesh.triangles.empty() && mesh.edges.size() == 1 &&
                     mesh.points.size() == 2 && mesh.dimensions.size() == 1 &&
                     mesh.edges.front().reference.owner_id == sketch.id &&
-                    mesh.edges.front().reference.semantic_key.rfind("segment:", 0) == 0,
+                    mesh.edges.front().reference.semantic_key.rfind("segment:", 0) == 0 &&
+                    mesh.edges.front().overlay,
                 "Sketch viewer packet lost stable point/segment ownership");
         const auto candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
@@ -113,6 +114,39 @@ int main() {
         require(!under_constrained.points.front().fixed &&
                     under_constrained.solve().remaining_degrees_of_freedom == 2,
                 "Released point did not restore both coordinate degrees of freedom");
+        auto point_tools = zima::sketcher::Sketch::create_default();
+        const auto standalone_point = point_tools.add_point(100.0, 100.0);
+        const auto snapped_point = point_tools.add_point(100.0 + 1.0e-8, 100.0);
+        require(snapped_point == standalone_point && point_tools.points.size() == 1,
+                "Standalone point creation did not use the common snap tolerance");
+        const auto construction_segment = point_tools.add_segment(
+            0.0, 0.0, 10.0, 0.0, 1.0e-6, true);
+        const auto removable_segment = point_tools.add_segment(
+            20.0, 0.0, 30.0, 0.0);
+        static_cast<void>(point_tools.add_segment_constraint(
+            construction_segment, zima::sketcher::ConstraintKind::Horizontal));
+        auto construction_dimension =
+            point_tools.create_segment_dimension(construction_segment);
+        point_tools.apply_dimension(std::move(construction_dimension));
+        point_tools.remove_geometry(removable_segment);
+        require(point_tools.find_point(standalone_point) != nullptr &&
+                    point_tools.points.size() == 3 &&
+                    point_tools.segments.size() == 1 &&
+                    point_tools.segments.front().construction,
+                "Deleting unrelated geometry removed a standalone point or construction flag");
+        const auto loaded_point_tools = zima::sketcher::Sketch::from_serialized(
+            point_tools.serialized());
+        require(loaded_point_tools.find_point(standalone_point) != nullptr &&
+                    loaded_point_tools.segments.size() == 1 &&
+                    loaded_point_tools.segments.front().construction &&
+                    loaded_point_tools.viewer_mesh().edges.front().construction &&
+                    loaded_point_tools.viewer_mesh().edges.front().overlay,
+                "Standalone point or construction segment did not survive serialization");
+        point_tools.remove_point(point_tools.segments.front().first_point_id);
+        require(point_tools.find_point(standalone_point) != nullptr &&
+                    point_tools.points.size() == 1 && point_tools.segments.empty() &&
+                    point_tools.constraints.empty() && point_tools.dimensions.empty(),
+                "Deleting a control point did not remove only its attached geometry");
         auto projected = zima::sketcher::Sketch::create_default();
         const auto projected_segment = projected.add_segment(0.0, 0.0, 5.0, 7.0);
         auto projected_x = projected.create_segment_dimension(

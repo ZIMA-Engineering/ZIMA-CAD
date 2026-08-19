@@ -54,6 +54,10 @@ Linux launch syntax uses the same arguments:
 ./zima-cad --working-directory /home/user/PRACE
 ```
 
+The Linux launcher selects native Wayland for a Wayland session and Qt `xcb`
+for an X11/Xorg session. An explicitly supplied `QT_QPA_PLATFORM` is preserved;
+headless environments are left to Qt's automatic platform selection.
+
 The application opens one main window with multiple document tabs:
 
 - container tree on the left

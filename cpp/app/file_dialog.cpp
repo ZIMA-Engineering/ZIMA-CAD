@@ -73,4 +73,20 @@ QString save_file(QWidget* parent, const QString& caption,
                        QFileDialog::AcceptSave, default_suffix);
 }
 
+QString choose_directory(QWidget* parent, const QString& caption,
+                         const QString& initial_path) {
+    QFileDialog dialog(parent, caption, initial_path);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setOption(QFileDialog::ShowDirsOnly, true);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    dialog.setFileMode(QFileDialog::Directory);
+    dialog.setViewMode(QFileDialog::Detail);
+    auto* proxy = new FileProxyModel(&dialog);
+    proxy->setDynamicSortFilter(true);
+    dialog.setProxyModel(proxy);
+    proxy->sort(0, Qt::AscendingOrder);
+    if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return {};
+    return dialog.selectedFiles().front();
+}
+
 }  // namespace zima::app

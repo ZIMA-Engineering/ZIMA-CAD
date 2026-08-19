@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <random>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -554,9 +555,32 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     return true;
 }
 
+std::string Sketch::add_point(
+    double x, double y, double snap_tolerance, bool construction) {
+    for (const double value : {x, y, snap_tolerance}) {
+        require_finite(value, "point coordinate");
+    }
+    if (snap_tolerance < 0.0) {
+        throw std::invalid_argument("Sketch point snap tolerance is invalid");
+    }
+    const auto found = std::find_if(points.begin(), points.end(),
+        [&](const auto& point) {
+            return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
+        });
+    if (found != points.end()) return found->id;
+    auto next = *this;
+    auto point = create_point(x, y);
+    point.construction = construction;
+    const auto point_id = point.id;
+    next.points.push_back(std::move(point));
+    next.validate();
+    *this = std::move(next);
+    return point_id;
+}
+
 std::string Sketch::add_segment(
     double first_x, double first_y, double second_x, double second_y,
-    double snap_tolerance) {
+    double snap_tolerance, bool construction) {
     for (const double value : {first_x, first_y, second_x, second_y, snap_tolerance}) {
         require_finite(value, "segment coordinate");
     }
@@ -581,7 +605,7 @@ std::string Sketch::add_segment(
     if (first_id == second_id) {
         throw std::invalid_argument("Sketch segment collapses to one snapped point");
     }
-    auto segment = create_segment(first_id, second_id);
+    auto segment = create_segment(first_id, second_id, construction);
     const auto segment_id = segment.id;
     next.segments.push_back(std::move(segment));
     next.validate();
@@ -691,6 +715,43 @@ std::string Sketch::add_segment_pair_constraint(
 void Sketch::remove_geometry(const std::string& geometry_id) {
     if (geometry_id.empty()) throw std::invalid_argument("Geometry ID is required");
     auto next = *this;
+    std::vector<std::string> candidate_point_ids;
+    const auto collect = [&](const std::string& point_id) {
+        if (std::find(candidate_point_ids.begin(), candidate_point_ids.end(), point_id) ==
+            candidate_point_ids.end()) {
+            candidate_point_ids.push_back(point_id);
+        }
+    };
+    if (const auto found = std::find_if(next.segments.begin(), next.segments.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.segments.end()) {
+        collect(found->first_point_id);
+        collect(found->second_point_id);
+    }
+    if (const auto found = std::find_if(next.circles.begin(), next.circles.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.circles.end()) {
+        collect(found->center_point_id);
+    }
+    if (const auto found = std::find_if(next.arcs.begin(), next.arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.arcs.end()) {
+        collect(found->center_point_id);
+        collect(found->start_point_id);
+        collect(found->end_point_id);
+    }
+    if (const auto found = std::find_if(next.ellipses.begin(), next.ellipses.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.ellipses.end()) {
+        collect(found->center_point_id);
+        collect(found->major_point_id);
+        collect(found->minor_point_id);
+    }
+    if (const auto found = std::find_if(next.bsplines.begin(), next.bsplines.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.bsplines.end()) {
+        for (const auto& point_id : found->control_point_ids) collect(point_id);
+    }
     const auto segment_count = std::erase_if(next.segments,
         [&](const auto& value) { return value.id == geometry_id; });
     const auto circle_count = std::erase_if(next.circles,
@@ -732,13 +793,136 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             }) || std::any_of(next.constraints.begin(), next.constraints.end(),
                 [&](const auto& value) {
                     return value.first_point_id == point_id || value.second_point_id == point_id;
-                }) || std::any_of(next.dimensions.begin(), next.dimensions.end(),
+            }) || std::any_of(next.dimensions.begin(), next.dimensions.end(),
                 [&](const auto& value) {
                     return value.first_point_id == point_id || value.second_point_id == point_id;
+                }) || std::any_of(next.import_blocks.begin(), next.import_blocks.end(),
+                [&](const auto& value) {
+                    return std::find(value.point_ids.begin(), value.point_ids.end(), point_id) !=
+                        value.point_ids.end();
                 });
     };
     std::erase_if(next.points,
-        [&](const auto& point) { return !point_is_referenced(point.id); });
+        [&](const auto& point) {
+            return std::find(candidate_point_ids.begin(), candidate_point_ids.end(), point.id) !=
+                    candidate_point_ids.end() &&
+                !point_is_referenced(point.id);
+        });
+    next.validate();
+    *this = std::move(next);
+}
+
+void Sketch::remove_point(const std::string& point_id) {
+    if (point_id.empty() || find_point(point_id) == nullptr) {
+        throw std::invalid_argument("Sketch point does not exist");
+    }
+    auto next = *this;
+    std::set<std::string> removed_geometry_ids;
+    std::set<std::string> candidate_point_ids{point_id};
+    const auto collect_geometry = [&](const std::string& geometry_id,
+                                      const auto& point_ids) {
+        removed_geometry_ids.insert(geometry_id);
+        candidate_point_ids.insert(point_ids.begin(), point_ids.end());
+    };
+    for (const auto& segment : next.segments) {
+        if (segment.first_point_id == point_id || segment.second_point_id == point_id) {
+            collect_geometry(segment.id,
+                std::array{segment.first_point_id, segment.second_point_id});
+        }
+    }
+    for (const auto& circle : next.circles) {
+        if (circle.center_point_id == point_id) {
+            collect_geometry(circle.id, std::array{circle.center_point_id});
+        }
+    }
+    for (const auto& arc : next.arcs) {
+        if (arc.center_point_id == point_id || arc.start_point_id == point_id ||
+            arc.end_point_id == point_id) {
+            collect_geometry(arc.id,
+                std::array{arc.center_point_id, arc.start_point_id, arc.end_point_id});
+        }
+    }
+    for (const auto& ellipse : next.ellipses) {
+        if (ellipse.center_point_id == point_id || ellipse.major_point_id == point_id ||
+            ellipse.minor_point_id == point_id) {
+            collect_geometry(ellipse.id,
+                std::array{ellipse.center_point_id, ellipse.major_point_id,
+                           ellipse.minor_point_id});
+        }
+    }
+    for (const auto& spline : next.bsplines) {
+        if (std::find(spline.control_point_ids.begin(), spline.control_point_ids.end(),
+                      point_id) != spline.control_point_ids.end()) {
+            collect_geometry(spline.id, spline.control_point_ids);
+        }
+    }
+    if (std::any_of(next.import_blocks.begin(), next.import_blocks.end(),
+            [&](const auto& block) {
+                return std::find(block.point_ids.begin(), block.point_ids.end(), point_id) !=
+                        block.point_ids.end() ||
+                    std::any_of(block.geometry_ids.begin(), block.geometry_ids.end(),
+                        [&](const auto& geometry_id) {
+                            return removed_geometry_ids.contains(geometry_id);
+                        });
+            })) {
+        throw std::invalid_argument(
+            "A point owned by an imported Sketch block cannot be removed separately");
+    }
+    const auto geometry_removed = [&](const std::string& geometry_id) {
+        return removed_geometry_ids.contains(geometry_id);
+    };
+    std::erase_if(next.segments,
+        [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.circles,
+        [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.arcs,
+        [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.ellipses,
+        [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.bsplines,
+        [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.constraints, [&](const auto& value) {
+        return value.first_point_id == point_id || value.second_point_id == point_id ||
+            geometry_removed(value.geometry_id) ||
+            geometry_removed(value.second_geometry_id);
+    });
+    std::erase_if(next.dimensions, [&](const auto& value) {
+        return value.first_point_id == point_id || value.second_point_id == point_id ||
+            geometry_removed(value.geometry_id);
+    });
+    const auto point_is_referenced = [&](const std::string& candidate_id) {
+        return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
+                return value.first_point_id == candidate_id ||
+                    value.second_point_id == candidate_id;
+            }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
+                return value.center_point_id == candidate_id;
+            }) || std::any_of(next.arcs.begin(), next.arcs.end(), [&](const auto& value) {
+                return value.center_point_id == candidate_id ||
+                    value.start_point_id == candidate_id || value.end_point_id == candidate_id;
+            }) || std::any_of(next.ellipses.begin(), next.ellipses.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == candidate_id ||
+                        value.major_point_id == candidate_id ||
+                        value.minor_point_id == candidate_id;
+                }) || std::any_of(next.bsplines.begin(), next.bsplines.end(),
+                [&](const auto& value) {
+                    return std::find(value.control_point_ids.begin(),
+                                     value.control_point_ids.end(), candidate_id) !=
+                        value.control_point_ids.end();
+                }) || std::any_of(next.constraints.begin(), next.constraints.end(),
+                [&](const auto& value) {
+                    return value.first_point_id == candidate_id ||
+                        value.second_point_id == candidate_id;
+                }) || std::any_of(next.dimensions.begin(), next.dimensions.end(),
+                [&](const auto& value) {
+                    return value.first_point_id == candidate_id ||
+                        value.second_point_id == candidate_id;
+                });
+    };
+    std::erase_if(next.points, [&](const auto& point) {
+        return point.id == point_id ||
+            (candidate_point_ids.contains(point.id) && !point_is_referenced(point.id));
+    });
     next.validate();
     *this = std::move(next);
 }
@@ -1533,13 +1717,15 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         result.edges.push_back({
             {project(*find_point(segment.first_point_id)),
              project(*find_point(segment.second_point_id))},
-            {id, "segment:" + segment.id, {}}});
+            {id, "segment:" + segment.id, {}}, segment.construction, true});
     }
     constexpr std::size_t circle_samples = 96;
     for (const auto& circle : circles) {
         const auto* center = find_point(circle.center_point_id);
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "circle:" + circle.id, {}};
+        edge.construction = circle.construction;
+        edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
             const double angle = 2.0 * 3.14159265358979323846 *
@@ -1562,6 +1748,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             }
             zima::kernel::ViewerEdge edge;
             edge.reference = {id, "bspline:" + spline.id, {}};
+            edge.construction = spline.construction;
+            edge.overlay = true;
             constexpr std::size_t samples = 128;
             edge.points.reserve(samples + 1);
             for (std::size_t sample = 0; sample <= samples; ++sample) {
@@ -1603,6 +1791,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "bspline:" + spline.id, {}};
+        edge.construction = spline.construction;
+        edge.overlay = true;
         constexpr std::size_t samples = 128;
         edge.points.reserve(samples + 1);
         for (std::size_t sample = 0; sample <= samples; ++sample) {
@@ -1646,6 +1836,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto* center = find_point(ellipse.center_point_id);
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "ellipse:" + ellipse.id, {}};
+        edge.construction = ellipse.construction;
+        edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
             const double parameter = 2.0 * 3.14159265358979323846 *
@@ -1664,6 +1856,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto* center = find_point(arc.center_point_id);
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "arc:" + arc.id, {}};
+        edge.construction = arc.construction;
+        edge.overlay = true;
         const double sweep = arc.end_angle - arc.start_angle;
         const auto samples = std::max<std::size_t>(2,
             static_cast<std::size_t>(std::ceil(96.0 * sweep /

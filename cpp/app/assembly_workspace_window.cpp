@@ -34,6 +34,7 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QKeySequence>
+#include <QPixmap>
 #include <QRadioButton>
 #include <QSizePolicy>
 #include <QSplitter>
@@ -162,6 +163,34 @@ private:
     }
 };
 
+class AboutSubWindow final : public zima::ui::PropertiesSubWindow {
+public:
+    explicit AboutSubWindow(QMainWindow* parent)
+        : PropertiesSubWindow(QObject::tr("O aplikaci ZIMA-CAD"), parent) {
+        setMinimumWidth(520);
+        auto* artwork = new QLabel(this);
+        artwork->setAlignment(Qt::AlignCenter);
+        const QPixmap pixmap(QStringLiteral(":/zima/branding/about.svg"));
+        if (!pixmap.isNull()) {
+            artwork->setPixmap(pixmap.scaled(
+                480, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            content_layout()->addWidget(artwork);
+        }
+        auto* description = new QLabel(
+            QObject::tr(
+                "ZIMA-CAD\nNativní CAD aplikace pro parametrické modelování, "
+                "sestavy a technické výkresy."),
+            this);
+        description->setAlignment(Qt::AlignCenter);
+        description->setWordWrap(true);
+        content_layout()->addWidget(description);
+        setAttribute(Qt::WA_DeleteOnClose);
+    }
+
+private:
+    bool submit() override { return true; }
+};
+
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
@@ -212,14 +241,19 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
     file->addAction(save_action_);
-    auto* save_as_action = make_action(tr("Uložit jako..."));
-    save_as_action->setEnabled(false);
-    save_as_action->setToolTip(tr("Samostatné Uložit jako zatím není přeneseno."));
-    file->addAction(save_as_action);
+    save_as_action_ = make_action(tr("Uložit jako..."));
+    save_as_action_->setObjectName("saveDocumentAsAction");
+    save_as_action_->setShortcut(QKeySequence::SaveAs);
+    save_as_action_->setEnabled(false);
+    connect(save_as_action_, &QAction::triggered, this,
+        [this] { save_active_document_as(); });
+    file->addAction(save_as_action_);
     file->addSeparator();
-    auto* working_directory_action = make_action(tr("Nastavit pracovní adresář..."));
-    working_directory_action->setEnabled(false);
-    file->addAction(working_directory_action);
+    working_directory_action_ = make_action(tr("Nastavit pracovní adresář..."));
+    working_directory_action_->setObjectName("workingDirectoryAction");
+    connect(working_directory_action_, &QAction::triggered, this,
+        [this] { set_working_directory(); });
+    file->addAction(working_directory_action_);
 
     auto* edit = menuBar()->addMenu(tr("Upravit"));
     regenerate_document_action_ = make_action(tr("⟳ Regenerovat model"));
@@ -378,11 +412,29 @@ void AssemblyWorkspaceWindow::create_actions() {
     settings_action->setEnabled(false);
     tools->addAction(settings_action);
     auto* window_menu = menuBar()->addMenu(tr("Okno"));
-    auto* window_placeholder = window_menu->addAction(tr("Aktivní okno ZIMA-CAD"));
-    window_placeholder->setEnabled(false);
+    window_menu->setObjectName("windowMenu");
+    connect(window_menu, &QMenu::aboutToShow, this, [this, window_menu] {
+        window_menu->clear();
+        if (tabs_ == nullptr || tabs_->count() == 0) {
+            auto* empty = window_menu->addAction(tr("Není otevřen žádný dokument"));
+            empty->setEnabled(false);
+            return;
+        }
+        for (int index = 0; index < tabs_->count(); ++index) {
+            auto* action = window_menu->addAction(tabs_->tabIcon(index), tabs_->tabText(index));
+            action->setCheckable(true);
+            action->setChecked(index == tabs_->currentIndex());
+            connect(action, &QAction::triggered, this, [this, index] {
+                if (tabs_ != nullptr && index >= 0 && index < tabs_->count()) {
+                    tabs_->setCurrentIndex(index);
+                }
+            });
+        }
+    });
     auto* help = menuBar()->addMenu(tr("Nápověda"));
     auto* about_action = help->addAction(tr("O aplikaci ZIMA-CAD"));
-    about_action->setEnabled(false);
+    about_action->setObjectName("aboutAction");
+    connect(about_action, &QAction::triggered, this, [this] { show_about(); });
 
     box_action_ = make_action(tr("Kvádr"), "box");
     box_action_->setObjectName("boxAction");
@@ -395,12 +447,28 @@ void AssemblyWorkspaceWindow::create_actions() {
     construction_axis_action_ = make_action(tr("Osa"), "axis");
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     extrusion_action_ = make_action(tr("Vytažení"), "protrusion");
+    extrusion_action_->setObjectName("extrusionAction");
     revolution_action_ = make_action(tr("Rotace"), "revolve");
+    revolution_action_->setObjectName("revolutionAction");
     fillet_action_ = make_action(tr("Zaoblení"), "fillet");
     chamfer_action_ = make_action(tr("Sražení"), "chamfer");
     sketch_action_ = make_action(tr("Vytvořit skicu"), "sketch");
     sketch_action_->setObjectName("sketchAction");
+    sketch_normal_view_action_ = make_action(tr("Pohled kolmo"), "view-normal");
+    sketch_normal_view_action_->setObjectName("sketchNormalViewAction");
+    sketch_normal_view_action_->setEnabled(false);
+    sketch_point_action_ = make_action(tr("Bod"), "point");
+    sketch_point_action_->setObjectName("sketchPointAction");
+    sketch_point_action_->setEnabled(false);
+    sketch_construction_action_ = make_action(
+        tr("Konstrukční čára"), "sketch-construction");
+    sketch_construction_action_->setObjectName("sketchConstructionAction");
+    sketch_construction_action_->setEnabled(false);
     sketch_segment_action_ = make_action(tr("Úsečka"), "sketch-segment");
+    sketch_segment_action_->setObjectName("sketchSegmentAction");
+    sketch_polyline_action_ = make_action(tr("Lomená čára"), "sketch-polyline");
+    sketch_polyline_action_->setObjectName("sketchPolylineAction");
+    sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_ = make_action(tr("Obdélník"), "sketch-rectangle");
     sketch_circle_action_ = make_action(tr("Kružnice"), "sketch-circle");
     sketch_arc_action_ = make_action(tr("Oblouk"), "sketch-arc");
@@ -422,6 +490,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_ellipse_major_dimension_action_ = make_action(tr("Kóta hlavní poloosy elipsy…"));
     sketch_ellipse_minor_dimension_action_ = make_action(tr("Kóta vedlejší poloosy elipsy…"));
     sketch_ellipse_rotation_dimension_action_ = make_action(tr("Kóta natočení elipsy…"));
+    finish_sketch_action_ = make_action(tr("Dokončit skicu"), "sketch");
+    finish_sketch_action_->setObjectName("finishSketchAction");
+    finish_sketch_action_->setEnabled(false);
     regenerate_part_action_ = make_action(tr("Regenerovat díl"));
     regenerate_part_action_->setObjectName("regeneratePartAction");
 
@@ -452,7 +523,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(chamfer_action_, &QAction::triggered, this, [this] {
         start_edge_treatment(zima::document::FeatureKind::Chamfer); });
     connect(sketch_action_, &QAction::triggered, this, [this] { show_sketch_properties(); });
+    connect(sketch_normal_view_action_, &QAction::triggered, this,
+        [this] { align_active_sketch_view(); });
+    connect(sketch_point_action_, &QAction::triggered, this,
+        [this] { start_sketch_point(); });
+    connect(sketch_construction_action_, &QAction::triggered, this,
+        [this] { start_sketch_segment(true); });
     connect(sketch_segment_action_, &QAction::triggered, this, [this] { start_sketch_segment(); });
+    connect(sketch_polyline_action_, &QAction::triggered, this,
+        [this] { start_sketch_polyline(); });
     connect(sketch_rectangle_action_, &QAction::triggered, this, [this] { start_sketch_rectangle(); });
     connect(sketch_circle_action_, &QAction::triggered, this, [this] { start_sketch_circle(); });
     connect(sketch_arc_action_, &QAction::triggered, this, [this] { start_sketch_arc(); });
@@ -496,6 +575,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_ellipse_rotation_dimension_action_, &QAction::triggered, this, [this] {
         show_sketch_dimension_properties(active_sketch_id_, {},
             zima::sketcher::DimensionKind::EllipseRotation); });
+    connect(finish_sketch_action_, &QAction::triggered, this,
+        [this] { finish_active_sketch(); });
     connect(regenerate_part_action_, &QAction::triggered, this,
         [this] { regenerate_active_part(); });
 
@@ -819,6 +900,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             show_component_context_menu(candidate.instance_path, global_position);
         });
     viewer_->set_world_click_callback([this](const auto& origin, const auto& direction) {
+        if (accept_sketch_point_ray(origin, direction)) return true;
         if (accept_sketch_segment_ray(origin, direction)) return true;
         if (accept_sketch_rectangle_ray(origin, direction)) return true;
         if (accept_sketch_circle_ray(origin, direction)) return true;
@@ -835,7 +917,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_short_middle_click_callback([this] {
-        return finish_edge_treatment_selection() || finish_sketch_bspline();
+        return finish_edge_treatment_selection() || finish_sketch_bspline() ||
+            finish_sketch_polyline();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -927,6 +1010,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         workspace_.display_top_level(id);
         active_occurrence_path_.clear();
         active_sketch_id_.clear();
+        selected_sketch_id_.clear();
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
@@ -942,13 +1026,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch-dimension") return;
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
                 active_sketch_id_ = item->data(0, Qt::UserRole).toString().toStdString();
+                selected_sketch_id_ = active_sketch_id_;
                 selected_sketch_segment_id_.clear();
                 selected_sketch_point_id_.clear();
                 selected_sketch_circle_id_.clear();
                 selected_sketch_arc_id_.clear();
                 selected_sketch_ellipse_id_.clear();
+                selected_sketch_bspline_id_.clear();
                 cancel_sketch_segment();
+                sketch_normal_view_action_->setEnabled(true);
+                sketch_point_action_->setEnabled(true);
+                sketch_construction_action_->setEnabled(true);
                 sketch_segment_action_->setEnabled(true);
+                sketch_polyline_action_->setEnabled(true);
                 sketch_rectangle_action_->setEnabled(true);
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
@@ -969,7 +1059,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_radius_dimension_action_->setEnabled(false);
                 sketch_diameter_dimension_action_->setEnabled(false);
                 sketch_fix_point_action_->setEnabled(false);
+                finish_sketch_action_->setEnabled(true);
                 rebuild_application_toolbar();
+                align_active_sketch_view();
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-construction") {
@@ -1099,7 +1191,7 @@ QString AssemblyWorkspaceWindow::create_document(
             : document_type == QStringLiteral("drawing")
                 ? QStringLiteral(".drwz") : QString{};
     if (suffix.isEmpty()) return tr("Tento typ dokumentu zatím není podporován.");
-    const std::filesystem::path path = std::filesystem::current_path() /
+    const std::filesystem::path path = working_directory_ /
         (name + suffix.toStdString());
     if (std::filesystem::exists(path) || workspace_.document_id_for_path(path)) {
         return tr("Soubor %1 již existuje nebo je otevřený.").arg(
@@ -1133,6 +1225,7 @@ QString AssemblyWorkspaceWindow::create_document(
     workspace_.display_top_level(id);
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
+    selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -1190,6 +1283,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if (!workspace_.remove(id)) return;
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
+    selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -1337,6 +1431,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             workspace_.activate(displayed);
             active_occurrence_path_.clear();
             active_sketch_id_.clear();
+            selected_sketch_id_.clear();
             active_application_ = ApplicationMode::Assembly;
             refresh_tabs();
             refresh_scene();
@@ -1346,9 +1441,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
 
     if (!active_sketch_id_.empty()) {
+        add_command(sketch_normal_view_action_);
         add_command(selection_action_);
         tools_toolbar_->addSeparator();
-        for (auto* action : {sketch_segment_action_, sketch_rectangle_action_,
+        for (auto* action : {sketch_point_action_, sketch_construction_action_,
+                             sketch_segment_action_, sketch_polyline_action_,
+                             sketch_rectangle_action_,
                              sketch_circle_action_, sketch_arc_action_,
                              sketch_ellipse_action_, sketch_bspline_action_}) {
             add_command(action);
@@ -1368,6 +1466,18 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_ellipse_minor_dimension_action_,
                              sketch_ellipse_rotation_dimension_action_}) {
             add_command(action);
+        }
+        add_green_separator();
+        add_command(finish_sketch_action_);
+        if (auto* button = qobject_cast<QToolButton*>(
+                tools_toolbar_->widgetForAction(finish_sketch_action_))) {
+            button->setObjectName("finishSketchButton");
+            button->setStyleSheet(QStringLiteral(
+                "QToolButton#finishSketchButton {"
+                " background:#2F8F3A; color:white; border:1px solid #63C66D;"
+                " border-radius:3px; padding:6px; font-weight:600; }"
+                "QToolButton#finishSketchButton:hover { background:#3AA94A; }"
+                "QToolButton#finishSketchButton:pressed { background:#267631; }"));
         }
         return;
     }
@@ -1443,7 +1553,8 @@ void AssemblyWorkspaceWindow::new_drawing() {
 }
 
 void AssemblyWorkspaceWindow::open_document() {
-    const QString path = open_file(this, tr("Otevřít dokument"), {},
+    const QString path = open_file(this, tr("Otevřít dokument"),
+        QString::fromStdString(working_directory_.string()),
         tr("Dokument ZIMA-CAD (*.prtz *.asmz *.drwz)"));
     if (path.isEmpty()) return;
     open_document_path(path);
@@ -1476,8 +1587,13 @@ void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
         return;
     }
+    const std::filesystem::path opened_path = path.toStdString();
+    if (!opened_path.parent_path().empty()) {
+        working_directory_ = opened_path.parent_path();
+    }
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
+    selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -1901,17 +2017,19 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
 }
 
 void AssemblyWorkspaceWindow::save_active_assembly() {
-    auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (assembly == nullptr) return;
     QString path = QString::fromStdString(assembly->path.string());
     if (path.isEmpty()) path = save_file(
-        this, tr("Uložit sestavu"), "assembly.asmz",
+        this, tr("Uložit sestavu"),
+        QString::fromStdString((working_directory_ / "assembly.asmz").string()),
         tr("ZIMA-CAD sestava (*.asmz)"), "asmz");
     if (path.isEmpty()) return;
     if (!path.endsWith(".asmz", Qt::CaseInsensitive)) path += ".asmz";
     try {
         assembly->session.document().save(path.toStdString());
         assembly->path = path.toStdString();
+        working_directory_ = assembly->path.parent_path();
         assembly->session.mark_saved();
         refresh_tabs();
     } catch (const std::exception& error) {
@@ -1923,10 +2041,13 @@ void AssemblyWorkspaceWindow::save_active_document() {
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
         QString path=QString::fromStdString(drawing->path.string());
         if(path.isEmpty()) path=save_file(
-            this,tr("Uložit výkres"),"drawing.drwz",tr("ZIMA-CAD Výkres (*.drwz)"),"drwz");
+            this,tr("Uložit výkres"),
+            QString::fromStdString((working_directory_ / "drawing.drwz").string()),
+            tr("ZIMA-CAD Výkres (*.drwz)"),"drwz");
         if(path.isEmpty()) return;
         if(!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
         try { drawing->document.save(path.toStdString()); drawing->path=path.toStdString();
+            working_directory_ = drawing->path.parent_path();
             drawing_workspace_->edit_workspace_document(drawing->document.document_id);
             refresh_tabs(); }
         catch(const std::exception& error) {
@@ -1934,7 +2055,6 @@ void AssemblyWorkspaceWindow::save_active_document() {
         return;
     }
     if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
-        workspace_.display_top_level(workspace_.active_document_id());
         save_active_assembly();
         return;
     }
@@ -1942,7 +2062,8 @@ void AssemblyWorkspaceWindow::save_active_document() {
     if (part == nullptr) return;
     QString path = QString::fromStdString(part->path.string());
     if (path.isEmpty()) path = save_file(
-        this, tr("Uložit díl"), "part.prtz",
+        this, tr("Uložit díl"),
+        QString::fromStdString((working_directory_ / "part.prtz").string()),
         tr("ZIMA-CAD díl (*.prtz)"), "prtz");
     if (path.isEmpty()) return;
     if (!path.endsWith(".prtz", Qt::CaseInsensitive)) path += ".prtz";
@@ -1950,6 +2071,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         part->session.document().save(path.toStdString(),
                                       part->session.calculated_boundaries());
         part->path = path.toStdString();
+        working_directory_ = part->path.parent_path();
         part->session.mark_saved();
         refresh_tabs();
         refresh_scene();
@@ -1958,8 +2080,108 @@ void AssemblyWorkspaceWindow::save_active_document() {
     }
 }
 
+void AssemblyWorkspaceWindow::save_active_document_as() {
+    const std::string document_id = workspace_.active_document_id();
+    if (document_id.empty()) return;
+    std::filesystem::path current_path;
+    QString caption;
+    QString fallback_name;
+    QString filter;
+    QString suffix;
+    if (const auto* drawing = workspace_.open_drawing(document_id)) {
+        current_path = drawing->path;
+        caption = tr("Uložit výkres jako");
+        fallback_name = QString::fromStdString(drawing->document.name) + ".drwz";
+        filter = tr("ZIMA-CAD výkres (*.drwz)");
+        suffix = "drwz";
+    } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
+        current_path = assembly->path;
+        caption = tr("Uložit sestavu jako");
+        fallback_name = QString::fromStdString(assembly->session.document().name) + ".asmz";
+        filter = tr("ZIMA-CAD sestava (*.asmz)");
+        suffix = "asmz";
+    } else if (const auto* part = workspace_.open_part(document_id)) {
+        current_path = part->path;
+        caption = tr("Uložit díl jako");
+        fallback_name = QString::fromStdString(part->session.document().name) + ".prtz";
+        filter = tr("ZIMA-CAD díl (*.prtz)");
+        suffix = "prtz";
+    } else {
+        return;
+    }
+    const QString initial = current_path.empty()
+        ? QString::fromStdString((working_directory_ /
+              fallback_name.toStdString()).string())
+        : QString::fromStdString(current_path.string());
+    QString selected = save_file(this, caption, initial, filter, suffix);
+    if (selected.isEmpty()) return;
+    const QString dotted_suffix = QStringLiteral(".") + suffix;
+    if (!selected.endsWith(dotted_suffix, Qt::CaseInsensitive)) {
+        selected += dotted_suffix;
+    }
+    const std::filesystem::path target = selected.toStdString();
+    if (const auto owner = workspace_.document_id_for_path(target);
+        owner && *owner != document_id) {
+        QMessageBox::warning(
+            this, tr("Soubor je již otevřen"),
+            tr("Cílový soubor již používá jiný otevřený dokument."));
+        return;
+    }
+    try {
+        if (auto* drawing = workspace_.open_drawing(document_id)) {
+            drawing->document.save(target);
+            drawing->path = target;
+            drawing_workspace_->edit_workspace_document(document_id);
+        } else if (auto* assembly = workspace_.open_assembly(document_id)) {
+            assembly->session.document().save(target);
+            assembly->path = target;
+            assembly->session.mark_saved();
+        } else if (auto* part = workspace_.open_part(document_id)) {
+            part->session.document().save(
+                target, part->session.calculated_boundaries());
+            part->path = target;
+            part->session.mark_saved();
+        }
+        if (!target.parent_path().empty()) working_directory_ = target.parent_path();
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Dokument uložen jako %1").arg(selected));
+    } catch (const std::exception& error) {
+        QMessageBox::critical(this, tr("Uložení jako selhalo"), error.what());
+    }
+}
+
+void AssemblyWorkspaceWindow::set_working_directory() {
+    const QString selected = choose_directory(
+        this, tr("Nastavit pracovní adresář"),
+        QString::fromStdString(working_directory_.string()));
+    if (selected.isEmpty()) return;
+    const std::filesystem::path target = selected.toStdString();
+    if (!std::filesystem::is_directory(target)) {
+        QMessageBox::warning(this, tr("Neplatný adresář"),
+            tr("Vybraná cesta není existující adresář."));
+        return;
+    }
+    working_directory_ = target;
+    state_->setText(tr("Pracovní adresář: %1").arg(selected));
+}
+
+void AssemblyWorkspaceWindow::show_about() {
+    if (properties_dialog_ != nullptr) {
+        properties_dialog_->raise();
+        return;
+    }
+    auto* dialog = new AboutSubWindow(this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this] {
+        properties_dialog_ = nullptr;
+    });
+    dialog->show();
+}
+
 void AssemblyWorkspaceWindow::import_file() {
-    const QString path = open_file(this, tr("Importovat"), {},
+    const QString path = open_file(this, tr("Importovat"),
+        QString::fromStdString(working_directory_.string()),
         tr("Podporované soubory (*.dxf *.step *.stp);;DXF (*.dxf);;STEP (*.step *.stp)"));
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
@@ -2166,7 +2388,8 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
 }
 
 void AssemblyWorkspaceWindow::export_file() {
-    const QString path = save_file(this, tr("Exportovat"), {},
+    const QString path = save_file(this, tr("Exportovat"),
+        QString::fromStdString(working_directory_.string()),
         tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
@@ -2211,10 +2434,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
+    const std::string source_sketch_id = !active_sketch_id_.empty()
+        ? active_sketch_id_ : selected_sketch_id_;
     if (container_id.empty() &&
         (feature_kind == zima::document::FeatureKind::Extrusion ||
          feature_kind == zima::document::FeatureKind::Revolution) &&
-        active_sketch_id_.empty()) {
+        source_sketch_id.empty()) {
         QMessageBox::warning(this, tr("Vytažení"),
             tr("Nejprve vyberte zdrojovou skicu ve stromu Partu."));
         return;
@@ -2252,9 +2477,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Wedge
             ? zima::document::PartDocument::create_wedge_container()
         : feature_kind == zima::document::FeatureKind::Extrusion
-            ? zima::document::PartDocument::create_extrusion_container(active_sketch_id_)
+            ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : feature_kind == zima::document::FeatureKind::Revolution
-            ? zima::document::PartDocument::create_revolution_container(active_sketch_id_)
+            ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
             : zima::document::PartDocument::create_box_container();
     const bool allow_subtract = !document.history.empty() &&
         !(edit_mode && document.history.front().id == initial.id);
@@ -2368,6 +2593,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target_part->session.document();
             active_sketch_id_ = committed.id;
+            selected_sketch_id_ = committed.id;
             if (edit_mode) {
                 const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
                     [&](const auto& sketch) { return sketch.id == committed.id; });
@@ -2386,6 +2612,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         properties_dialog_ = nullptr;
         refresh_tabs();
         refresh_scene();
+        if (!active_sketch_id_.empty()) align_active_sketch_view();
     });
     dialog->show();
 }
@@ -2456,7 +2683,63 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
     dialog->show();
 }
 
-void AssemblyWorkspaceWindow::start_sketch_segment() {
+void AssemblyWorkspaceWindow::align_active_sketch_view() {
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (viewer_ == nullptr || part == nullptr || active_sketch_id_.empty()) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto view = sketch->plane == zima::sketcher::SketchPlane::XY
+        ? zima::viewer::StandardView::Top
+        : sketch->plane == zima::sketcher::SketchPlane::XZ
+            ? zima::viewer::StandardView::Front
+            : zima::viewer::StandardView::Right;
+    viewer_->set_standard_view(view);
+    viewer_->fit_all();
+    state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
+}
+
+void AssemblyWorkspaceWindow::finish_active_sketch() {
+    if (active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
+    selected_sketch_id_ = active_sketch_id_;
+    cancel_sketch_segment();
+    active_sketch_id_.clear();
+    selected_sketch_segment_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    selected_sketch_point_id_.clear();
+    viewer_->clear_selection();
+    preserve_view_on_refresh_ = true;
+    refresh_scene();
+    state_->setText(tr("Skica dokončena. Je vybrána jako zdroj pro modelovací operace."));
+}
+
+void AssemblyWorkspaceWindow::start_sketch_point() {
+    if (properties_dialog_ != nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto found = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    if (found == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_point_active_ = true;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    state_->setText(tr("Bod skici: určete polohu. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::start_sketch_segment(bool construction) {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -2468,6 +2751,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment() {
     if (found == part->session.document().sketches.end()) return;
     cancel_sketch_segment();
     sketch_segment_active_ = true;
+    sketch_segment_construction_ = construction;
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -2476,11 +2760,24 @@ void AssemblyWorkspaceWindow::start_sketch_segment() {
     selected_sketch_bspline_id_.clear();
     pending_segment_start_.reset();
     viewer_->set_transient_edges({});
-    state_->setText(tr("Úsečka skici: určete první bod. Escape příkaz zruší."));
+    state_->setText(construction
+        ? tr("Konstrukční čára: určete první bod. Escape příkaz zruší.")
+        : tr("Úsečka skici: určete první bod. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::start_sketch_polyline() {
+    start_sketch_segment();
+    if (!sketch_segment_active_) return;
+    sketch_polyline_active_ = true;
+    state_->setText(tr(
+        "Lomená čára: určete první bod. Prostřední tlačítko ukončí aktuální řetězec."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_segment() {
+    sketch_point_active_ = false;
     sketch_segment_active_ = false;
+    sketch_segment_construction_ = false;
+    sketch_polyline_active_ = false;
     sketch_rectangle_active_ = false;
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
@@ -2499,6 +2796,15 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_coincident_point_id_.clear();
     pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
+}
+
+bool AssemblyWorkspaceWindow::finish_sketch_polyline() {
+    if (!sketch_polyline_active_) return false;
+    pending_segment_start_.reset();
+    viewer_->set_transient_edges({});
+    state_->setText(tr(
+        "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec."));
+    return true;
 }
 
 void AssemblyWorkspaceWindow::start_sketch_rectangle() {
@@ -2731,6 +3037,40 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
         : std::vector<zima::kernel::ViewerEdge>{*edge});
 }
 
+bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (!sketch_point_active_ || part == nullptr || active_sketch_id_.empty() ||
+        workspace_.displayed_document_id() != workspace_.active_document_id()) return false;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return true;
+    try {
+        auto next = part->session.document();
+        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (target == next.sketches.end()) return true;
+        const auto previous_size = target->points.size();
+        static_cast<void>(target->add_point((*position)[0], (*position)[1]));
+        if (target->points.size() == previous_size) {
+            state_->setText(tr("V této poloze již bod skici existuje."));
+            return true;
+        }
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr("Bod vytvořen. Kliknutím můžete vytvořit další."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
+}
+
 bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -2745,7 +3085,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     if (!position) return true;
     if (!pending_segment_start_) {
         pending_segment_start_ = *position;
-        state_->setText(tr("Úsečka skici: určete druhý bod. Escape příkaz zruší."));
+        state_->setText(sketch_polyline_active_
+            ? tr("Lomená čára: určete další bod.")
+            : sketch_segment_construction_
+                ? tr("Konstrukční čára: určete druhý bod.")
+                : tr("Úsečka skici: určete druhý bod. Escape příkaz zruší."));
         return true;
     }
     const double dx = (*position)[0] - (*pending_segment_start_)[0];
@@ -2760,15 +3104,21 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     if (target == next.sketches.end()) return true;
     static_cast<void>(target->add_segment(
         (*pending_segment_start_)[0], (*pending_segment_start_)[1],
-        (*position)[0], (*position)[1]));
+        (*position)[0], (*position)[1], 1.0e-6,
+        sketch_segment_construction_));
     const auto calculated = part->session.calculated_boundaries();
     part->session.commit(std::move(next), calculated);
     preserve_view_on_refresh_ = true;
-    pending_segment_start_.reset();
+    if (sketch_polyline_active_) pending_segment_start_ = *position;
+    else pending_segment_start_.reset();
     viewer_->set_transient_edges({});
     refresh_tabs();
     refresh_scene();
-    state_->setText(tr("Úsečka vytvořena. Kliknutím určete první bod další úsečky."));
+    state_->setText(sketch_polyline_active_
+        ? tr("Úsek lomené čáry vytvořen. Určete další bod nebo řetězec ukončete prostředním tlačítkem.")
+        : sketch_segment_construction_
+            ? tr("Konstrukční čára vytvořena. Určete první bod další čáry.")
+            : tr("Úsečka vytvořena. Kliknutím určete první bod další úsečky."));
     return true;
 }
 
@@ -3094,7 +3444,8 @@ void AssemblyWorkspaceWindow::end_assembly_mate_drag() {
 
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
-        sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
+        sketch_point_active_ || sketch_segment_active_ ||
+        sketch_rectangle_active_ || sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
@@ -3104,7 +3455,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
         : !selected_sketch_ellipse_id_.empty() ? selected_sketch_ellipse_id_
         : selected_sketch_bspline_id_;
-    if (geometry_id.empty()) return false;
+    if (geometry_id.empty() && selected_sketch_point_id_.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
             workspace_.active_document_id()) return false;
@@ -3113,7 +3464,8 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
             [&](const auto& value) { return value.id == active_sketch_id_; });
         if (sketch == next.sketches.end()) return false;
-        sketch->remove_geometry(geometry_id);
+        if (!geometry_id.empty()) sketch->remove_geometry(geometry_id);
+        else sketch->remove_point(selected_sketch_point_id_);
         part->session.commit(std::move(next), part->session.calculated_boundaries());
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
@@ -3563,7 +3915,8 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         return;
     }
     if (event->key() == Qt::Key_Escape &&
-        (sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
+        (sketch_point_active_ || sketch_segment_active_ ||
+         sketch_rectangle_active_ || sketch_circle_active_ ||
          sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
          sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
@@ -3693,6 +4046,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_stack_->setCurrentWidget(model_workspace_);
         tree_->setHeaderLabels({tr("DÍL")});
         viewer_->set_mesh({});
+        close_document_action_->setEnabled(false);
+        save_action_->setEnabled(false);
+        save_as_action_->setEnabled(false);
+        regenerate_document_action_->setEnabled(false);
         undo_action_->setEnabled(false);
         redo_action_->setEnabled(false);
         rebuild_application_toolbar();
@@ -3724,11 +4081,20 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, regenerate_part_action_,
+                             sketch_normal_view_action_, sketch_point_action_,
+                             sketch_construction_action_, sketch_segment_action_,
+                             sketch_polyline_action_,
+                             sketch_rectangle_action_, sketch_circle_action_,
+                             sketch_arc_action_, sketch_ellipse_action_,
+                             sketch_bspline_action_, finish_sketch_action_,
                              plane_mate_action_, axis_mate_action_, point_mate_action_,
                              angle_mate_action_, plane_angle_mate_action_}) {
             action->setEnabled(false);
         }
         save_action_->setEnabled(true);
+        save_as_action_->setEnabled(true);
+        close_document_action_->setEnabled(true);
+        regenerate_document_action_->setEnabled(true);
         undo_action_->setEnabled(false);
         redo_action_->setEnabled(false);
         state_->setText(tr("Zobrazený výkres: %1").arg(
@@ -3756,6 +4122,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             active_sketch_id_.clear();
             cancel_sketch_segment();
         }
+        if (!selected_sketch_id_.empty() && std::none_of(
+                document.sketches.begin(), document.sketches.end(),
+                [&](const auto& sketch) { return sketch.id == selected_sketch_id_; })) {
+            selected_sketch_id_.clear();
+        }
         auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
         for (std::size_t index = 0; index < document.history.size(); ++index) {
             const auto& container = document.history[index];
@@ -3778,6 +4149,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             auto* item = new QTreeWidgetItem(root, {QString::fromStdString(sketch.name)});
             item->setData(0, Qt::UserRole, QString::fromStdString(sketch.id));
             item->setData(0, Qt::UserRole + 3, "part-sketch");
+            item->setSelected(sketch.id == selected_sketch_id_);
             for (const auto& dimension : sketch.dimensions) {
                 const auto dimension_label = dimension.kind ==
                         zima::sketcher::DimensionKind::Radius
@@ -3863,6 +4235,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         angle_mate_action_->setEnabled(false);
         plane_angle_mate_action_->setEnabled(false);
         save_action_->setEnabled(true);
+        save_as_action_->setEnabled(true);
+        close_document_action_->setEnabled(true);
+        regenerate_document_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
         sphere_action_->setEnabled(true);
@@ -3874,10 +4249,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         construction_point_action_->setEnabled(true);
         construction_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
-        extrusion_action_->setEnabled(!active_sketch_id_.empty());
-        revolution_action_->setEnabled(!active_sketch_id_.empty());
+        const bool has_selected_sketch =
+            !active_sketch_id_.empty() || !selected_sketch_id_.empty();
+        extrusion_action_->setEnabled(has_selected_sketch);
+        revolution_action_->setEnabled(has_selected_sketch);
         sketch_action_->setEnabled(true);
+        sketch_normal_view_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_point_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_construction_action_->setEnabled(!active_sketch_id_.empty());
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
@@ -3904,6 +4285,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_ellipse_rotation_dimension_action_->setEnabled(
             !selected_sketch_ellipse_id_.empty());
         sketch_fix_point_action_->setEnabled(!selected_sketch_point_id_.empty());
+        finish_sketch_action_->setEnabled(!active_sketch_id_.empty());
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
         redo_action_->setEnabled(part->session.can_redo());
@@ -3976,6 +4358,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     plane_angle_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
+    save_as_action_->setEnabled(true);
+    close_document_action_->setEnabled(true);
+    regenerate_document_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
@@ -3990,10 +4375,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     construction_point_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(active_part != nullptr);
     construction_plane_action_->setEnabled(active_part != nullptr);
-    extrusion_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
-    revolution_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
+    const bool active_part_has_selected_sketch = active_part != nullptr &&
+        (!active_sketch_id_.empty() || !selected_sketch_id_.empty());
+    extrusion_action_->setEnabled(active_part_has_selected_sketch);
+    revolution_action_->setEnabled(active_part_has_selected_sketch);
     sketch_action_->setEnabled(active_part != nullptr);
+    sketch_normal_view_action_->setEnabled(false);
+    sketch_point_action_->setEnabled(false);
+    sketch_construction_action_->setEnabled(false);
     sketch_segment_action_->setEnabled(false);
+    sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_->setEnabled(false);
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
@@ -4015,6 +4406,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_ellipse_minor_dimension_action_->setEnabled(false);
     sketch_ellipse_rotation_dimension_action_->setEnabled(false);
     sketch_fix_point_action_->setEnabled(false);
+    finish_sketch_action_->setEnabled(false);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {
         undo_action_->setEnabled(active_part->session.can_undo());
