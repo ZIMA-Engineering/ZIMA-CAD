@@ -998,7 +998,12 @@ Příkaz přijímá pouze `CandidateGeometry::OriginalReference` z persistované
 viewer packetu; result-body topologie je filtrem vyloučená a UI cesta nevolá
 OCCT. Zdrojové kontejnery jsou navíc omezené na historii před prvním
 kontejnerem, který aktivní skicu spotřebovává, takže nelze vytvořit přímý cyklus
-na vlastním Vytažení nebo Rotaci. Zatím jsou podporované lokální hrany a vrcholy.
-Plochy, osy, assembly occurrence zdroje a explicitní asociativní obnovení cache
-zůstávají samostatnými dalšími řezy; žádná kompatibilní větev pro formát 15/18
-se nepřidává.
+na vlastním Vytažení nebo Rotaci. Lokální hrany a vrcholy se nyní asociativně
+obnovují výhradně v explicitních výpočetních cestách Partu: po OK modelové
+operace a po příkazu Regenerovat. Resolver je mimo OCCT, bere nový persistovaný
+viewer packet a přijme pouze právě jeden přesný shodný pár vlastník/sémantický
+klíč/instance path. Chybějící, nejednoznačný nebo po projekci degenerovaný zdroj
+nastaví `broken`, ale ponechá poslední platnou cache; návrat přesné identity jej
+opraví. Refresh scény, výběr, vlastnosti ani přepínání tabů resolver a OCCT
+nespouštějí. Plochy, osy a assembly occurrence zdroje zůstávají samostatnými
+dalšími řezy; datový formát se nemění a žádná kompatibilní větev se nepřidává.

@@ -157,6 +157,36 @@ std::set<std::string> sketch_external_reference_source_owners(
     return owners;
 }
 
+bool refresh_sketch_external_references(
+    zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
+    const zima::kernel::ViewerReferenceGeometry empty_source;
+    const auto& source = calculated_boundaries.empty()
+        ? empty_source
+        : calculated_boundaries.back().mesh.original_references;
+    bool changed = false;
+    for (auto& sketch : document.sketches) {
+        const auto allowed_owners = sketch_external_reference_source_owners(
+            document, sketch.id);
+        zima::kernel::ViewerReferenceGeometry allowed_source;
+        for (const auto& edge : source.edges) {
+            if (allowed_owners.contains(edge.reference.owner_id)) {
+                allowed_source.edges.push_back(edge);
+            }
+        }
+        for (const auto& point : source.points) {
+            if (allowed_owners.contains(point.reference.owner_id)) {
+                allowed_source.points.push_back(point);
+            }
+        }
+        if (sketch.refresh_external_references(
+                document.document_id, allowed_source)) {
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 std::optional<SketchPosition> projected_ellipse_minor(
     const SketchPosition& center, const SketchPosition& major,
     const SketchPosition& cursor) {
@@ -2225,7 +2255,9 @@ bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
             if (target == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target->session.document();
             next.history.push_back(std::move(committed));
-            target->session.commit(next, calculate_part(next));
+            auto calculated = calculate_part(next);
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            target->session.commit(std::move(next), std::move(calculated));
         }, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -2660,7 +2692,9 @@ void AssemblyWorkspaceWindow::import_file() {
                 ++part_count;
             }
             if (part_count == 0) throw std::runtime_error("STEP neobsahuje žádný díl");
-            part->session.commit(next, calculate_part(next));
+            auto calculated = calculate_part(next);
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            part->session.commit(std::move(next), std::move(calculated));
             refresh_tabs();
             refresh_scene();
             state_->setText(tr("STEP importován: %1 samostatných kontejnerů")
@@ -2906,6 +2940,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 next.history.push_back(std::move(committed));
             }
             auto calculated = calculate_part(next);
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
             target_part->session.commit(std::move(next), std::move(calculated));
         }, this);
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
@@ -5937,10 +5972,20 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
-        part->session.update_calculated_boundaries(
-            calculate_part(part->session.document()));
+        auto next = part->session.document();
+        auto calculated = calculate_part(next);
+        const bool references_changed =
+            refresh_sketch_external_references(next, calculated);
+        if (references_changed) {
+            part->session.commit(std::move(next), std::move(calculated));
+        } else {
+            part->session.update_calculated_boundaries(std::move(calculated));
+        }
         refresh_tabs();
         refresh_scene();
+        state_->setText(references_changed
+            ? tr("Part byl regenerován a externí reference skic byly obnoveny.")
+            : tr("Part byl regenerován."));
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Regenerace Partu selhala"), error.what());
     }

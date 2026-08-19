@@ -289,6 +289,9 @@ public:
     [[nodiscard]] static SketchExternalReference create_external_reference(
         ExternalReferenceKind kind);
     void add_external_reference(SketchExternalReference reference);
+    [[nodiscard]] bool refresh_external_references(
+        const std::string& source_document_id,
+        const zima::kernel::ViewerReferenceGeometry& source_geometry);
     void transform_import_block(
         const std::string& block_id, double translation_x,
         double translation_y, double rotation);

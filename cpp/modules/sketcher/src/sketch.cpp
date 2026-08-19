@@ -2669,6 +2669,73 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
     *this = std::move(next);
 }
 
+bool Sketch::refresh_external_references(
+    const std::string& source_document_id,
+    const zima::kernel::ViewerReferenceGeometry& source_geometry) {
+    if (source_document_id.empty()) {
+        throw std::invalid_argument(
+            "Sketch external reference source document ID is required");
+    }
+    auto next = *this;
+    bool changed = false;
+    const auto same_source = [](const auto& reference, const auto& candidate) {
+        return candidate.owner_id == reference.source_owner_id &&
+            candidate.semantic_key == reference.source_semantic_key &&
+            candidate.instance_path == reference.source_instance_path;
+    };
+    for (auto& reference : next.external_references) {
+        if (reference.source_document_id != source_document_id) continue;
+        std::optional<std::vector<std::array<double, 2>>> resolved;
+        if (reference.kind == ExternalReferenceKind::Edge) {
+            const zima::kernel::ViewerEdge* match = nullptr;
+            std::size_t match_count{};
+            for (const auto& edge : source_geometry.edges) {
+                if (!same_source(reference, edge.reference)) continue;
+                match = &edge;
+                ++match_count;
+            }
+            if (match_count == 1 && match != nullptr) {
+                std::vector<std::array<double, 2>> points;
+                points.reserve(match->points.size());
+                for (const auto& world : match->points) {
+                    const auto local = next.local_point(world);
+                    if (points.empty() || std::hypot(
+                            local[0] - points.back()[0],
+                            local[1] - points.back()[1]) > 1.0e-9) {
+                        points.push_back(local);
+                    }
+                }
+                if (points.size() >= 2) resolved = std::move(points);
+            }
+        } else {
+            const zima::kernel::ViewerPoint* match = nullptr;
+            std::size_t match_count{};
+            for (const auto& point : source_geometry.points) {
+                if (!same_source(reference, point.reference)) continue;
+                match = &point;
+                ++match_count;
+            }
+            if (match_count == 1 && match != nullptr) {
+                resolved = std::vector<std::array<double, 2>>{
+                    next.local_point(match->position)};
+            }
+        }
+        const bool broken = !resolved.has_value();
+        if (resolved && reference.cached_points != *resolved) {
+            reference.cached_points = std::move(*resolved);
+            changed = true;
+        }
+        if (reference.broken != broken) {
+            reference.broken = broken;
+            changed = true;
+        }
+    }
+    if (!changed) return false;
+    next.validate();
+    *this = std::move(next);
+    return true;
+}
+
 void Sketch::transform_import_block(
     const std::string& block_id, double translation_x,
     double translation_y, double rotation) {

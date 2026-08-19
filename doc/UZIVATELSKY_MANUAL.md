@@ -461,9 +461,14 @@ opětovným stisknutím tlačítka.
 Uložená externí hrana se kreslí hnědou čárkovanou čarou a vrchol hnědým
 křížkem. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo
 `Delete`. Kliknutí, hover, otevření ani mazání nevolá OCCT: používá se pouze
-stabilní identita a geometrie z persistovaného viewer packetu. Plochy, osy,
-zdroje z jiné komponenty sestavy a asociativní obnovení projekce při explicitní
-regeneraci budou doplněny v navazujících řezech.
+stabilní identita a geometrie z persistovaného viewer packetu. Při explicitním
+**Regenerovat** se po výpočtu Partu každá lokální hrana či bod znovu vyhledá
+podle přesné identity ve výsledném viewer packetu a její uložená projekce se
+obnoví. Chybějící, nejednoznačný nebo do bodu zborcený zdroj se neodhaduje:
+reference zčervená jako přerušená a zachová poslední platnou projekci. Po
+obnovení přesně stejné identity se automaticky opraví. Běžné překreslení,
+přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. Plochy,
+osy a zdroje z jiné komponenty sestavy budou doplněny v navazujících řezech.
 
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
 řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.

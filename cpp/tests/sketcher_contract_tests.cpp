@@ -160,6 +160,52 @@ int main() {
         require(external_roundtrip.external_references ==
                     text_sketch.external_references,
                 "Persisted Sketch external references did not round-trip");
+        zima::kernel::ViewerReferenceGeometry refreshed_sources;
+        refreshed_sources.edges.push_back({
+            {{4.0, 5.0, 0.0}, {9.0, 5.0, 0.0}},
+            {"container-source", "edge:stable-source", {}}, false, false});
+        refreshed_sources.points.push_back({
+            {6.0, 7.0, 0.0},
+            {"container-source", "vertex:stable-source", {}}});
+        require(text_sketch.refresh_external_references(
+                    "part-source", refreshed_sources) &&
+                    text_sketch.external_references[0].cached_points ==
+                        std::vector<std::array<double, 2>>{{4.0, 5.0}, {9.0, 5.0}} &&
+                    text_sketch.external_references[1].cached_points ==
+                        std::vector<std::array<double, 2>>{{6.0, 7.0}} &&
+                    !text_sketch.external_references[0].broken &&
+                    !text_sketch.external_references[1].broken,
+                "Explicit Sketch external reference refresh lost exact source identity");
+        const auto valid_external_cache = text_sketch.external_references;
+        const zima::kernel::ViewerReferenceGeometry missing_sources;
+        require(text_sketch.refresh_external_references(
+                    "part-source", missing_sources) &&
+                    text_sketch.external_references[0].broken &&
+                    text_sketch.external_references[1].broken &&
+                    text_sketch.external_references[0].cached_points ==
+                        valid_external_cache[0].cached_points &&
+                    text_sketch.external_references[1].cached_points ==
+                        valid_external_cache[1].cached_points &&
+                    !text_sketch.refresh_external_references(
+                        "part-source", missing_sources),
+                "Broken external references did not preserve their last valid cache");
+        require(text_sketch.refresh_external_references(
+                    "part-source", refreshed_sources) &&
+                    !text_sketch.external_references[0].broken &&
+                    !text_sketch.external_references[1].broken,
+                "Restored external references did not recover deterministically");
+        auto ambiguous_sources = refreshed_sources;
+        ambiguous_sources.edges.push_back(refreshed_sources.edges.front());
+        require(text_sketch.refresh_external_references(
+                    "part-source", ambiguous_sources) &&
+                    text_sketch.external_references[0].broken &&
+                    !text_sketch.external_references[1].broken &&
+                    text_sketch.external_references[0].cached_points ==
+                        valid_external_cache[0].cached_points,
+                "Ambiguous external edge identity was guessed instead of broken");
+        require(text_sketch.refresh_external_references(
+                    "part-source", refreshed_sources),
+                "External edge did not recover after ambiguity was removed");
         const auto external_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 text_sketch.viewer_mesh(), {4.0, 3.0, 10.0},
