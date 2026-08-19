@@ -216,15 +216,24 @@ struct ExtrusionRequest {
         std::string region_id;
         std::string outer_boundary_id;
         std::vector<std::string> inner_boundary_ids;
+        std::vector<std::string> outer_edge_source_ids;
+        std::vector<std::vector<std::string>> inner_edge_source_ids;
+        std::vector<std::string> outer_vertex_source_ids;
+        std::vector<std::vector<std::string>> inner_vertex_source_ids;
         ProfileLoop outer_profile{PolygonProfile{}};
         std::vector<ProfileLoop> inner_profiles;
     };
     std::string profile_region_id;
     std::string outer_boundary_id;
     std::vector<std::string> inner_boundary_ids;
+    std::vector<std::string> outer_edge_source_ids;
+    std::vector<std::vector<std::string>> inner_edge_source_ids;
+    std::vector<std::string> outer_vertex_source_ids;
+    std::vector<std::vector<std::string>> inner_vertex_source_ids;
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     std::vector<ProfileRegion> additional_profile_regions;
+    bool first_cap_is_start{true};
     Vec3 direction{0.0, 0.0, 10.0};
     Extent extent{Extent::Blind};
     FaceReference target_face;
@@ -240,6 +249,10 @@ struct RevolutionRequest {
     std::string profile_region_id;
     std::string outer_boundary_id;
     std::vector<std::string> inner_boundary_ids;
+    std::vector<std::string> outer_edge_source_ids;
+    std::vector<std::vector<std::string>> inner_edge_source_ids;
+    std::vector<std::string> outer_vertex_source_ids;
+    std::vector<std::vector<std::string>> inner_vertex_source_ids;
     std::vector<ExtrusionRequest::ProfileLoop> inner_profiles;
     std::vector<ExtrusionRequest::ProfileRegion> additional_profile_regions;
     Vec3 profile_normal{0.0, 0.0, 1.0};
@@ -490,6 +503,22 @@ struct BodyResult {
                 for (const auto& id : primitive.inner_boundary_ids) {
                     u64(id.size()); for (const unsigned char value : id) byte(value);
                 }
+                const auto append_source_ids = [&](const auto& groups) {
+                    u64(groups.size());
+                    for (const auto& group : groups) {
+                        u64(group.size());
+                        for (const auto& id : group) {
+                            u64(id.size());
+                            for (const unsigned char value : id) byte(value);
+                        }
+                    }
+                };
+                append_source_ids(std::vector<std::vector<std::string>>{
+                    primitive.outer_edge_source_ids});
+                append_source_ids(primitive.inner_edge_source_ids);
+                append_source_ids(std::vector<std::vector<std::string>>{
+                    primitive.outer_vertex_source_ids});
+                append_source_ids(primitive.inner_vertex_source_ids);
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
@@ -504,6 +533,12 @@ struct BodyResult {
                     for (const auto& id : region.inner_boundary_ids) {
                         u64(id.size()); for (const unsigned char value : id) byte(value);
                     }
+                    append_source_ids(std::vector<std::vector<std::string>>{
+                        region.outer_edge_source_ids});
+                    append_source_ids(region.inner_edge_source_ids);
+                    append_source_ids(std::vector<std::vector<std::string>>{
+                        region.outer_vertex_source_ids});
+                    append_source_ids(region.inner_vertex_source_ids);
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());
                     for (const auto& profile : region.inner_profiles) append_profile(profile);
@@ -514,6 +549,7 @@ struct BodyResult {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
                 byte(static_cast<std::uint8_t>(primitive.extent));
+                byte(primitive.first_cap_is_start);
                 u64(primitive.target_face.owner_id.size());
                 for (const unsigned char value : primitive.target_face.owner_id) byte(value);
                 u64(primitive.target_face.semantic_key.size());
@@ -617,6 +653,22 @@ struct BodyResult {
                 for (const auto& id : primitive.inner_boundary_ids) {
                     u64(id.size()); for (const unsigned char value : id) byte(value);
                 }
+                const auto append_source_ids = [&](const auto& groups) {
+                    u64(groups.size());
+                    for (const auto& group : groups) {
+                        u64(group.size());
+                        for (const auto& id : group) {
+                            u64(id.size());
+                            for (const unsigned char value : id) byte(value);
+                        }
+                    }
+                };
+                append_source_ids(std::vector<std::vector<std::string>>{
+                    primitive.outer_edge_source_ids});
+                append_source_ids(primitive.inner_edge_source_ids);
+                append_source_ids(std::vector<std::vector<std::string>>{
+                    primitive.outer_vertex_source_ids});
+                append_source_ids(primitive.inner_vertex_source_ids);
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
@@ -631,6 +683,12 @@ struct BodyResult {
                     for (const auto& id : region.inner_boundary_ids) {
                         u64(id.size()); for (const unsigned char value : id) byte(value);
                     }
+                    append_source_ids(std::vector<std::vector<std::string>>{
+                        region.outer_edge_source_ids});
+                    append_source_ids(region.inner_edge_source_ids);
+                    append_source_ids(std::vector<std::vector<std::string>>{
+                        region.outer_vertex_source_ids});
+                    append_source_ids(region.inner_vertex_source_ids);
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());
                     for (const auto& profile : region.inner_profiles) append_profile(profile);

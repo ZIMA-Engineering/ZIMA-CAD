@@ -72,9 +72,10 @@ The central implementation is active, not only a design proposal:
 - a tested mate completes `RESOLVED → AMBIGUOUS → RESOLVED` across a temporary
   Boolean face split without changing its stored `AssemblyFaceRef` or selecting
   a generated fragment;
-- Box and Wedge faces have semantic roles; their boundary edges and vertices
-  are derived from canonical sets of incident semantic faces rather than OCCT
-  traversal order;
+- Box faces have semantic roles; their boundary edges and vertices are derived
+  from canonical geometry rather than OCCT traversal order. Pyramid and Wedge
+  result topology is display-only until their requests own equivalent
+  persisted boundary entities;
 - Segment-, center-arc-, ellipse-, elliptical-arc- and supported spline-profile feature faces, edges and
   start/end vertices are named from persistent Sketch entity IDs; circular
   and elliptical Extrusion faces and cap edges use the persistent Sketch ID.
@@ -168,6 +169,22 @@ Extrusion_1 / generated / SketchEdge_B
 Extrusion_1 / generated-edge / SketchPoint_C
 Extrusion_1 / end-vertex / SketchPoint_C
 ```
+
+Here “inherits from” means an explicit parent-child provenance relation. The
+generated edge does not reuse the point's object ID: it has its own topology
+identity `(feature_id, generated, point_id)`, from which the exact parent
+Sketch point is recoverable. The mandatory sweep mapping is:
+
+| Result child | Persisted parent |
+|---|---|
+| Extrusion/Revolution generated side face | Sketch curve entity ID |
+| start/end cap rim edge | Sketch curve entity ID |
+| generated longitudinal/revolved edge | Sketch point entity ID |
+| start/end vertex | Sketch point entity ID |
+| start/end cap face | selected profile-region ID |
+
+Closed curves with no persisted Sketch endpoint must not expose an
+OCCT-created seam edge or seam vertex as if it had a Sketch-point parent.
 
 ## Persistent reference model
 

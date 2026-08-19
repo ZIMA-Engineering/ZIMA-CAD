@@ -39,9 +39,9 @@ int main() {
             step_document.kernel_operations());
         require(step_boundaries.size() == 1 &&
                     std::abs(step_boundaries.back().volume - 480.0) < 1.0e-6 &&
-                    !step_boundaries.back().mesh.original_references
+                    step_boundaries.back().mesh.original_references
                         .triangle_references.empty(),
-                "Imported STEP did not create calculated body and original references");
+                "Imported STEP exposed traversal indices as persistent references");
         const auto step_document_path = std::filesystem::temp_directory_path() /
             "zima-cad-imported-step-contract.prtz";
         step_document.save(step_document_path, step_boundaries);
@@ -524,7 +524,12 @@ int main() {
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();
         extrusion_sketch.name = "Obdélníkový profil";
-        static_cast<void>(extrusion_sketch.add_rectangle(0.0, 0.0, 30.0, 20.0));
+        const auto extrusion_segment_ids =
+            extrusion_sketch.add_rectangle(0.0, 0.0, 30.0, 20.0);
+        std::vector<std::string> extrusion_point_ids;
+        for (const auto& point : extrusion_sketch.points) {
+            extrusion_point_ids.push_back(point.id);
+        }
         const auto extrusion_sketch_id = extrusion_sketch.id;
         extrusion_document.sketches.push_back(std::move(extrusion_sketch));
         auto extrusion_container =
@@ -544,13 +549,57 @@ int main() {
                     "Extrusion face lost its stable history owner");
             extrusion_faces.insert(reference.semantic_key);
         }
-        require(extrusion_faces.contains("profile_start") &&
-                    extrusion_faces.contains("profile_end") &&
-                    std::count_if(extrusion_faces.begin(), extrusion_faces.end(),
-                        [](const auto& key) {
-                            return key.starts_with("profile-boundary:segment-loop:");
-                        }) == 4,
+        require(extrusion_faces.contains("start") &&
+                    extrusion_faces.contains("end") &&
+                    std::ranges::all_of(extrusion_segment_ids,
+                        [&](const auto& id) {
+                            return extrusion_faces.contains("generated:" + id);
+                        }),
                 "Extrusion does not expose stable start/end/side faces");
+        std::set<std::string> extrusion_edges;
+        for (const auto& edge :
+             extrusion_results.front().mesh.original_references.edges) {
+            extrusion_edges.insert(edge.reference.semantic_key);
+        }
+        std::set<std::string> extrusion_vertices;
+        for (const auto& vertex :
+             extrusion_results.front().mesh.original_references.points) {
+            extrusion_vertices.insert(vertex.reference.semantic_key);
+        }
+        require(std::ranges::all_of(extrusion_segment_ids, [&](const auto& id) {
+                    return extrusion_edges.contains("start:" + id) &&
+                        extrusion_edges.contains("end:" + id);
+                }) &&
+                std::ranges::all_of(extrusion_point_ids, [&](const auto& id) {
+                    return extrusion_edges.contains("generated:" + id) &&
+                        extrusion_vertices.contains("start:" + id) &&
+                        extrusion_vertices.contains("end:" + id);
+                }),
+                "Extrusion topology did not preserve curve/point ancestry");
+        auto extrusion_reference_sketch = zima::sketcher::Sketch::create_default();
+        auto inherited_edge_reference =
+            zima::sketcher::Sketch::create_external_reference(
+                zima::sketcher::ExternalReferenceKind::Edge);
+        inherited_edge_reference.source_document_id = extrusion_document.document_id;
+        inherited_edge_reference.source_owner_id = extrusion_container_id;
+        inherited_edge_reference.source_semantic_key =
+            "start:" + extrusion_segment_ids.front();
+        inherited_edge_reference.cached_points = {{-1.0, -1.0}, {-2.0, -2.0}};
+        extrusion_reference_sketch.add_external_reference(
+            inherited_edge_reference);
+        require(extrusion_reference_sketch.refresh_external_references(
+                    extrusion_document.document_id,
+                    extrusion_results.front().mesh.original_references) &&
+                    !extrusion_reference_sketch.external_references.front().broken &&
+                    extrusion_reference_sketch.external_references.front()
+                        .source_semantic_key ==
+                        "start:" + extrusion_segment_ids.front(),
+                "Sketch external reference lost inherited Extrusion ancestry");
+        require(zima::sketcher::Sketch::from_serialized(
+                    extrusion_reference_sketch.serialized())
+                    .external_references ==
+                extrusion_reference_sketch.external_references,
+                "Inherited Extrusion reference did not survive Sketch persistence");
         require(extrusion_results.front().mesh.original_references.axes.size() == 1 &&
                     extrusion_results.front().mesh.original_references.axes.front().reference.semantic_key ==
                         "axis" &&
@@ -565,6 +614,29 @@ int main() {
             }
             return std::array<double, 2>{minimum, maximum};
         };
+        const auto referenced_face_z = [](const zima::kernel::BodyResult& result,
+                                          const std::string& semantic_key) {
+            const auto& references = result.mesh.original_references;
+            double sum{};
+            std::size_t count{};
+            for (std::size_t triangle = 0;
+                 triangle < references.triangle_references.size(); ++triangle) {
+                if (references.triangle_references[triangle].semantic_key !=
+                    semantic_key) continue;
+                for (int corner = 0; corner < 3; ++corner) {
+                    sum += references.vertices[
+                        references.triangles[triangle * 3 + corner]].z;
+                    ++count;
+                }
+            }
+            require(count != 0, "Requested semantic cap face is missing");
+            return sum / static_cast<double>(count);
+        };
+        require(std::abs(referenced_face_z(extrusion_results.front(), "start")) <
+                    1.0e-7 &&
+                std::abs(referenced_face_z(extrusion_results.front(), "end") -
+                    10.0) < 1.0e-7,
+                "Forward Extrusion swapped semantic start/end caps");
         auto reverse_extrusion_document = extrusion_document;
         reverse_extrusion_document.history.front().extrusion.direction =
             zima::document::ExtrusionDirection::Reverse;
@@ -572,7 +644,12 @@ int main() {
             reverse_extrusion_document.kernel_operations());
         const auto reverse_bounds = z_bounds(reverse_extrusion_results.front());
         require(std::abs(reverse_bounds[0] + 10.0) < 1.0e-7 &&
-                    std::abs(reverse_bounds[1]) < 1.0e-7,
+                    std::abs(reverse_bounds[1]) < 1.0e-7 &&
+                    std::abs(referenced_face_z(
+                        reverse_extrusion_results.front(), "start") + 10.0) <
+                        1.0e-7 &&
+                    std::abs(referenced_face_z(
+                        reverse_extrusion_results.front(), "end")) < 1.0e-7,
                 "Reverse Extrusion is not located behind the Sketch plane");
         auto symmetric_extrusion_document = extrusion_document;
         symmetric_extrusion_document.history.front().extrusion.direction =
@@ -582,6 +659,12 @@ int main() {
         const auto symmetric_bounds = z_bounds(symmetric_extrusion_results.front());
         require(std::abs(symmetric_bounds[0] + 5.0) < 1.0e-7 &&
                     std::abs(symmetric_bounds[1] - 5.0) < 1.0e-7 &&
+                    std::abs(referenced_face_z(
+                        symmetric_extrusion_results.front(), "start") + 5.0) <
+                        1.0e-7 &&
+                    std::abs(referenced_face_z(
+                        symmetric_extrusion_results.front(), "end") - 5.0) <
+                        1.0e-7 &&
                     symmetric_extrusion_results.front().source_fingerprint !=
                         extrusion_results.front().source_fingerprint,
                 "Symmetric Extrusion is not centered on the Sketch plane");
@@ -744,7 +827,7 @@ int main() {
              triangle < ellipse_references.triangle_references.size(); ++triangle) {
             const auto& reference = ellipse_references.triangle_references[triangle];
             if (reference.owner_id != ellipse_target_owner ||
-                !reference.semantic_key.starts_with("profile-boundary:")) continue;
+                !reference.semantic_key.starts_with("generated:")) continue;
             ellipse_side_key = reference.semantic_key;
             for (int corner = 0; corner < 3; ++corner) {
                 ellipse_side_triangles.push_back(ellipse_references.vertices[
@@ -793,7 +876,7 @@ int main() {
              triangle < spline_references.triangle_references.size(); ++triangle) {
             const auto& reference = spline_references.triangle_references[triangle];
             if (reference.owner_id != spline_target_owner ||
-                !reference.semantic_key.starts_with("profile-boundary:")) continue;
+                !reference.semantic_key.starts_with("generated:")) continue;
             spline_side_key = reference.semantic_key;
             for (int corner = 0; corner < 3; ++corner) {
                 spline_side_triangles.push_back(spline_references.vertices[
@@ -913,7 +996,7 @@ int main() {
         for (const auto& reference :
              circular_results.back().mesh.original_references.triangle_references) {
             if (reference.owner_id == circular_cut_id &&
-                reference.semantic_key.starts_with("profile-boundary:")) {
+                reference.semantic_key.starts_with("generated:")) {
                 circular_side_found = true;
             }
         }
@@ -976,8 +1059,7 @@ int main() {
         for (const auto& reference :
              holed_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == holed_extrusion_id &&
-                reference.semantic_key.starts_with("profile-boundary:") &&
-                reference.semantic_key.find(":edge:0") != std::string::npos) {
+                reference.semantic_key.starts_with("generated:")) {
                 hole_side_found = true;
             }
         }
@@ -1014,8 +1096,7 @@ int main() {
         bool stable_text_boundary_found = false;
         for (const auto& reference : text_profile_results.front().mesh
                  .original_references.triangle_references) {
-            if (reference.semantic_key.find(
-                    "profile-boundary:text:" + profile_text_id + ":contour:0") == 0) {
+            if (reference.semantic_key == "generated:" + profile_text_id) {
                 stable_text_boundary_found = true;
             }
         }
@@ -1194,7 +1275,7 @@ int main() {
         for (const auto& reference :
              arc_profile_results.front().mesh.original_references.triangle_references) {
             if (reference.owner_id == arc_profile_owner &&
-                reference.semantic_key.starts_with("profile-boundary:")) {
+                reference.semantic_key.starts_with("generated:")) {
                 arc_profile_sides.insert(reference.semantic_key);
             }
         }
@@ -1398,8 +1479,12 @@ int main() {
 
         auto revolution_document = zima::document::PartDocument::create_default();
         auto revolution_sketch = zima::sketcher::Sketch::create_default();
-        static_cast<void>(revolution_sketch.add_rectangle(
-            10.0, 5.0, 20.0, 8.0));
+        const auto revolution_segment_ids = revolution_sketch.add_rectangle(
+            10.0, 5.0, 20.0, 8.0);
+        std::vector<std::string> revolution_point_ids;
+        for (const auto& point : revolution_sketch.points) {
+            revolution_point_ids.push_back(point.id);
+        }
         const auto revolution_sketch_id = revolution_sketch.id;
         revolution_document.sketches.push_back(std::move(revolution_sketch));
         auto revolution_container =
@@ -1415,6 +1500,23 @@ int main() {
                     revolution_results.front().mesh.original_references.axes.size() == 1 &&
                     revolution_results.front().mesh.original_references.axes.front().direction.x > 0.999,
                 "Full Sketch Revolution has an incorrect volume or axis");
+        std::set<std::string> full_revolution_faces;
+        for (const auto& reference : revolution_results.front().mesh
+                 .original_references.triangle_references) {
+            full_revolution_faces.insert(reference.semantic_key);
+        }
+        std::set<std::string> full_revolution_edges;
+        for (const auto& edge : revolution_results.front().mesh
+                 .original_references.edges) {
+            full_revolution_edges.insert(edge.reference.semantic_key);
+        }
+        require(std::ranges::all_of(revolution_segment_ids, [&](const auto& id) {
+                    return full_revolution_faces.contains("generated:" + id);
+                }) &&
+                std::ranges::all_of(revolution_point_ids, [&](const auto& id) {
+                    return full_revolution_edges.contains("generated:" + id);
+                }),
+                "Revolution faces/edges lost their Sketch curve/point parents");
         auto half_revolution_document = revolution_document;
         half_revolution_document.history.front().revolution.angle_degrees = 180.0;
         const auto half_revolution_results = kernel.evaluate_history(
@@ -1431,9 +1533,29 @@ int main() {
                 partial_revolution_faces.insert(reference.semantic_key);
             }
         }
-        require(partial_revolution_faces.contains("profile_start") &&
-                    partial_revolution_faces.contains("profile_end"),
+        require(partial_revolution_faces.contains("start") &&
+                    partial_revolution_faces.contains("end"),
                 "Partial Revolution lost its start or end profile face");
+        std::set<std::string> partial_revolution_edges;
+        for (const auto& edge : half_revolution_results.front().mesh
+                 .original_references.edges) {
+            partial_revolution_edges.insert(edge.reference.semantic_key);
+        }
+        std::set<std::string> partial_revolution_vertices;
+        for (const auto& vertex : half_revolution_results.front().mesh
+                 .original_references.points) {
+            partial_revolution_vertices.insert(vertex.reference.semantic_key);
+        }
+        require(std::ranges::all_of(revolution_segment_ids, [&](const auto& id) {
+                    return partial_revolution_edges.contains("start:" + id) &&
+                        partial_revolution_edges.contains("end:" + id);
+                }) &&
+                std::ranges::all_of(revolution_point_ids, [&](const auto& id) {
+                    return partial_revolution_edges.contains("generated:" + id) &&
+                        partial_revolution_vertices.contains("start:" + id) &&
+                        partial_revolution_vertices.contains("end:" + id);
+                }),
+                "Partial Revolution topology lost curve/point ancestry");
         const auto revolution_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-revolution-contract.prtz";
         half_revolution_document.save(revolution_path, half_revolution_results);

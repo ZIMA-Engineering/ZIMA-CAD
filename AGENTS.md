@@ -112,6 +112,20 @@
 ## OCCT boundary
 
 - Use OCCT only as the solid-modeling kernel for calculating body geometry.
+- Topology ancestry is a mandatory persisted parent-child relation, not a
+  display label and not reuse of one ID for two objects. For Extrusion and
+  Revolution, a generated side face is the child of its source Sketch curve;
+  a generated sweep/longitudinal edge is the child of its source Sketch point;
+  start/end rim edges are children of their source Sketch curves; start/end
+  vertices are children of their source Sketch points; and start/end cap faces
+  are children of the selected profile region. The child identity contains the
+  feature ID, semantic role and parent source ID, so its parent can always be
+  recovered from persisted ZIMA data.
+- Never create persistent topology identity from OCCT enumeration position,
+  traversal order, `FirstShape`/`LastShape` naming assumptions, or synthetic
+  keys such as `face:N`, `edge:N`, or `vertex:N`. OCCT history may locate the
+  runtime shape for a ZIMA identity that was defined before calculation; it
+  must never define that identity.
 - Application UI, property dialogs, Sketcher entry and interaction, picking,
   highlighting, topology identity, feature references, external sketch
   references, and their projections must use ZIMA-CAD's persisted data model

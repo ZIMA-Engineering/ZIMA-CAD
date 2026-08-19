@@ -395,22 +395,12 @@ PrimitiveData make_sphere_data(
     BRepBuilderAPI_Transform transformer(unplaced,
         primitive_transform(request.translation, request.rotation_degrees), true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
-    std::size_t edge_index{};
-    std::size_t vertex_index{};
     for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const auto transformed = transformer.ModifiedShape(explorer.Current());
         if (!transformed.IsNull()) result.faces.push_back({transformed, {owner_id, "surface"}});
     }
-    for (TopExp_Explorer explorer(unplaced, TopAbs_EDGE); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.edges.push_back({transformed,
-            {owner_id, "edge:" + std::to_string(edge_index++)}});
-    }
-    for (TopExp_Explorer explorer(unplaced, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.vertices.push_back({transformed,
-            {owner_id, "point:" + std::to_string(vertex_index++)}});
-    }
+    // Sphere seams and poles are kernel parameterization artifacts, not ZIMA
+    // topology entities, so they intentionally have no persistent references.
     return result;
 }
 
@@ -435,8 +425,6 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
     BRepBuilderAPI_Transform transformer(unplaced,
         primitive_transform(request.translation, request.rotation_degrees), true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
-    std::size_t edge_index{};
-    std::size_t vertex_index{};
     for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const auto face = TopoDS::Face(explorer.Current());
         GProp_GProps properties;
@@ -448,14 +436,17 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
         if (!transformed.IsNull()) result.faces.push_back({transformed, {owner_id, key}});
     }
     for (TopExp_Explorer explorer(unplaced, TopAbs_EDGE); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
+        const auto edge = TopoDS::Edge(explorer.Current());
+        TopoDS_Vertex first;
+        TopoDS_Vertex last;
+        TopExp::Vertices(edge, first, last);
+        const double first_z = BRep_Tool::Pnt(first).Z();
+        const double last_z = BRep_Tool::Pnt(last).Z();
+        if (std::abs(first_z - last_z) > 1.0e-7) continue;
+        const auto transformed = transformer.ModifiedShape(edge);
         if (!transformed.IsNull()) result.edges.push_back({transformed,
-            {owner_id, "edge:" + std::to_string(edge_index++)}});
-    }
-    for (TopExp_Explorer explorer(unplaced, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.vertices.push_back({transformed,
-            {owner_id, "point:" + std::to_string(vertex_index++)}});
+            {owner_id, std::abs(first_z) < 1.0e-7
+                ? "circle:z_min" : "circle:z_max"}});
     }
     return result;
 }
@@ -463,26 +454,11 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
 PrimitiveData make_polyhedral_data(
     const TopoDS_Shape& unplaced, const gp_Trsf& transform,
     const std::string& owner_id) {
+    static_cast<void>(owner_id);
     BRepBuilderAPI_Transform transformer(unplaced, transform, true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
-    std::size_t face_index{};
-    std::size_t edge_index{};
-    std::size_t vertex_index{};
-    for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.faces.push_back({transformed,
-            {owner_id, "face:" + std::to_string(face_index++)}});
-    }
-    for (TopExp_Explorer explorer(unplaced, TopAbs_EDGE); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.edges.push_back({transformed,
-            {owner_id, "edge:" + std::to_string(edge_index++)}});
-    }
-    for (TopExp_Explorer explorer(unplaced, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
-        const auto transformed = transformer.ModifiedShape(explorer.Current());
-        if (!transformed.IsNull()) result.vertices.push_back({transformed,
-            {owner_id, "point:" + std::to_string(vertex_index++)}});
-    }
+    // Pyramid/Wedge request data currently has no persisted boundary entities.
+    // Do not manufacture selectable identities from OCCT traversal order.
     return result;
 }
 
@@ -1083,64 +1059,82 @@ PrimitiveData make_extrusion_data(
         throw std::runtime_error("OCCT extrusion failed or produced an invalid solid");
     }
     PrimitiveData result{prism.Shape(), {}, {}, {}};
-    result.faces.push_back({prism.FirstShape(), {owner_id, "profile_start"}});
-    result.faces.push_back({prism.LastShape(), {owner_id, "profile_end"}});
-    std::vector<std::string> boundary_ids{request.outer_boundary_id};
-    boundary_ids.insert(boundary_ids.end(), request.inner_boundary_ids.begin(),
-                        request.inner_boundary_ids.end());
-    std::size_t edge_index{};
+    const std::string first_role = request.first_cap_is_start ? "start" : "end";
+    const std::string last_role = request.first_cap_is_start ? "end" : "start";
+    result.faces.push_back({prism.FirstShape(), {owner_id, first_role}});
+    result.faces.push_back({prism.LastShape(), {owner_id, last_role}});
+    std::vector<std::vector<std::string>> edge_sources{
+        request.outer_edge_source_ids};
+    edge_sources.insert(edge_sources.end(), request.inner_edge_source_ids.begin(),
+                        request.inner_edge_source_ids.end());
+    std::vector<std::vector<std::string>> vertex_sources{
+        request.outer_vertex_source_ids};
+    vertex_sources.insert(vertex_sources.end(),
+                          request.inner_vertex_source_ids.begin(),
+                          request.inner_vertex_source_ids.end());
+    if (edge_sources.size() != wires.size() || vertex_sources.size() != wires.size()) {
+        throw std::runtime_error("Extrusion profile provenance group mismatch");
+    }
     for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
         std::size_t boundary_edge{};
         const auto& wire = wires[wire_index];
         for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
              explorer.More(); explorer.Next(), ++boundary_edge) {
+            if (boundary_edge >= edge_sources[wire_index].size()) {
+                throw std::runtime_error("Extrusion edge provenance mismatch");
+            }
             const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-            const auto index = std::to_string(edge_index++);
-            const auto stable_index = wire_index < boundary_ids.size() &&
-                    !boundary_ids[wire_index].empty()
-                ? "profile-boundary:" + boundary_ids[wire_index] +
-                    ":edge:" + std::to_string(boundary_edge)
-                : "side:" + index;
+            const auto& curve_id = edge_sources[wire_index][boundary_edge];
+            if (curve_id.empty()) {
+                throw std::runtime_error("Extrusion curve provenance is empty");
+            }
             const auto& generated = prism.Generated(edge);
             for (TopTools_ListIteratorOfListOfShape iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
-                        {iterator.Value(), {owner_id, stable_index}});
+                        {iterator.Value(), {owner_id, "generated:" + curve_id}});
                 }
             }
             const auto first = prism.FirstShape(edge);
             const auto last = prism.LastShape(edge);
             if (!first.IsNull()) {
-                result.edges.push_back({first, {owner_id, "edge:start:" + index}});
+                result.edges.push_back(
+                    {first, {owner_id, first_role + ":" + curve_id}});
             }
             if (!last.IsNull()) {
-                result.edges.push_back({last, {owner_id, "edge:end:" + index}});
+                result.edges.push_back(
+                    {last, {owner_id, last_role + ":" + curve_id}});
             }
-        }
-    }
-    std::size_t vertex_index{};
-    for (const auto& wire : wires) {
-        for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
-             explorer.More(); explorer.Next()) {
-            const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
-            const auto index = std::to_string(vertex_index++);
-            const auto first = prism.FirstShape(vertex);
-            const auto last = prism.LastShape(vertex);
-            if (!first.IsNull()) {
-                result.vertices.push_back({first, {owner_id, "vertex:start:" + index}});
+            if (vertex_sources[wire_index].empty()) continue;
+            if (boundary_edge >= vertex_sources[wire_index].size()) {
+                throw std::runtime_error("Extrusion point provenance mismatch");
             }
-            if (!last.IsNull()) {
-                result.vertices.push_back({last, {owner_id, "vertex:end:" + index}});
+            const auto& point_id = vertex_sources[wire_index][boundary_edge];
+            const TopoDS_Vertex vertex = TopExp::FirstVertex(edge, true);
+            const auto first_vertex = prism.FirstShape(vertex);
+            const auto last_vertex = prism.LastShape(vertex);
+            if (!first_vertex.IsNull()) {
+                result.vertices.push_back(
+                    {first_vertex, {owner_id, first_role + ":" + point_id}});
             }
-            const auto& generated = prism.Generated(vertex);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+            if (!last_vertex.IsNull()) {
+                result.vertices.push_back(
+                    {last_vertex, {owner_id, last_role + ":" + point_id}});
+            }
+            const auto& generated_from_vertex = prism.Generated(vertex);
+            for (TopTools_ListIteratorOfListOfShape iterator(generated_from_vertex);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_EDGE) {
                     result.edges.push_back(
-                        {iterator.Value(), {owner_id, "edge:vertical:" + index}});
+                        {iterator.Value(), {owner_id, "generated:" + point_id}});
                 }
             }
+        }
+        if (boundary_edge != edge_sources[wire_index].size() ||
+            (!vertex_sources[wire_index].empty() &&
+             boundary_edge != vertex_sources[wire_index].size())) {
+            throw std::runtime_error("Extrusion profile provenance count mismatch");
         }
     }
     if (request.extent == ExtrusionRequest::Extent::UpToPlane ||
@@ -1187,34 +1181,8 @@ PrimitiveData make_extrusion_data(
         result.edges = propagate_topology(clip, result.edges, {});
         result.vertices = propagate_topology(clip, result.vertices, {});
         result.shape = clip.Shape();
-        const auto contains_shape = [](const auto& owned, const auto& shape) {
-            return std::any_of(owned.begin(), owned.end(),
-                [&](const auto& item) { return item.shape.IsSame(shape); });
-        };
-        std::size_t generated_face{};
-        for (TopExp_Explorer explorer(result.shape, TopAbs_FACE);
-             explorer.More(); explorer.Next()) {
-            if (!contains_shape(result.faces, explorer.Current())) {
-                result.faces.push_back({explorer.Current(),
-                    {owner_id, "up_to_face:" + std::to_string(generated_face++)}});
-            }
-        }
-        std::size_t generated_edge{};
-        for (TopExp_Explorer explorer(result.shape, TopAbs_EDGE);
-             explorer.More(); explorer.Next()) {
-            if (!contains_shape(result.edges, explorer.Current())) {
-                result.edges.push_back({explorer.Current(),
-                    {owner_id, "up_to_edge:" + std::to_string(generated_edge++)}});
-            }
-        }
-        std::size_t generated_vertex{};
-        for (TopExp_Explorer explorer(result.shape, TopAbs_VERTEX);
-             explorer.More(); explorer.Next()) {
-            if (!contains_shape(result.vertices, explorer.Current())) {
-                result.vertices.push_back({explorer.Current(),
-                    {owner_id, "up_to_vertex:" + std::to_string(generated_vertex++)}});
-            }
-        }
+        // Clipping may create new result-body topology.  It is deliberately not
+        // exposed as a stable reference: no persisted ZIMA source owns it.
     }
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
@@ -1234,16 +1202,17 @@ PrimitiveData make_extrusion_data(
                 request.additional_profile_regions[index].outer_boundary_id;
             additional_request.inner_boundary_ids =
                 request.additional_profile_regions[index].inner_boundary_ids;
+            additional_request.outer_edge_source_ids =
+                request.additional_profile_regions[index].outer_edge_source_ids;
+            additional_request.inner_edge_source_ids =
+                request.additional_profile_regions[index].inner_edge_source_ids;
+            additional_request.outer_vertex_source_ids =
+                request.additional_profile_regions[index].outer_vertex_source_ids;
+            additional_request.inner_vertex_source_ids =
+                request.additional_profile_regions[index].inner_vertex_source_ids;
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target);
-            const auto prefix = "region:" + std::to_string(index + 1) + ":";
-            for (auto& face : additional.faces) face.reference.semantic_key =
-                prefix + face.reference.semantic_key;
-            for (auto& edge : additional.edges) edge.reference.semantic_key =
-                prefix + edge.reference.semantic_key;
-            for (auto& vertex : additional.vertices) vertex.reference.semantic_key =
-                prefix + vertex.reference.semantic_key;
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -1293,18 +1262,9 @@ PrimitiveData make_step_data(
     if (result.shape.IsNull() || !BRepCheck_Analyzer(result.shape).IsValid()) {
         throw std::runtime_error("STEP did not produce a valid shape");
     }
-    std::size_t index{};
-    for (TopExp_Explorer explorer(result.shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
-        result.faces.push_back({explorer.Current(), {owner_id, "step-face:" + std::to_string(index++)}});
-    }
-    index = 0;
-    for (TopExp_Explorer explorer(result.shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
-        result.edges.push_back({explorer.Current(), {owner_id, "step-edge:" + std::to_string(index++)}});
-    }
-    index = 0;
-    for (TopExp_Explorer explorer(result.shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
-        result.vertices.push_back({explorer.Current(), {owner_id, "step-vertex:" + std::to_string(index++)}});
-    }
+    // A STEP traversal index is not persistent identity. Imported topology is
+    // displayed, but is not referenceable until import has supplied persisted
+    // source IDs independent of OCCT enumeration order.
     return result;
 }
 
@@ -1357,32 +1317,38 @@ PrimitiveData make_revolution_data(
     PrimitiveData result{revolution.Shape(), {}, {}, {}};
     if (request.angle_degrees < 360.0 - 1.0e-9) {
         result.faces.push_back(
-            {revolution.FirstShape(), {owner_id, "profile_start"}});
+            {revolution.FirstShape(), {owner_id, "start"}});
         result.faces.push_back(
-            {revolution.LastShape(), {owner_id, "profile_end"}});
+            {revolution.LastShape(), {owner_id, "end"}});
     }
-    std::vector<std::string> boundary_ids{request.outer_boundary_id};
-    boundary_ids.insert(boundary_ids.end(), request.inner_boundary_ids.begin(),
-                        request.inner_boundary_ids.end());
-    std::size_t edge_index{};
+    std::vector<std::vector<std::string>> edge_sources{
+        request.outer_edge_source_ids};
+    edge_sources.insert(edge_sources.end(), request.inner_edge_source_ids.begin(),
+                        request.inner_edge_source_ids.end());
+    std::vector<std::vector<std::string>> vertex_sources{
+        request.outer_vertex_source_ids};
+    vertex_sources.insert(vertex_sources.end(),
+                          request.inner_vertex_source_ids.begin(),
+                          request.inner_vertex_source_ids.end());
+    if (edge_sources.size() != wires.size() || vertex_sources.size() != wires.size()) {
+        throw std::runtime_error("Revolution profile provenance group mismatch");
+    }
     for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
         std::size_t boundary_edge{};
         const auto& wire = wires[wire_index];
         for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
              explorer.More(); explorer.Next(), ++boundary_edge) {
+            if (boundary_edge >= edge_sources[wire_index].size()) {
+                throw std::runtime_error("Revolution edge provenance mismatch");
+            }
             const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-            const auto index = std::to_string(edge_index++);
-            const auto stable_index = wire_index < boundary_ids.size() &&
-                    !boundary_ids[wire_index].empty()
-                ? "profile-boundary:" + boundary_ids[wire_index] +
-                    ":edge:" + std::to_string(boundary_edge)
-                : "side:" + index;
+            const auto& curve_id = edge_sources[wire_index][boundary_edge];
             const auto& generated = revolution.Generated(edge);
             for (TopTools_ListIteratorOfListOfShape iterator(generated);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_FACE) {
                     result.faces.push_back(
-                        {iterator.Value(), {owner_id, stable_index}});
+                        {iterator.Value(), {owner_id, "generated:" + curve_id}});
                 }
             }
             if (request.angle_degrees < 360.0 - 1.0e-9) {
@@ -1390,27 +1356,25 @@ PrimitiveData make_revolution_data(
                 const auto last = revolution.LastShape(edge);
                 if (!first.IsNull()) {
                     result.edges.push_back(
-                        {first, {owner_id, "edge:start:" + index}});
+                        {first, {owner_id, "start:" + curve_id}});
                 }
                 if (!last.IsNull()) {
                     result.edges.push_back(
-                        {last, {owner_id, "edge:end:" + index}});
+                        {last, {owner_id, "end:" + curve_id}});
                 }
             }
-        }
-    }
-    std::size_t vertex_index{};
-    for (const auto& wire : wires) {
-        for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
-             explorer.More(); explorer.Next()) {
-            const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
-            const auto index = std::to_string(vertex_index++);
-            const auto& generated = revolution.Generated(vertex);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+            if (vertex_sources[wire_index].empty()) continue;
+            if (boundary_edge >= vertex_sources[wire_index].size()) {
+                throw std::runtime_error("Revolution point provenance mismatch");
+            }
+            const auto& point_id = vertex_sources[wire_index][boundary_edge];
+            const TopoDS_Vertex vertex = TopExp::FirstVertex(edge, true);
+            const auto& generated_from_vertex = revolution.Generated(vertex);
+            for (TopTools_ListIteratorOfListOfShape iterator(generated_from_vertex);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_EDGE) {
                     result.edges.push_back(
-                        {iterator.Value(), {owner_id, "edge:revolved:" + index}});
+                        {iterator.Value(), {owner_id, "generated:" + point_id}});
                 }
             }
             if (request.angle_degrees < 360.0 - 1.0e-9) {
@@ -1418,13 +1382,18 @@ PrimitiveData make_revolution_data(
                 const auto last = revolution.LastShape(vertex);
                 if (!first.IsNull()) {
                     result.vertices.push_back(
-                        {first, {owner_id, "vertex:start:" + index}});
+                        {first, {owner_id, "start:" + point_id}});
                 }
                 if (!last.IsNull()) {
                     result.vertices.push_back(
-                        {last, {owner_id, "vertex:end:" + index}});
+                        {last, {owner_id, "end:" + point_id}});
                 }
             }
+        }
+        if (boundary_edge != edge_sources[wire_index].size() ||
+            (!vertex_sources[wire_index].empty() &&
+             boundary_edge != vertex_sources[wire_index].size())) {
+            throw std::runtime_error("Revolution profile provenance count mismatch");
         }
     }
     if (!request.additional_profile_regions.empty()) {
@@ -1445,15 +1414,16 @@ PrimitiveData make_revolution_data(
                 request.additional_profile_regions[index].outer_boundary_id;
             additional_request.inner_boundary_ids =
                 request.additional_profile_regions[index].inner_boundary_ids;
+            additional_request.outer_edge_source_ids =
+                request.additional_profile_regions[index].outer_edge_source_ids;
+            additional_request.inner_edge_source_ids =
+                request.additional_profile_regions[index].inner_edge_source_ids;
+            additional_request.outer_vertex_source_ids =
+                request.additional_profile_regions[index].outer_vertex_source_ids;
+            additional_request.inner_vertex_source_ids =
+                request.additional_profile_regions[index].inner_vertex_source_ids;
             additional_request.additional_profile_regions.clear();
             auto additional = make_revolution_data(additional_request, owner_id);
-            const auto prefix = "region:" + std::to_string(index + 1) + ":";
-            for (auto& face : additional.faces) face.reference.semantic_key =
-                prefix + face.reference.semantic_key;
-            for (auto& edge : additional.edges) edge.reference.semantic_key =
-                prefix + edge.reference.semantic_key;
-            for (auto& vertex : additional.vertices) vertex.reference.semantic_key =
-                prefix + vertex.reference.semantic_key;
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -1557,8 +1527,14 @@ BodyResult make_result(
             result.mesh.triangle_references.push_back(reference);
         }
     }
+    std::vector<TopoDS_Shape> sampled_edges;
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+        if (std::ranges::any_of(sampled_edges,
+                [&](const auto& sampled) { return sampled.IsSame(edge); })) {
+            continue;
+        }
+        sampled_edges.push_back(edge);
         const EdgeReference reference = original_reference_geometry
             ? reference_for_shape<EdgeReference>(edge, owned_edges)
             : EdgeReference{};
@@ -1575,9 +1551,15 @@ BodyResult make_result(
         }
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
+    std::vector<TopoDS_Shape> sampled_vertices;
     if (original_reference_geometry) for (
         TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
         const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
+        if (std::ranges::any_of(sampled_vertices,
+                [&](const auto& sampled) { return sampled.IsSame(vertex); })) {
+            continue;
+        }
+        sampled_vertices.push_back(vertex);
         const VertexReference reference =
             reference_for_shape<VertexReference>(vertex, owned_vertices);
         if (!reference.valid()) continue;
@@ -1593,9 +1575,16 @@ void append_original_reference_geometry(
     const auto offset = static_cast<std::uint32_t>(target.vertices.size());
     target.vertices.insert(target.vertices.end(),
         source.vertices.begin(), source.vertices.end());
-    for (const auto index : source.triangles) target.triangles.push_back(offset + index);
-    target.triangle_references.insert(target.triangle_references.end(),
-        source.triangle_references.begin(), source.triangle_references.end());
+    for (std::size_t triangle = 0;
+         triangle < source.triangle_references.size(); ++triangle) {
+        const auto& reference = source.triangle_references[triangle];
+        if (!reference.valid()) continue;
+        target.triangles.insert(target.triangles.end(), {
+            offset + source.triangles[triangle * 3],
+            offset + source.triangles[triangle * 3 + 1],
+            offset + source.triangles[triangle * 3 + 2]});
+        target.triangle_references.push_back(reference);
+    }
     for (auto& edge : source.edges) {
         if (edge.reference.valid()) target.edges.push_back(std::move(edge));
     }

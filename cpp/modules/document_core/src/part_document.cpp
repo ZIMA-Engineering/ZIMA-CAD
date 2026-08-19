@@ -204,6 +204,10 @@ std::vector<ProfileRegion> request_regions(
     first.region_id = std::move(request.profile_region_id);
     first.outer_boundary_id = std::move(request.outer_boundary_id);
     first.inner_boundary_ids = std::move(request.inner_boundary_ids);
+    first.outer_edge_source_ids = std::move(request.outer_edge_source_ids);
+    first.inner_edge_source_ids = std::move(request.inner_edge_source_ids);
+    first.outer_vertex_source_ids = std::move(request.outer_vertex_source_ids);
+    first.inner_vertex_source_ids = std::move(request.inner_vertex_source_ids);
     first.outer_profile = std::move(request.outer_profile);
     first.inner_profiles = std::move(request.inner_profiles);
     std::vector<ProfileRegion> regions;
@@ -220,6 +224,12 @@ void assign_regions(zima::kernel::ExtrusionRequest& request,
     request.profile_region_id = std::move(regions.front().region_id);
     request.outer_boundary_id = std::move(regions.front().outer_boundary_id);
     request.inner_boundary_ids = std::move(regions.front().inner_boundary_ids);
+    request.outer_edge_source_ids = std::move(regions.front().outer_edge_source_ids);
+    request.inner_edge_source_ids = std::move(regions.front().inner_edge_source_ids);
+    request.outer_vertex_source_ids =
+        std::move(regions.front().outer_vertex_source_ids);
+    request.inner_vertex_source_ids =
+        std::move(regions.front().inner_vertex_source_ids);
     request.outer_profile = std::move(regions.front().outer_profile);
     request.inner_profiles = std::move(regions.front().inner_profiles);
     request.additional_profile_regions.assign(
@@ -239,6 +249,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
             ? zima::kernel::Vec3{0.0, -height, 0.0}
             : zima::kernel::Vec3{height, 0.0, 0.0};
     if (direction_mode == ExtrusionDirection::Reverse) {
+        request.first_cap_is_start = false;
         request.direction.x = -request.direction.x;
         request.direction.y = -request.direction.y;
         request.direction.z = -request.direction.z;
@@ -396,6 +407,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
         struct Boundary {
             std::string id;
             ProfileLoop loop;
+            std::vector<std::string> edge_source_ids;
+            std::vector<std::string> vertex_source_ids;
             ProfilePolygon sample;
             int parent{-1};
             double area{};
@@ -404,7 +417,9 @@ zima::kernel::ExtrusionRequest extrusion_request(
         const auto append_regions = [&](std::vector<ProfileRegion> regions) {
             for (auto& region : regions) {
                 boundaries.push_back({region.outer_boundary_id,
-                    std::move(region.outer_profile)});
+                    std::move(region.outer_profile),
+                    std::move(region.outer_edge_source_ids),
+                    std::move(region.outer_vertex_source_ids)});
                 for (std::size_t index = 0; index < region.inner_profiles.size(); ++index) {
                     boundaries.push_back({
                         index < region.inner_boundary_ids.size()
@@ -412,6 +427,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
                             : region.outer_boundary_id + ":inner:" +
                                 std::to_string(index),
                         std::move(region.inner_profiles[index])});
+                    boundaries.back().edge_source_ids =
+                        index < region.inner_edge_source_ids.size()
+                            ? std::move(region.inner_edge_source_ids[index])
+                            : std::vector<std::string>{};
+                    boundaries.back().vertex_source_ids =
+                        index < region.inner_vertex_source_ids.size()
+                            ? std::move(region.inner_vertex_source_ids[index])
+                            : std::vector<std::string>{};
                 }
             }
         };
@@ -510,10 +533,18 @@ zima::kernel::ExtrusionRequest extrusion_request(
             region.region_id = "profile-region:" + boundaries[index].id;
             region.outer_boundary_id = boundaries[index].id;
             region.outer_profile = std::move(boundaries[index].loop);
+            region.outer_edge_source_ids =
+                std::move(boundaries[index].edge_source_ids);
+            region.outer_vertex_source_ids =
+                std::move(boundaries[index].vertex_source_ids);
             for (std::size_t child = 0; child < boundaries.size(); ++child) {
                 if (boundaries[child].parent == static_cast<int>(index)) {
                     region.inner_boundary_ids.push_back(boundaries[child].id);
                     region.inner_profiles.push_back(std::move(boundaries[child].loop));
+                    region.inner_edge_source_ids.push_back(
+                        std::move(boundaries[child].edge_source_ids));
+                    region.inner_vertex_source_ids.push_back(
+                        std::move(boundaries[child].vertex_source_ids));
                 }
             }
             regions.push_back(std::move(region));
@@ -526,11 +557,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
         using Contour = std::vector<std::array<double, 2>>;
         std::vector<Contour> contours;
         std::vector<std::string> contour_ids;
+        std::vector<std::string> contour_source_ids;
         for (const auto& text : sketch.texts) {
             for (std::size_t index = 0; index < text.contours.size(); ++index) {
                 contours.push_back(text.contours[index]);
                 contour_ids.push_back(
                     "text:" + text.id + ":contour:" + std::to_string(index));
+                contour_source_ids.push_back(text.id);
             }
         }
         const auto cross = [](const auto& a, const auto& b, const auto& c) {
@@ -637,10 +670,16 @@ zima::kernel::ExtrusionRequest extrusion_request(
             region.region_id = "profile-region:" + contour_ids[index];
             region.outer_boundary_id = contour_ids[index];
             region.outer_profile = polygon_profile(contours[index]);
+            region.outer_edge_source_ids.assign(
+                contours[index].size(), contour_source_ids[index]);
             for (std::size_t child = 0; child < contours.size(); ++child) {
                 if (parent[child] == static_cast<int>(index)) {
                     region.inner_profiles.push_back(polygon_profile(contours[child]));
                     region.inner_boundary_ids.push_back(contour_ids[child]);
+                    region.inner_edge_source_ids.push_back(
+                        std::vector<std::string>(contours[child].size(),
+                                                 contour_source_ids[child]));
+                    region.inner_vertex_source_ids.push_back({});
                 }
             }
             regions.push_back(std::move(region));
@@ -651,6 +690,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
         request.profile_region_id = std::move(regions.front().region_id);
         request.outer_boundary_id = std::move(regions.front().outer_boundary_id);
         request.inner_boundary_ids = std::move(regions.front().inner_boundary_ids);
+        request.outer_edge_source_ids =
+            std::move(regions.front().outer_edge_source_ids);
+        request.inner_edge_source_ids =
+            std::move(regions.front().inner_edge_source_ids);
+        request.outer_vertex_source_ids =
+            std::move(regions.front().outer_vertex_source_ids);
+        request.inner_vertex_source_ids =
+            std::move(regions.front().inner_vertex_source_ids);
         request.additional_profile_regions.assign(
             std::make_move_iterator(regions.begin() + 1),
             std::make_move_iterator(regions.end()));
@@ -671,6 +718,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
         outer.curves.push_back(exact_spline(**closed_spline));
         request.outer_profile = std::move(outer);
         request.outer_boundary_id = (**closed_spline).id;
+        request.outer_edge_source_ids = {(**closed_spline).id};
         request.profile_region_id = "profile-region:" + request.outer_boundary_id;
         for (const auto* circle : profile_circles) {
             const auto* center = sketch.find_point(circle->center_point_id);
@@ -678,6 +726,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 zima::kernel::ExtrusionRequest::CircleProfile{
                     sketch.world_point(center->x, center->y), circle->radius});
             request.inner_boundary_ids.push_back(circle->id);
+            request.inner_edge_source_ids.push_back({circle->id});
+            request.inner_vertex_source_ids.push_back({});
         }
         return finalize(std::move(request));
     }
@@ -707,6 +757,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
              (axis_point.z - center_world.z) / major_radius},
             major_radius, minor_radius};
         request.outer_boundary_id = ellipse->id;
+        request.outer_edge_source_ids = {ellipse->id};
         request.profile_region_id = "profile-region:" + ellipse->id;
         return finalize(std::move(request));
     }
@@ -801,6 +852,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
         std::optional<std::size_t> previous_curve;
         std::unordered_set<std::size_t> visited;
         zima::kernel::ExtrusionRequest::CurvedProfile ordered;
+        std::vector<std::string> ordered_source_ids;
+        std::vector<std::string> ordered_vertex_source_ids;
         do {
             auto candidates = incident_curves[current_node];
             std::sort(candidates.begin(), candidates.end(), [&](auto left, auto right) {
@@ -834,6 +887,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                            exact_curve);
             }
             ordered.curves.push_back(std::move(exact_curve));
+            ordered_source_ids.push_back(curves[next].id);
+            ordered_vertex_source_ids.push_back(nodes[current_node]);
             current_node = forward
                 ? curves[next].end_node : curves[next].start_node;
             previous_curve = next;
@@ -843,6 +898,9 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 "Curved Extrusion profile contains disconnected loops");
         }
         request.outer_profile = std::move(ordered);
+        request.outer_edge_source_ids = std::move(ordered_source_ids);
+        request.outer_vertex_source_ids =
+            std::move(ordered_vertex_source_ids);
         std::vector<std::string> curve_ids;
         for (const auto& curve : curves) curve_ids.push_back(curve.id);
         request.outer_boundary_id = stable_profile_id("curve-loop", curve_ids);
@@ -853,6 +911,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 zima::kernel::ExtrusionRequest::CircleProfile{
                     sketch.world_point(center->x, center->y), circle->radius});
             request.inner_boundary_ids.push_back(circle->id);
+            request.inner_edge_source_ids.push_back({circle->id});
+            request.inner_vertex_source_ids.push_back({});
         }
         return finalize(std::move(request));
     }
@@ -908,10 +968,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
             region.region_id = "profile-region:" + profile_circles[index]->id;
             region.outer_boundary_id = profile_circles[index]->id;
             region.outer_profile = circle_profile(profile_circles[index]);
+            region.outer_edge_source_ids = {profile_circles[index]->id};
             for (std::size_t child = 0; child < profile_circles.size(); ++child) {
                 if (parent[child] == static_cast<int>(index)) {
                     region.inner_boundary_ids.push_back(profile_circles[child]->id);
                     region.inner_profiles.push_back(circle_profile(profile_circles[child]));
+                    region.inner_edge_source_ids.push_back(
+                        {profile_circles[child]->id});
+                    region.inner_vertex_source_ids.push_back({});
                 }
             }
             regions.push_back(std::move(region));
@@ -935,6 +999,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
         struct PolygonLoop {
             ProfilePolygon points;
             std::vector<std::string> segment_ids;
+            std::vector<std::string> point_ids;
             int parent{-1};
             double area{};
         };
@@ -953,6 +1018,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
             do {
                 const auto* point = sketch.find_point(current);
                 loop.points.push_back({point->x, point->y});
+                loop.point_ids.push_back(current);
                 auto candidates = incident.at(current);
                 std::sort(candidates.begin(), candidates.end(),
                     [](const auto* left, const auto* right) { return left->id < right->id; });
@@ -1064,6 +1130,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                 outer.vertices.push_back(sketch.world_point(point[0], point[1]));
             }
             region.outer_profile = std::move(outer);
+            region.outer_edge_source_ids = loops[index].segment_ids;
+            region.outer_vertex_source_ids = loops[index].point_ids;
             for (std::size_t child = 0; child < loops.size(); ++child) {
                 if (loops[child].parent != static_cast<int>(index)) continue;
                 region.inner_boundary_ids.push_back(stable_profile_id(
@@ -1073,6 +1141,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
                     inner.vertices.push_back(sketch.world_point(point[0], point[1]));
                 }
                 region.inner_profiles.push_back(std::move(inner));
+                region.inner_edge_source_ids.push_back(loops[child].segment_ids);
+                region.inner_vertex_source_ids.push_back(loops[child].point_ids);
             }
             regions.push_back(std::move(region));
         }
@@ -1101,10 +1171,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
     const std::string start = current;
     const zima::sketcher::SketchSegment* previous{};
     std::unordered_set<std::string> visited_segments;
+    std::vector<std::string> ordered_segment_ids;
+    std::vector<std::string> ordered_point_ids;
     std::vector<std::array<double, 2>> polygon;
     do {
         const auto* point = sketch.find_point(current);
         polygon.push_back({point->x, point->y});
+        ordered_point_ids.push_back(current);
         std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
             request.outer_profile)
             .vertices.push_back(sketch.world_point(point->x, point->y));
@@ -1117,6 +1190,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
         if (!visited_segments.insert(next->id).second) {
             throw std::runtime_error("Extrusion profile contains multiple loops");
         }
+        ordered_segment_ids.push_back(next->id);
         current = next->first_point_id == current
             ? next->second_point_id : next->first_point_id;
         previous = next;
@@ -1184,10 +1258,17 @@ zima::kernel::ExtrusionRequest extrusion_request(
             std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(
                 request.outer_profile).vertices;
         std::reverse(vertices.begin(), vertices.end());
+        std::reverse(ordered_segment_ids.begin(), ordered_segment_ids.end());
+        std::rotate(ordered_segment_ids.begin(),
+                    ordered_segment_ids.begin() + 1,
+                    ordered_segment_ids.end());
+        std::reverse(ordered_point_ids.begin(), ordered_point_ids.end());
     }
     std::vector<std::string> segment_ids;
     for (const auto* segment : profile_segments) segment_ids.push_back(segment->id);
     request.outer_boundary_id = stable_profile_id("segment-loop", segment_ids);
+    request.outer_edge_source_ids = std::move(ordered_segment_ids);
+    request.outer_vertex_source_ids = std::move(ordered_point_ids);
     request.profile_region_id = "profile-region:" + request.outer_boundary_id;
     const auto circle_inside_polygon = [&](const auto* circle) {
         const auto* center = sketch.find_point(circle->center_point_id);
@@ -1225,6 +1306,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
         }
         request.inner_profiles.push_back(circle_profile(circle));
         request.inner_boundary_ids.push_back(circle->id);
+        request.inner_edge_source_ids.push_back({circle->id});
+        request.inner_vertex_source_ids.push_back({});
     }
     for (std::size_t first = 0; first < profile_circles.size(); ++first) {
         const auto* first_center =
@@ -1259,6 +1342,10 @@ zima::kernel::RevolutionRequest revolution_request(
     request.profile_region_id = source.profile_region_id;
     request.outer_boundary_id = source.outer_boundary_id;
     request.inner_boundary_ids = source.inner_boundary_ids;
+    request.outer_edge_source_ids = source.outer_edge_source_ids;
+    request.inner_edge_source_ids = source.inner_edge_source_ids;
+    request.outer_vertex_source_ids = source.outer_vertex_source_ids;
+    request.inner_vertex_source_ids = source.inner_vertex_source_ids;
     request.profile_normal = source.direction;
     request.axis_point = sketch.world_point(0.0, 0.0);
     if (axis == RevolutionAxis::SketchX) {
@@ -2071,7 +2158,8 @@ PartDocument PartDocument::load(
                 (!owner_empty && !available_owners.contains(reference.owner_id)) ||
                 !reference.instance_path.empty()) {
                 throw std::runtime_error(
-                    "Calculated topology reference has an invalid history owner");
+                    "Calculated topology reference has invalid owner/key: owner='" +
+                    reference.owner_id + "', key='" + reference.semantic_key + "'");
             }
         };
         const auto& mesh = loaded_boundaries[boundary_index].mesh;
