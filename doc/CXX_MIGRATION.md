@@ -987,9 +987,9 @@ nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontu
 Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
 větvení do starého formátu.
 
-První nativní řez **Externí reference** přidává Sketch formát verze 16 a Part
-formát verze 19. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
-kontejneru a původní hrany nebo vrcholu spolu s hotovou projekcí do lokálních
+Nativní řez **Externí reference** používá Sketch formát verze 17 a Part
+formát verze 20. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
+kontejneru a původní hrany, vrcholu nebo osy spolu s hotovou projekcí do lokálních
 souřadnic skici. Viewer ji nabízí jako jednu vlastní kandidátní třídu, kreslí
 přesnou hranu nebo bod a používá pro hover, LMB potvrzení, RMB i mazání tentýž
 seřazený seznam kandidátů.
@@ -1005,5 +1005,6 @@ viewer packet a přijme pouze právě jeden přesný shodný pár vlastník/sém
 klíč/instance path. Chybějící, nejednoznačný nebo po projekci degenerovaný zdroj
 nastaví `broken`, ale ponechá poslední platnou cache; návrat přesné identity jej
 opraví. Refresh scény, výběr, vlastnosti ani přepínání tabů resolver a OCCT
-nespouštějí. Plochy, osy a assembly occurrence zdroje zůstávají samostatnými
-dalšími řezy; datový formát se nemění a žádná kompatibilní větev se nepřidává.
+nespouštějí. Osa se promítá jako read-only přímka a kolmý degenerovaný průmět
+se odmítne. Plochy a assembly occurrence zdroje zůstávají samostatnými dalšími
+řezy; žádná kompatibilní větev se nepřidává.

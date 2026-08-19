@@ -257,6 +257,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             const auto kind = edge.reference.semantic_key.starts_with("trim_piece:")
                 ? CandidateKind::SketchTrimPiece
                 : edge.reference.semantic_key.starts_with("external_edge:")
+                  || edge.reference.semantic_key.starts_with("external_axis:")
                 ? CandidateKind::SketchExternalReference
                 : edge.reference.semantic_key.starts_with("text:")
                 ? CandidateKind::SketchText

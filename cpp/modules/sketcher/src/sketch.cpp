@@ -158,6 +158,7 @@ const char* external_reference_kind_name(ExternalReferenceKind kind) {
     switch (kind) {
     case ExternalReferenceKind::Edge: return "edge";
     case ExternalReferenceKind::Point: return "point";
+    case ExternalReferenceKind::Axis: return "axis";
     }
     throw std::invalid_argument("Unknown Sketch external reference kind");
 }
@@ -166,6 +167,7 @@ ExternalReferenceKind external_reference_kind_from_name(
     const std::string& name) {
     if (name == "edge") return ExternalReferenceKind::Edge;
     if (name == "point") return ExternalReferenceKind::Point;
+    if (name == "axis") return ExternalReferenceKind::Axis;
     throw std::runtime_error("Unknown Sketch external reference kind");
 }
 
@@ -813,7 +815,8 @@ void Sketch::validate() const {
         external_sources.push_back(source);
         if ((reference.kind == ExternalReferenceKind::Point &&
              reference.cached_points.size() != 1) ||
-            (reference.kind == ExternalReferenceKind::Edge &&
+            ((reference.kind == ExternalReferenceKind::Edge ||
+              reference.kind == ExternalReferenceKind::Axis) &&
              reference.cached_points.size() < 2)) {
             throw std::runtime_error("Sketch external reference geometry is invalid");
         }
@@ -2669,6 +2672,33 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
     *this = std::move(next);
 }
 
+std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis(
+    const zima::kernel::ViewerAxis& axis) const {
+    if (!std::isfinite(axis.display_length) || axis.display_length <= 0.0) {
+        return std::nullopt;
+    }
+    const double direction_length = std::sqrt(
+        axis.direction.x * axis.direction.x +
+        axis.direction.y * axis.direction.y +
+        axis.direction.z * axis.direction.z);
+    if (!std::isfinite(direction_length) || direction_length <= 1.0e-12) {
+        return std::nullopt;
+    }
+    const double scale = 0.5 * axis.display_length / direction_length;
+    const auto first = local_point({
+        axis.point.x - axis.direction.x * scale,
+        axis.point.y - axis.direction.y * scale,
+        axis.point.z - axis.direction.z * scale});
+    const auto second = local_point({
+        axis.point.x + axis.direction.x * scale,
+        axis.point.y + axis.direction.y * scale,
+        axis.point.z + axis.direction.z * scale});
+    if (std::hypot(second[0] - first[0], second[1] - first[1]) <= 1.0e-9) {
+        return std::nullopt;
+    }
+    return std::vector<std::array<double, 2>>{first, second};
+}
+
 bool Sketch::refresh_external_references(
     const std::string& source_document_id,
     const zima::kernel::ViewerReferenceGeometry& source_geometry) {
@@ -2707,7 +2737,7 @@ bool Sketch::refresh_external_references(
                 }
                 if (points.size() >= 2) resolved = std::move(points);
             }
-        } else {
+        } else if (reference.kind == ExternalReferenceKind::Point) {
             const zima::kernel::ViewerPoint* match = nullptr;
             std::size_t match_count{};
             for (const auto& point : source_geometry.points) {
@@ -2718,6 +2748,17 @@ bool Sketch::refresh_external_references(
             if (match_count == 1 && match != nullptr) {
                 resolved = std::vector<std::array<double, 2>>{
                     next.local_point(match->position)};
+            }
+        } else {
+            const zima::kernel::ViewerAxis* match = nullptr;
+            std::size_t match_count{};
+            for (const auto& axis : source_geometry.axes) {
+                if (!same_source(reference, axis.reference)) continue;
+                match = &axis;
+                ++match_count;
+            }
+            if (match_count == 1 && match != nullptr) {
+                resolved = next.project_external_axis(*match);
             }
         }
         const bool broken = !resolved.has_value();
@@ -4082,9 +4123,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
     }
     for (const auto& reference : external_references) {
-        if (reference.kind != ExternalReferenceKind::Edge) continue;
+        if (reference.kind != ExternalReferenceKind::Edge &&
+            reference.kind != ExternalReferenceKind::Axis) continue;
         zima::kernel::ViewerEdge edge;
-        edge.reference = {id, "external_edge:" + reference.id +
+        edge.reference = {id,
+            (reference.kind == ExternalReferenceKind::Axis
+                ? "external_axis:" : "external_edge:") + reference.id +
             (reference.broken ? ":broken" : ""), {}};
         edge.construction = true;
         edge.overlay = true;
@@ -4346,7 +4390,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 16},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 17},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -4365,7 +4409,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 16) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 17) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;

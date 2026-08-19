@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 19, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 20, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -743,9 +743,10 @@ výslovným příkazem **Regenerovat** v cílové Assembly. Regenerace použije 
 otevřené dokumenty jako autoritativní zdroj, takže zahrne i jejich dosud
 neuložené změny, obnoví celý vnořený řetězec a přepočítá požadovanou sestavu.
 
-Externí reference skici na podporované plochy, hrany a vrcholy Extrusion se
+Externí reference skici na podporované osy, hrany a vrcholy Extrusion se
 ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
-topologie. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící
+topologie. Osa kolmá k rovině skici se odmítne, protože její kolmý průmět je
+degenerovaný bod. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící
 na hlavní ose skici zůstává samostatně vybratelný a lze jej odstranit stejně
 jako ostatní externí reference. Bodové externí reference se při výběru
 nezobrazují všechny současně: nejbližší bod se zvýrazní až po přiblížení

@@ -155,6 +155,14 @@ int main() {
         external_point.source_semantic_key = "vertex:stable-source";
         external_point.cached_points = {{2.0, 3.0}};
         text_sketch.add_external_reference(external_point);
+        auto external_axis = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Axis);
+        external_axis.source_document_id = "part-source";
+        external_axis.source_owner_id = "container-source";
+        external_axis.source_semantic_key = "axis:stable-source";
+        external_axis.cached_points = {{-10.0, 8.0}, {10.0, 8.0}};
+        const auto external_axis_id = external_axis.id;
+        text_sketch.add_external_reference(external_axis);
         const auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
             text_sketch.serialized());
         require(external_roundtrip.external_references ==
@@ -167,14 +175,20 @@ int main() {
         refreshed_sources.points.push_back({
             {6.0, 7.0, 0.0},
             {"container-source", "vertex:stable-source", {}}});
+        refreshed_sources.axes.push_back({
+            {3.0, 8.0, 0.0}, {2.0, 0.0, 0.0}, 20.0,
+            {"container-source", "axis:stable-source", {}}});
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
                     text_sketch.external_references[0].cached_points ==
                         std::vector<std::array<double, 2>>{{4.0, 5.0}, {9.0, 5.0}} &&
                     text_sketch.external_references[1].cached_points ==
                         std::vector<std::array<double, 2>>{{6.0, 7.0}} &&
+                    text_sketch.external_references[2].cached_points ==
+                        std::vector<std::array<double, 2>>{{-7.0, 8.0}, {13.0, 8.0}} &&
                     !text_sketch.external_references[0].broken &&
-                    !text_sketch.external_references[1].broken,
+                    !text_sketch.external_references[1].broken &&
+                    !text_sketch.external_references[2].broken,
                 "Explicit Sketch external reference refresh lost exact source identity");
         const auto valid_external_cache = text_sketch.external_references;
         const zima::kernel::ViewerReferenceGeometry missing_sources;
@@ -182,17 +196,21 @@ int main() {
                     "part-source", missing_sources) &&
                     text_sketch.external_references[0].broken &&
                     text_sketch.external_references[1].broken &&
+                    text_sketch.external_references[2].broken &&
                     text_sketch.external_references[0].cached_points ==
                         valid_external_cache[0].cached_points &&
                     text_sketch.external_references[1].cached_points ==
                         valid_external_cache[1].cached_points &&
+                    text_sketch.external_references[2].cached_points ==
+                        valid_external_cache[2].cached_points &&
                     !text_sketch.refresh_external_references(
                         "part-source", missing_sources),
                 "Broken external references did not preserve their last valid cache");
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
                     !text_sketch.external_references[0].broken &&
-                    !text_sketch.external_references[1].broken,
+                    !text_sketch.external_references[1].broken &&
+                    !text_sketch.external_references[2].broken,
                 "Restored external references did not recover deterministically");
         auto ambiguous_sources = refreshed_sources;
         ambiguous_sources.edges.push_back(refreshed_sources.edges.front());
@@ -200,21 +218,43 @@ int main() {
                     "part-source", ambiguous_sources) &&
                     text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
+                    !text_sketch.external_references[2].broken &&
                     text_sketch.external_references[0].cached_points ==
                         valid_external_cache[0].cached_points,
                 "Ambiguous external edge identity was guessed instead of broken");
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources),
                 "External edge did not recover after ambiguity was removed");
+        auto perpendicular_axis_sources = refreshed_sources;
+        perpendicular_axis_sources.axes.front().direction = {0.0, 0.0, 1.0};
+        require(text_sketch.refresh_external_references(
+                    "part-source", perpendicular_axis_sources) &&
+                    text_sketch.external_references[2].broken &&
+                    text_sketch.external_references[2].cached_points ==
+                        valid_external_cache[2].cached_points,
+                "Degenerate external axis projection did not preserve its cache");
+        require(text_sketch.refresh_external_references(
+                    "part-source", refreshed_sources) &&
+                    !text_sketch.external_references[2].broken,
+                "External axis did not recover after its projection became valid");
         const auto external_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
-                text_sketch.viewer_mesh(), {4.0, 3.0, 10.0},
+                text_sketch.viewer_mesh(), {4.0, 5.0, 10.0},
                 {0.0, 0.0, -1.0}, 0.2),
             {zima::viewer::CandidateKind::SketchExternalReference});
         require(external_candidates.size() == 1 &&
                     external_candidates.front().semantic_key ==
                         "external_edge:" + external_edge_id,
                 "Sketch external edge did not use the common viewer candidate list");
+        const auto external_axis_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                text_sketch.viewer_mesh(), {3.0, 8.0, 10.0},
+                {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchExternalReference});
+        require(external_axis_candidates.size() == 1 &&
+                    external_axis_candidates.front().semantic_key ==
+                        "external_axis:" + external_axis_id,
+                "Sketch external axis did not use the common viewer candidate list");
         const auto before_duplicate_reference = text_sketch.serialized();
         bool duplicate_reference_rejected = false;
         try {
@@ -227,7 +267,7 @@ int main() {
                     text_sketch.serialized() == before_duplicate_reference,
                 "Duplicate external reference partially changed the Sketch");
         text_sketch.remove_geometry(external_edge_id);
-        require(text_sketch.external_references.size() == 1,
+        require(text_sketch.external_references.size() == 2,
                 "External reference was not removed as one Sketch entity");
 
         const auto xy_hit = sketch.intersect_ray({4.0, 7.0, 10.0}, {0.0, 0.0, -1.0});

@@ -87,6 +87,8 @@ public:
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(
         const ViewerCandidate& candidate) const;
+    [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
+        const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
 protected:
