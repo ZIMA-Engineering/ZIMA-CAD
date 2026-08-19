@@ -531,6 +531,139 @@ int main() {
                     concentric_polygon.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Concentric did not translate PointOnCircle dependency closure");
+        auto tangent = zima::sketcher::Sketch::create_default();
+        const auto tangent_circle = tangent.add_circle(0.0, 5.0, 2.0);
+        const auto tangent_line = tangent.add_segment(-5.0, 0.0, 5.0, 0.0);
+        const auto tangent_line_first_id = tangent.segments.front().first_point_id;
+        const auto tangent_line_second_id = tangent.segments.front().second_point_id;
+        static_cast<void>(tangent.add_tangent_constraint(
+            tangent_circle, tangent_line));
+        const auto* tangent_line_first = tangent.find_point(tangent_line_first_id);
+        const auto* tangent_line_second = tangent.find_point(tangent_line_second_id);
+        require(tangent.constraints.size() == 1 &&
+                    tangent.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::Tangent &&
+                    std::abs(tangent_line_first->x + 5.0) < 1.0e-8 &&
+                    std::abs(tangent_line_first->y - 3.0) < 1.0e-8 &&
+                    std::abs(tangent_line_second->x - 5.0) < 1.0e-8 &&
+                    std::abs(tangent_line_second->y - 3.0) < 1.0e-8 &&
+                    std::abs(tangent.circles.front().radius - 2.0) < 1.0e-8,
+                "Tangent did not translate the driven segment rigidly");
+        const auto loaded_tangent = zima::sketcher::Sketch::from_serialized(
+            tangent.serialized());
+        require(loaded_tangent.constraints == tangent.constraints &&
+                    loaded_tangent.points == tangent.points,
+                "Tangent constraint did not survive Sketch serialization");
+        bool duplicate_tangent_rejected = false;
+        try {
+            static_cast<void>(tangent.add_tangent_constraint(
+                tangent_line, tangent_circle));
+        } catch (const std::invalid_argument&) {
+            duplicate_tangent_rejected = true;
+        }
+        require(duplicate_tangent_rejected,
+                "Reversed duplicate Tangent constraint was accepted");
+        auto tangent_after_delete = loaded_tangent;
+        tangent_after_delete.remove_geometry(tangent_circle);
+        require(tangent_after_delete.constraints.empty() &&
+                    tangent_after_delete.segments.size() == 1,
+                "Deleting tangent geometry retained its constraint");
+        auto tangent_polygon = zima::sketcher::Sketch::create_default();
+        const auto polygon_tangent_line = tangent_polygon.add_segment(
+            -10.0, 0.0, 10.0, 0.0);
+        const auto tangent_polygon_result = tangent_polygon.add_regular_polygon(
+            0.0, 5.0, 2.0, 5.0, 6);
+        static_cast<void>(tangent_polygon.add_tangent_constraint(
+            polygon_tangent_line, tangent_polygon_result.support_circle_id));
+        const auto* tangent_polygon_center = tangent_polygon.find_point(
+            tangent_polygon.circles.front().center_point_id);
+        const auto* tangent_polygon_vertex = tangent_polygon.find_point(
+            tangent_polygon_result.vertex_ids.front());
+        require(std::abs(tangent_polygon_center->x) < 1.0e-8 &&
+                    std::abs(tangent_polygon_center->y - 2.0) < 1.0e-8 &&
+                    std::abs(tangent_polygon_vertex->x - 2.0) < 1.0e-8 &&
+                    std::abs(tangent_polygon_vertex->y - 2.0) < 1.0e-8,
+                "Tangent did not translate the driven circular dependency closure");
+        auto tangent_arc = zima::sketcher::Sketch::create_default();
+        const auto arc_tangent_line = tangent_arc.add_segment(
+            -5.0, 0.0, 5.0, 0.0);
+        const auto driven_tangent_arc = tangent_arc.add_arc(
+            0.0, 5.0, -2.0, 5.0, 2.0, 5.0);
+        static_cast<void>(tangent_arc.add_tangent_constraint(
+            arc_tangent_line, driven_tangent_arc));
+        require(std::abs(tangent_arc.find_point(
+                    tangent_arc.arcs.front().center_point_id)->y - 2.0) < 1.0e-8 &&
+                    std::abs(tangent_arc.find_point(
+                        tangent_arc.arcs.front().start_point_id)->y - 2.0) < 1.0e-8 &&
+                    tangent_arc.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Tangent did not preserve a driven circular arc");
+        auto outside_tangent_arc = zima::sketcher::Sketch::create_default();
+        const auto outside_tangent_line = outside_tangent_arc.add_segment(
+            -5.0, 0.0, 5.0, 0.0);
+        const auto outside_arc = outside_tangent_arc.add_arc(
+            0.0, 5.0, 2.0, 5.0, -2.0, 5.0);
+        const auto outside_tangent_before = outside_tangent_arc;
+        bool outside_tangent_rejected = false;
+        try {
+            static_cast<void>(outside_tangent_arc.add_tangent_constraint(
+                outside_tangent_line, outside_arc));
+        } catch (const std::invalid_argument&) {
+            outside_tangent_rejected = true;
+        }
+        require(outside_tangent_rejected &&
+                    outside_tangent_arc.points == outside_tangent_before.points &&
+                    outside_tangent_arc.arcs == outside_tangent_before.arcs &&
+                    outside_tangent_arc.constraints ==
+                        outside_tangent_before.constraints,
+                "Tangent accepted a contact outside the selected arc");
+        auto outside_tangent_segment = zima::sketcher::Sketch::create_default();
+        const auto short_tangent_line = outside_tangent_segment.add_segment(
+            10.0, 0.0, 20.0, 0.0);
+        const auto distant_tangent_circle = outside_tangent_segment.add_circle(
+            0.0, 5.0, 2.0);
+        bool outside_segment_rejected = false;
+        try {
+            static_cast<void>(outside_tangent_segment.add_tangent_constraint(
+                short_tangent_line, distant_tangent_circle));
+        } catch (const std::invalid_argument&) {
+            outside_segment_rejected = true;
+        }
+        require(outside_segment_rejected &&
+                    outside_tangent_segment.constraints.empty(),
+                "Tangent accepted a contact outside the finite segment");
+        auto fixed_tangent = zima::sketcher::Sketch::create_default();
+        const auto fixed_tangent_circle = fixed_tangent.add_circle(0.0, 5.0, 2.0);
+        const auto fixed_tangent_line = fixed_tangent.add_segment(
+            -5.0, 0.0, 5.0, 0.0);
+        fixed_tangent.find_point(
+            fixed_tangent.segments.front().first_point_id)->fixed = true;
+        const auto fixed_tangent_before = fixed_tangent;
+        bool fixed_tangent_rejected = false;
+        try {
+            static_cast<void>(fixed_tangent.add_tangent_constraint(
+                fixed_tangent_circle, fixed_tangent_line));
+        } catch (const std::runtime_error&) {
+            fixed_tangent_rejected = true;
+        }
+        require(fixed_tangent_rejected &&
+                    fixed_tangent.points == fixed_tangent_before.points &&
+                    fixed_tangent.constraints == fixed_tangent_before.constraints,
+                "Blocked Tangent relation partially changed the Sketch");
+        auto unsupported_tangent = zima::sketcher::Sketch::create_default();
+        const auto unsupported_line = unsupported_tangent.add_segment(
+            -5.0, 0.0, 5.0, 0.0);
+        const auto unsupported_ellipse = unsupported_tangent.add_ellipse(
+            0.0, 4.0, 4.0, 4.0, 0.0, 6.0);
+        bool unsupported_tangent_rejected = false;
+        try {
+            static_cast<void>(unsupported_tangent.add_tangent_constraint(
+                unsupported_line, unsupported_ellipse));
+        } catch (const std::invalid_argument&) {
+            unsupported_tangent_rejected = true;
+        }
+        require(unsupported_tangent_rejected,
+                "Tangent accepted an unsupported curve type");
         auto parallel = zima::sketcher::Sketch::create_default();
         const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
         const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);

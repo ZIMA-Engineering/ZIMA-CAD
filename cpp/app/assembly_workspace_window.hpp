@@ -127,6 +127,7 @@ private:
     QAction* sketch_midpoint_action_{};
     QAction* sketch_symmetric_action_{};
     QAction* sketch_concentric_action_{};
+    QAction* sketch_tangent_action_{};
     QAction* sketch_parallel_action_{};
     QAction* sketch_perpendicular_action_{};
     QAction* sketch_equal_length_action_{};
@@ -213,6 +214,9 @@ private:
     std::vector<std::string> pending_symmetric_point_ids_;
     bool sketch_concentric_active_{};
     std::string pending_concentric_geometry_id_;
+    bool sketch_tangent_active_{};
+    std::string pending_tangent_geometry_id_;
+    bool pending_tangent_reference_is_segment_{};
     bool sketch_segment_pair_active_{};
     std::string pending_pair_segment_id_;
     zima::sketcher::ConstraintKind pending_pair_kind_{
@@ -368,6 +372,10 @@ private:
     void start_sketch_concentric();
     void set_sketch_concentric_contract();
     void accept_sketch_concentric_selection(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_tangent();
+    void set_sketch_tangent_contract();
+    void accept_sketch_tangent_selection(
         const zima::viewer::ViewerCandidate& candidate);
     void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
     void accept_sketch_segment_pair(

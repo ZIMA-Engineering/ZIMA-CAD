@@ -13,7 +13,7 @@ namespace zima::sketcher {
 enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind {
     Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
-    PointOnCircle, Symmetric, Midpoint, Concentric
+    PointOnCircle, Symmetric, Midpoint, Concentric, Tangent
 };
 enum class DimensionKind {
     Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
@@ -204,6 +204,9 @@ public:
     [[nodiscard]] std::string add_midpoint_constraint(
         const std::string& point_id, const std::string& segment_id);
     [[nodiscard]] std::string add_concentric_constraint(
+        const std::string& reference_geometry_id,
+        const std::string& driven_geometry_id);
+    [[nodiscard]] std::string add_tangent_constraint(
         const std::string& reference_geometry_id,
         const std::string& driven_geometry_id);
     void remove_geometry(const std::string& geometry_id);

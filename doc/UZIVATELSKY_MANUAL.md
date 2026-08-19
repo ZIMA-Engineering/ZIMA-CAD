@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 14, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 15, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -522,6 +522,17 @@ kružnici. Tvar, poloměry a úhlové rozsahy se tím nemění. Pevný závislý
 jiný neřešitelný konflikt celou operaci odmítne bez částečné změny. První výběr
 je pouze rozpracovaný stav, platná druhá křivka vytvoří jednu Part revizi a
 `Escape` příkaz zruší.
+
+Nativní vazba **Tečná** v této fázi pracuje s jednou konečnou úsečkou
+(profilovou i konstrukční) a jednou kružnicí nebo kruhovým obloukem. První
+výběr je reference a druhá geometrie je řízená: solver ji pouze přeloží,
+zachová délku úsečky, poloměr i úhlový rozsah oblouku. Bod dotyku musí ležet
+uvnitř konečné úsečky a u oblouku také uvnitř jeho skutečného úhlového rozsahu;
+jinak se vazba odmítne bez změny skici. Pevný nebo s referencí sdílený bod,
+který brání tuhému překladu, je rovněž transakční konflikt. Elipsy, eliptické
+oblouky a tečnost dvou křivek se zatím v tomto nativním příkazu nenabízejí.
+První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape`
+příkaz zruší.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice

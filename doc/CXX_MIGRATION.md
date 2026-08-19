@@ -816,6 +816,18 @@ pořadím kandidátů nabízí pouze čtyři platné druhy `SketchCurve`, nikoli
 První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a žádná z
 těchto cest nevolá OCCT.
 
+Sketch formát verze 12 a Part formát verze 15 přidávají první přesný nativní
+řez vazby **Tečná** mezi konečnou úsečkou (včetně konstrukční) a kružnicí nebo
+kruhovým obloukem. Persistují se stabilní ID referenční a řízené geometrie;
+pořadí výběru tedy určuje vlastnictví pohybu. Solver zachová směr a délku
+řízené úsečky nebo rigidně přeloží celý uzávěr řízené kružnice/oblouku včetně
+bodů `PointOnCircle`. Ověřuje projekci dotyku do konečné úsečky i úhlovou doménu
+oblouku a při pevném či s referencí sdíleném bodu vrátí transakční konflikt.
+GUI používá jediný společný seznam viewerových kandidátů, po prvním kliku nabízí
+jen doplňkový typ geometrie a elipsy ani B-spline zatím nenabízí. První klik je
+transientní, druhý platný klik vytvoří jednu Part revizi a cesta nevolá OCCT.
+Tečnost elips a dvojice křivek zůstává samostatným navazujícím řezem parity.
+
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
 kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,
