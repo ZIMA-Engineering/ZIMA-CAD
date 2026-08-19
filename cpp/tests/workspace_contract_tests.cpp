@@ -52,10 +52,28 @@ int main() {
                 "Assembly activation unexpectedly changed display ownership");
         const auto occurrence_id = workspace.insert_open_part(
             assembly_id, part_id, "Vložený díl");
+        const auto repeated_occurrence_id = workspace.insert_open_part(
+            assembly_id, part_id, "Druhý výskyt stejného dílu");
+        require(repeated_occurrence_id != occurrence_id,
+                "Repeated Part insertion reused occurrence identity");
         const auto* inserted = workspace.open_assembly(assembly_id)
             ->session.document().find_occurrence(occurrence_id);
         require(inserted != nullptr && inserted->source_document_id == part_id,
                 "Workspace did not insert the authoritative open Part");
+        const auto first_path = zima::assembly::InstancePath{}.child(occurrence_id);
+        const auto repeated_path =
+            zima::assembly::InstancePath{}.child(repeated_occurrence_id);
+        const auto activated_repeated = workspace.activate_occurrence(
+            assembly_id, repeated_path);
+        require(activated_repeated &&
+                    activated_repeated->instance_path == repeated_path &&
+                    workspace.active_document_id() == part_id &&
+                    workspace.displayed_document_id() == assembly_id,
+                "Exact repeated occurrence activation replaced its top-level Assembly");
+        const auto activated_first = workspace.activate_occurrence(
+            assembly_id, first_path);
+        require(activated_first && activated_first->instance_path == first_path,
+                "Repeated source occurrences were ambiguous during activation");
         require(inserted->calculated_source.mesh.points.size() >= 1 &&
                     inserted->calculated_source.mesh.axes.size() >= 1 &&
                     std::any_of(

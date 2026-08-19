@@ -1652,11 +1652,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             const std::string source_id =
                 item->data(0, Qt::UserRole + 2).toString().toStdString();
             if (workspace_.find(source_id) != nullptr) {
-                active_occurrence_path_ =
+                const std::string path =
                     item->data(0, Qt::UserRole + 1).toString().toStdString();
-                workspace_.activate(source_id);
-                refresh_tabs();
-                refresh_scene();
+                try {
+                    if (workspace_.activate_occurrence(
+                            workspace_.displayed_document_id(),
+                            zima::assembly::InstancePath::decode(path))) {
+                        active_occurrence_path_ = path;
+                        refresh_tabs();
+                        refresh_scene();
+                    }
+                } catch (const std::invalid_argument&) {
+                    state_->setText(tr("Výskyt už v sestavě neexistuje."));
+                }
             }
         });
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);

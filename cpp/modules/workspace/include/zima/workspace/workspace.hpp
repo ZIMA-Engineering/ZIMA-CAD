@@ -74,6 +74,9 @@ public:
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path) const;
+    [[nodiscard]] std::optional<OccurrenceAddress> activate_occurrence(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path);
     [[nodiscard]] zima::kernel::Vec3 occurrence_point_to_scene(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path,

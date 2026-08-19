@@ -313,6 +313,20 @@ std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
         occurrence.source_document_id, occurrence.source_kind, instance_path};
 }
 
+std::optional<OccurrenceAddress> Workspace::activate_occurrence(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path) {
+    if (open_assembly(top_assembly_document_id) == nullptr) {
+        throw std::invalid_argument(
+            "Occurrence activation requires an open top-level Assembly");
+    }
+    auto address = resolve_occurrence(top_assembly_document_id, instance_path);
+    if (!address || find(address->source_document_id) == nullptr) return std::nullopt;
+    display_top_level(top_assembly_document_id);
+    activate(address->source_document_id);
+    return address;
+}
+
 zima::kernel::Vec3 Workspace::occurrence_point_to_scene(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
