@@ -423,9 +423,6 @@ InstancePath InstancePath::decode(const std::string& encoded) {
         result.occurrence_ids.push_back(encoded.substr(cursor, length));
         cursor += static_cast<std::size_t>(length);
     }
-    if (result.occurrence_ids.empty()) {
-        throw std::invalid_argument("Instance path must not be empty");
-    }
     return result;
 }
 
@@ -492,6 +489,31 @@ PartOccurrence* AssemblyDocument::find_occurrence(const std::string& occurrence_
     return const_cast<PartOccurrence*>(std::as_const(*this).find_occurrence(occurrence_id));
 }
 
+zima::document::ConstructionObject AssemblyDocument::create_construction(
+    zima::document::ConstructionKind kind) {
+    return zima::document::PartDocument::create_construction(kind);
+}
+
+zima::document::ConstructionObject* AssemblyDocument::find_construction(
+    const std::string& id) {
+    const auto found = std::find_if(constructions.begin(), constructions.end(),
+        [&](const auto& object) { return object.id == id; });
+    return found == constructions.end() ? nullptr : &*found;
+}
+
+const zima::document::ConstructionObject* AssemblyDocument::find_construction(
+    const std::string& id) const {
+    const auto found = std::find_if(constructions.begin(), constructions.end(),
+        [&](const auto& object) { return object.id == id; });
+    return found == constructions.end() ? nullptr : &*found;
+}
+
+zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh() const {
+    auto carrier = zima::document::PartDocument::create_default();
+    carrier.constructions = constructions;
+    return carrier.construction_viewer_mesh();
+}
+
 ComponentDependency AssemblyDocument::create_dependency(
     std::string dependent_occurrence_id,
     std::string prerequisite_occurrence_id,
@@ -534,8 +556,8 @@ AssemblyMate AssemblyDocument::create_mate(
     MateReference dependent,
     MateReference prerequisite,
     double offset) {
-    if (name.empty() || dependent.instance_path.occurrence_ids.empty() ||
-        prerequisite.instance_path.occurrence_ids.empty() ||
+    if (name.empty() || dependent.instance_path.occurrence_ids.size() != 1 ||
+        prerequisite.instance_path.occurrence_ids.size() > 1 ||
         dependent.owner_id.empty() || dependent.semantic_key.empty() ||
         prerequisite.owner_id.empty() || prerequisite.semantic_key.empty() ||
         !std::isfinite(offset)) {
@@ -563,12 +585,14 @@ void AssemblyDocument::add_mate(AssemblyMate mate) {
         (mate.upper_limit && value > *mate.upper_limit) ||
         (angular && ((mate.lower_limit && *mate.lower_limit < 0.0) ||
                      (mate.upper_limit && *mate.upper_limit > 180.0))) ||
-        mate.dependent.instance_path.occurrence_ids.empty() ||
-        mate.prerequisite.instance_path.occurrence_ids.empty() ||
-        mate.dependent.instance_path.occurrence_ids.front() ==
-            mate.prerequisite.instance_path.occurrence_ids.front() ||
+        mate.dependent.instance_path.occurrence_ids.size() != 1 ||
+        mate.prerequisite.instance_path.occurrence_ids.size() > 1 ||
+        (!mate.prerequisite.instance_path.occurrence_ids.empty() &&
+         mate.dependent.instance_path.occurrence_ids.front() ==
+            mate.prerequisite.instance_path.occurrence_ids.front()) ||
         find_occurrence(mate.dependent.instance_path.occurrence_ids.front()) == nullptr ||
-        find_occurrence(mate.prerequisite.instance_path.occurrence_ids.front()) == nullptr) {
+        (!mate.prerequisite.instance_path.occurrence_ids.empty() &&
+         find_occurrence(mate.prerequisite.instance_path.occurrence_ids.front()) == nullptr)) {
         throw std::invalid_argument("Assembly mate ownership is invalid");
     }
     if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
@@ -576,22 +600,31 @@ void AssemblyDocument::add_mate(AssemblyMate mate) {
         })) {
         throw std::invalid_argument("Assembly mate ID must be unique");
     }
-    ComponentDependency dependency{
-        mate.mate_id, mate.dependent.instance_path.occurrence_ids.front(),
-        mate.prerequisite.instance_path.occurrence_ids.front(),
-        ComponentDependencyKind::PlacementReference};
+    const bool component_prerequisite =
+        !mate.prerequisite.instance_path.occurrence_ids.empty();
+    ComponentDependency dependency;
+    if (component_prerequisite) {
+        dependency = {mate.mate_id,
+            mate.dependent.instance_path.occurrence_ids.front(),
+            mate.prerequisite.instance_path.occurrence_ids.front(),
+            ComponentDependencyKind::PlacementReference};
+    }
     const auto existing_dependency = std::find_if(
         dependencies.begin(), dependencies.end(), [&](const auto& existing) {
             return existing.dependency_id == mate.mate_id;
         });
-    if (existing_dependency == dependencies.end()) {
+    if (component_prerequisite && existing_dependency == dependencies.end()) {
         add_dependency(std::move(dependency));
-    } else if (existing_dependency->dependent_occurrence_id !=
+    } else if (component_prerequisite &&
+               (existing_dependency->dependent_occurrence_id !=
                    dependency.dependent_occurrence_id ||
-               existing_dependency->prerequisite_occurrence_id !=
+                existing_dependency->prerequisite_occurrence_id !=
                    dependency.prerequisite_occurrence_id ||
-               existing_dependency->kind != ComponentDependencyKind::PlacementReference) {
-        throw std::invalid_argument("Assembly mate dependency edge is inconsistent");
+                existing_dependency->kind !=
+                   ComponentDependencyKind::PlacementReference)) {
+        throw std::invalid_argument("Assembly mate dependency is inconsistent");
+    } else if (!component_prerequisite && existing_dependency != dependencies.end()) {
+        throw std::invalid_argument("Assembly datum mate must not own a component dependency");
     }
     mates.push_back(std::move(mate));
 }
@@ -680,6 +713,35 @@ double AssemblyDocument::project_linear_drag_value(
     return std::abs(denominator) > 1.0e-10
         ? (alignment * ray_offset - axis_offset) / denominator
         : -axis_offset;
+}
+
+double AssemblyDocument::project_angular_drag_value(
+    const zima::kernel::Vec3& center,
+    const zima::kernel::Vec3& reference_direction,
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction) {
+    const double reference_length = length(reference_direction);
+    const double ray_length = length(ray_direction);
+    if (reference_length <= 1.0e-12 || ray_length <= 1.0e-12) {
+        throw std::invalid_argument("Assembly angular drag direction is invalid");
+    }
+    const zima::kernel::Vec3 ray{ray_direction.x / ray_length,
+        ray_direction.y / ray_length, ray_direction.z / ray_length};
+    const zima::kernel::Vec3 center_offset{center.x - ray_origin.x,
+        center.y - ray_origin.y, center.z - ray_origin.z};
+    const double parameter = dot(center_offset, ray);
+    const zima::kernel::Vec3 cursor{
+        ray_origin.x + parameter * ray.x - center.x,
+        ray_origin.y + parameter * ray.y - center.y,
+        ray_origin.z + parameter * ray.z - center.z};
+    const double cursor_length = length(cursor);
+    if (cursor_length <= 1.0e-12) {
+        throw std::invalid_argument("Assembly angular drag cursor is undefined");
+    }
+    const double cosine = std::clamp(
+        dot(reference_direction, cursor) /
+            (reference_length * cursor_length), -1.0, 1.0);
+    return std::acos(cosine) * 180.0 / 3.14159265358979323846;
 }
 
 void AssemblyDocument::remove_mate(const std::string& mate_id) {
@@ -1322,7 +1384,7 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
-    zima::kernel::ViewerMesh scene;
+    zima::kernel::ViewerMesh scene = construction_viewer_mesh();
     std::unordered_set<std::string> occurrence_ids;
     std::unordered_set<std::string> dependency_ids;
     DependencyGraph dependency_graph;
@@ -1558,13 +1620,44 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 6 ||
+        root.at("format_version").get<int>() != 7 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    std::unordered_set<std::string> construction_ids;
+    for (const auto& source : root.at("constructions")) {
+        zima::document::ConstructionObject object;
+        object.id = source.at("id").get<std::string>();
+        object.name = source.at("name").get<std::string>();
+        const auto type = source.at("type").get<std::string>();
+        object.kind = type == "point" ? zima::document::ConstructionKind::Point
+            : type == "axis" ? zima::document::ConstructionKind::Axis
+            : type == "plane" ? zima::document::ConstructionKind::Plane
+            : throw std::runtime_error("Assembly construction type is invalid");
+        const auto& origin = source.at("origin");
+        const auto& direction = source.at("direction");
+        object.origin = {origin.at("x").get<double>(), origin.at("y").get<double>(),
+                         origin.at("z").get<double>()};
+        object.direction = {direction.at("x").get<double>(),
+                            direction.at("y").get<double>(),
+                            direction.at("z").get<double>()};
+        object.display_size = source.at("display_size").get<double>();
+        const double direction_length = length(object.direction);
+        if (object.id.empty() || object.name.empty() ||
+            !construction_ids.insert(object.id).second ||
+            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
+            !std::isfinite(object.origin.z) || !std::isfinite(object.direction.x) ||
+            !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
+            !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
+            (object.kind != zima::document::ConstructionKind::Point &&
+             direction_length <= 1.0e-12)) {
+            throw std::runtime_error("Assembly construction object is invalid");
+        }
+        document.constructions.push_back(std::move(object));
+    }
     std::unordered_set<std::string> occurrence_ids;
     for (const auto& source : root.at("components")) {
         PartOccurrence component;
@@ -1667,6 +1760,32 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
 
 void AssemblyDocument::save(const std::filesystem::path& path) const {
     static_cast<void>(build_scene());
+    nlohmann::json constructions_json = nlohmann::json::array();
+    std::unordered_set<std::string> construction_ids;
+    for (const auto& object : constructions) {
+        const double direction_length = length(object.direction);
+        if (object.id.empty() || object.name.empty() ||
+            !construction_ids.insert(object.id).second ||
+            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
+            !std::isfinite(object.origin.z) || !std::isfinite(object.direction.x) ||
+            !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
+            !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
+            (object.kind != zima::document::ConstructionKind::Point &&
+             direction_length <= 1.0e-12)) {
+            throw std::runtime_error("Assembly construction object is invalid");
+        }
+        constructions_json.push_back({
+            {"id", object.id}, {"name", object.name},
+            {"type", object.kind == zima::document::ConstructionKind::Point
+                ? "point" : object.kind == zima::document::ConstructionKind::Axis
+                    ? "axis" : "plane"},
+            {"origin", {{"x", object.origin.x}, {"y", object.origin.y},
+                        {"z", object.origin.z}}},
+            {"direction", {{"x", object.direction.x}, {"y", object.direction.y},
+                           {"z", object.direction.z}}},
+            {"display_size", object.display_size},
+        });
+    }
     nlohmann::json components_json = nlohmann::json::array();
     for (const auto& component : components) {
         validate_snapshot_list(component.nested_snapshot);
@@ -1728,8 +1847,9 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         mates_json.push_back(std::move(serialized));
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 6},
+        {"format", "zima-cad-cpp"}, {"format_version", 7},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
+        {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},
         {"mates", std::move(mates_json)},

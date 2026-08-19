@@ -772,6 +772,51 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     return scene;
 }
 
+zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& instance_path,
+    const zima::assembly::AssemblyDocument& calculated_source) const {
+    if (instance_path.occurrence_ids.empty()) {
+        throw std::invalid_argument("Assembly override requires an exact instance path");
+    }
+    const auto rebuild = [&](const auto& self,
+                             const zima::assembly::AssemblyDocument& owner,
+                             std::size_t depth) -> zima::assembly::AssemblyDocument {
+        auto result = owner;
+        auto* occurrence = result.find_occurrence(
+            instance_path.occurrence_ids[depth]);
+        if (occurrence == nullptr || occurrence->source_kind !=
+                zima::assembly::ComponentSourceKind::Assembly) {
+            throw std::invalid_argument(
+                "Assembly override path does not resolve to an Assembly occurrence");
+        }
+        zima::assembly::AssemblyDocument nested;
+        if (depth + 1 == instance_path.occurrence_ids.size()) {
+            if (occurrence->source_document_id != calculated_source.document_id) {
+                throw std::invalid_argument(
+                    "Assembly override source does not match the exact occurrence");
+            }
+            nested = calculated_source;
+        } else {
+            const auto* source = open_assembly(occurrence->source_document_id);
+            if (source == nullptr) {
+                throw std::invalid_argument(
+                    "Nested Assembly override requires its open owner chain");
+            }
+            nested = self(self, source->session.document(), depth + 1);
+        }
+        occurrence->calculated_source = {};
+        occurrence->calculated_source.mesh = nested.build_scene();
+        occurrence->nested_snapshot = nested.occurrence_snapshot();
+        return result;
+    };
+    const auto* top = open_assembly(top_assembly_document_id);
+    if (top == nullptr) {
+        throw std::invalid_argument("Assembly override target must be open");
+    }
+    return rebuild(rebuild, top->session.document(), 0).build_scene();
+}
+
 std::string Workspace::insert_open_part(
     const std::string& assembly_document_id,
     const std::string& part_document_id,

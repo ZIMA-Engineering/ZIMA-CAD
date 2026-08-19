@@ -148,6 +148,29 @@ int main() {
             point_for_path(zima::assembly::InstancePath{}.child(second_id).encoded());
         const auto prerequisite_point_source =
             point_for_path(zima::assembly::InstancePath{}.child(first_id).encoded());
+        const auto ownership_before = point_mated_assembly;
+        bool nested_mate_rejected = false;
+        try {
+            point_mated_assembly.add_mate(
+                zima::assembly::AssemblyDocument::create_mate(
+                    "Neplatná rodičovská vazba",
+                    zima::assembly::MateKind::PointCoincident,
+                    {zima::assembly::MateReferenceKind::Point,
+                     zima::assembly::InstancePath{}.child(second_id).child("nested-part"),
+                     dependent_point_source.reference.owner_id,
+                     dependent_point_source.reference.semantic_key},
+                    {zima::assembly::MateReferenceKind::Point,
+                     zima::assembly::InstancePath{}.child(first_id),
+                     prerequisite_point_source.reference.owner_id,
+                     prerequisite_point_source.reference.semantic_key}));
+        } catch (const std::invalid_argument&) {
+            nested_mate_rejected = true;
+        }
+        require(nested_mate_rejected &&
+                    point_mated_assembly.mates == ownership_before.mates &&
+                    point_mated_assembly.dependencies ==
+                        ownership_before.dependencies,
+                "Parent Assembly accepted or partially stored a mate to nested internals");
         point_mated_assembly.add_mate(zima::assembly::AssemblyDocument::create_mate(
             "Bod na bod", zima::assembly::MateKind::PointCoincident,
             {zima::assembly::MateReferenceKind::Point,
@@ -271,6 +294,15 @@ int main() {
                     {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0},
                     {0.0, 0.0, 7.0}, {0.0, 0.0, 1.0}) - 7.0) < 1.0e-9,
                 "Assembly linear drag ray was not projected onto the mate axis");
+        require(std::abs(
+                    zima::assembly::AssemblyDocument::project_angular_drag_value(
+                        {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                        {0.0, 10.0, 10.0}, {0.0, 0.0, -1.0}) - 90.0) < 1.0e-9 &&
+                    std::abs(
+                        zima::assembly::AssemblyDocument::project_angular_drag_value(
+                            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                            {10.0, 0.0, 10.0}, {0.0, 0.0, -1.0})) < 1.0e-9,
+                "Assembly angular drag ray did not produce a stable 0-180 degree value");
         auto invalid_limited_angle = zima::assembly::AssemblyDocument::create_mate(
             "Neplatný úhel", zima::assembly::MateKind::AxisAngle,
             {zima::assembly::MateReferenceKind::Axis,
@@ -770,6 +802,75 @@ int main() {
         }
         require(cycle_rejected,
                 "Dependency graph accepted an indirect Assembly cycle");
+        auto datum_assembly = assembly;
+        auto datum_plane = zima::assembly::AssemblyDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        datum_plane.name = "Montážní rovina";
+        datum_plane.origin = {0.0, 0.0, 50.0};
+        datum_plane.direction = {0.0, 0.0, 1.0};
+        datum_plane.display_size = 80.0;
+        const auto datum_id = datum_plane.id;
+        auto datum_point = zima::assembly::AssemblyDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        auto datum_axis = zima::assembly::AssemblyDocument::create_construction(
+            zima::document::ConstructionKind::Axis);
+        const auto datum_point_id = datum_point.id;
+        const auto datum_axis_id = datum_axis.id;
+        datum_assembly.constructions = {datum_point, datum_axis, datum_plane};
+        const auto datum_scene = datum_assembly.build_scene();
+        require(datum_assembly.find_construction(datum_id) != nullptr &&
+                    std::any_of(datum_scene.original_references.triangle_references.begin(),
+                        datum_scene.original_references.triangle_references.end(),
+                        [&](const auto& reference) {
+                            return reference.instance_path.empty() &&
+                                reference.owner_id == datum_id &&
+                                reference.semantic_key == "plane";
+                        }) &&
+                    std::any_of(datum_scene.original_references.points.begin(),
+                        datum_scene.original_references.points.end(),
+                        [&](const auto& point) {
+                            return point.reference.instance_path.empty() &&
+                                point.reference.owner_id == datum_point_id;
+                        }) &&
+                    std::any_of(datum_scene.original_references.axes.begin(),
+                        datum_scene.original_references.axes.end(),
+                        [&](const auto& axis) {
+                            return axis.reference.instance_path.empty() &&
+                                axis.reference.owner_id == datum_axis_id;
+                        }),
+                "Assembly-owned point, axis or plane lost viewer identity");
+        const auto dependent_face = *std::find_if(
+            datum_scene.original_references.triangle_references.begin(),
+            datum_scene.original_references.triangle_references.end(),
+            [&](const auto& reference) {
+                return reference.instance_path ==
+                    zima::assembly::InstancePath{}.child(first_id).encoded();
+            });
+        auto datum_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Komponenta na montážní rovinu",
+            zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{{first_id}}, dependent_face.owner_id,
+             dependent_face.semantic_key},
+            {zima::assembly::MateReferenceKind::Face, {}, datum_id, "plane"});
+        datum_assembly.add_mate(std::move(datum_mate));
+        datum_assembly.calculate_mates();
+        require(datum_assembly.mates.back().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    datum_assembly.dependencies.empty(),
+                "Component could not mate to its owning Assembly datum plane");
+        const auto datum_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-assembly-datum-contract.asmz";
+        datum_assembly.save(datum_path);
+        const auto loaded_datum =
+            zima::assembly::AssemblyDocument::load(datum_path);
+        std::filesystem::remove(datum_path);
+        require(loaded_datum.constructions.size() == 3 &&
+                    loaded_datum.constructions.back().id == datum_id &&
+                    loaded_datum.constructions.back().name == "Montážní rovina" &&
+                    loaded_datum.mates.back().prerequisite.instance_path
+                        .occurrence_ids.empty(),
+                "Assembly datum identity or mate reference changed on save/load");
         zima::assembly::AssemblySession session(loaded);
         auto placed = session.document();
         placed.components.front().placement.x = 42.0;
@@ -787,6 +888,18 @@ int main() {
                 "Assembly Undo did not restore component-owned placement");
         require(session.redo() && session.document().components.front().placement.x == 42.0,
                 "Assembly Redo did not restore component-owned placement");
+        zima::assembly::AssemblySession datum_session(assembly);
+        auto with_axis = datum_session.document();
+        with_axis.constructions.push_back(
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Axis));
+        datum_session.commit(std::move(with_axis));
+        require(datum_session.document().constructions.size() == 1 &&
+                    datum_session.undo() &&
+                    datum_session.document().constructions.empty() &&
+                    datum_session.redo() &&
+                    datum_session.document().constructions.size() == 1,
+                "Assembly datum creation did not participate in Undo/Redo");
         std::cout << "C++ assembly occurrence contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

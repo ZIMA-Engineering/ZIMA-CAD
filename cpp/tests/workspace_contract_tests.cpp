@@ -344,6 +344,18 @@ int main() {
         lifecycle_reference.cached_points.push_back(dependent_sketch.local_point(
             external_geometry.points.front().position));
         dependent_sketch.add_external_reference(lifecycle_reference);
+        const auto lifecycle_coincident_point = dependent_sketch.add_point(
+            lifecycle_reference.cached_points.front()[0] + 10.0,
+            lifecycle_reference.cached_points.front()[1] + 10.0);
+        static_cast<void>(dependent_sketch.add_coincident_constraint(
+            lifecycle_coincident_point, lifecycle_reference.id));
+        const auto lifecycle_dimension_point = dependent_sketch.add_point(
+            lifecycle_reference.cached_points.front()[0] + 8.0,
+            lifecycle_reference.cached_points.front()[1]);
+        auto lifecycle_dimension = dependent_sketch.create_point_dimension(
+            lifecycle_dimension_point, lifecycle_reference.id);
+        lifecycle_dimension.value = 5.0;
+        dependent_sketch.apply_dimension(lifecycle_dimension);
         const std::string lifecycle_sketch_id = dependent_sketch.id;
         dependent_with_reference.sketches.push_back(std::move(dependent_sketch));
         workspace.open_part(part_id)->session.commit(
@@ -412,7 +424,13 @@ int main() {
                     loaded_lifecycle_reference->context_assembly_document_id ==
                         lifecycle_reference.context_assembly_document_id &&
                     loaded_lifecycle_reference->context_instance_path ==
-                        lifecycle_reference.context_instance_path,
+                        lifecycle_reference.context_instance_path &&
+                    loaded_lifecycle_sketch->constraints.size() == 1 &&
+                    loaded_lifecycle_sketch->dimensions.size() == 1 &&
+                    loaded_lifecycle_sketch->constraints.front()
+                            .second_point_id == lifecycle_reference.id &&
+                    loaded_lifecycle_sketch->dimensions.front()
+                            .second_point_id == lifecycle_reference.id,
                 "Exact contextual occurrence identity did not survive Part save/load");
         require(workspace.open_part(part_id)->session.redo(),
                 "External reference removal Redo failed");
@@ -502,6 +520,28 @@ int main() {
                     .find_occurrence(subassembly_occurrence)
                     ->nested_snapshot.front().name == "Vnitřní díl",
                 "Source Assembly edit leaked into parent structural snapshot");
+        auto live_subassembly_preview = workspace.open_assembly(subassembly_id)
+            ->session.document();
+        live_subassembly_preview.components.front().placement.y += 37.0;
+        live_subassembly_preview.calculate_mates();
+        const auto parent_before_live_override = workspace.open_assembly(topassembly_id)
+            ->session.document().build_scene();
+        const auto live_assembly_override = workspace.build_scene_with_assembly_override(
+            topassembly_id,
+            zima::assembly::InstancePath{}.child(subassembly_occurrence),
+            live_subassembly_preview);
+        require(point_tuples(live_assembly_override.vertices) !=
+                    point_tuples(parent_before_live_override.vertices) &&
+                    point_tuples(workspace.open_assembly(topassembly_id)
+                        ->session.document().build_scene().vertices) ==
+                    point_tuples(parent_before_live_override.vertices) &&
+                    std::any_of(live_assembly_override.original_references
+                        .triangle_references.begin(),
+                        live_assembly_override.original_references
+                            .triangle_references.end(), [&](const auto& reference) {
+                            return reference.instance_path == direct_part_path;
+                        }),
+                "Nested Assembly live override replaced passive top-level context or mutated its snapshot");
         workspace.regenerate_assembly_from_open_dependencies(topassembly_id);
         const auto regenerated_nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();

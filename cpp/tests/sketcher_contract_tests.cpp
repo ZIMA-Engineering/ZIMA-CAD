@@ -156,6 +156,44 @@ int main() {
         external_point.cached_points = {{2.0, 3.0}};
         const auto external_point_id = external_point.id;
         text_sketch.add_external_reference(external_point);
+        auto external_snap_sketch = zima::sketcher::Sketch::create_default();
+        external_snap_sketch.add_external_reference(external_point);
+        const auto snapped_segment = external_snap_sketch.add_segment(
+            2.0005, 3.0005, 8.0, 3.0, 1.0e-3);
+        const auto& snapped_geometry = external_snap_sketch.segments.front();
+        require(snapped_geometry.id == snapped_segment &&
+                    external_snap_sketch.find_point(
+                        snapped_geometry.first_point_id)->x == 2.0 &&
+                    external_snap_sketch.find_point(
+                        snapped_geometry.first_point_id)->y == 3.0 &&
+                    std::any_of(external_snap_sketch.constraints.begin(),
+                        external_snap_sketch.constraints.end(), [&](const auto& value) {
+                            return value.kind ==
+                                    zima::sketcher::ConstraintKind::Coincident &&
+                                value.first_point_id ==
+                                    snapped_geometry.first_point_id &&
+                                value.second_point_id == external_point_id;
+                        }),
+                "Segment endpoint did not snap and bind to persisted external point");
+        const auto snapped_circle = external_snap_sketch.add_circle(
+            2.0005, 3.0005, 4.0, false, 1.0e-3);
+        const auto snapped_circle_geometry = std::find_if(
+            external_snap_sketch.circles.begin(),
+            external_snap_sketch.circles.end(), [&](const auto& value) {
+                return value.id == snapped_circle;
+            });
+        require(snapped_circle_geometry != external_snap_sketch.circles.end() &&
+                    external_snap_sketch.find_point(
+                        snapped_circle_geometry->center_point_id)->x == 2.0 &&
+                    std::any_of(external_snap_sketch.constraints.begin(),
+                        external_snap_sketch.constraints.end(), [&](const auto& value) {
+                            return value.kind ==
+                                    zima::sketcher::ConstraintKind::Coincident &&
+                                value.first_point_id ==
+                                    snapped_circle_geometry->center_point_id &&
+                                value.second_point_id == external_point_id;
+                        }),
+                "Curve control point did not snap and bind to external point");
         const auto externally_coincident_point = text_sketch.add_point(20.0, 20.0);
         static_cast<void>(text_sketch.add_coincident_constraint(
             externally_coincident_point, external_point_id));
@@ -199,6 +237,24 @@ int main() {
                     external_roundtrip.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Persisted external references, constraints, or dimensions did not round-trip");
+        auto removed_external_relations = external_roundtrip;
+        const auto removed_constraint_id =
+            removed_external_relations.constraints.front().id;
+        const auto removed_dimension_id =
+            removed_external_relations.dimensions.front().id;
+        removed_external_relations.remove_constraint(removed_constraint_id);
+        removed_external_relations.remove_dimension(removed_dimension_id);
+        require(std::none_of(removed_external_relations.constraints.begin(),
+                    removed_external_relations.constraints.end(), [&](const auto& value) {
+                        return value.id == removed_constraint_id;
+                    }) &&
+                    std::none_of(removed_external_relations.dimensions.begin(),
+                        removed_external_relations.dimensions.end(), [&](const auto& value) {
+                            return value.id == removed_dimension_id;
+                        }) &&
+                    removed_external_relations.solve().status !=
+                        zima::sketcher::SolveStatus::Invalid,
+                "Independent external constraint or dimension removal failed");
         auto contextual_sketch = zima::sketcher::Sketch::create_default();
         auto contextual_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Edge);
@@ -214,6 +270,74 @@ int main() {
                     contextual_sketch.serialized()).external_references ==
                     contextual_sketch.external_references,
                 "Contextual occurrence identity did not survive Sketch save/load");
+        auto external_direction_sketch = zima::sketcher::Sketch::create_default();
+        auto external_direction = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        external_direction.source_document_id = "direction-source";
+        external_direction.source_owner_id = "direction-owner";
+        external_direction.source_semantic_key = "edge:direction";
+        external_direction.cached_points = {{-5.0, 0.0}, {5.0, 0.0}};
+        const auto external_direction_id = external_direction.id;
+        external_direction_sketch.add_external_reference(external_direction);
+        const auto perpendicular_segment = external_direction_sketch.add_segment(
+            0.0, 0.0, 2.0, 5.0);
+        static_cast<void>(external_direction_sketch.add_segment_pair_constraint(
+            external_direction_id, perpendicular_segment,
+            zima::sketcher::ConstraintKind::Perpendicular));
+        const auto point_on_external_line = external_direction_sketch.add_point(
+            3.0, 4.0);
+        static_cast<void>(external_direction_sketch.add_point_on_line_constraint(
+            point_on_external_line, external_direction_id));
+        const auto perpendicular_first = external_direction_sketch.find_point(
+            external_direction_sketch.segments.front().first_point_id);
+        const auto perpendicular_second = external_direction_sketch.find_point(
+            external_direction_sketch.segments.front().second_point_id);
+        require(std::abs(perpendicular_second->x - perpendicular_first->x) < 1.0e-8,
+                "External edge did not act as fixed direction for Perpendicular");
+        require(std::abs(external_direction_sketch.find_point(
+                    point_on_external_line)->y) < 1.0e-8,
+                "Point-on-line did not project a native point to external edge");
+        auto loaded_external_direction = zima::sketcher::Sketch::from_serialized(
+            external_direction_sketch.serialized());
+        require(loaded_external_direction.constraints ==
+                    external_direction_sketch.constraints &&
+                    loaded_external_direction.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "External direction constraint did not survive serialization");
+        zima::kernel::ViewerReferenceGeometry changed_direction;
+        changed_direction.edges.push_back({
+            {{{0.0, -5.0, 0.0}, {0.0, 5.0, 0.0}}},
+            {"direction-owner", "edge:direction", {}}, false, false});
+        require(loaded_external_direction.refresh_external_references(
+                    "direction-source", changed_direction),
+                "Explicit refresh did not update external direction constraint");
+        const auto regenerated_first = loaded_external_direction.find_point(
+            loaded_external_direction.segments.front().first_point_id);
+        const auto regenerated_second = loaded_external_direction.find_point(
+            loaded_external_direction.segments.front().second_point_id);
+        require(std::abs(regenerated_second->y - regenerated_first->y) < 1.0e-8,
+                "Explicit refresh did not solve Perpendicular against new direction");
+        require(std::abs(loaded_external_direction.find_point(
+                    point_on_external_line)->x) < 1.0e-8,
+                "Explicit refresh did not regenerate Point-on-line constraint");
+        auto fixed_external_conflict = zima::sketcher::Sketch::create_default();
+        fixed_external_conflict.add_external_reference(external_point);
+        const auto fixed_external_point = fixed_external_conflict.add_point(
+            20.0, 20.0);
+        fixed_external_conflict.find_point(fixed_external_point)->fixed = true;
+        const auto fixed_external_before = fixed_external_conflict;
+        bool fixed_external_rejected = false;
+        try {
+            static_cast<void>(fixed_external_conflict.add_coincident_constraint(
+                fixed_external_point, external_point_id));
+        } catch (const std::runtime_error&) {
+            fixed_external_rejected = true;
+        }
+        require(fixed_external_rejected &&
+                    fixed_external_conflict.points == fixed_external_before.points &&
+                    fixed_external_conflict.constraints ==
+                        fixed_external_before.constraints,
+                "Conflicting fixed external relation partially changed the Sketch");
         zima::kernel::ViewerReferenceGeometry refreshed_sources;
         refreshed_sources.edges.push_back({
             {{4.0, 5.0, 0.0}, {9.0, 5.0, 0.0}},

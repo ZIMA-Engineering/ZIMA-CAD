@@ -109,6 +109,10 @@ public:
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path,
         zima::kernel::BodyResult calculated_source) const;
+    [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_assembly_override(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path,
+        const zima::assembly::AssemblyDocument& calculated_source) const;
     [[nodiscard]] std::string insert_open_part(
         const std::string& assembly_document_id,
         const std::string& part_document_id,

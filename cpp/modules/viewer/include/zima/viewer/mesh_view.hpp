@@ -86,6 +86,7 @@ public:
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
+    [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(

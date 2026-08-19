@@ -239,6 +239,10 @@ private:
     bool pending_pair_reference_is_circular_{};
     zima::sketcher::ConstraintKind pending_pair_kind_{
         zima::sketcher::ConstraintKind::Parallel};
+    bool sketch_point_dimension_active_{};
+    std::string pending_point_dimension_first_id_;
+    zima::sketcher::DimensionKind pending_point_dimension_kind_{
+        zima::sketcher::DimensionKind::Distance};
     bool preserve_view_on_refresh_{};
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::string sketch_drag_point_id_;
@@ -248,6 +252,7 @@ private:
     std::string assembly_drag_mate_id_;
     zima::kernel::Vec3 assembly_drag_axis_point_;
     zima::kernel::Vec3 assembly_drag_axis_direction_;
+    bool assembly_drag_angular_{};
     bool assembly_drag_changed_{};
     zima::assembly::MateKind pending_mate_kind_{
         zima::assembly::MateKind::PlaneCoincident};
@@ -276,6 +281,7 @@ private:
     void start_point_mate();
     void start_angle_mate();
     void start_plane_angle_mate();
+    void set_mate_candidate_filter();
     void start_edge_treatment(zima::document::FeatureKind kind);
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool finish_edge_treatment_selection();
@@ -346,6 +352,11 @@ private:
     bool finish_sketch_polyline();
     bool accept_sketch_point_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_external_snap(
+        const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3,
+        zima::kernel::Vec3>> sketch_external_snap_ray(
+            const zima::viewer::ViewerCandidate& candidate) const;
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_segment_ray(
@@ -405,6 +416,9 @@ private:
     void set_sketch_pair_contract();
     void accept_sketch_segment_pair(
         const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_point_dimension(zima::sketcher::DimensionKind kind);
+    void accept_sketch_point_dimension(
+        const zima::viewer::ViewerCandidate& candidate);
     void toggle_selected_sketch_point_fixed();
     [[nodiscard]] bool begin_sketch_point_drag(
         const zima::viewer::ViewerCandidate& candidate);
@@ -418,10 +432,15 @@ private:
         const zima::kernel::Vec3& ray_direction);
     void end_assembly_mate_drag();
     [[nodiscard]] bool delete_selected_sketch_geometry();
+    void remove_sketch_relation(
+        const std::string& sketch_id, const std::string& relation_id,
+        bool dimension);
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {},
         zima::sketcher::DimensionKind creation_kind =
-            zima::sketcher::DimensionKind::Distance);
+            zima::sketcher::DimensionKind::Distance,
+        const std::string& first_point_id = {},
+        const std::string& second_point_id = {});
     void regenerate_active_part();
     void undo();
     void redo();
@@ -434,6 +453,10 @@ private:
         const zima::document::PartDocument& document);
     [[nodiscard]] std::pair<zima::kernel::Vec3, zima::kernel::Vec3>
     active_part_local_ray(
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction) const;
+    [[nodiscard]] std::pair<zima::kernel::Vec3, zima::kernel::Vec3>
+    active_assembly_local_ray(
         const zima::kernel::Vec3& origin,
         const zima::kernel::Vec3& direction) const;
     void add_assembly_tree_children(

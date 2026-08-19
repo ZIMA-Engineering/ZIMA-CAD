@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/document/part_document.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -136,6 +137,7 @@ public:
     std::string document_id;
     std::string name{"Nová sestava"};
     std::vector<PartOccurrence> components;
+    std::vector<zima::document::ConstructionObject> constructions;
     std::vector<ComponentDependency> dependencies;
     std::vector<AssemblyMate> mates;
 
@@ -153,6 +155,13 @@ public:
     [[nodiscard]] const PartOccurrence* find_occurrence(
         const std::string& occurrence_id) const;
     [[nodiscard]] PartOccurrence* find_occurrence(const std::string& occurrence_id);
+    [[nodiscard]] static zima::document::ConstructionObject create_construction(
+        zima::document::ConstructionKind kind);
+    [[nodiscard]] zima::document::ConstructionObject* find_construction(
+        const std::string& id);
+    [[nodiscard]] const zima::document::ConstructionObject* find_construction(
+        const std::string& id) const;
+    [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
@@ -181,6 +190,11 @@ public:
     [[nodiscard]] static double project_linear_drag_value(
         const zima::kernel::Vec3& axis_point,
         const zima::kernel::Vec3& axis_direction,
+        const zima::kernel::Vec3& ray_origin,
+        const zima::kernel::Vec3& ray_direction);
+    [[nodiscard]] static double project_angular_drag_value(
+        const zima::kernel::Vec3& center,
+        const zima::kernel::Vec3& reference_direction,
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
     void remove_mate(const std::string& mate_id);

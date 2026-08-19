@@ -150,6 +150,12 @@ std::optional<ViewerCandidate> MeshView::confirmed_candidate() const {
     return impl_->confirmed_candidate;
 }
 
+std::optional<ViewerCandidate> MeshView::hovered_candidate() const {
+    if (impl_->confirmed_candidate || impl_->candidates.empty() ||
+        impl_->active_candidate >= impl_->candidates.size()) return std::nullopt;
+    return impl_->candidates[impl_->active_candidate];
+}
+
 std::optional<zima::kernel::ViewerEdge> MeshView::candidate_edge(
     const ViewerCandidate& candidate) const {
     const auto& edges = candidate.geometry == CandidateGeometry::OriginalReference
@@ -1042,11 +1048,11 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (event->buttons() == Qt::NoButton && !impl_->confirmed_candidate) {
+        update_candidates(event->position());
         if (impl_->world_pointer_callback) {
             const auto ray = ray_at(event->position());
             if (ray) impl_->world_pointer_callback(ray->first, ray->second);
         }
-        update_candidates(event->position());
     }
 }
 
