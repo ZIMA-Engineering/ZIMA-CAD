@@ -3109,8 +3109,7 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
     const std::string& sketch_id, const std::string& bspline_id) {
     if (properties_dialog_ != nullptr || sketch_bspline_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3176,8 +3175,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     if (properties_dialog_ != nullptr || sketch_id.empty() ||
         sketch_id != active_sketch_id_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3487,8 +3485,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
 void AssemblyWorkspaceWindow::start_sketch_point() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3509,8 +3506,7 @@ void AssemblyWorkspaceWindow::start_sketch_point() {
 void AssemblyWorkspaceWindow::start_sketch_segment(bool construction) {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3608,8 +3604,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_polyline() {
 void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3637,8 +3632,7 @@ void AssemblyWorkspaceWindow::start_sketch_polygon(unsigned sides) {
     if (properties_dialog_ != nullptr ||
         (sides != 4 && sides != 6 && sides != 8)) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3667,8 +3661,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
 void AssemblyWorkspaceWindow::start_sketch_trim() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -3871,8 +3864,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
 void AssemblyWorkspaceWindow::start_sketch_mirror() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const std::string source_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
@@ -4021,8 +4013,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_mirror() {
 void AssemblyWorkspaceWindow::start_sketch_circle() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4049,8 +4040,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_circle() {
 void AssemblyWorkspaceWindow::start_sketch_arc() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4078,8 +4068,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_arc() {
 void AssemblyWorkspaceWindow::start_sketch_ellipse() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4107,8 +4096,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
 void AssemblyWorkspaceWindow::start_sketch_elliptical_arc() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4140,8 +4128,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
 void AssemblyWorkspaceWindow::start_sketch_bspline() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto found = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4168,8 +4155,9 @@ void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
 bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_bspline_active_ || part == nullptr || active_sketch_id_.empty() ||
-        workspace_.displayed_document_id() != workspace_.active_document_id()) return false;
+    if (!sketch_bspline_active_ || part == nullptr || active_sketch_id_.empty()) {
+        return false;
+    }
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4261,8 +4249,9 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_point_active_ || part == nullptr || active_sketch_id_.empty() ||
-        workspace_.displayed_document_id() != workspace_.active_document_id()) return false;
+    if (!sketch_point_active_ || part == nullptr || active_sketch_id_.empty()) {
+        return false;
+    }
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4295,8 +4284,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_segment_active_ || part == nullptr || active_sketch_id_.empty() ||
-        workspace_.displayed_document_id() != workspace_.active_document_id()) return false;
+    if (!sketch_segment_active_ || part == nullptr || active_sketch_id_.empty()) {
+        return false;
+    }
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4355,8 +4345,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     auto next = part->session.document();
     const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
         [&](const auto& value) { return value.id == active_sketch_id_; });
@@ -4379,8 +4368,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
 void AssemblyWorkspaceWindow::start_sketch_coincident() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4403,8 +4391,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_coincident() {
 void AssemblyWorkspaceWindow::start_sketch_midpoint() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4467,8 +4454,7 @@ void AssemblyWorkspaceWindow::accept_sketch_midpoint_selection(
 void AssemblyWorkspaceWindow::start_sketch_symmetric() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4587,8 +4573,7 @@ void AssemblyWorkspaceWindow::set_sketch_concentric_contract() {
 void AssemblyWorkspaceWindow::start_sketch_concentric() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4715,8 +4700,7 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
 void AssemblyWorkspaceWindow::start_sketch_tangent() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -4854,8 +4838,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment_pair(
          kind != zima::sketcher::ConstraintKind::Perpendicular &&
          kind != zima::sketcher::ConstraintKind::EqualLength)) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     cancel_sketch_segment();
     sketch_segment_pair_active_ = true;
     pending_pair_kind_ = kind;
@@ -4998,8 +4981,7 @@ void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
         sketch_segment_pair_active_ || sketch_mirror_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     try {
         auto next = part->session.document();
         const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
@@ -5034,8 +5016,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         candidate.owner_id != active_sketch_id_ ||
         !candidate.semantic_key.starts_with("point:")) return false;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return false;
+    if (part == nullptr) return false;
     const auto point_id = candidate.semantic_key.substr(6);
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
@@ -5186,8 +5167,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         : selected_sketch_external_reference_id_;
     if (geometry_id.empty() && selected_sketch_point_id_.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return false;
+    if (part == nullptr) return false;
     try {
         auto next = part->session.document();
         const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
@@ -5229,8 +5209,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         sketch_tangent_active_ ||
         sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
+    if (part == nullptr) return;
     const auto sketch = std::find_if(
         part->session.document().sketches.begin(),
         part->session.document().sketches.end(),
@@ -5380,8 +5359,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_polygon_active_) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty() ||
-        workspace_.displayed_document_id() != workspace_.active_document_id()) {
+    if (part == nullptr || active_sketch_id_.empty()) {
         return false;
     }
     const auto sketch = std::find_if(
@@ -6628,6 +6606,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     root->setExpanded(true);
     viewer_->set_selection_contract(!selection_action_->isChecked()
         ? std::vector<zima::viewer::CandidateKind>{}
+        : active_part != nullptr && sketch_trim_active_
+            ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
         : active_part != nullptr && !active_sketch_id_.empty()
             ? std::vector{zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchPoint,
@@ -6675,7 +6655,36 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if (!active_sketch_id_.empty() && sketch.id != active_sketch_id_) {
                     continue;
                 }
-                append_mesh(live_source.mesh, sketch.viewer_mesh());
+                const auto* displayed_sketch = sketch_trim_active_ &&
+                        sketch_trim_preview_ && sketch.id == active_sketch_id_
+                    ? &*sketch_trim_preview_ : &sketch;
+                auto sketch_mesh = displayed_sketch->viewer_mesh();
+                if (sketch_trim_active_ && sketch_trim_preview_ &&
+                    sketch.id == active_sketch_id_) {
+                    std::set<std::string> piece_geometry_ids;
+                    for (const auto& piece : sketch_trim_topology_) {
+                        piece_geometry_ids.insert(piece.geometry_id);
+                    }
+                    std::erase_if(sketch_mesh.edges, [&](const auto& edge) {
+                        const auto separator = edge.reference.semantic_key.find(':');
+                        return separator != std::string::npos &&
+                            piece_geometry_ids.contains(
+                                edge.reference.semantic_key.substr(separator + 1));
+                    });
+                    for (std::size_t index = 0;
+                         index < sketch_trim_topology_.size(); ++index) {
+                        zima::kernel::ViewerEdge edge;
+                        edge.reference = {displayed_sketch->id,
+                            "trim_piece:" + std::to_string(index), {}};
+                        edge.overlay = true;
+                        for (const auto& point : sketch_trim_topology_[index].points) {
+                            edge.points.push_back(
+                                displayed_sketch->world_point(point[0], point[1]));
+                        }
+                        sketch_mesh.edges.push_back(std::move(edge));
+                    }
+                }
+                append_mesh(live_source.mesh, std::move(sketch_mesh));
             }
             append_mesh(live_source.mesh,
                 active_part->session.document().construction_viewer_mesh());
@@ -6729,45 +6738,56 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     extrusion_action_->setEnabled(active_part_has_selected_sketch);
     revolution_action_->setEnabled(active_part_has_selected_sketch);
     sketch_action_->setEnabled(active_part != nullptr);
-    sketch_normal_view_action_->setEnabled(false);
+    const bool has_active_part_sketch =
+        active_part != nullptr && !active_sketch_id_.empty();
+    sketch_normal_view_action_->setEnabled(has_active_part_sketch);
     sketch_external_reference_action_->setEnabled(false);
-    sketch_point_action_->setEnabled(false);
-    sketch_construction_action_->setEnabled(false);
-    sketch_segment_action_->setEnabled(false);
-    sketch_polyline_action_->setEnabled(false);
-    sketch_rectangle_action_->setEnabled(false);
-    sketch_polygon_action_->setEnabled(false);
-    sketch_trim_action_->setEnabled(false);
-    sketch_mirror_action_->setEnabled(false);
-    sketch_circle_action_->setEnabled(false);
-    sketch_arc_action_->setEnabled(false);
-    sketch_ellipse_action_->setEnabled(false);
-    sketch_elliptical_arc_action_->setEnabled(false);
-    sketch_bspline_action_->setEnabled(false);
-    sketch_text_action_->setEnabled(false);
-    sketch_constraints_action_->setEnabled(false);
-    sketch_dimensions_action_->setEnabled(false);
-    sketch_horizontal_action_->setEnabled(false);
-    sketch_vertical_action_->setEnabled(false);
-    sketch_coincident_action_->setEnabled(false);
-    sketch_midpoint_action_->setEnabled(false);
-    sketch_symmetric_action_->setEnabled(false);
-    sketch_concentric_action_->setEnabled(false);
-    sketch_tangent_action_->setEnabled(false);
-    sketch_parallel_action_->setEnabled(false);
-    sketch_perpendicular_action_->setEnabled(false);
-    sketch_equal_length_action_->setEnabled(false);
-    sketch_dimension_action_->setEnabled(false);
-    sketch_dimension_x_action_->setEnabled(false);
-    sketch_dimension_y_action_->setEnabled(false);
-    sketch_angle_dimension_action_->setEnabled(false);
-    sketch_radius_dimension_action_->setEnabled(false);
-    sketch_diameter_dimension_action_->setEnabled(false);
-    sketch_ellipse_major_dimension_action_->setEnabled(false);
-    sketch_ellipse_minor_dimension_action_->setEnabled(false);
-    sketch_ellipse_rotation_dimension_action_->setEnabled(false);
-    sketch_fix_point_action_->setEnabled(false);
-    finish_sketch_action_->setEnabled(false);
+    sketch_point_action_->setEnabled(has_active_part_sketch);
+    sketch_construction_action_->setEnabled(has_active_part_sketch);
+    sketch_segment_action_->setEnabled(has_active_part_sketch);
+    sketch_polyline_action_->setEnabled(has_active_part_sketch);
+    sketch_rectangle_action_->setEnabled(has_active_part_sketch);
+    sketch_polygon_action_->setEnabled(has_active_part_sketch);
+    sketch_trim_action_->setEnabled(has_active_part_sketch && !sketch_trim_active_);
+    sketch_mirror_action_->setEnabled(
+        has_active_part_sketch && !sketch_mirror_active_ && !sketch_trim_active_);
+    sketch_circle_action_->setEnabled(has_active_part_sketch);
+    sketch_arc_action_->setEnabled(has_active_part_sketch);
+    sketch_ellipse_action_->setEnabled(has_active_part_sketch);
+    sketch_elliptical_arc_action_->setEnabled(has_active_part_sketch);
+    sketch_bspline_action_->setEnabled(has_active_part_sketch);
+    sketch_text_action_->setEnabled(has_active_part_sketch);
+    sketch_constraints_action_->setEnabled(has_active_part_sketch);
+    sketch_dimensions_action_->setEnabled(has_active_part_sketch);
+    const bool has_segment = has_active_part_sketch &&
+        !selected_sketch_segment_id_.empty();
+    sketch_horizontal_action_->setEnabled(has_segment);
+    sketch_vertical_action_->setEnabled(has_segment);
+    sketch_coincident_action_->setEnabled(has_active_part_sketch);
+    sketch_midpoint_action_->setEnabled(has_active_part_sketch);
+    sketch_symmetric_action_->setEnabled(has_active_part_sketch);
+    sketch_concentric_action_->setEnabled(has_active_part_sketch);
+    sketch_tangent_action_->setEnabled(has_active_part_sketch);
+    sketch_parallel_action_->setEnabled(has_active_part_sketch);
+    sketch_perpendicular_action_->setEnabled(has_active_part_sketch);
+    sketch_equal_length_action_->setEnabled(has_active_part_sketch);
+    sketch_dimension_action_->setEnabled(has_segment);
+    sketch_dimension_x_action_->setEnabled(has_segment);
+    sketch_dimension_y_action_->setEnabled(has_segment);
+    sketch_angle_dimension_action_->setEnabled(has_segment);
+    sketch_radius_dimension_action_->setEnabled(has_active_part_sketch &&
+        (!selected_sketch_circle_id_.empty() || !selected_sketch_arc_id_.empty()));
+    sketch_diameter_dimension_action_->setEnabled(has_active_part_sketch &&
+        !selected_sketch_circle_id_.empty());
+    sketch_ellipse_major_dimension_action_->setEnabled(has_active_part_sketch &&
+        !selected_sketch_ellipse_id_.empty());
+    sketch_ellipse_minor_dimension_action_->setEnabled(has_active_part_sketch &&
+        !selected_sketch_ellipse_id_.empty());
+    sketch_ellipse_rotation_dimension_action_->setEnabled(has_active_part_sketch &&
+        !selected_sketch_ellipse_id_.empty());
+    sketch_fix_point_action_->setEnabled(has_active_part_sketch &&
+        !selected_sketch_point_id_.empty());
+    finish_sketch_action_->setEnabled(has_active_part_sketch);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {
         undo_action_->setEnabled(active_part->session.can_undo());
