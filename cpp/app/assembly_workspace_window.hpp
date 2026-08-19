@@ -162,6 +162,7 @@ private:
         std::string part_document_id;
         std::string instance_path;
         std::size_t history_limit{};
+        std::optional<zima::kernel::BodyResult> input_body;
     };
     std::optional<PartRollbackContext> part_rollback_;
     std::string active_occurrence_path_;

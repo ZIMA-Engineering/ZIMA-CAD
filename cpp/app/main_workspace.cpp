@@ -451,6 +451,48 @@ int verify_startup_contract(
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    box->trigger();
+    application.processEvents();
+    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    buttons = properties == nullptr
+        ? nullptr : properties->findChild<QDialogButtonBox*>();
+    if (!verify(buttons != nullptr,
+                "downstream Box did not open its shared Properties window")) {
+        return 1;
+    }
+    buttons->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    auto* rollback_root = tree->topLevelItem(0);
+    QTreeWidgetItem* rollback_extrusion{};
+    QTreeWidgetItem* downstream_box{};
+    if (rollback_root != nullptr) {
+        for (int index = 0; index < rollback_root->childCount(); ++index) {
+            auto* item = rollback_root->child(index);
+            if (item->text(0) == QStringLiteral("Vytažení")) {
+                rollback_extrusion = item;
+            } else if (rollback_extrusion != nullptr &&
+                       item->data(0, Qt::UserRole + 3).toString() ==
+                           QStringLiteral("part-container")) {
+                downstream_box = item;
+                break;
+            }
+        }
+    }
+    if (!verify(edit_dialog != nullptr && rollback_extrusion != nullptr &&
+                    downstream_box != nullptr &&
+                    rollback_extrusion->foreground(0).color() ==
+                        QColor(70, 190, 95) &&
+                    downstream_box->foreground(0).color() ==
+                        QColor(125, 125, 125),
+                "history edit did not keep the active item green and suppress downstream items")) {
+        return 1;
+    }
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
     const auto saved_part_path = std::filesystem::current_path() /
         (part_name.toStdString() + ".prtz");
     save->trigger();
@@ -464,7 +506,7 @@ int verify_startup_contract(
     if (!verify(tabs->count() == 0 &&
                     window.open_document_path(
                         QString::fromStdString(saved_part_path.string())) &&
-                    tabs->count() == 1 && tree->topLevelItem(0)->childCount() == 3,
+                    tabs->count() == 1 && tree->topLevelItem(0)->childCount() == 4,
                 "saved Part did not close and reopen through the application")) {
         return 1;
     }

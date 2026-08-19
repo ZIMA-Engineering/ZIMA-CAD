@@ -154,6 +154,35 @@ int main(int argc, char* argv[]) {
         require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
                     committed_sphere.sphere.radius == 27.0,
                 "Sphere Properties did not commit its radius");
+        const std::vector<zima::kernel::EdgeReference> treatment_edges{
+            {"source-feature", "generated:source-edge", {}}};
+        for (const auto kind : {zima::document::FeatureKind::Fillet,
+                                zima::document::FeatureKind::Chamfer}) {
+            auto treatment_initial = kind == zima::document::FeatureKind::Fillet
+                ? zima::document::PartDocument::create_fillet_container(treatment_edges)
+                : zima::document::PartDocument::create_chamfer_container(treatment_edges);
+            zima::document::HistoryContainer committed_treatment;
+            auto* treatment_dialog = new zima::app::PrimitivePropertiesDialog(
+                treatment_initial, true, false,
+                [&](zima::document::HistoryContainer value) {
+                    committed_treatment = std::move(value);
+                }, &parent);
+            treatment_dialog->show();
+            application.processEvents();
+            auto* treatment_size = treatment_dialog->findChild<QDoubleSpinBox*>(
+                "edgeTreatmentSize");
+            require(treatment_size != nullptr,
+                    "Fillet/Chamfer edit did not reuse Primitive Properties");
+            treatment_size->setValue(kind == zima::document::FeatureKind::Fillet
+                ? 2.5 : 3.5);
+            treatment_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+            application.processEvents();
+            require(committed_treatment.feature_kind == kind &&
+                        committed_treatment.edge_treatment.edges == treatment_edges &&
+                        committed_treatment.edge_treatment.size ==
+                            (kind == zima::document::FeatureKind::Fillet ? 2.5 : 3.5),
+                    "Fillet/Chamfer Properties lost its input edge identity or size");
+        }
         auto cone_initial = zima::document::PartDocument::create_cone_container();
         zima::document::HistoryContainer committed_cone;
         auto* cone_dialog = new zima::app::PrimitivePropertiesDialog(

@@ -3104,9 +3104,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         (edited == nullptr || edited->feature_kind != feature_kind)) return;
     const bool edit_mode = edited != nullptr;
     std::optional<std::string> rollback_occurrence;
-    const auto edit_index = edit_mode
-        ? document.history_index(container_id) : std::optional<std::size_t>{};
+    const auto rollback_boundary = edit_mode
+        ? part->session.rollback_boundary(container_id)
+        : std::optional<zima::document::HistoryRollbackBoundary>{};
     if (edit_mode) {
+        if (!rollback_boundary) {
+            QMessageBox::warning(this, tr("Chybí vypočtený vstup"),
+                tr("Prvek nelze editovat bez uložené geometrie jeho vstupu. "
+                   "Nejprve explicitně regenerujte Part."));
+            return;
+        }
         rollback_occurrence = resolve_active_occurrence(document.document_id);
         if (!rollback_occurrence) {
             QMessageBox::warning(
@@ -3187,9 +3194,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     }
     properties_dialog_ = dialog;
-    if (edit_index) {
+    if (rollback_boundary) {
         part_rollback_ = PartRollbackContext{
-            document.document_id, *rollback_occurrence, *edit_index};
+            document.document_id, *rollback_occurrence,
+            rollback_boundary->history_index, rollback_boundary->input_body};
         refresh_scene();
     }
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -6584,14 +6592,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         } else if (sketch_segment_pair_active_) {
             set_sketch_pair_contract();
         }
-        const auto& calculated = part->session.calculated_boundaries();
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {
-            viewer_->set_mesh(part_rollback_->history_limit == 0 ||
-                    calculated.size() < part_rollback_->history_limit
-                ? zima::kernel::ViewerMesh{}
-                : calculated[part_rollback_->history_limit - 1].mesh);
+            viewer_->set_mesh(part_rollback_->input_body
+                ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{});
         } else {
+            const auto& calculated = part->session.calculated_boundaries();
             zima::kernel::ViewerMesh display = calculated.empty()
                 ? zima::kernel::ViewerMesh{} : calculated.back().mesh;
             for (const auto& sketch : document.sketches) {
@@ -6866,11 +6872,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
         if (active_part != nullptr) {
-            const auto& boundaries = active_part->session.calculated_boundaries();
-            zima::kernel::BodyResult boundary = part_rollback_->history_limit == 0 ||
-                    boundaries.size() < part_rollback_->history_limit
-                ? zima::kernel::BodyResult{}
-                : boundaries[part_rollback_->history_limit - 1];
+            zima::kernel::BodyResult boundary = part_rollback_->input_body
+                .value_or(zima::kernel::BodyResult{});
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(part_rollback_->instance_path),

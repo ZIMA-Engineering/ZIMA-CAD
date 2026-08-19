@@ -1878,6 +1878,25 @@ int main() {
                         zima::kernel::history_fingerprint(
                             long_history.kernel_operations(), 25),
                 "Long Part history lost a boundary, volume, or fingerprint");
+        zima::document::DocumentSession rollback_session(
+            long_history, long_boundaries);
+        const auto first_rollback = rollback_session.rollback_boundary(
+            long_history.history.front().id);
+        const auto middle_rollback = rollback_session.rollback_boundary(
+            long_history.history[12].id);
+        require(first_rollback && first_rollback->history_index == 0 &&
+                    !first_rollback->input_body && middle_rollback &&
+                    middle_rollback->history_index == 12 &&
+                    middle_rollback->input_body &&
+                    middle_rollback->input_body->source_fingerprint ==
+                        long_boundaries[11].source_fingerprint,
+                "History rollback did not return the exact persisted input boundary");
+        require(!rollback_session.rollback_boundary("missing-container"),
+                "History rollback accepted a missing container");
+        zima::document::DocumentSession incomplete_rollback(long_history);
+        require(!incomplete_rollback.rollback_boundary(
+                    long_history.history[12].id),
+                "History rollback reconstructed a missing calculated input implicitly");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

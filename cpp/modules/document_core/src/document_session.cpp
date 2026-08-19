@@ -21,6 +21,19 @@ DocumentSession::calculated_boundaries() const {
     return current_.calculated_boundaries;
 }
 
+std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
+    const std::string& container_id) const {
+    const auto index = current_.document.history_index(container_id);
+    if (!index || (*index > 0 && current_.calculated_boundaries.size() < *index)) {
+        return std::nullopt;
+    }
+    HistoryRollbackBoundary result{*index, std::nullopt};
+    if (*index > 0) {
+        result.input_body = current_.calculated_boundaries[*index - 1];
+    }
+    return result;
+}
+
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
