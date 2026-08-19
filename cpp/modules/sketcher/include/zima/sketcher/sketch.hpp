@@ -306,6 +306,9 @@ public:
         double translation_y, double rotation);
     [[nodiscard]] SketchDimension create_segment_dimension(
         const std::string& segment_id, DimensionKind kind = DimensionKind::Distance) const;
+    [[nodiscard]] SketchDimension create_point_dimension(
+        const std::string& first_point_id, const std::string& second_point_id,
+        DimensionKind kind = DimensionKind::Distance) const;
     void apply_dimension(SketchDimension dimension);
     [[nodiscard]] SketchDimension create_circle_radius_dimension(
         const std::string& circle_id) const;

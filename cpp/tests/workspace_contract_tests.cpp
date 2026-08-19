@@ -327,6 +327,98 @@ int main() {
         }
         require(repeated_source_cycle_rejected,
                 "Repeated Part source accepted a contextual self-dependency");
+        auto dependent_with_reference = workspace.open_part(part_id)->session.document();
+        auto dependent_sketch = zima::sketcher::Sketch::create_default();
+        auto lifecycle_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Point);
+        require(!external_geometry.points.empty(),
+                "Context source has no persisted point for dependency lifecycle");
+        lifecycle_reference.source_document_id = reference_part_id;
+        lifecycle_reference.source_owner_id =
+            external_geometry.points.front().reference.owner_id;
+        lifecycle_reference.source_semantic_key =
+            external_geometry.points.front().reference.semantic_key;
+        lifecycle_reference.source_instance_path = reference_part_path;
+        lifecycle_reference.context_assembly_document_id = topassembly_id;
+        lifecycle_reference.context_instance_path = expected_nested_path;
+        lifecycle_reference.cached_points.push_back(dependent_sketch.local_point(
+            external_geometry.points.front().position));
+        dependent_sketch.add_external_reference(lifecycle_reference);
+        const std::string lifecycle_sketch_id = dependent_sketch.id;
+        dependent_with_reference.sketches.push_back(std::move(dependent_sketch));
+        workspace.open_part(part_id)->session.commit(
+            std::move(dependent_with_reference), changed_calculation);
+        workspace.synchronize_external_sketch_dependencies();
+        const auto has_external_dependency = [&] {
+            return std::any_of(workspace.open_assembly(topassembly_id)
+                ->session.document().dependencies.begin(),
+                workspace.open_assembly(topassembly_id)
+                    ->session.document().dependencies.end(), [&](const auto& dependency) {
+                    return dependency.kind == zima::assembly::
+                            ComponentDependencyKind::ExternalSketchReference &&
+                        dependency.dependent_occurrence_id == subassembly_occurrence &&
+                        dependency.prerequisite_occurrence_id == reference_occurrence;
+                });
+        };
+        require(has_external_dependency(),
+                "Contextual Sketch reference did not retain its Assembly dependency");
+        auto without_reference = workspace.open_part(part_id)->session.document();
+        auto lifecycle_sketch = std::find_if(without_reference.sketches.begin(),
+            without_reference.sketches.end(), [&](const auto& sketch) {
+                return sketch.id == lifecycle_sketch_id;
+            });
+        lifecycle_sketch->remove_geometry(lifecycle_reference.id);
+        workspace.open_part(part_id)->session.commit(
+            std::move(without_reference), changed_calculation);
+        workspace.synchronize_external_sketch_dependencies();
+        require(!has_external_dependency(),
+                "Removing the last external reference left an orphan dependency");
+        require(workspace.open_part(part_id)->session.undo(),
+                "External reference removal Undo failed");
+        workspace.synchronize_external_sketch_dependencies();
+        require(has_external_dependency(),
+                "External reference Undo did not restore its dependency");
+        const auto lifecycle_save_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-external-reference-lifecycle.prtz";
+        workspace.open_part(part_id)->session.document().save(
+            lifecycle_save_path,
+            workspace.open_part(part_id)->session.calculated_boundaries());
+        const auto loaded_lifecycle_part = zima::document::PartDocument::load(
+            lifecycle_save_path);
+        std::filesystem::remove(lifecycle_save_path);
+        const auto loaded_lifecycle_sketch = std::find_if(
+            loaded_lifecycle_part.sketches.begin(),
+            loaded_lifecycle_part.sketches.end(), [&](const auto& sketch) {
+                return sketch.id == lifecycle_sketch_id;
+            });
+        require(loaded_lifecycle_sketch != loaded_lifecycle_part.sketches.end(),
+                "Contextual external-reference Sketch did not survive Part save/load");
+        const auto loaded_lifecycle_reference = std::find_if(
+            loaded_lifecycle_sketch->external_references.begin(),
+            loaded_lifecycle_sketch->external_references.end(),
+            [&](const auto& reference) {
+                return reference.id == lifecycle_reference.id;
+            });
+        require(loaded_lifecycle_reference !=
+                    loaded_lifecycle_sketch->external_references.end() &&
+                    loaded_lifecycle_reference->source_document_id ==
+                        lifecycle_reference.source_document_id &&
+                    loaded_lifecycle_reference->source_owner_id ==
+                        lifecycle_reference.source_owner_id &&
+                    loaded_lifecycle_reference->source_semantic_key ==
+                        lifecycle_reference.source_semantic_key &&
+                    loaded_lifecycle_reference->source_instance_path ==
+                        lifecycle_reference.source_instance_path &&
+                    loaded_lifecycle_reference->context_assembly_document_id ==
+                        lifecycle_reference.context_assembly_document_id &&
+                    loaded_lifecycle_reference->context_instance_path ==
+                        lifecycle_reference.context_instance_path,
+                "Exact contextual occurrence identity did not survive Part save/load");
+        require(workspace.open_part(part_id)->session.redo(),
+                "External reference removal Redo failed");
+        workspace.synchronize_external_sketch_dependencies();
+        require(!has_external_dependency(),
+                "External reference Redo did not remove its dependency again");
         require(!rollback_scene.original_references.triangle_references.empty() &&
                     std::all_of(rollback_scene.original_references.triangle_references.begin(),
                         rollback_scene.original_references.triangle_references.end(),

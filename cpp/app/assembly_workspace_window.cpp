@@ -3610,6 +3610,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         }
         part->session.commit(
             std::move(next), part->session.calculated_boundaries());
+        workspace_.synchronize_external_sketch_dependencies();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -4583,7 +4584,8 @@ void AssemblyWorkspaceWindow::start_sketch_coincident() {
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchPoint});
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchPoint,
+        zima::viewer::CandidateKind::SketchExternalReference});
     state_->setText(tr("Shodnost bodů: vyberte první bod. Escape příkaz zruší."));
 }
 
@@ -5001,11 +5003,18 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
 
 void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_coincident_active_ ||
-        candidate.kind != zima::viewer::CandidateKind::SketchPoint ||
-        candidate.owner_id != active_sketch_id_ ||
-        !candidate.semantic_key.starts_with("point:")) return;
-    const auto point_id = candidate.semantic_key.substr(6);
+    if (!sketch_coincident_active_ || candidate.owner_id != active_sketch_id_) return;
+    std::string point_id;
+    if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
+        candidate.semantic_key.starts_with("point:")) {
+        point_id = candidate.semantic_key.substr(6);
+    } else if (candidate.kind ==
+                   zima::viewer::CandidateKind::SketchExternalReference &&
+               candidate.semantic_key.starts_with("external_point:")) {
+        point_id = candidate.semantic_key.substr(15);
+    } else {
+        return;
+    }
     if (pending_coincident_point_id_.empty()) {
         pending_coincident_point_id_ = point_id;
         state_->setText(tr("Shodnost bodů: vyberte druhý bod."));
@@ -5380,6 +5389,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         if (!geometry_id.empty()) sketch->remove_geometry(geometry_id);
         else sketch->remove_point(selected_sketch_point_id_);
         part->session.commit(std::move(next), part->session.calculated_boundaries());
+        workspace_.synchronize_external_sketch_dependencies();
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
@@ -6285,7 +6295,10 @@ void AssemblyWorkspaceWindow::undo() {
     if (properties_dialog_ != nullptr) return;
     cancel_sketch_segment();
     if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (part->session.undo()) refresh_scene();
+        if (part->session.undo()) {
+            workspace_.synchronize_external_sketch_dependencies();
+            refresh_scene();
+        }
     } else if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
         if (assembly->session.undo()) refresh_scene();
     }
@@ -6296,7 +6309,10 @@ void AssemblyWorkspaceWindow::redo() {
     if (properties_dialog_ != nullptr) return;
     cancel_sketch_segment();
     if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (part->session.redo()) refresh_scene();
+        if (part->session.redo()) {
+            workspace_.synchronize_external_sketch_dependencies();
+            refresh_scene();
+        }
     } else if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
         if (assembly->session.redo()) refresh_scene();
     }
@@ -6518,7 +6534,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     : std::vector{zima::viewer::CandidateKind::SketchSegment,
                                   zima::viewer::CandidateKind::SketchAxis}
             : sketch_coincident_active_
-                ? std::vector{zima::viewer::CandidateKind::SketchPoint}
+                ? std::vector{zima::viewer::CandidateKind::SketchPoint,
+                              zima::viewer::CandidateKind::SketchExternalReference}
             : sketch_midpoint_active_
                 ? pending_midpoint_point_id_.empty()
                     ? std::vector{zima::viewer::CandidateKind::SketchPoint}

@@ -29,6 +29,18 @@ std::string make_id() {
     return stream.str();
 }
 
+std::optional<std::array<double, 2>> external_point_position(
+    const Sketch& sketch, const std::string& reference_id) {
+    const auto found = std::find_if(sketch.external_references.begin(),
+        sketch.external_references.end(), [&](const auto& reference) {
+            return reference.id == reference_id &&
+                reference.kind == ExternalReferenceKind::Point &&
+                reference.cached_points.size() == 1;
+        });
+    if (found == sketch.external_references.end()) return std::nullopt;
+    return found->cached_points.front();
+}
+
 const char* plane_name(SketchPlane plane) {
     switch (plane) {
     case SketchPlane::XY: return "xy";
@@ -916,13 +928,19 @@ void Sketch::validate() const {
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
             std::hypot(symmetry_axis->second[0], symmetry_axis->second[1]) > 1.0e-12;
+        const auto point_exists = [&](const std::string& point_id) {
+            return find_point(point_id) != nullptr ||
+                external_point_position(*this, point_id).has_value();
+        };
         const bool points_valid = pair_constraint || concentric || tangent || equal_radius
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
             : point_on_circle || midpoint
                 ? find_point(constraint.first_point_id) != nullptr &&
                   constraint.second_point_id.empty()
-            : find_point(constraint.first_point_id) != nullptr &&
-              find_point(constraint.second_point_id) != nullptr;
+            : point_exists(constraint.first_point_id) &&
+              point_exists(constraint.second_point_id) &&
+              (find_point(constraint.first_point_id) != nullptr ||
+               find_point(constraint.second_point_id) != nullptr);
         if (constraint.id.empty() || !ids.insert(constraint.id).second || !points_valid ||
             (segment_constraint && (owned_segment == segments.end() ||
              owned_segment->first_point_id != constraint.first_point_id ||
@@ -984,10 +1002,21 @@ void Sketch::validate() const {
             owned_segment != segments.end() &&
             owned_segment->first_point_id == dimension.first_point_id &&
             owned_segment->second_point_id == dimension.second_point_id;
+        const bool point_pair_geometry_valid = !radial_dimension &&
+            !ellipse_dimension && dimension.geometry_id.empty() &&
+            (dimension.kind == DimensionKind::Distance ||
+             dimension.kind == DimensionKind::DistanceX ||
+             dimension.kind == DimensionKind::DistanceY) &&
+            (find_point(dimension.first_point_id) != nullptr ||
+             external_point_position(*this, dimension.first_point_id)) &&
+            (find_point(dimension.second_point_id) != nullptr ||
+             external_point_position(*this, dimension.second_point_id)) &&
+            (find_point(dimension.first_point_id) != nullptr ||
+             find_point(dimension.second_point_id) != nullptr);
         if (dimension.id.empty() || !ids.insert(dimension.id).second ||
             (radial_dimension ? !geometry_valid
                 : ellipse_dimension ? !ellipse_geometry_valid
-                : !segment_geometry_valid)) {
+                : !segment_geometry_valid && !point_pair_geometry_valid)) {
             throw std::runtime_error("Sketch dimension is invalid");
         }
         require_finite(dimension.value, "dimension value");
@@ -1484,9 +1513,13 @@ std::string Sketch::add_segment_constraint(
 
 std::string Sketch::add_coincident_constraint(
     const std::string& first_point_id, const std::string& second_point_id) {
+    const bool first_native = find_point(first_point_id) != nullptr;
+    const bool second_native = find_point(second_point_id) != nullptr;
+    const bool first_external = external_point_position(*this, first_point_id).has_value();
+    const bool second_external = external_point_position(*this, second_point_id).has_value();
     if (first_point_id.empty() || second_point_id.empty() ||
-        first_point_id == second_point_id || find_point(first_point_id) == nullptr ||
-        find_point(second_point_id) == nullptr) {
+        first_point_id == second_point_id || (!first_native && !first_external) ||
+        (!second_native && !second_external) || (!first_native && !second_native)) {
         throw std::invalid_argument("Coincident constraint points are invalid");
     }
     if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
@@ -1921,11 +1954,19 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
+                (external_reference_count != 0 &&
+                 (value.first_point_id == geometry_id ||
+                  value.second_point_id == geometry_id)) ||
                 removed_unshared_point(value.first_point_id) ||
                 removed_unshared_point(value.second_point_id);
         });
     std::erase_if(next.dimensions,
-        [&](const auto& value) { return value.geometry_id == geometry_id; });
+        [&](const auto& value) {
+            return value.geometry_id == geometry_id ||
+                (external_reference_count != 0 &&
+                 (value.first_point_id == geometry_id ||
+                  value.second_point_id == geometry_id));
+        });
     const auto point_is_referenced = [&](const std::string& point_id) {
         return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == point_id || value.second_point_id == point_id;
@@ -2959,6 +3000,12 @@ bool Sketch::refresh_external_references(
     }
     if (!changed) return false;
     next.validate();
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Invalid ||
+        solved.status == SolveStatus::Conflicting) {
+        throw std::runtime_error(
+            "Refreshed external reference conflicts with Sketch constraints");
+    }
     *this = std::move(next);
     return true;
 }
@@ -3027,6 +3074,34 @@ SketchDimension Sketch::create_segment_dimension(
         make_id(), kind, first->id, second->id, value};
     result.geometry_id = segment->id;
     return result;
+}
+
+SketchDimension Sketch::create_point_dimension(
+    const std::string& first_point_id, const std::string& second_point_id,
+    DimensionKind kind) const {
+    if (kind != DimensionKind::Distance && kind != DimensionKind::DistanceX &&
+        kind != DimensionKind::DistanceY) {
+        throw std::invalid_argument("Point dimension kind is unsupported");
+    }
+    const auto position = [&](const std::string& point_id)
+        -> std::optional<std::array<double, 2>> {
+        if (const auto* point = find_point(point_id)) {
+            return std::array{point->x, point->y};
+        }
+        return external_point_position(*this, point_id);
+    };
+    const auto first = position(first_point_id);
+    const auto second = position(second_point_id);
+    if (!first || !second || (find_point(first_point_id) == nullptr &&
+                              find_point(second_point_id) == nullptr)) {
+        throw std::invalid_argument(
+            "Point dimension requires a native and a valid point reference");
+    }
+    const double dx = (*second)[0] - (*first)[0];
+    const double dy = (*second)[1] - (*first)[1];
+    return {make_id(), kind, first_point_id, second_point_id,
+            kind == DimensionKind::DistanceX ? dx
+            : kind == DimensionKind::DistanceY ? dy : std::hypot(dx, dy)};
 }
 
 SketchDimension Sketch::create_circle_radius_dimension(
@@ -3218,6 +3293,33 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             second.x += dx * 0.5; second.y += dy * 0.5;
         }
         return true;
+    };
+    const auto point_position = [&](const std::string& point_id)
+        -> std::optional<std::array<double, 2>> {
+        if (const auto* point = find_point(point_id)) {
+            return std::array{point->x, point->y};
+        }
+        return external_point_position(*this, point_id);
+    };
+    const auto move_point_pair = [&](const std::string& first_id,
+                                     const std::string& second_id,
+                                     double dx, double dy) {
+        auto* first = find_point(first_id);
+        auto* second = find_point(second_id);
+        if (first && second) return move_pair(*first, *second, dx, dy);
+        if (first) {
+            if (first->fixed) return false;
+            first->x -= dx;
+            first->y -= dy;
+            return true;
+        }
+        if (second) {
+            if (second->fixed) return false;
+            second->x += dx;
+            second->y += dy;
+            return true;
+        }
+        return false;
     };
     const auto synchronize_curves = [&]() {
         constexpr double full_turn = 2.0 * 3.14159265358979323846;
@@ -3693,16 +3795,17 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 }
                 continue;
             }
-            auto* first = find_point(constraint.first_point_id);
-            auto* second = find_point(constraint.second_point_id);
+            const auto first = point_position(constraint.first_point_id);
+            const auto second = point_position(constraint.second_point_id);
             double dx{};
             double dy{};
-            if (constraint.kind == ConstraintKind::Horizontal) dy = first->y - second->y;
-            else if (constraint.kind == ConstraintKind::Vertical) dx = first->x - second->x;
-            else { dx = first->x - second->x; dy = first->y - second->y; }
+            if (constraint.kind == ConstraintKind::Horizontal) dy = (*first)[1] - (*second)[1];
+            else if (constraint.kind == ConstraintKind::Vertical) dx = (*first)[0] - (*second)[0];
+            else { dx = (*first)[0] - (*second)[0]; dy = (*first)[1] - (*second)[1]; }
             const double residual = std::hypot(dx, dy);
             maximum_residual = std::max(maximum_residual, residual);
-            if (residual > tolerance && !move_pair(*first, *second, dx, dy)) {
+            if (residual > tolerance && !move_point_pair(
+                    constraint.first_point_id, constraint.second_point_id, dx, dy)) {
                 immovable_conflict = true;
             }
         }
@@ -3772,10 +3875,10 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     ? dimension.value * 0.5 : dimension.value;
                 continue;
             }
-            auto* first = find_point(dimension.first_point_id);
-            auto* second = find_point(dimension.second_point_id);
-            double dx = second->x - first->x;
-            double dy = second->y - first->y;
+            const auto first = point_position(dimension.first_point_id);
+            const auto second = point_position(dimension.second_point_id);
+            double dx = (*second)[0] - (*first)[0];
+            double dy = (*second)[1] - (*first)[1];
             double correction_x{};
             double correction_y{};
             double residual{};
@@ -3806,7 +3909,8 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             }
             maximum_residual = std::max(maximum_residual, std::abs(residual));
             if (std::abs(residual) > tolerance &&
-                !move_pair(*first, *second, correction_x, correction_y)) {
+                !move_point_pair(dimension.first_point_id,
+                    dimension.second_point_id, correction_x, correction_y)) {
                 immovable_conflict = true;
             }
         }
@@ -3952,15 +4056,15 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                         : std::hypot(dx, dy) - std::hypot(rx, ry));
                 continue;
             }
-            const auto* first = find_point(constraint.first_point_id);
-            const auto* second = find_point(constraint.second_point_id);
+            const auto first = point_position(constraint.first_point_id);
+            const auto second = point_position(constraint.second_point_id);
             if (constraint.kind == ConstraintKind::Horizontal) {
-                result.push_back(first->y - second->y);
+                result.push_back((*first)[1] - (*second)[1]);
             } else if (constraint.kind == ConstraintKind::Vertical) {
-                result.push_back(first->x - second->x);
+                result.push_back((*first)[0] - (*second)[0]);
             } else {
-                result.push_back(first->x - second->x);
-                result.push_back(first->y - second->y);
+                result.push_back((*first)[0] - (*second)[0]);
+                result.push_back((*first)[1] - (*second)[1]);
             }
         }
         for (const auto& dimension : dimensions) {
@@ -3998,10 +4102,10 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 }
                 continue;
             }
-            const auto* first = find_point(dimension.first_point_id);
-            const auto* second = find_point(dimension.second_point_id);
-            const double dx = second->x - first->x;
-            const double dy = second->y - first->y;
+            const auto first = point_position(dimension.first_point_id);
+            const auto second = point_position(dimension.second_point_id);
+            const double dx = (*second)[0] - (*first)[0];
+            const double dy = (*second)[1] - (*first)[1];
             result.push_back(dimension.kind == DimensionKind::DistanceX
                 ? dx - dimension.value
                 : dimension.kind == DimensionKind::DistanceY
@@ -4411,10 +4515,18 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 {id, "dimension:" + dimension.id, {}}, "R"});
             continue;
         }
-        const auto* first = find_point(dimension.first_point_id);
-        const auto* second = find_point(dimension.second_point_id);
-        const double dx = second->x - first->x;
-        const double dy = second->y - first->y;
+        const auto dimension_point = [&](const std::string& point_id)
+            -> std::optional<std::array<double, 2>> {
+            if (const auto* point = find_point(point_id)) {
+                return std::array{point->x, point->y};
+            }
+            return external_point_position(*this, point_id);
+        };
+        const auto first = dimension_point(dimension.first_point_id);
+        const auto second = dimension_point(dimension.second_point_id);
+        if (!first || !second) continue;
+        const double dx = (*second)[0] - (*first)[0];
+        const double dy = (*second)[1] - (*first)[1];
         const double magnitude = std::hypot(dx, dy);
         const double offset = std::clamp(magnitude * 0.15, 5.0, 25.0);
         if (dimension.kind == DimensionKind::Angle) {
@@ -4422,36 +4534,40 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             const double radians = dimension.value *
                 3.14159265358979323846 / 180.0;
             result.dimensions.push_back({
-                project(*first), project(*first),
-                world_point(first->x + display_radius, first->y),
-                world_point(first->x + display_radius * std::cos(radians),
-                            first->y + display_radius * std::sin(radians)),
+                world_point((*first)[0], (*first)[1]),
+                world_point((*first)[0], (*first)[1]),
+                world_point((*first)[0] + display_radius, (*first)[1]),
+                world_point((*first)[0] + display_radius * std::cos(radians),
+                            (*first)[1] + display_radius * std::sin(radians)),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 "∠ ", "°"});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceX) {
-            const double line_y = std::max(first->y, second->y) + offset;
+            const double line_y = std::max((*first)[1], (*second)[1]) + offset;
             result.dimensions.push_back({
-                project(*first), project(*second),
-                world_point(first->x, line_y), world_point(second->x, line_y),
+                world_point((*first)[0], (*first)[1]),
+                world_point((*second)[0], (*second)[1]),
+                world_point((*first)[0], line_y), world_point((*second)[0], line_y),
                 dimension.value, {id, "dimension:" + dimension.id, {}}, "X "});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceY) {
-            const double line_x = std::max(first->x, second->x) + offset;
+            const double line_x = std::max((*first)[0], (*second)[0]) + offset;
             result.dimensions.push_back({
-                project(*first), project(*second),
-                world_point(line_x, first->y), world_point(line_x, second->y),
+                world_point((*first)[0], (*first)[1]),
+                world_point((*second)[0], (*second)[1]),
+                world_point(line_x, (*first)[1]), world_point(line_x, (*second)[1]),
                 dimension.value, {id, "dimension:" + dimension.id, {}}, "Y "});
             continue;
         }
         const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
         const double ny = magnitude > 1.0e-12 ? dx / magnitude : 1.0;
         result.dimensions.push_back({
-            project(*first), project(*second),
-            world_point(first->x + nx * offset, first->y + ny * offset),
-            world_point(second->x + nx * offset, second->y + ny * offset),
+            world_point((*first)[0], (*first)[1]),
+            world_point((*second)[0], (*second)[1]),
+            world_point((*first)[0] + nx * offset, (*first)[1] + ny * offset),
+            world_point((*second)[0] + nx * offset, (*second)[1] + ny * offset),
             dimension.value, {id, "dimension:" + dimension.id, {}}});
     }
     return result;

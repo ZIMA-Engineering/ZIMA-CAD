@@ -154,7 +154,24 @@ int main() {
         external_point.source_owner_id = "container-source";
         external_point.source_semantic_key = "vertex:stable-source";
         external_point.cached_points = {{2.0, 3.0}};
+        const auto external_point_id = external_point.id;
         text_sketch.add_external_reference(external_point);
+        const auto externally_coincident_point = text_sketch.add_point(20.0, 20.0);
+        static_cast<void>(text_sketch.add_coincident_constraint(
+            externally_coincident_point, external_point_id));
+        require(text_sketch.find_point(externally_coincident_point)->x == 2.0 &&
+                    text_sketch.find_point(externally_coincident_point)->y == 3.0,
+                "Coincident constraint did not treat external point as fixed input");
+        const auto externally_dimensioned_point = text_sketch.add_point(12.0, 3.0);
+        auto external_dimension = text_sketch.create_point_dimension(
+            externally_dimensioned_point, external_point_id);
+        external_dimension.value = 5.0;
+        text_sketch.apply_dimension(external_dimension);
+        require(std::abs(std::hypot(
+                    text_sketch.find_point(externally_dimensioned_point)->x - 2.0,
+                    text_sketch.find_point(externally_dimensioned_point)->y - 3.0) - 5.0) <
+                    1.0e-8,
+                "Distance dimension did not use external point as read-only datum");
         auto external_axis = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Axis);
         external_axis.source_document_id = "part-source";
@@ -172,11 +189,16 @@ int main() {
             {2.0, 2.0}, {0.0, 2.0}, {0.0, 0.0}}};
         const auto external_face_id = external_face.id;
         text_sketch.add_external_reference(external_face);
-        const auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
+        auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
             text_sketch.serialized());
         require(external_roundtrip.external_references ==
-                    text_sketch.external_references,
-                "Persisted Sketch external references did not round-trip");
+                    text_sketch.external_references &&
+                    external_roundtrip.constraints == text_sketch.constraints &&
+                    external_roundtrip.dimensions == text_sketch.dimensions &&
+                    external_roundtrip.points == text_sketch.points &&
+                    external_roundtrip.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Persisted external references, constraints, or dimensions did not round-trip");
         auto contextual_sketch = zima::sketcher::Sketch::create_default();
         auto contextual_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Edge);
@@ -254,6 +276,13 @@ int main() {
                     !text_sketch.external_references[2].broken &&
                     !text_sketch.external_references[3].broken,
                 "Explicit Sketch external reference refresh lost exact source identity");
+        require(text_sketch.find_point(externally_coincident_point)->x == 6.0 &&
+                    text_sketch.find_point(externally_coincident_point)->y == 7.0 &&
+                    std::abs(std::hypot(
+                        text_sketch.find_point(externally_dimensioned_point)->x - 6.0,
+                        text_sketch.find_point(externally_dimensioned_point)->y - 7.0) - 5.0) <
+                        1.0e-8,
+                "Explicit refresh did not regenerate external constraints and dimensions");
         const auto valid_external_cache = text_sketch.external_references;
         const zima::kernel::ViewerReferenceGeometry missing_sources;
         require(text_sketch.refresh_external_references(

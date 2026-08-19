@@ -6,6 +6,7 @@
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace zima::workspace {
@@ -581,6 +582,81 @@ void Workspace::add_external_sketch_dependency(
         dependent_branch, prerequisite_branch,
         zima::assembly::ComponentDependencyKind::ExternalSketchReference));
     owner->session.commit(std::move(next));
+}
+
+void Workspace::synchronize_external_sketch_dependencies() {
+    using BranchPair = std::pair<std::string, std::string>;
+    std::unordered_map<std::string, std::set<BranchPair>> desired;
+    for (const auto& state : documents_) {
+        const auto* part = std::get_if<PartState>(&state);
+        if (part == nullptr) continue;
+        for (const auto& sketch : part->session.document().sketches) {
+            for (const auto& reference : sketch.external_references) {
+                if (reference.context_assembly_document_id.empty() ||
+                    reference.context_instance_path.empty() ||
+                    reference.source_instance_path.empty()) continue;
+                const auto dependent_path = zima::assembly::InstancePath::decode(
+                    reference.context_instance_path);
+                const auto prerequisite_path = zima::assembly::InstancePath::decode(
+                    reference.source_instance_path);
+                std::size_t common_depth = 0;
+                while (common_depth < dependent_path.occurrence_ids.size() &&
+                       common_depth < prerequisite_path.occurrence_ids.size() &&
+                       dependent_path.occurrence_ids[common_depth] ==
+                           prerequisite_path.occurrence_ids[common_depth]) {
+                    ++common_depth;
+                }
+                if (common_depth == dependent_path.occurrence_ids.size() ||
+                    common_depth == prerequisite_path.occurrence_ids.size()) continue;
+                std::string owner_id = reference.context_assembly_document_id;
+                if (common_depth != 0) {
+                    zima::assembly::InstancePath owner_path;
+                    owner_path.occurrence_ids.assign(
+                        dependent_path.occurrence_ids.begin(),
+                        dependent_path.occurrence_ids.begin() +
+                            static_cast<std::ptrdiff_t>(common_depth));
+                    const auto owner = resolve_occurrence(
+                        reference.context_assembly_document_id, owner_path);
+                    if (!owner || owner->source_kind !=
+                            zima::assembly::ComponentSourceKind::Assembly) continue;
+                    owner_id = owner->source_document_id;
+                }
+                desired[owner_id].emplace(
+                    dependent_path.occurrence_ids[common_depth],
+                    prerequisite_path.occurrence_ids[common_depth]);
+            }
+        }
+    }
+    for (auto& state : documents_) {
+        auto* assembly = std::get_if<AssemblyState>(&state);
+        if (assembly == nullptr) continue;
+        const auto& current = assembly->session.document();
+        auto next = current;
+        const auto& required = desired[current.document_id];
+        std::erase_if(next.dependencies, [&](const auto& dependency) {
+            return dependency.kind == zima::assembly::ComponentDependencyKind::
+                       ExternalSketchReference &&
+                !required.contains({dependency.dependent_occurrence_id,
+                                    dependency.prerequisite_occurrence_id});
+        });
+        for (const auto& [dependent, prerequisite] : required) {
+            const bool exists = std::any_of(next.dependencies.begin(),
+                next.dependencies.end(), [&](const auto& dependency) {
+                    return dependency.kind == zima::assembly::ComponentDependencyKind::
+                               ExternalSketchReference &&
+                        dependency.dependent_occurrence_id == dependent &&
+                        dependency.prerequisite_occurrence_id == prerequisite;
+                });
+            if (!exists) {
+                next.add_dependency(zima::assembly::AssemblyDocument::create_dependency(
+                    dependent, prerequisite,
+                    zima::assembly::ComponentDependencyKind::ExternalSketchReference));
+            }
+        }
+        if (next.dependencies != current.dependencies) {
+            assembly->session.commit(std::move(next));
+        }
+    }
 }
 
 zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
