@@ -177,6 +177,21 @@ int main() {
         require(external_roundtrip.external_references ==
                     text_sketch.external_references,
                 "Persisted Sketch external references did not round-trip");
+        auto contextual_sketch = zima::sketcher::Sketch::create_default();
+        auto contextual_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        contextual_reference.source_document_id = "context-source-part";
+        contextual_reference.source_owner_id = "context-source-owner";
+        contextual_reference.source_semantic_key = "edge:context-source";
+        contextual_reference.source_instance_path = "3:src";
+        contextual_reference.context_assembly_document_id = "context-assembly";
+        contextual_reference.context_instance_path = "3:dep";
+        contextual_reference.cached_points = {{1.0, 2.0}, {4.0, 2.0}};
+        contextual_sketch.add_external_reference(contextual_reference);
+        require(zima::sketcher::Sketch::from_serialized(
+                    contextual_sketch.serialized()).external_references ==
+                    contextual_sketch.external_references,
+                "Contextual occurrence identity did not survive Sketch save/load");
         zima::kernel::ViewerReferenceGeometry refreshed_sources;
         refreshed_sources.edges.push_back({
             {{4.0, 5.0, 0.0}, {9.0, 5.0, 0.0}},

@@ -219,6 +219,61 @@ bool refresh_sketch_external_references(
     return changed;
 }
 
+void populate_external_reference_cache(
+    const zima::sketcher::Sketch& sketch,
+    zima::sketcher::SketchExternalReference& reference,
+    const zima::kernel::ViewerReferenceGeometry& source) {
+    const auto matches = [&](const auto& candidate) {
+        return candidate.owner_id == reference.source_owner_id &&
+            candidate.semantic_key == reference.source_semantic_key &&
+            candidate.instance_path == reference.source_instance_path;
+    };
+    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge) {
+        const auto edge = std::find_if(source.edges.begin(), source.edges.end(),
+            [&](const auto& candidate) { return matches(candidate.reference); });
+        if (edge == source.edges.end()) {
+            throw std::runtime_error("Persisted source edge geometry is unavailable");
+        }
+        for (const auto& point : edge->points) {
+            const auto local = sketch.local_point(point);
+            if (reference.cached_points.empty() || std::hypot(
+                    local[0] - reference.cached_points.back()[0],
+                    local[1] - reference.cached_points.back()[1]) > 1.0e-9) {
+                reference.cached_points.push_back(local);
+            }
+        }
+    } else if (reference.kind == zima::sketcher::ExternalReferenceKind::Point) {
+        const auto point = std::find_if(source.points.begin(), source.points.end(),
+            [&](const auto& candidate) { return matches(candidate.reference); });
+        if (point == source.points.end()) {
+            throw std::runtime_error("Persisted source point geometry is unavailable");
+        }
+        reference.cached_points.push_back(sketch.local_point(point->position));
+    } else if (reference.kind == zima::sketcher::ExternalReferenceKind::Axis) {
+        const auto axis = std::find_if(source.axes.begin(), source.axes.end(),
+            [&](const auto& candidate) { return matches(candidate.reference); });
+        if (axis == source.axes.end()) {
+            throw std::runtime_error("Persisted source axis geometry is unavailable");
+        }
+        const auto projected = sketch.project_external_axis(*axis);
+        if (!projected) {
+            throw std::runtime_error(
+                "Source axis cannot be projected into the Sketch plane");
+        }
+        reference.cached_points = *projected;
+    } else {
+        const auto projected = sketch.project_external_face(source,
+            {reference.source_owner_id, reference.source_semantic_key,
+             reference.source_instance_path});
+        if (!projected) {
+            throw std::runtime_error(
+                "Source face cannot be projected into closed Sketch contours");
+        }
+        reference.cached_paths = *projected;
+    }
+    reference.broken = false;
+}
+
 std::optional<SketchPosition> projected_ellipse_minor(
     const SketchPosition& center, const SketchPosition& major,
     const SketchPosition& cursor) {
@@ -2176,7 +2231,62 @@ void AssemblyWorkspaceWindow::insert_component(
 void AssemblyWorkspaceWindow::regenerate_assembly() {
     const std::string id = workspace_.displayed_document_id();
     try {
+        std::set<std::string> regenerated_parts;
+        std::set<std::string> visiting_parts;
+        const std::function<void(const std::string&)> regenerate_part_dependencies =
+            [&](const std::string& part_id) {
+                if (regenerated_parts.contains(part_id)) return;
+                if (!visiting_parts.insert(part_id).second) {
+                    throw std::runtime_error(
+                        "External Sketch document dependency cycle detected");
+                }
+                auto* part = workspace_.open_part(part_id);
+                if (part == nullptr) {
+                    visiting_parts.erase(part_id);
+                    return;
+                }
+                for (const auto& sketch : part->session.document().sketches) {
+                    for (const auto& reference : sketch.external_references) {
+                        if (reference.context_assembly_document_id == id &&
+                            reference.source_document_id != part_id) {
+                            regenerate_part_dependencies(
+                                reference.source_document_id);
+                        }
+                    }
+                }
+                auto next = part->session.document();
+                const bool has_context = std::any_of(
+                    next.sketches.begin(), next.sketches.end(), [&](const auto& sketch) {
+                        return std::any_of(sketch.external_references.begin(),
+                            sketch.external_references.end(), [&](const auto& reference) {
+                                return reference.context_assembly_document_id == id;
+                            });
+                    });
+                if (has_context) {
+                    auto calculated = calculate_part(next);
+                    const bool references_changed =
+                        refresh_sketch_external_references(next, calculated) |
+                        workspace_.refresh_context_external_references(next);
+                    if (references_changed) calculated = calculate_part(next);
+                    if (references_changed) {
+                        part->session.commit(std::move(next), std::move(calculated));
+                    } else {
+                        part->session.update_calculated_boundaries(
+                            std::move(calculated));
+                    }
+                }
+                visiting_parts.erase(part_id);
+                regenerated_parts.insert(part_id);
+            };
+        for (const auto& state : workspace_.documents()) {
+            const auto* part = std::get_if<zima::workspace::PartState>(&state);
+            if (part != nullptr) {
+                regenerate_part_dependencies(
+                    part->session.document().document_id);
+            }
+        }
         workspace_.regenerate_assembly_from_open_dependencies(id);
+        refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Regenerace selhala"), error.what());
@@ -3327,8 +3437,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
             enabled = false;
         } else {
             const auto* part = workspace_.open_part(workspace_.active_document_id());
-            if (part == nullptr || workspace_.displayed_document_id() !=
-                    workspace_.active_document_id() ||
+            if (part == nullptr ||
                 std::none_of(part->session.document().sketches.begin(),
                     part->session.document().sketches.end(), [&](const auto& sketch) {
                         return sketch.id == active_sketch_id_;
@@ -3378,16 +3487,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
          candidate.kind != zima::viewer::CandidateKind::Axis &&
          candidate.kind != zima::viewer::CandidateKind::Face)) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || workspace_.displayed_document_id() !=
-            workspace_.active_document_id()) return;
-    const auto allowed_owners = sketch_external_reference_source_owners(
-        part->session.document(), active_sketch_id_);
-    if (!allowed_owners.contains(candidate.owner_id) ||
-        !candidate.instance_path.empty()) {
-        state_->setText(tr(
-            "Tato geometrie není platný zdroj před aktivní skicou."));
-        return;
-    }
+    if (part == nullptr) return;
     try {
         auto next = part->session.document();
         const auto sketch = std::find_if(
@@ -3402,58 +3502,83 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                     : candidate.kind == zima::viewer::CandidateKind::Face
                         ? zima::sketcher::ExternalReferenceKind::Face
                         : zima::sketcher::ExternalReferenceKind::Point);
-        reference.source_document_id = next.document_id;
+        const auto* assembly =
+            workspace_.open_assembly(workspace_.displayed_document_id());
+        std::optional<zima::assembly::InstancePath> dependent_path;
+        std::optional<zima::assembly::InstancePath> source_path;
+        std::string source_document_id = next.document_id;
+        zima::kernel::ViewerReferenceGeometry source_geometry;
+        if (assembly == nullptr) {
+            if (!candidate.instance_path.empty() ||
+                !sketch_external_reference_source_owners(next, active_sketch_id_)
+                    .contains(candidate.owner_id)) {
+                throw std::invalid_argument(
+                    "Geometry is not a valid source before the active Sketch");
+            }
+            source_geometry = sketch_external_reference_source_geometry(
+                next, part->session.calculated_boundaries());
+        } else {
+            const auto dependent_encoded = resolve_active_occurrence(next.document_id);
+            if (!dependent_encoded || dependent_encoded->empty() ||
+                candidate.instance_path.empty()) {
+                throw std::invalid_argument(
+                    "In-context reference requires exact occurrence paths");
+            }
+            dependent_path = zima::assembly::InstancePath::decode(*dependent_encoded);
+            source_path = zima::assembly::InstancePath::decode(
+                candidate.instance_path);
+            const auto source_address = workspace_.resolve_occurrence(
+                assembly->session.document().document_id, *source_path);
+            if (!source_address || source_address->source_kind !=
+                    zima::assembly::ComponentSourceKind::Part) {
+                throw std::invalid_argument(
+                    "External reference source must be an exact Part occurrence");
+            }
+            if (*source_path == *dependent_path) {
+                if (!sketch_external_reference_source_owners(next, active_sketch_id_)
+                        .contains(candidate.owner_id)) {
+                    throw std::invalid_argument(
+                        "Geometry is not a valid source before the active Sketch");
+                }
+                source_geometry = sketch_external_reference_source_geometry(
+                    next, part->session.calculated_boundaries());
+                source_path.reset();
+            } else {
+                source_document_id = source_address->source_document_id;
+                source_geometry =
+                    workspace_.authoritative_external_reference_geometry(
+                        assembly->session.document().document_id,
+                        *dependent_path, source_document_id);
+            }
+        }
+        reference.source_document_id = source_document_id;
         reference.source_owner_id = candidate.owner_id;
         reference.source_semantic_key = candidate.semantic_key;
-        reference.source_instance_path = candidate.instance_path;
-        if (candidate.kind == zima::viewer::CandidateKind::Edge) {
-            const auto edge = viewer_->candidate_edge(candidate);
-            if (!edge || edge->points.size() < 2) {
-                throw std::runtime_error(
-                    "Persisted source edge geometry is unavailable");
-            }
-            for (const auto& world : edge->points) {
-                const auto local = sketch->local_point(world);
-                if (reference.cached_points.empty() || std::hypot(
-                        local[0] - reference.cached_points.back()[0],
-                        local[1] - reference.cached_points.back()[1]) > 1.0e-9) {
-                    reference.cached_points.push_back(local);
+        reference.source_instance_path = source_path
+            ? source_path->encoded() : std::string{};
+        if (assembly != nullptr && dependent_path && source_path) {
+            for (const auto& existing_sketch : next.sketches) {
+                for (const auto& existing : existing_sketch.external_references) {
+                    if (existing.context_assembly_document_id.empty()) continue;
+                    if (existing.context_assembly_document_id !=
+                            assembly->session.document().document_id ||
+                        existing.context_instance_path != dependent_path->encoded()) {
+                        throw std::invalid_argument(
+                            "Part already owns external references from another occurrence context");
+                    }
                 }
             }
-        } else if (candidate.kind == zima::viewer::CandidateKind::Vertex) {
-            const auto point = viewer_->candidate_point(candidate);
-            if (!point) {
-                throw std::runtime_error(
-                    "Persisted source point geometry is unavailable");
-            }
-            reference.cached_points.push_back(
-                sketch->local_point(point->position));
-        } else if (candidate.kind == zima::viewer::CandidateKind::Axis) {
-            const auto axis = viewer_->candidate_axis(candidate);
-            if (!axis) {
-                throw std::runtime_error(
-                    "Persisted source axis geometry is unavailable");
-            }
-            const auto projected = sketch->project_external_axis(*axis);
-            if (!projected) {
-                throw std::runtime_error(
-                    "Source axis cannot be projected into the Sketch plane");
-            }
-            reference.cached_points = *projected;
-        } else {
-            const auto source = sketch_external_reference_source_geometry(
-                next, part->session.calculated_boundaries());
-            const auto projected = sketch->project_external_face(
-                source,
-                {candidate.owner_id, candidate.semantic_key,
-                 candidate.instance_path});
-            if (!projected) {
-                throw std::runtime_error(
-                    "Source face cannot be projected into closed Sketch contours");
-            }
-            reference.cached_paths = *projected;
+            reference.context_assembly_document_id =
+                assembly->session.document().document_id;
+            reference.context_instance_path = dependent_path->encoded();
         }
+        populate_external_reference_cache(*sketch, reference, source_geometry);
         sketch->add_external_reference(std::move(reference));
+        if (assembly != nullptr && dependent_path && source_path) {
+            workspace_.add_external_sketch_dependency(
+                assembly->session.document().document_id,
+                *dependent_path, *source_path);
+        }
         part->session.commit(
             std::move(next), part->session.calculated_boundaries());
         preserve_view_on_refresh_ = true;
@@ -6109,7 +6234,9 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
         auto next = part->session.document();
         auto calculated = calculate_part(next);
         const bool references_changed =
-            refresh_sketch_external_references(next, calculated);
+            refresh_sketch_external_references(next, calculated) |
+            workspace_.refresh_context_external_references(next);
+        if (references_changed) calculated = calculate_part(next);
         if (references_changed) {
             part->session.commit(std::move(next), std::move(calculated));
         } else {
@@ -6660,6 +6787,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         ? std::vector<zima::viewer::CandidateKind>{}
         : active_part != nullptr && sketch_trim_active_
             ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
+        : active_part != nullptr && sketch_external_reference_active_
+            ? std::vector{zima::viewer::CandidateKind::Edge,
+                          zima::viewer::CandidateKind::Vertex,
+                          zima::viewer::CandidateKind::Axis,
+                          zima::viewer::CandidateKind::Face}
         : active_part != nullptr && !active_sketch_id_.empty()
             ? std::vector{zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchPoint,
@@ -6681,6 +6813,34 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                        zima::viewer::CandidateKind::Occurrence};
             }
         }());
+    if (active_part != nullptr && sketch_external_reference_active_ &&
+        active_part_occurrence && !active_part_occurrence->empty()) {
+        const auto allowed_local_owners = sketch_external_reference_source_owners(
+            active_part->session.document(), active_sketch_id_);
+        const auto active_document_id = active_part->session.document().document_id;
+        const auto top_assembly_id = document.document_id;
+        const auto dependent_path = *active_part_occurrence;
+        viewer_->set_candidate_filter(
+            [this, allowed_local_owners, active_document_id,
+             top_assembly_id, dependent_path](const auto& candidate) {
+                if (candidate.geometry !=
+                        zima::viewer::CandidateGeometry::OriginalReference ||
+                    candidate.instance_path.empty()) return false;
+                if (candidate.instance_path == dependent_path) {
+                    return allowed_local_owners.contains(candidate.owner_id);
+                }
+                try {
+                    const auto address = workspace_.resolve_occurrence(
+                        top_assembly_id, zima::assembly::InstancePath::decode(
+                            candidate.instance_path));
+                    return address && address->source_kind ==
+                            zima::assembly::ComponentSourceKind::Part &&
+                        address->source_document_id != active_document_id;
+                } catch (const std::invalid_argument&) {
+                    return false;
+                }
+            });
+    }
     if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
@@ -6793,7 +6953,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const bool has_active_part_sketch =
         active_part != nullptr && !active_sketch_id_.empty();
     sketch_normal_view_action_->setEnabled(has_active_part_sketch);
-    sketch_external_reference_action_->setEnabled(false);
+    sketch_external_reference_action_->setEnabled(has_active_part_sketch);
     sketch_point_action_->setEnabled(has_active_part_sketch);
     sketch_construction_action_->setEnabled(has_active_part_sketch);
     sketch_segment_action_->setEnabled(has_active_part_sketch);

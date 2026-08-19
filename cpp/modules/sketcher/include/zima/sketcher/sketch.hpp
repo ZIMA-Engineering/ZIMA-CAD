@@ -136,6 +136,8 @@ struct SketchExternalReference {
     std::string source_owner_id;
     std::string source_semantic_key;
     std::string source_instance_path;
+    std::string context_assembly_document_id;
+    std::string context_instance_path;
     std::vector<std::array<double, 2>> cached_points;
     std::vector<std::vector<std::array<double, 2>>> cached_paths;
     bool broken{};

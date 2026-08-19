@@ -112,6 +112,22 @@ int main() {
             topassembly_id, subassembly_id, "Vložená podsestava");
         const std::string direct_part_occurrence = workspace.insert_open_part(
             topassembly_id, part_id, "Přímý kontextový díl");
+        auto reference_part = zima::document::PartDocument::create_default();
+        reference_part.name = "Zdroj externí reference";
+        reference_part.history.push_back(
+            zima::document::PartDocument::create_box_container());
+        reference_part.history.front().box.length = 35.0;
+        const std::string reference_part_id = reference_part.document_id;
+        workspace.add_part(reference_part,
+            kernel.evaluate_history(reference_part.kernel_operations()),
+            "reference-part.prtz");
+        const std::string reference_occurrence = workspace.insert_open_part(
+            topassembly_id, reference_part_id, "Zdrojový díl");
+        auto placed_topassembly = workspace.open_assembly(topassembly_id)
+            ->session.document();
+        placed_topassembly.find_occurrence(reference_occurrence)->placement.x = 200.0;
+        workspace.open_assembly(topassembly_id)->session.commit(
+            std::move(placed_topassembly));
         const auto* inserted_subassembly = workspace.open_assembly(topassembly_id)
             ->session.document().find_occurrence(subassembly_occurrence);
         require(inserted_subassembly != nullptr &&
@@ -181,11 +197,124 @@ int main() {
             zima::assembly::InstancePath::decode(expected_nested_path), {});
         const std::string direct_part_path = zima::assembly::InstancePath{}
             .child(direct_part_occurrence).encoded();
+        const std::string reference_part_path = zima::assembly::InstancePath{}
+            .child(reference_occurrence).encoded();
+        const auto external_geometry =
+            workspace.authoritative_external_reference_geometry(
+                topassembly_id,
+                zima::assembly::InstancePath::decode(expected_nested_path),
+                reference_part_id);
+        require(!external_geometry.edges.empty() &&
+                    std::all_of(external_geometry.edges.begin(),
+                        external_geometry.edges.end(), [&](const auto& edge) {
+                            return edge.reference.instance_path == reference_part_path;
+                        }),
+                "Authoritative external geometry lost exact source occurrence identity");
+        const auto authoritative_scene = workspace.open_assembly(topassembly_id)
+            ->session.document().build_scene();
+        const auto source_scene_edge = std::find_if(
+            authoritative_scene.original_references.edges.begin(),
+            authoritative_scene.original_references.edges.end(),
+            [&](const auto& edge) {
+                return edge.reference.instance_path == reference_part_path &&
+                    edge.reference.owner_id ==
+                        external_geometry.edges.front().reference.owner_id &&
+                    edge.reference.semantic_key ==
+                        external_geometry.edges.front().reference.semantic_key;
+            });
+        require(source_scene_edge !=
+                    authoritative_scene.original_references.edges.end(),
+                "External reference source edge is unavailable in Assembly scene");
+        require(std::abs(external_geometry.edges.front().points.front().x -
+                    source_scene_edge->points.front().x) > 1.0e-9 ||
+                    std::abs(external_geometry.edges.front().points.front().y -
+                    source_scene_edge->points.front().y) > 1.0e-9,
+                "External reference geometry was not transformed into dependent Part space");
+        const auto persisted_reference_scene = workspace.open_assembly(topassembly_id)
+            ->session.document().build_scene();
+        auto changed_reference_part = workspace.open_part(reference_part_id)
+            ->session.document();
+        changed_reference_part.history.front().box.length += 41.0;
+        changed_reference_part.history.front().box.width += 13.0;
+        auto changed_reference_calculation = kernel.evaluate_history(
+            changed_reference_part.kernel_operations());
+        workspace.open_part(reference_part_id)->session.commit(
+            std::move(changed_reference_part),
+            std::move(changed_reference_calculation));
+        const auto refreshed_external_geometry =
+            workspace.authoritative_external_reference_geometry(
+                topassembly_id,
+                zima::assembly::InstancePath::decode(expected_nested_path),
+                reference_part_id);
+        const auto point_tuples = [](const auto& points) {
+            std::set<std::tuple<double, double, double>> result;
+            for (const auto& point : points) {
+                result.emplace(point.x, point.y, point.z);
+            }
+            return result;
+        };
+        require(point_tuples(refreshed_external_geometry.vertices) !=
+                    point_tuples(external_geometry.vertices) &&
+                    point_tuples(workspace.open_assembly(topassembly_id)
+                        ->session.document().build_scene().vertices) ==
+                    point_tuples(persisted_reference_scene.vertices),
+                "Explicit external refresh did not use open unsaved source or mutated parent cache");
+        workspace.add_external_sketch_dependency(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            zima::assembly::InstancePath::decode(reference_part_path));
+        require(std::any_of(workspace.open_assembly(topassembly_id)
+                    ->session.document().dependencies.begin(),
+                    workspace.open_assembly(topassembly_id)
+                    ->session.document().dependencies.end(), [&](const auto& dependency) {
+                        return dependency.dependent_occurrence_id ==
+                                subassembly_occurrence &&
+                            dependency.prerequisite_occurrence_id ==
+                                reference_occurrence &&
+                            dependency.kind == zima::assembly::
+                                ComponentDependencyKind::ExternalSketchReference;
+                    }),
+                "External Sketch dependency was not stored at the common Assembly owner");
+        const auto dependency_revision =
+            workspace.open_assembly(topassembly_id)->session.revision();
+        workspace.add_external_sketch_dependency(
+            topassembly_id,
+            zima::assembly::InstancePath::decode(expected_nested_path),
+            zima::assembly::InstancePath::decode(reference_part_path));
+        require(workspace.open_assembly(topassembly_id)->session.revision() ==
+                    dependency_revision,
+                "Repeated external dependency created an intermediate transaction");
+        bool reverse_external_cycle_rejected = false;
+        try {
+            workspace.add_external_sketch_dependency(
+                topassembly_id,
+                zima::assembly::InstancePath::decode(reference_part_path),
+                zima::assembly::InstancePath::decode(expected_nested_path));
+        } catch (const std::invalid_argument&) {
+            reverse_external_cycle_rejected = true;
+        }
+        require(reverse_external_cycle_rejected,
+                "External Sketch dependency accepted an indirect occurrence cycle");
+        require(workspace.open_assembly(topassembly_id)->session.revision() ==
+                    dependency_revision,
+                "Rejected external dependency partially changed the Assembly");
+        bool repeated_source_cycle_rejected = false;
+        try {
+            workspace.add_external_sketch_dependency(
+                topassembly_id,
+                zima::assembly::InstancePath::decode(direct_part_path),
+                zima::assembly::InstancePath::decode(expected_nested_path));
+        } catch (const std::invalid_argument&) {
+            repeated_source_cycle_rejected = true;
+        }
+        require(repeated_source_cycle_rejected,
+                "Repeated Part source accepted a contextual self-dependency");
         require(!rollback_scene.original_references.triangle_references.empty() &&
                     std::all_of(rollback_scene.original_references.triangle_references.begin(),
                         rollback_scene.original_references.triangle_references.end(),
                         [&](const auto& reference) {
-                            return reference.instance_path == direct_part_path;
+                            return reference.instance_path == direct_part_path ||
+                                reference.instance_path == reference_part_path;
                         }),
                 "Nested rollback changed passive sibling context or kept target body");
         const auto maximum_y = [](const zima::kernel::ViewerMesh& scene) {
@@ -287,6 +416,70 @@ int main() {
                     std::abs(loaded_nested.find_occurrence(subassembly_occurrence)
                         ->nested_snapshot.front().placement.x - 100.0) < 1.0e-9,
                 "Nested structural snapshot or placement did not survive save/load");
+        auto missing_source_assembly = workspace.open_assembly(topassembly_id)
+            ->session.document();
+        std::erase_if(missing_source_assembly.dependencies,
+            [&](const auto& dependency) {
+                return dependency.dependent_occurrence_id == reference_occurrence ||
+                    dependency.prerequisite_occurrence_id == reference_occurrence;
+            });
+        std::erase_if(missing_source_assembly.components,
+            [&](const auto& occurrence) {
+                return occurrence.occurrence_id == reference_occurrence;
+            });
+        workspace.open_assembly(topassembly_id)->session.commit(
+            std::move(missing_source_assembly));
+        const auto missing_external_geometry =
+            workspace.authoritative_external_reference_geometry(
+                topassembly_id,
+                zima::assembly::InstancePath::decode(expected_nested_path),
+                reference_part_id);
+        require(missing_external_geometry.edges.empty() &&
+                    missing_external_geometry.triangle_references.empty(),
+                "Removed external source occurrence remained authoritative");
+        auto missing_reference_sketch = zima::sketcher::Sketch::create_default();
+        const auto cacheable_edge = std::find_if(
+            external_geometry.edges.begin(), external_geometry.edges.end(),
+            [&](const auto& edge) {
+                if (edge.points.size() < 2) return false;
+                const auto first = missing_reference_sketch.local_point(
+                    edge.points.front());
+                const auto last = missing_reference_sketch.local_point(
+                    edge.points.back());
+                return std::hypot(first[0] - last[0], first[1] - last[1]) > 1.0e-9;
+            });
+        require(cacheable_edge != external_geometry.edges.end(),
+                "External geometry has no edge projectable into the test Sketch");
+        auto missing_reference = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        missing_reference.source_document_id = reference_part_id;
+        missing_reference.source_owner_id =
+            cacheable_edge->reference.owner_id;
+        missing_reference.source_semantic_key =
+            cacheable_edge->reference.semantic_key;
+        missing_reference.source_instance_path = reference_part_path;
+        missing_reference.context_assembly_document_id = topassembly_id;
+        missing_reference.context_instance_path = expected_nested_path;
+        for (const auto& point : cacheable_edge->points) {
+            const auto local = missing_reference_sketch.local_point(point);
+            if (missing_reference.cached_points.empty() ||
+                std::hypot(local[0] - missing_reference.cached_points.back()[0],
+                           local[1] - missing_reference.cached_points.back()[1]) >
+                    1.0e-9) {
+                missing_reference.cached_points.push_back(local);
+            }
+        }
+        missing_reference_sketch.add_external_reference(missing_reference);
+        const auto cached_missing_points = missing_reference.cached_points;
+        auto contextual_document = zima::document::PartDocument::create_default();
+        contextual_document.sketches.push_back(std::move(missing_reference_sketch));
+        require(workspace.refresh_context_external_references(contextual_document) &&
+                    contextual_document.sketches.front()
+                        .external_references.front().broken &&
+                    contextual_document.sketches.front()
+                        .external_references.front().cached_points ==
+                        cached_missing_points,
+                "Missing contextual source did not preserve cache and mark reference broken");
         bool assembly_cycle_rejected = false;
         try {
             static_cast<void>(workspace.insert_open_assembly(

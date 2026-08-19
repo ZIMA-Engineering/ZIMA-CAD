@@ -797,20 +797,27 @@ void Sketch::validate() const {
     }
     ids.clear();
     std::vector<std::tuple<ExternalReferenceKind, std::string, std::string,
-                           std::string, std::string>> external_sources;
+                           std::string, std::string, std::string, std::string>>
+        external_sources;
     for (const auto& reference : external_references) {
         static_cast<void>(external_reference_kind_name(reference.kind));
         if (reference.id.empty() || !ids.insert(reference.id).second ||
             reference.source_document_id.empty() ||
             reference.source_owner_id.empty() ||
             reference.source_semantic_key.empty() ||
-            reference.source_owner_id == id) {
+            reference.source_owner_id == id ||
+            (reference.source_instance_path.empty() !=
+                reference.context_instance_path.empty()) ||
+            (reference.context_instance_path.empty() !=
+                reference.context_assembly_document_id.empty())) {
             throw std::runtime_error("Sketch external reference is invalid");
         }
         const auto source = std::tuple{
             reference.kind, reference.source_document_id,
             reference.source_owner_id, reference.source_semantic_key,
-            reference.source_instance_path};
+            reference.source_instance_path,
+            reference.context_assembly_document_id,
+            reference.context_instance_path};
         if (std::ranges::find(external_sources, source) !=
             external_sources.end()) {
             throw std::runtime_error("Sketch external reference is duplicated");
@@ -2686,7 +2693,10 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
             value.source_document_id == reference.source_document_id &&
             value.source_owner_id == reference.source_owner_id &&
             value.source_semantic_key == reference.source_semantic_key &&
-            value.source_instance_path == reference.source_instance_path;
+            value.source_instance_path == reference.source_instance_path &&
+            value.context_assembly_document_id ==
+                reference.context_assembly_document_id &&
+            value.context_instance_path == reference.context_instance_path;
     };
     if (std::ranges::any_of(external_references, [&](const auto& value) {
             return value.id == reference.id || same_source(value);
@@ -4575,6 +4585,9 @@ std::string Sketch::serialized() const {
             {"source_owner_id", reference.source_owner_id},
             {"source_semantic_key", reference.source_semantic_key},
             {"source_instance_path", reference.source_instance_path},
+            {"context_assembly_document_id",
+             reference.context_assembly_document_id},
+            {"context_instance_path", reference.context_instance_path},
             {"cached_points", std::move(points)},
             {"cached_paths", std::move(paths)},
             {"broken", reference.broken}});
@@ -4596,7 +4609,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 18},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 19},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -4615,7 +4628,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 18) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 19) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -4711,6 +4724,10 @@ Sketch Sketch::from_serialized(const std::string& value) {
             value.at("source_semantic_key").get<std::string>();
         reference.source_instance_path =
             value.at("source_instance_path").get<std::string>();
+        reference.context_assembly_document_id =
+            value.at("context_assembly_document_id").get<std::string>();
+        reference.context_instance_path =
+            value.at("context_instance_path").get<std::string>();
         for (const auto& point : value.at("cached_points")) {
             reference.cached_points.push_back({
                 point.at(0).get<double>(), point.at(1).get<double>()});

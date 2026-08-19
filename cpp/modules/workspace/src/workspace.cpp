@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <set>
 #include <stdexcept>
+#include <tuple>
 #include <unordered_set>
 
 namespace zima::workspace {
@@ -90,17 +92,14 @@ struct PersistedOccurrence {
 };
 
 std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
-    const Workspace& workspace,
-    const std::string& top_assembly_document_id,
+    const zima::assembly::AssemblyDocument& top_assembly,
     const zima::assembly::InstancePath& instance_path) {
     if (instance_path.occurrence_ids.empty()) return std::nullopt;
-    const auto* top = workspace.open_assembly(top_assembly_document_id);
-    if (top == nullptr) return std::nullopt;
     std::vector<PersistedOccurrence> result;
     const std::vector<zima::assembly::OccurrenceSnapshot>* snapshots = nullptr;
     for (std::size_t depth = 0; depth < instance_path.occurrence_ids.size(); ++depth) {
         if (depth == 0) {
-            const auto* occurrence = top->session.document().find_occurrence(
+            const auto* occurrence = top_assembly.find_occurrence(
                 instance_path.occurrence_ids[depth]);
             if (occurrence == nullptr) return std::nullopt;
             result.push_back({occurrence->occurrence_id,
@@ -301,8 +300,10 @@ const std::vector<DocumentState>& Workspace::documents() const { return document
 std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path) const {
+    const auto* top = open_assembly(top_assembly_document_id);
+    if (top == nullptr) return std::nullopt;
     const auto chain = persisted_occurrence_chain(
-        *this, top_assembly_document_id, instance_path);
+        top->session.document(), instance_path);
     if (!chain) return std::nullopt;
     const auto& occurrence = chain->back();
     const std::string owner_id = chain->size() == 1
@@ -316,8 +317,9 @@ zima::kernel::Vec3 Workspace::occurrence_point_to_scene(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
     const zima::kernel::Vec3& local_point) const {
-    const auto chain = persisted_occurrence_chain(
-        *this, top_assembly_document_id, instance_path);
+    const auto* top = open_assembly(top_assembly_document_id);
+    const auto chain = top == nullptr ? std::nullopt
+        : persisted_occurrence_chain(top->session.document(), instance_path);
     if (!chain) {
         throw std::invalid_argument("Occurrence point transform requires an exact path");
     }
@@ -332,8 +334,9 @@ zima::kernel::Vec3 Workspace::occurrence_point_from_scene(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
     const zima::kernel::Vec3& scene_point) const {
-    const auto chain = persisted_occurrence_chain(
-        *this, top_assembly_document_id, instance_path);
+    const auto* top = open_assembly(top_assembly_document_id);
+    const auto chain = top == nullptr ? std::nullopt
+        : persisted_occurrence_chain(top->session.document(), instance_path);
     if (!chain) {
         throw std::invalid_argument("Occurrence point transform requires an exact path");
     }
@@ -368,6 +371,204 @@ zima::kernel::Vec3 Workspace::occurrence_direction_from_scene(
             local_endpoint.z - local_origin.z};
 }
 
+zima::kernel::ViewerReferenceGeometry
+Workspace::authoritative_external_reference_geometry(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& dependent_instance_path,
+    const std::string& source_document_id) const {
+    if (source_document_id.empty()) {
+        throw std::invalid_argument("External reference source document ID is required");
+    }
+    std::vector<std::string> recursion_stack;
+    const auto refreshed = refreshed_assembly(
+        top_assembly_document_id, recursion_stack);
+    const auto dependent_chain = persisted_occurrence_chain(
+        refreshed, dependent_instance_path);
+    if (!dependent_chain || dependent_chain->back().source_kind !=
+            zima::assembly::ComponentSourceKind::Part) {
+        throw std::invalid_argument(
+            "External reference requires an exact dependent Part occurrence");
+    }
+    const auto local_point = [&](zima::kernel::Vec3 point) {
+        for (const auto& occurrence : *dependent_chain) {
+            point = remove_placement(point, occurrence.placement, true);
+        }
+        return point;
+    };
+    const auto local_direction = [&](zima::kernel::Vec3 direction) {
+        for (const auto& occurrence : *dependent_chain) {
+            direction = remove_placement(direction, occurrence.placement, false);
+        }
+        return direction;
+    };
+    const auto belongs_to_source = [&](const std::string& encoded_path) {
+        if (encoded_path.empty()) return false;
+        try {
+            const auto chain = persisted_occurrence_chain(
+                refreshed, zima::assembly::InstancePath::decode(encoded_path));
+            return chain && chain->back().source_kind ==
+                    zima::assembly::ComponentSourceKind::Part &&
+                chain->back().source_document_id == source_document_id;
+        } catch (const std::invalid_argument&) {
+            return false;
+        }
+    };
+    const auto scene = refreshed.build_scene();
+    const auto& source = scene.original_references;
+    zima::kernel::ViewerReferenceGeometry result;
+    result.vertices.reserve(source.vertices.size());
+    for (const auto& vertex : source.vertices) {
+        result.vertices.push_back(local_point(vertex));
+    }
+    for (std::size_t triangle = 0;
+         triangle < source.triangle_references.size(); ++triangle) {
+        const auto& reference = source.triangle_references[triangle];
+        if (!belongs_to_source(reference.instance_path)) continue;
+        result.triangle_references.push_back(reference);
+        result.triangles.insert(result.triangles.end(), {
+            source.triangles[triangle * 3], source.triangles[triangle * 3 + 1],
+            source.triangles[triangle * 3 + 2]});
+    }
+    for (auto edge : source.edges) {
+        if (!belongs_to_source(edge.reference.instance_path)) continue;
+        for (auto& point : edge.points) point = local_point(point);
+        result.edges.push_back(std::move(edge));
+    }
+    for (auto point : source.points) {
+        if (!belongs_to_source(point.reference.instance_path)) continue;
+        point.position = local_point(point.position);
+        result.points.push_back(std::move(point));
+    }
+    for (auto axis : source.axes) {
+        if (!belongs_to_source(axis.reference.instance_path)) continue;
+        axis.point = local_point(axis.point);
+        axis.direction = local_direction(axis.direction);
+        result.axes.push_back(std::move(axis));
+    }
+    return result;
+}
+
+bool Workspace::refresh_context_external_references(
+    zima::document::PartDocument& document) const {
+    using Context = std::tuple<std::string, std::string, std::string>;
+    std::set<Context> contexts;
+    for (const auto& sketch : document.sketches) {
+        for (const auto& reference : sketch.external_references) {
+            if (reference.context_assembly_document_id.empty()) continue;
+            contexts.emplace(reference.context_assembly_document_id,
+                reference.context_instance_path,
+                reference.source_document_id);
+        }
+    }
+    bool changed = false;
+    for (const auto& [assembly_id, dependent_path, source_document_id] : contexts) {
+        zima::kernel::ViewerReferenceGeometry geometry;
+        if (open_assembly(assembly_id) != nullptr) {
+            geometry = authoritative_external_reference_geometry(
+                assembly_id, zima::assembly::InstancePath::decode(dependent_path),
+                source_document_id);
+        }
+        for (auto& sketch : document.sketches) {
+            const bool owns_context = std::any_of(
+                sketch.external_references.begin(),
+                sketch.external_references.end(), [&](const auto& reference) {
+                    return reference.context_assembly_document_id == assembly_id &&
+                        reference.context_instance_path == dependent_path &&
+                        reference.source_document_id == source_document_id;
+                });
+            if (owns_context && sketch.refresh_external_references(
+                    source_document_id, geometry)) {
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+void Workspace::add_external_sketch_dependency(
+    const std::string& top_assembly_document_id,
+    const zima::assembly::InstancePath& dependent_instance_path,
+    const zima::assembly::InstancePath& prerequisite_instance_path) {
+    const auto dependent = resolve_occurrence(
+        top_assembly_document_id, dependent_instance_path);
+    const auto prerequisite = resolve_occurrence(
+        top_assembly_document_id, prerequisite_instance_path);
+    if (!dependent || !prerequisite ||
+        dependent->source_kind != zima::assembly::ComponentSourceKind::Part ||
+        prerequisite->source_kind != zima::assembly::ComponentSourceKind::Part ||
+        dependent->source_document_id == prerequisite->source_document_id ||
+        dependent_instance_path == prerequisite_instance_path) {
+        throw std::invalid_argument(
+            "External Sketch dependency requires two exact Part occurrences");
+    }
+    zima::assembly::DependencyGraph document_dependencies;
+    for (const auto& state : documents_) {
+        const auto* part = std::get_if<PartState>(&state);
+        if (part == nullptr) continue;
+        for (const auto& sketch : part->session.document().sketches) {
+            for (const auto& reference : sketch.external_references) {
+                if (reference.source_document_id.empty() ||
+                    reference.source_document_id ==
+                        part->session.document().document_id) continue;
+                document_dependencies.add_dependency(
+                    part->session.document().document_id,
+                    reference.source_document_id);
+            }
+        }
+    }
+    document_dependencies.add_dependency(
+        dependent->source_document_id, prerequisite->source_document_id);
+    std::size_t common_depth = 0;
+    while (common_depth < dependent_instance_path.occurrence_ids.size() &&
+           common_depth < prerequisite_instance_path.occurrence_ids.size() &&
+           dependent_instance_path.occurrence_ids[common_depth] ==
+               prerequisite_instance_path.occurrence_ids[common_depth]) {
+        ++common_depth;
+    }
+    if (common_depth == dependent_instance_path.occurrence_ids.size() ||
+        common_depth == prerequisite_instance_path.occurrence_ids.size()) {
+        throw std::invalid_argument("External Sketch dependency branches are invalid");
+    }
+    std::string owner_id = top_assembly_document_id;
+    if (common_depth != 0) {
+        zima::assembly::InstancePath owner_path;
+        owner_path.occurrence_ids.assign(
+            dependent_instance_path.occurrence_ids.begin(),
+            dependent_instance_path.occurrence_ids.begin() +
+                static_cast<std::ptrdiff_t>(common_depth));
+        const auto owner_occurrence = resolve_occurrence(
+            top_assembly_document_id, owner_path);
+        if (!owner_occurrence || owner_occurrence->source_kind !=
+                zima::assembly::ComponentSourceKind::Assembly) {
+            throw std::invalid_argument(
+                "External Sketch dependency has no common Assembly owner");
+        }
+        owner_id = owner_occurrence->source_document_id;
+    }
+    auto* owner = open_assembly(owner_id);
+    if (owner == nullptr) {
+        throw std::runtime_error(
+            "External Sketch dependency owner Assembly is not open");
+    }
+    const std::string& dependent_branch =
+        dependent_instance_path.occurrence_ids[common_depth];
+    const std::string& prerequisite_branch =
+        prerequisite_instance_path.occurrence_ids[common_depth];
+    const auto& current = owner->session.document();
+    if (std::any_of(current.dependencies.begin(), current.dependencies.end(),
+            [&](const auto& dependency) {
+                return dependency.dependent_occurrence_id == dependent_branch &&
+                    dependency.prerequisite_occurrence_id == prerequisite_branch &&
+                    dependency.kind == zima::assembly::ComponentDependencyKind::
+                        ExternalSketchReference;
+            })) return;
+    auto next = current;
+    next.add_dependency(zima::assembly::AssemblyDocument::create_dependency(
+        dependent_branch, prerequisite_branch,
+        zima::assembly::ComponentDependencyKind::ExternalSketchReference));
+    owner->session.commit(std::move(next));
+}
+
 zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
@@ -376,8 +577,9 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     if (!address || address->source_kind != zima::assembly::ComponentSourceKind::Part) {
         throw std::invalid_argument("Part override requires an exact leaf Part occurrence");
     }
-    const auto chain = persisted_occurrence_chain(
-        *this, top_assembly_document_id, instance_path);
+    const auto* top = open_assembly(top_assembly_document_id);
+    const auto chain = top == nullptr ? std::nullopt
+        : persisted_occurrence_chain(top->session.document(), instance_path);
     if (!chain) {
         throw std::runtime_error("Part override occurrence chain is unavailable");
     }

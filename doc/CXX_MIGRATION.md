@@ -987,8 +987,8 @@ nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontu
 Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
 větvení do starého formátu.
 
-Nativní řez **Externí reference** používá Sketch formát verze 18 a Part
-formát verze 21. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
+Nativní řez **Externí reference** používá Sketch formát verze 19 a Part
+formát verze 22. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
 kontejneru a původní plochy, hrany, vrcholu nebo osy spolu s hotovou projekcí do lokálních
 souřadnic skici. Viewer ji nabízí jako jednu vlastní kandidátní třídu, kreslí
 přesnou hranu nebo bod a používá pro hover, LMB potvrzení, RMB i mazání tentýž
@@ -1008,8 +1008,21 @@ opraví. Refresh scény, výběr, vlastnosti ani přepínání tabů resolver a 
 nespouštějí. Osa se promítá jako read-only přímka a kolmý degenerovaný průmět
 se odmítne. Hranice plochy se bez OCCT odvodí z persistovaných trojúhelníků,
 spojí do jedné nebo více uzavřených kontur a odmítne otevřený, nemanifoldní či
-plošně degenerovaný výsledek. Assembly occurrence zdroje zůstávají samostatným
-dalším řezem; žádná kompatibilní větev se nepřidává.
+plošně degenerovaný výsledek.
+
+Reference mezi komponentami Assembly navíc ukládá přesnou zdrojovou i závislou
+`InstancePath` a ID kontextové Assembly. Viewer nabízí jen kandidáty ze společného
+seřazeného seznamu; geometrie zdrojového occurrence se z persistovaného viewer
+packetu transformuje přes celý vnořený řetězec do lokálního prostoru aktivního
+Partu. Nejnižší společný vlastník obou větví ukládá jednosměrnou
+`ExternalSketchReference` dependency. Globální graf otevřených Part dokumentů i
+lokální graf occurrence odmítnou přímý, nepřímý a opakovaným výskytem vytvořený
+self-cycle ještě před commitem. Explicitní Regenerate zpracuje zdroje v pořadí
+závislostí, použije aktuální otevřené a dosud neuložené dokumenty, obnoví cache,
+znovu vypočte změněný Part a teprve potom aktualizuje Assembly snapshot. Běžný
+refresh, tab switch a picking zůstávají bez resolveru i bez OCCT. Chybějící
+occurrence nastaví `broken` a zachová poslední platnou projekci. Kompatibilní
+větev pro starší formáty se nepřidává.
 
 Konstrukční bod a osa se nyní vedle své viditelné geometrie zapisují také do
 `OriginalReference` packetu; konstrukční rovina již používá persistované
