@@ -628,7 +628,8 @@ void MeshView::paintGL() {
                 edge.reference.semantic_key.starts_with("bspline:") ||
                 edge.reference.semantic_key.starts_with("text:") ||
                 edge.reference.semantic_key.starts_with("external_edge:") ||
-                edge.reference.semantic_key.starts_with("external_axis:");
+                edge.reference.semantic_key.starts_with("external_axis:") ||
+                edge.reference.semantic_key.starts_with("external_face:");
         });
     const bool external_points_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.points.begin(), impl_->mesh.points.end(), [](const auto& point) {
@@ -678,11 +679,14 @@ void MeshView::paintGL() {
                     !edge.reference.semantic_key.starts_with("bspline:") &&
                     !edge.reference.semantic_key.starts_with("text:") &&
                     !edge.reference.semantic_key.starts_with("external_edge:") &&
-                    !edge.reference.semantic_key.starts_with("external_axis:")) continue;
+                    !edge.reference.semantic_key.starts_with("external_axis:") &&
+                    !edge.reference.semantic_key.starts_with("external_face:")) continue;
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
                         "external_edge:") ||
                     edge.reference.semantic_key.starts_with("external_axis:");
+                const bool external_face = edge.reference.semantic_key.starts_with(
+                    "external_face:");
                 const QColor text_color = edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
                     : edge.reference.semantic_key.ends_with(":white")
@@ -690,7 +694,8 @@ void MeshView::paintGL() {
                 const QColor external_color = edge.reference.semantic_key.ends_with(
                     ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
                 painter.setPen(text ? QPen(text_color, 1.8)
-                    : external ? QPen(external_color, 1.5, Qt::DashLine)
+                    : (external || external_face)
+                        ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
                         : QPen(QColor(220, 220, 220), 1.8));
@@ -822,11 +827,14 @@ void MeshView::paintGL() {
                  highlighted->kind == CandidateKind::SketchText ||
                  (highlighted->kind == CandidateKind::SketchExternalReference &&
                   (highlighted->semantic_key.starts_with("external_edge:") ||
-                   highlighted->semantic_key.starts_with("external_axis:"))) ||
+                   highlighted->semantic_key.starts_with("external_axis:") ||
+                   highlighted->semantic_key.starts_with("external_face:"))) ||
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-                if (highlighted->kind == CandidateKind::SketchText) {
+                if (highlighted->kind == CandidateKind::SketchText ||
+                    (highlighted->kind == CandidateKind::SketchExternalReference &&
+                     highlighted->semantic_key.starts_with("external_face:"))) {
                     for (const auto& edge : selectable_edges) {
                         if (edge.reference.owner_id != highlighted->owner_id ||
                             edge.reference.semantic_key != highlighted->semantic_key) continue;

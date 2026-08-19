@@ -163,6 +163,15 @@ int main() {
         external_axis.cached_points = {{-10.0, 8.0}, {10.0, 8.0}};
         const auto external_axis_id = external_axis.id;
         text_sketch.add_external_reference(external_axis);
+        auto external_face = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Face);
+        external_face.source_document_id = "part-source";
+        external_face.source_owner_id = "container-source";
+        external_face.source_semantic_key = "face:stable-source";
+        external_face.cached_paths = {{{0.0, 0.0}, {2.0, 0.0},
+            {2.0, 2.0}, {0.0, 2.0}, {0.0, 0.0}}};
+        const auto external_face_id = external_face.id;
+        text_sketch.add_external_reference(external_face);
         const auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
             text_sketch.serialized());
         require(external_roundtrip.external_references ==
@@ -178,6 +187,44 @@ int main() {
         refreshed_sources.axes.push_back({
             {3.0, 8.0, 0.0}, {2.0, 0.0, 0.0}, 20.0,
             {"container-source", "axis:stable-source", {}}});
+        zima::kernel::ViewerReferenceGeometry face_with_hole;
+        face_with_hole.vertices = {
+            {-2.0, -2.0, 0.0}, {2.0, -2.0, 0.0},
+            {2.0, 2.0, 0.0}, {-2.0, 2.0, 0.0},
+            {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0},
+            {1.0, 1.0, 0.0}, {-1.0, 1.0, 0.0}};
+        face_with_hole.triangles = {
+            0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5,
+            2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7};
+        face_with_hole.triangle_references.assign(8,
+            {"container-source", "face:stable-source", {}});
+        const auto projected_face_with_hole = text_sketch.project_external_face(
+            face_with_hole, {"container-source", "face:stable-source", {}});
+        require(projected_face_with_hole &&
+                    projected_face_with_hole->size() == 2 &&
+                    projected_face_with_hole->front().front() ==
+                        projected_face_with_hole->front().back() &&
+                    projected_face_with_hole->back().front() ==
+                        projected_face_with_hole->back().back(),
+                "External face projection lost a deterministic inner boundary");
+        auto ambiguous_face_geometry = face_with_hole;
+        ambiguous_face_geometry.vertices.insert(
+            ambiguous_face_geometry.vertices.end(), {
+                {5.0, 0.0, 0.0}, {7.0, 0.0, 0.0},
+                {7.0, 2.0, 0.0}, {5.0, 2.0, 0.0}});
+        ambiguous_face_geometry.triangles.insert(
+            ambiguous_face_geometry.triangles.end(), {8, 9, 10, 8, 10, 11});
+        ambiguous_face_geometry.triangle_references.insert(
+            ambiguous_face_geometry.triangle_references.end(), 2,
+            {"container-source", "face:stable-source", {}});
+        require(!text_sketch.project_external_face(
+                    ambiguous_face_geometry,
+                    {"container-source", "face:stable-source", {}}),
+                "Disconnected faces with one identity were guessed as one reference");
+        refreshed_sources.vertices = face_with_hole.vertices;
+        refreshed_sources.triangles = face_with_hole.triangles;
+        refreshed_sources.triangle_references =
+            face_with_hole.triangle_references;
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
                     text_sketch.external_references[0].cached_points ==
@@ -186,9 +233,11 @@ int main() {
                         std::vector<std::array<double, 2>>{{6.0, 7.0}} &&
                     text_sketch.external_references[2].cached_points ==
                         std::vector<std::array<double, 2>>{{-7.0, 8.0}, {13.0, 8.0}} &&
+                    text_sketch.external_references[3].cached_paths.size() == 2 &&
                     !text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
-                    !text_sketch.external_references[2].broken,
+                    !text_sketch.external_references[2].broken &&
+                    !text_sketch.external_references[3].broken,
                 "Explicit Sketch external reference refresh lost exact source identity");
         const auto valid_external_cache = text_sketch.external_references;
         const zima::kernel::ViewerReferenceGeometry missing_sources;
@@ -197,12 +246,15 @@ int main() {
                     text_sketch.external_references[0].broken &&
                     text_sketch.external_references[1].broken &&
                     text_sketch.external_references[2].broken &&
+                    text_sketch.external_references[3].broken &&
                     text_sketch.external_references[0].cached_points ==
                         valid_external_cache[0].cached_points &&
                     text_sketch.external_references[1].cached_points ==
                         valid_external_cache[1].cached_points &&
                     text_sketch.external_references[2].cached_points ==
                         valid_external_cache[2].cached_points &&
+                    text_sketch.external_references[3].cached_paths ==
+                        valid_external_cache[3].cached_paths &&
                     !text_sketch.refresh_external_references(
                         "part-source", missing_sources),
                 "Broken external references did not preserve their last valid cache");
@@ -210,7 +262,8 @@ int main() {
                     "part-source", refreshed_sources) &&
                     !text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
-                    !text_sketch.external_references[2].broken,
+                    !text_sketch.external_references[2].broken &&
+                    !text_sketch.external_references[3].broken,
                 "Restored external references did not recover deterministically");
         auto ambiguous_sources = refreshed_sources;
         ambiguous_sources.edges.push_back(refreshed_sources.edges.front());
@@ -219,6 +272,7 @@ int main() {
                     text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
                     !text_sketch.external_references[2].broken &&
+                    !text_sketch.external_references[3].broken &&
                     text_sketch.external_references[0].cached_points ==
                         valid_external_cache[0].cached_points,
                 "Ambiguous external edge identity was guessed instead of broken");
@@ -237,6 +291,22 @@ int main() {
                     "part-source", refreshed_sources) &&
                     !text_sketch.external_references[2].broken,
                 "External axis did not recover after its projection became valid");
+        auto edge_on_face_sources = refreshed_sources;
+        edge_on_face_sources.vertices = {
+            {-2.0, 0.0, -2.0}, {2.0, 0.0, -2.0},
+            {2.0, 0.0, 2.0}, {-2.0, 0.0, 2.0},
+            {-1.0, 0.0, -1.0}, {1.0, 0.0, -1.0},
+            {1.0, 0.0, 1.0}, {-1.0, 0.0, 1.0}};
+        require(text_sketch.refresh_external_references(
+                    "part-source", edge_on_face_sources) &&
+                    text_sketch.external_references[3].broken &&
+                    text_sketch.external_references[3].cached_paths ==
+                        valid_external_cache[3].cached_paths,
+                "Degenerate external face projection did not preserve its cache");
+        require(text_sketch.refresh_external_references(
+                    "part-source", refreshed_sources) &&
+                    !text_sketch.external_references[3].broken,
+                "External face did not recover after its projection became valid");
         const auto external_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 text_sketch.viewer_mesh(), {4.0, 5.0, 10.0},
@@ -255,6 +325,28 @@ int main() {
                     external_axis_candidates.front().semantic_key ==
                         "external_axis:" + external_axis_id,
                 "Sketch external axis did not use the common viewer candidate list");
+        const auto external_face_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                text_sketch.viewer_mesh(), {0.0, -2.0, 10.0},
+                {0.0, 0.0, -1.0}, 1.1),
+            {zima::viewer::CandidateKind::SketchExternalReference});
+        require(external_face_candidates.size() == 1 &&
+                    external_face_candidates.front().semantic_key ==
+                        "external_face:" + external_face_id,
+                "Sketch external face did not use the common viewer candidate list");
+        const auto before_invalid_face = text_sketch.serialized();
+        bool invalid_face_rejected = false;
+        try {
+            external_face.id.clear();
+            external_face.source_semantic_key = "face:open-path";
+            external_face.cached_paths.front().pop_back();
+            text_sketch.add_external_reference(std::move(external_face));
+        } catch (const std::runtime_error&) {
+            invalid_face_rejected = true;
+        }
+        require(invalid_face_rejected &&
+                    text_sketch.serialized() == before_invalid_face,
+                "Invalid external face path partially changed the Sketch");
         const auto before_duplicate_reference = text_sketch.serialized();
         bool duplicate_reference_rejected = false;
         try {
@@ -267,7 +359,7 @@ int main() {
                     text_sketch.serialized() == before_duplicate_reference,
                 "Duplicate external reference partially changed the Sketch");
         text_sketch.remove_geometry(external_edge_id);
-        require(text_sketch.external_references.size() == 2,
+        require(text_sketch.external_references.size() == 3,
                 "External reference was not removed as one Sketch entity");
 
         const auto xy_hit = sketch.intersect_ray({4.0, 7.0, 10.0}, {0.0, 0.0, -1.0});

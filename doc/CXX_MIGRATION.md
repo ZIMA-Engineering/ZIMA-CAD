@@ -987,9 +987,9 @@ nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontu
 Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
 větvení do starého formátu.
 
-Nativní řez **Externí reference** používá Sketch formát verze 17 a Part
-formát verze 20. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
-kontejneru a původní hrany, vrcholu nebo osy spolu s hotovou projekcí do lokálních
+Nativní řez **Externí reference** používá Sketch formát verze 18 a Part
+formát verze 21. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
+kontejneru a původní plochy, hrany, vrcholu nebo osy spolu s hotovou projekcí do lokálních
 souřadnic skici. Viewer ji nabízí jako jednu vlastní kandidátní třídu, kreslí
 přesnou hranu nebo bod a používá pro hover, LMB potvrzení, RMB i mazání tentýž
 seřazený seznam kandidátů.
@@ -998,7 +998,7 @@ Příkaz přijímá pouze `CandidateGeometry::OriginalReference` z persistované
 viewer packetu; result-body topologie je filtrem vyloučená a UI cesta nevolá
 OCCT. Zdrojové kontejnery jsou navíc omezené na historii před prvním
 kontejnerem, který aktivní skicu spotřebovává, takže nelze vytvořit přímý cyklus
-na vlastním Vytažení nebo Rotaci. Lokální hrany a vrcholy se nyní asociativně
+na vlastním Vytažení nebo Rotaci. Lokální reference se asociativně
 obnovují výhradně v explicitních výpočetních cestách Partu: po OK modelové
 operace a po příkazu Regenerovat. Resolver je mimo OCCT, bere nový persistovaný
 viewer packet a přijme pouze právě jeden přesný shodný pár vlastník/sémantický
@@ -1006,5 +1006,7 @@ klíč/instance path. Chybějící, nejednoznačný nebo po projekci degenerovan
 nastaví `broken`, ale ponechá poslední platnou cache; návrat přesné identity jej
 opraví. Refresh scény, výběr, vlastnosti ani přepínání tabů resolver a OCCT
 nespouštějí. Osa se promítá jako read-only přímka a kolmý degenerovaný průmět
-se odmítne. Plochy a assembly occurrence zdroje zůstávají samostatnými dalšími
-řezy; žádná kompatibilní větev se nepřidává.
+se odmítne. Hranice plochy se bez OCCT odvodí z persistovaných trojúhelníků,
+spojí do jedné nebo více uzavřených kontur a odmítne otevřený, nemanifoldní či
+plošně degenerovaný výsledek. Assembly occurrence zdroje zůstávají samostatným
+dalším řezem; žádná kompatibilní větev se nepřidává.

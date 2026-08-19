@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <random>
 #include <set>
 #include <sstream>
@@ -159,6 +160,7 @@ const char* external_reference_kind_name(ExternalReferenceKind kind) {
     case ExternalReferenceKind::Edge: return "edge";
     case ExternalReferenceKind::Point: return "point";
     case ExternalReferenceKind::Axis: return "axis";
+    case ExternalReferenceKind::Face: return "face";
     }
     throw std::invalid_argument("Unknown Sketch external reference kind");
 }
@@ -168,6 +170,7 @@ ExternalReferenceKind external_reference_kind_from_name(
     if (name == "edge") return ExternalReferenceKind::Edge;
     if (name == "point") return ExternalReferenceKind::Point;
     if (name == "axis") return ExternalReferenceKind::Axis;
+    if (name == "face") return ExternalReferenceKind::Face;
     throw std::runtime_error("Unknown Sketch external reference kind");
 }
 
@@ -801,7 +804,7 @@ void Sketch::validate() const {
             reference.source_document_id.empty() ||
             reference.source_owner_id.empty() ||
             reference.source_semantic_key.empty() ||
-            reference.source_owner_id == id || reference.cached_points.empty()) {
+            reference.source_owner_id == id) {
             throw std::runtime_error("Sketch external reference is invalid");
         }
         const auto source = std::tuple{
@@ -814,10 +817,12 @@ void Sketch::validate() const {
         }
         external_sources.push_back(source);
         if ((reference.kind == ExternalReferenceKind::Point &&
-             reference.cached_points.size() != 1) ||
+             (reference.cached_points.size() != 1 || !reference.cached_paths.empty())) ||
             ((reference.kind == ExternalReferenceKind::Edge ||
               reference.kind == ExternalReferenceKind::Axis) &&
-             reference.cached_points.size() < 2)) {
+             (reference.cached_points.size() < 2 || !reference.cached_paths.empty())) ||
+            (reference.kind == ExternalReferenceKind::Face &&
+             (!reference.cached_points.empty() || reference.cached_paths.empty()))) {
             throw std::runtime_error("Sketch external reference geometry is invalid");
         }
         for (std::size_t index = 0; index < reference.cached_points.size(); ++index) {
@@ -828,6 +833,28 @@ void Sketch::validate() const {
                     point[1] - reference.cached_points[index - 1][1]) <= 1.0e-12)) {
                 throw std::runtime_error(
                     "Sketch external reference geometry is invalid");
+            }
+        }
+        for (const auto& path : reference.cached_paths) {
+            if (path.size() < 4 || path.front() != path.back()) {
+                throw std::runtime_error("Sketch external face path is invalid");
+            }
+            double signed_area{};
+            for (std::size_t index = 0; index < path.size(); ++index) {
+                const auto& point = path[index];
+                if (!std::isfinite(point[0]) || !std::isfinite(point[1]) ||
+                    (index > 0 && std::hypot(
+                        point[0] - path[index - 1][0],
+                        point[1] - path[index - 1][1]) <= 1.0e-12)) {
+                    throw std::runtime_error("Sketch external face path is invalid");
+                }
+                if (index > 0) {
+                    signed_area += path[index - 1][0] * point[1] -
+                        point[0] * path[index - 1][1];
+                }
+            }
+            if (std::abs(signed_area) <= 1.0e-12) {
+                throw std::runtime_error("Sketch external face path has zero area");
             }
         }
     }
@@ -2699,6 +2726,136 @@ std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis(
     return std::vector<std::array<double, 2>>{first, second};
 }
 
+std::optional<std::vector<std::vector<std::array<double, 2>>>>
+Sketch::project_external_face(
+    const zima::kernel::ViewerReferenceGeometry& source_geometry,
+    const zima::kernel::FaceReference& face) const {
+    if (!face.valid() || source_geometry.triangles.size() % 3 != 0 ||
+        source_geometry.triangle_references.size() !=
+            source_geometry.triangles.size() / 3) {
+        return std::nullopt;
+    }
+    using IndexEdge = std::pair<std::uint32_t, std::uint32_t>;
+    std::map<IndexEdge, std::size_t> edge_counts;
+    std::size_t matching_triangles{};
+    for (std::size_t triangle = 0;
+         triangle < source_geometry.triangle_references.size(); ++triangle) {
+        if (source_geometry.triangle_references[triangle] != face) continue;
+        ++matching_triangles;
+        const std::array<std::uint32_t, 3> indices{
+            source_geometry.triangles[triangle * 3],
+            source_geometry.triangles[triangle * 3 + 1],
+            source_geometry.triangles[triangle * 3 + 2]};
+        if (std::ranges::any_of(indices, [&](const auto index) {
+                return index >= source_geometry.vertices.size();
+            })) return std::nullopt;
+        for (std::size_t corner = 0; corner < indices.size(); ++corner) {
+            const auto first = indices[corner];
+            const auto second = indices[(corner + 1) % indices.size()];
+            if (first == second) return std::nullopt;
+            ++edge_counts[std::minmax(first, second)];
+        }
+    }
+    if (matching_triangles == 0) return std::nullopt;
+
+    std::map<std::uint32_t, std::vector<std::uint32_t>> adjacency;
+    std::set<IndexEdge> unused_edges;
+    for (const auto& [edge, count] : edge_counts) {
+        if (count == 2) continue;
+        if (count != 1) return std::nullopt;
+        adjacency[edge.first].push_back(edge.second);
+        adjacency[edge.second].push_back(edge.first);
+        unused_edges.insert(edge);
+    }
+    if (unused_edges.empty() || std::ranges::any_of(adjacency, [](const auto& item) {
+            return item.second.size() != 2;
+        })) return std::nullopt;
+    for (auto& [vertex, neighbours] : adjacency) {
+        static_cast<void>(vertex);
+        std::ranges::sort(neighbours);
+    }
+
+    std::vector<std::vector<std::array<double, 2>>> paths;
+    while (!unused_edges.empty()) {
+        const auto first_edge = *unused_edges.begin();
+        std::vector<std::uint32_t> loop{first_edge.first};
+        std::uint32_t previous = first_edge.first;
+        std::uint32_t current = first_edge.second;
+        unused_edges.erase(first_edge);
+        loop.push_back(current);
+        while (current != loop.front()) {
+            const auto found = adjacency.find(current);
+            if (found == adjacency.end()) return std::nullopt;
+            const auto next = found->second.front() == previous
+                ? found->second.back() : found->second.front();
+            const auto edge = std::minmax(current, next);
+            if (!unused_edges.erase(edge)) return std::nullopt;
+            previous = current;
+            current = next;
+            loop.push_back(current);
+            if (loop.size() > adjacency.size() + 1) return std::nullopt;
+        }
+        if (loop.size() < 4) return std::nullopt;
+        std::vector<std::array<double, 2>> projected;
+        projected.reserve(loop.size());
+        for (const auto index : loop) {
+            const auto point = local_point(source_geometry.vertices[index]);
+            if (projected.empty() || std::hypot(
+                    point[0] - projected.back()[0],
+                    point[1] - projected.back()[1]) > 1.0e-9) {
+                projected.push_back(point);
+            }
+        }
+        if (projected.size() < 4) return std::nullopt;
+        if (projected.front() != projected.back()) {
+            if (std::hypot(projected.front()[0] - projected.back()[0],
+                           projected.front()[1] - projected.back()[1]) > 1.0e-9) {
+                return std::nullopt;
+            }
+            projected.back() = projected.front();
+        }
+        double signed_area{};
+        for (std::size_t index = 1; index < projected.size(); ++index) {
+            signed_area += projected[index - 1][0] * projected[index][1] -
+                projected[index][0] * projected[index - 1][1];
+        }
+        if (std::abs(signed_area) <= 1.0e-12) return std::nullopt;
+        paths.push_back(std::move(projected));
+    }
+    if (paths.empty()) return std::nullopt;
+    const auto area = [](const auto& path) {
+        double result{};
+        for (std::size_t index = 1; index < path.size(); ++index) {
+            result += path[index - 1][0] * path[index][1] -
+                path[index][0] * path[index - 1][1];
+        }
+        return result * 0.5;
+    };
+    const auto outer = std::max_element(paths.begin(), paths.end(),
+        [&](const auto& left, const auto& right) {
+            return std::abs(area(left)) < std::abs(area(right));
+        });
+    const auto contains = [](const auto& polygon, const auto& point) {
+        bool inside = false;
+        for (std::size_t first = 0, second = polygon.size() - 2;
+             first + 1 < polygon.size(); second = first++) {
+            const auto& a = polygon[first];
+            const auto& b = polygon[second];
+            const bool crosses = (a[1] > point[1]) != (b[1] > point[1]);
+            if (crosses && point[0] < (b[0] - a[0]) *
+                    (point[1] - a[1]) / (b[1] - a[1]) + a[0]) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    };
+    for (const auto& path : paths) {
+        if (&path == &*outer) continue;
+        if (!contains(*outer, path.front())) return std::nullopt;
+    }
+    return paths;
+}
+
 bool Sketch::refresh_external_references(
     const std::string& source_document_id,
     const zima::kernel::ViewerReferenceGeometry& source_geometry) {
@@ -2716,6 +2873,8 @@ bool Sketch::refresh_external_references(
     for (auto& reference : next.external_references) {
         if (reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
+        std::optional<std::vector<std::vector<std::array<double, 2>>>>
+            resolved_paths;
         if (reference.kind == ExternalReferenceKind::Edge) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
@@ -2749,7 +2908,7 @@ bool Sketch::refresh_external_references(
                 resolved = std::vector<std::array<double, 2>>{
                     next.local_point(match->position)};
             }
-        } else {
+        } else if (reference.kind == ExternalReferenceKind::Axis) {
             const zima::kernel::ViewerAxis* match = nullptr;
             std::size_t match_count{};
             for (const auto& axis : source_geometry.axes) {
@@ -2760,10 +2919,27 @@ bool Sketch::refresh_external_references(
             if (match_count == 1 && match != nullptr) {
                 resolved = next.project_external_axis(*match);
             }
+        } else {
+            std::size_t match_count{};
+            zima::kernel::FaceReference match;
+            for (const auto& candidate : source_geometry.triangle_references) {
+                if (!same_source(reference, candidate)) continue;
+                if (match_count == 0) match = candidate;
+                ++match_count;
+            }
+            if (match_count > 0) {
+                resolved_paths = next.project_external_face(
+                    source_geometry, match);
+            }
         }
-        const bool broken = !resolved.has_value();
+        const bool broken = reference.kind == ExternalReferenceKind::Face
+            ? !resolved_paths.has_value() : !resolved.has_value();
         if (resolved && reference.cached_points != *resolved) {
             reference.cached_points = std::move(*resolved);
+            changed = true;
+        }
+        if (resolved_paths && reference.cached_paths != *resolved_paths) {
+            reference.cached_paths = std::move(*resolved_paths);
             changed = true;
         }
         if (reference.broken != broken) {
@@ -3904,6 +4080,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             axis_half_extent = std::max(axis_half_extent,
                 1.25 * std::max(std::abs(point[0]), std::abs(point[1])));
         }
+        for (const auto& path : reference.cached_paths) {
+            for (const auto& point : path) {
+                axis_half_extent = std::max(axis_half_extent,
+                    1.25 * std::max(std::abs(point[0]), std::abs(point[1])));
+            }
+        }
     }
     const auto origin = world_point(0.0, 0.0);
     const auto x_end = world_point(1.0, 0.0);
@@ -4138,6 +4320,21 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         result.edges.push_back(std::move(edge));
     }
+    for (const auto& reference : external_references) {
+        if (reference.kind != ExternalReferenceKind::Face) continue;
+        for (const auto& path : reference.cached_paths) {
+            zima::kernel::ViewerEdge edge;
+            edge.reference = {id, "external_face:" + reference.id +
+                (reference.broken ? ":broken" : ""), {}};
+            edge.construction = true;
+            edge.overlay = true;
+            edge.points.reserve(path.size());
+            for (const auto& point : path) {
+                edge.points.push_back(world_point(point[0], point[1]));
+            }
+            result.edges.push_back(std::move(edge));
+        }
+    }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed) continue;
@@ -4363,6 +4560,14 @@ std::string Sketch::serialized() const {
         for (const auto& point : reference.cached_points) {
             points.push_back({point[0], point[1]});
         }
+        nlohmann::json paths = nlohmann::json::array();
+        for (const auto& path : reference.cached_paths) {
+            nlohmann::json path_points = nlohmann::json::array();
+            for (const auto& point : path) {
+                path_points.push_back({point[0], point[1]});
+            }
+            paths.push_back(std::move(path_points));
+        }
         external_reference_values.push_back({
             {"id", reference.id},
             {"kind", external_reference_kind_name(reference.kind)},
@@ -4371,6 +4576,7 @@ std::string Sketch::serialized() const {
             {"source_semantic_key", reference.source_semantic_key},
             {"source_instance_path", reference.source_instance_path},
             {"cached_points", std::move(points)},
+            {"cached_paths", std::move(paths)},
             {"broken", reference.broken}});
     }
     nlohmann::json constraint_values = nlohmann::json::array();
@@ -4390,7 +4596,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 17},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 18},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -4409,7 +4615,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 17) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 18) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -4508,6 +4714,14 @@ Sketch Sketch::from_serialized(const std::string& value) {
         for (const auto& point : value.at("cached_points")) {
             reference.cached_points.push_back({
                 point.at(0).get<double>(), point.at(1).get<double>()});
+        }
+        for (const auto& path_value : value.at("cached_paths")) {
+            std::vector<std::array<double, 2>> path;
+            for (const auto& point : path_value) {
+                path.push_back({point.at(0).get<double>(),
+                                point.at(1).get<double>()});
+            }
+            reference.cached_paths.push_back(std::move(path));
         }
         reference.broken = value.at("broken").get<bool>();
         sketch.external_references.push_back(std::move(reference));

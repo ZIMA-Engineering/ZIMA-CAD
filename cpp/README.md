@@ -535,11 +535,13 @@ Revolution.
 
 The native Sketch external-reference slice persists a stable source
 document/container/topology identity and the projected local geometry of an
-original edge, vertex, or axis. Creation consumes the exact candidate from the common
+original face, edge, vertex, or axis. Creation consumes the exact candidate from the common
 viewer list and accepts only persisted `OriginalReference` data from history
 before the Sketch's first consumer, so it neither traverses OCCT nor introduces
 a dependency cycle. An axis perpendicular to the Sketch plane is rejected as a
-degenerate projection. Face and Assembly-occurrence support remain subsequent slices.
+degenerate projection. Face boundaries are reconstructed from persisted viewer
+triangles into one or more closed paths; open, non-manifold, and zero-area
+projections are rejected. Assembly-occurrence support remains a subsequent slice.
 
 ## Linux build
 

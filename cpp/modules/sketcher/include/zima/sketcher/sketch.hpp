@@ -22,7 +22,7 @@ enum class DimensionKind {
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow };
-enum class ExternalReferenceKind { Edge, Point, Axis };
+enum class ExternalReferenceKind { Edge, Point, Axis, Face };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -137,6 +137,7 @@ struct SketchExternalReference {
     std::string source_semantic_key;
     std::string source_instance_path;
     std::vector<std::array<double, 2>> cached_points;
+    std::vector<std::vector<std::array<double, 2>>> cached_paths;
     bool broken{};
     bool operator==(const SketchExternalReference&) const = default;
 };
@@ -294,6 +295,10 @@ public:
         const zima::kernel::ViewerReferenceGeometry& source_geometry);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
+    [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
+        project_external_face(
+            const zima::kernel::ViewerReferenceGeometry& source_geometry,
+            const zima::kernel::FaceReference& face) const;
     void transform_import_block(
         const std::string& block_id, double translation_x,
         double translation_y, double rotation);

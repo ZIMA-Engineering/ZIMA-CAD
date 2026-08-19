@@ -109,9 +109,11 @@ std::optional<std::string> sketch_external_reference_id_from_key(
     const std::string_view edge_prefix{"external_edge:"};
     const std::string_view point_prefix{"external_point:"};
     const std::string_view axis_prefix{"external_axis:"};
+    const std::string_view face_prefix{"external_face:"};
     const auto prefix = key.starts_with(edge_prefix) ? edge_prefix
         : key.starts_with(point_prefix) ? point_prefix
-        : key.starts_with(axis_prefix) ? axis_prefix : std::string_view{};
+        : key.starts_with(axis_prefix) ? axis_prefix
+        : key.starts_with(face_prefix) ? face_prefix : std::string_view{};
     if (prefix.empty() || key.size() == prefix.size()) return std::nullopt;
     const auto suffix = key.find(':', prefix.size());
     return key.substr(prefix.size(), suffix == std::string::npos
@@ -185,6 +187,17 @@ bool refresh_sketch_external_references(
             if (allowed_owners.contains(axis.reference.owner_id)) {
                 allowed_source.axes.push_back(axis);
             }
+        }
+        allowed_source.vertices = source.vertices;
+        for (std::size_t triangle = 0;
+             triangle < source.triangle_references.size(); ++triangle) {
+            const auto& face = source.triangle_references[triangle];
+            if (!allowed_owners.contains(face.owner_id)) continue;
+            allowed_source.triangle_references.push_back(face);
+            allowed_source.triangles.insert(allowed_source.triangles.end(), {
+                source.triangles[triangle * 3],
+                source.triangles[triangle * 3 + 1],
+                source.triangles[triangle * 3 + 2]});
         }
         if (sketch.refresh_external_references(
                 document.document_id, allowed_source)) {
@@ -3277,8 +3290,8 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(enabled
-            ? tr("Externí reference: vyberte persistovanou původní hranu nebo vrchol. "
-                 "Pravým tlačítkem lze přepínat kandidáty.")
+            ? tr("Externí reference: vyberte persistovanou původní plochu, "
+                 "hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.")
             : tr("Režim externích referencí byl ukončen."));
     }
 }
@@ -3289,7 +3302,8 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
         (candidate.kind != zima::viewer::CandidateKind::Edge &&
          candidate.kind != zima::viewer::CandidateKind::Vertex &&
-         candidate.kind != zima::viewer::CandidateKind::Axis)) return;
+         candidate.kind != zima::viewer::CandidateKind::Axis &&
+         candidate.kind != zima::viewer::CandidateKind::Face)) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
             workspace_.active_document_id()) return;
@@ -3312,7 +3326,9 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                 ? zima::sketcher::ExternalReferenceKind::Edge
                 : candidate.kind == zima::viewer::CandidateKind::Axis
                     ? zima::sketcher::ExternalReferenceKind::Axis
-                    : zima::sketcher::ExternalReferenceKind::Point);
+                    : candidate.kind == zima::viewer::CandidateKind::Face
+                        ? zima::sketcher::ExternalReferenceKind::Face
+                        : zima::sketcher::ExternalReferenceKind::Point);
         reference.source_document_id = next.document_id;
         reference.source_owner_id = candidate.owner_id;
         reference.source_semantic_key = candidate.semantic_key;
@@ -3339,7 +3355,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             }
             reference.cached_points.push_back(
                 sketch->local_point(point->position));
-        } else {
+        } else if (candidate.kind == zima::viewer::CandidateKind::Axis) {
             const auto axis = viewer_->candidate_axis(candidate);
             if (!axis) {
                 throw std::runtime_error(
@@ -3351,6 +3367,21 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                     "Source axis cannot be projected into the Sketch plane");
             }
             reference.cached_points = *projected;
+        } else {
+            const auto& calculated = part->session.calculated_boundaries();
+            if (calculated.empty()) {
+                throw std::runtime_error(
+                    "Persisted source face geometry is unavailable");
+            }
+            const auto projected = sketch->project_external_face(
+                calculated.back().mesh.original_references,
+                {candidate.owner_id, candidate.semantic_key,
+                 candidate.instance_path});
+            if (!projected) {
+                throw std::runtime_error(
+                    "Source face cannot be projected into closed Sketch contours");
+            }
+            reference.cached_paths = *projected;
         }
         sketch->add_external_reference(std::move(reference));
         part->session.commit(
@@ -6237,7 +6268,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             : sketch_external_reference_active_
                 ? std::vector{zima::viewer::CandidateKind::Edge,
                               zima::viewer::CandidateKind::Vertex,
-                              zima::viewer::CandidateKind::Axis}
+                              zima::viewer::CandidateKind::Axis,
+                              zima::viewer::CandidateKind::Face}
             : sketch_trim_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
             : sketch_mirror_active_
@@ -6309,7 +6341,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         source_owners.contains(candidate.owner_id) &&
                         (candidate.kind == zima::viewer::CandidateKind::Edge ||
                          candidate.kind == zima::viewer::CandidateKind::Vertex ||
-                         candidate.kind == zima::viewer::CandidateKind::Axis);
+                         candidate.kind == zima::viewer::CandidateKind::Axis ||
+                         candidate.kind == zima::viewer::CandidateKind::Face);
                 });
         } else if (sketch_symmetric_active_ &&
                    pending_symmetric_point_ids_.size() == 2) {

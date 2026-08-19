@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 20, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 21, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -450,25 +450,27 @@ V aktuálním C++ řezu je text samostatná skicová grafika a zatím nevstupuje
 profilu Vytažení nebo Rotace.
 
 Příkaz **Externí reference** vedle nástroje Výběr přepne nativní C++ Sketcher
-do výběru původní persistované topologie. V tomto prvním řezu lze převzít hranu
-nebo vrchol lokálního Partu z kontejneru, který leží před prvním Vytažením či
+do výběru původní persistované topologie. Lze převzít plochu, hranu, vrchol
+nebo osu lokálního Partu z kontejneru, který leží před prvním Vytažením či
 Rotací používající aktivní skicu. Tím se zabrání kruhové závislosti skici na
-jejím vlastním výsledku. Hover zvýrazní přesně nabízenou hranu nebo vrchol,
+jejím vlastním výsledku. Hover zvýrazní přesně nabízenou geometrii,
 pravé tlačítko cykluje společný seznam kandidátů a levé tlačítko uloží projekci
 jako jednu Part revizi. Režim zůstane aktivní pro další výběr a ukončí se
 opětovným stisknutím tlačítka.
 
-Uložená externí hrana se kreslí hnědou čárkovanou čarou a vrchol hnědým
-křížkem. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo
+Uložená externí hrana, osa a obrys plochy se kreslí hnědou čárkovanou čarou
+a vrchol hnědým křížkem. Plocha může uložit více uzavřených kontur, například
+vnější obrys a otvory. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo
 `Delete`. Kliknutí, hover, otevření ani mazání nevolá OCCT: používá se pouze
 stabilní identita a geometrie z persistovaného viewer packetu. Při explicitním
-**Regenerovat** se po výpočtu Partu každá lokální hrana či bod znovu vyhledá
+**Regenerovat** se po výpočtu Partu každá lokální reference znovu vyhledá
 podle přesné identity ve výsledném viewer packetu a její uložená projekce se
 obnoví. Chybějící, nejednoznačný nebo do bodu zborcený zdroj se neodhaduje:
-reference zčervená jako přerušená a zachová poslední platnou projekci. Po
+reference zčervená jako přerušená a zachová poslední platnou projekci. Plocha
+s otevřenou, nemanifoldní nebo do čáry zborcenou hranicí se rovněž nepřijme. Po
 obnovení přesně stejné identity se automaticky opraví. Běžné překreslení,
-přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. Plochy,
-osy a zdroje z jiné komponenty sestavy budou doplněny v navazujících řezech.
+přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. Zdroje
+z jiné komponenty sestavy budou doplněny v navazujícím řezu.
 
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
 řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.
@@ -743,7 +745,7 @@ výslovným příkazem **Regenerovat** v cílové Assembly. Regenerace použije 
 otevřené dokumenty jako autoritativní zdroj, takže zahrne i jejich dosud
 neuložené změny, obnoví celý vnořený řetězec a přepočítá požadovanou sestavu.
 
-Externí reference skici na podporované osy, hrany a vrcholy Extrusion se
+Externí reference skici na podporované plochy, osy, hrany a vrcholy Extrusion se
 ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
 topologie. Osa kolmá k rovině skici se odmítne, protože její kolmý průmět je
 degenerovaný bod. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící

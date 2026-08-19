@@ -258,6 +258,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 ? CandidateKind::SketchTrimPiece
                 : edge.reference.semantic_key.starts_with("external_edge:")
                   || edge.reference.semantic_key.starts_with("external_axis:")
+                  || edge.reference.semantic_key.starts_with("external_face:")
                 ? CandidateKind::SketchExternalReference
                 : edge.reference.semantic_key.starts_with("text:")
                 ? CandidateKind::SketchText
@@ -269,9 +270,10 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                   edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                   edge.reference.semantic_key.starts_with("bspline:")
                     ? CandidateKind::SketchCurve : CandidateKind::Edge;
-            if (kind != CandidateKind::SketchText ||
+            if ((kind != CandidateKind::SketchText &&
+                 kind != CandidateKind::SketchExternalReference) ||
                 std::none_of(result.begin(), result.end(), [&](const auto& candidate) {
-                    return candidate.kind == CandidateKind::SketchText &&
+                    return candidate.kind == kind &&
                         candidate.owner_id == edge.reference.owner_id &&
                         candidate.semantic_key == edge.reference.semantic_key &&
                         candidate.geometry == geometry;
