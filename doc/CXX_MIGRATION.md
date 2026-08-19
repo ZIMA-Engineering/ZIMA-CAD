@@ -983,9 +983,13 @@ Vytvoření i editace používají jediný `SketchTextPropertiesDialog` odvozen�
 sdíleného interního Properties SubWindow. Dialog nabízí jen OK/Cancel, podporuje
 společné potvrzení dvojklikem prostředního tlačítka i nad 3D view a udržuje
 náhled transientní až do potvrzení. OK zapíše jednu Part revizi, Cancel obnoví
-nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontury na profil
-Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
-větvení do starého formátu.
+nezměněný dokument. Vytažení a Rotace používají persistované kontury jako
+nedestruktivní profil; návrat do Sketcheru proto znovu otevře původní sémantický
+Text, nikoli rozpadlé křivky. Document Core před výpočtem odmítne samoprotínající
+se, dotýkající se nebo překrývající se kontury, podle hloubky vnoření rozliší
+vnější oblasti a otvory a předá kernelu libovolný počet oddělených oblastí.
+Více znaků i znaky s otvory tak fungují pro Přičíst i Odečíst bez načtení fontu
+nebo volání OCCT při otevření skici.
 
 Nativní řez **Externí reference** používá Sketch formát verze 19 a Part
 formát verze 22. Read-only entita ukládá stabilní identitu zdrojového dokumentu,

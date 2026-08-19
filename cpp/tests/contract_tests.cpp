@@ -979,6 +979,100 @@ int main() {
         require(hole_side_found,
                 "Inner profile wall lost its stable Extrusion owner");
 
+        auto text_profile_sketch = zima::sketcher::Sketch::create_default();
+        auto profile_text = zima::sketcher::Sketch::create_text();
+        profile_text.value = "OI";
+        profile_text.contours = {
+            {{1.0, 1.0}, {11.0, 1.0}, {11.0, 11.0}, {1.0, 11.0}},
+            {{4.0, 4.0}, {8.0, 4.0}, {8.0, 8.0}, {4.0, 8.0}},
+            {{15.0, 1.0}, {20.0, 1.0}, {20.0, 11.0}, {15.0, 11.0}}};
+        const auto profile_text_id = profile_text.id;
+        text_profile_sketch.add_text(std::move(profile_text));
+        const auto text_profile_sketch_id = text_profile_sketch.id;
+        auto text_profile_document = zima::document::PartDocument::create_default();
+        text_profile_document.sketches.push_back(text_profile_sketch);
+        auto text_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                text_profile_sketch_id);
+        text_extrusion.extrusion.height = 5.0;
+        text_profile_document.history.push_back(std::move(text_extrusion));
+        const auto text_profile_operations = text_profile_document.kernel_operations();
+        const auto& text_request = std::get<zima::kernel::ExtrusionRequest>(
+            text_profile_operations.front().primitive);
+        require(text_request.inner_profiles.size() == 1 &&
+                    text_request.additional_profile_regions.size() == 1,
+                "Text contours were not classified into a holed glyph and a second glyph");
+        const auto text_profile_results =
+            kernel.evaluate_history(text_profile_operations);
+        require(std::abs(text_profile_results.front().volume - 670.0) < 1.0e-6,
+                "Multi-glyph Text Extrusion has an incorrect exact volume");
+        const auto text_profile_path = std::filesystem::temp_directory_path() /
+            "zima-cad-text-profile-contract.prtz";
+        text_profile_document.save(text_profile_path);
+        const auto restored_text_document =
+            zima::document::PartDocument::load(text_profile_path);
+        require(restored_text_document.sketches.front().texts.size() == 1 &&
+                    restored_text_document.sketches.front().texts.front().id ==
+                        profile_text_id &&
+                    restored_text_document.sketches.front().texts.front().value == "OI",
+                "Using Text as a profile destroyed its editable semantic entity");
+        std::filesystem::remove(text_profile_path);
+        auto changed_text_profile = text_profile_document;
+        changed_text_profile.sketches.front().texts.front().contours.front()[1][0] =
+            12.0;
+        require(zima::kernel::history_fingerprint(
+                    changed_text_profile.kernel_operations(), 1) !=
+                    text_profile_results.front().source_fingerprint,
+                "Text contours are missing from the history fingerprint");
+
+        auto text_cut_document = zima::document::PartDocument::create_default();
+        auto text_cut_box = zima::document::PartDocument::create_box_container();
+        text_cut_box.box.length = 30.0;
+        text_cut_box.box.width = 20.0;
+        text_cut_box.box.height = 5.0;
+        text_cut_document.history.push_back(std::move(text_cut_box));
+        text_cut_document.sketches.push_back(text_profile_sketch);
+        auto text_cut = zima::document::PartDocument::create_extrusion_container(
+            text_profile_sketch_id);
+        text_cut.combine_mode = zima::document::CombineMode::Subtract;
+        text_cut.extrusion.height = 5.0;
+        text_cut_document.history.push_back(std::move(text_cut));
+        const auto text_cut_results = kernel.evaluate_history(
+            text_cut_document.kernel_operations());
+        require(std::abs(text_cut_results.back().volume - 2330.0) < 1.0e-6,
+                "Subtractive multi-glyph Text Extrusion has an incorrect volume");
+
+        auto text_revolution_sketch = zima::sketcher::Sketch::create_default();
+        auto revolution_text = zima::sketcher::Sketch::create_text();
+        revolution_text.value = "II";
+        revolution_text.contours = {
+            {{1.0, 5.0}, {6.0, 5.0}, {6.0, 10.0}, {1.0, 10.0}},
+            {{9.0, 5.0}, {14.0, 5.0}, {14.0, 10.0}, {9.0, 10.0}}};
+        text_revolution_sketch.add_text(std::move(revolution_text));
+        auto text_revolution_document = zima::document::PartDocument::create_default();
+        const auto text_revolution_sketch_id = text_revolution_sketch.id;
+        text_revolution_document.sketches.push_back(std::move(text_revolution_sketch));
+        text_revolution_document.history.push_back(
+            zima::document::PartDocument::create_revolution_container(
+                text_revolution_sketch_id));
+        const auto text_revolution_results = kernel.evaluate_history(
+            text_revolution_document.kernel_operations());
+        require(std::abs(text_revolution_results.front().volume -
+                    750.0 * std::numbers::pi) < 1.0e-5,
+                "Multi-glyph Text Revolution has an incorrect exact volume");
+
+        auto invalid_text_profile = text_profile_document;
+        invalid_text_profile.sketches.front().texts.front().contours.push_back(
+            {{10.0, 5.0}, {16.0, 5.0}, {16.0, 7.0}, {10.0, 7.0}});
+        bool overlapping_text_rejected = false;
+        try {
+            static_cast<void>(invalid_text_profile.kernel_operations());
+        } catch (const std::runtime_error&) {
+            overlapping_text_rejected = true;
+        }
+        require(overlapping_text_rejected,
+                "Overlapping Text contours reached the solid kernel");
+
         auto annulus_document = zima::document::PartDocument::create_default();
         auto annulus_sketch = zima::sketcher::Sketch::create_default();
         static_cast<void>(annulus_sketch.add_circle(0.0, 0.0, 10.0));

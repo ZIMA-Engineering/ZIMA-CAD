@@ -530,8 +530,13 @@ Sketch Text is persisted as one semantic entity together with its transformed
 ISO-font contours. Creation and editing share one internal Properties
 SubWindow; preview is transient and only OK commits one Part revision. Viewer
 display and picking consume the stored contours without loading a font or
-calling OCCT. Text contours are not yet profile input for Extrusion or
-Revolution.
+calling OCCT. Extrusion and Revolution consume the same stored contours as a
+nondestructive profile: the semantic Text remains editable when the Sketch is
+reopened. Document Core rejects self-intersecting, touching, or overlapping
+contours, classifies nested contours by containment depth, and sends one or
+more outer regions with their holes through the common kernel contract. This
+supports disconnected glyphs and Boolean Add/Subtract without loading the font
+during body calculation.
 
 The native Sketch external-reference slice persists a stable source
 document/container/topology identity and the projected local geometry of an
@@ -541,7 +546,8 @@ before the Sketch's first consumer, so it neither traverses OCCT nor introduces
 a dependency cycle. An axis perpendicular to the Sketch plane is rejected as a
 degenerate projection. Face boundaries are reconstructed from persisted viewer
 triangles into one or more closed paths; open, non-manifold, and zero-area
-projections are rejected. Assembly-occurrence support remains a subsequent slice.
+projections are rejected. Assembly occurrences persist exact source and context
+instance paths and refresh only during explicit dependency-ordered regeneration.
 Construction points, axes, and planes are exposed through the same persisted
 original-reference packet. Confirming their Properties, or changing the target
 Sketch plane, reprojects dependent external references without invoking OCCT.

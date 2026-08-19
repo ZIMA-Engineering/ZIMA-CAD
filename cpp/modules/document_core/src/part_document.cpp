@@ -146,6 +146,10 @@ zima::kernel::ExtrusionRequest extrusion_request(
         };
         shift(value.outer_profile);
         for (auto& profile : value.inner_profiles) shift(profile);
+        for (auto& region : value.additional_profile_regions) {
+            shift(region.outer_profile);
+            for (auto& profile : region.inner_profiles) shift(profile);
+        }
         return value;
     };
     std::vector<const zima::sketcher::SketchSegment*> profile_segments;
@@ -215,6 +219,135 @@ zima::kernel::ExtrusionRequest extrusion_request(
             (direction_mode == ExtrusionDirection::Reverse);
         return curve;
     };
+    if (!sketch.texts.empty()) {
+        if (!profile_segments.empty() || !profile_circles.empty() ||
+            !profile_arcs.empty() || !profile_ellipses.empty() ||
+            !profile_elliptical_arcs.empty() || !profile_splines.empty()) {
+            throw std::runtime_error(
+                "Text profile must not be mixed with ordinary Sketch geometry");
+        }
+        using Contour = std::vector<std::array<double, 2>>;
+        std::vector<Contour> contours;
+        for (const auto& text : sketch.texts) {
+            contours.insert(contours.end(), text.contours.begin(), text.contours.end());
+        }
+        const auto cross = [](const auto& a, const auto& b, const auto& c) {
+            return (b[0] - a[0]) * (c[1] - a[1]) -
+                (b[1] - a[1]) * (c[0] - a[0]);
+        };
+        const auto on_segment = [&](const auto& point, const auto& a, const auto& b) {
+            return std::abs(cross(a, b, point)) <= 1.0e-9 &&
+                point[0] >= std::min(a[0], b[0]) - 1.0e-9 &&
+                point[0] <= std::max(a[0], b[0]) + 1.0e-9 &&
+                point[1] >= std::min(a[1], b[1]) - 1.0e-9 &&
+                point[1] <= std::max(a[1], b[1]) + 1.0e-9;
+        };
+        const auto segments_intersect = [&](const auto& a, const auto& b,
+                                             const auto& c, const auto& d) {
+            const double ab_c = cross(a, b, c);
+            const double ab_d = cross(a, b, d);
+            const double cd_a = cross(c, d, a);
+            const double cd_b = cross(c, d, b);
+            return ((ab_c > 1.0e-9 && ab_d < -1.0e-9) ||
+                    (ab_c < -1.0e-9 && ab_d > 1.0e-9)) &&
+                       ((cd_a > 1.0e-9 && cd_b < -1.0e-9) ||
+                        (cd_a < -1.0e-9 && cd_b > 1.0e-9)) ||
+                on_segment(c, a, b) || on_segment(d, a, b) ||
+                on_segment(a, c, d) || on_segment(b, c, d);
+        };
+        for (std::size_t first = 0; first < contours.size(); ++first) {
+            const auto& contour = contours[first];
+            for (std::size_t a = 0; a < contour.size(); ++a) {
+                for (std::size_t b = a + 1; b < contour.size(); ++b) {
+                    if (b == a + 1 || (a == 0 && b + 1 == contour.size())) continue;
+                    if (segments_intersect(contour[a], contour[(a + 1) % contour.size()],
+                                           contour[b], contour[(b + 1) % contour.size()])) {
+                        throw std::runtime_error("Text profile contour self-intersects");
+                    }
+                }
+            }
+            for (std::size_t second = first + 1; second < contours.size(); ++second) {
+                for (std::size_t a = 0; a < contour.size(); ++a) {
+                    for (std::size_t b = 0; b < contours[second].size(); ++b) {
+                        if (segments_intersect(
+                                contour[a], contour[(a + 1) % contour.size()],
+                                contours[second][b],
+                                contours[second][(b + 1) % contours[second].size()])) {
+                            throw std::runtime_error(
+                                "Text profile contours overlap or touch");
+                        }
+                    }
+                }
+            }
+        }
+        const auto contains = [](const Contour& contour,
+                                 const std::array<double, 2>& point) {
+            bool inside = false;
+            for (std::size_t i = 0, j = contour.size() - 1; i < contour.size(); j = i++) {
+                const auto& a = contour[i];
+                const auto& b = contour[j];
+                if ((a[1] > point[1]) != (b[1] > point[1]) &&
+                    point[0] < (b[0] - a[0]) * (point[1] - a[1]) /
+                            (b[1] - a[1]) + a[0]) inside = !inside;
+            }
+            return inside;
+        };
+        std::vector<int> parent(contours.size(), -1);
+        std::vector<double> areas(contours.size());
+        for (std::size_t index = 0; index < contours.size(); ++index) {
+            for (std::size_t point = 0; point < contours[index].size(); ++point) {
+                const auto& a = contours[index][point];
+                const auto& b = contours[index][(point + 1) % contours[index].size()];
+                areas[index] += a[0] * b[1] - b[0] * a[1];
+            }
+            areas[index] = std::abs(areas[index]) * 0.5;
+        }
+        for (std::size_t index = 0; index < contours.size(); ++index) {
+            double parent_area = std::numeric_limits<double>::infinity();
+            for (std::size_t candidate = 0; candidate < contours.size(); ++candidate) {
+                if (candidate != index && contains(contours[candidate], contours[index][0]) &&
+                    areas[candidate] < parent_area) {
+                    parent[index] = static_cast<int>(candidate);
+                    parent_area = areas[candidate];
+                }
+            }
+        }
+        const auto depth = [&](std::size_t index) {
+            int value{};
+            for (int current = parent[index]; current >= 0; current = parent[current]) {
+                if (++value > static_cast<int>(contours.size())) {
+                    throw std::runtime_error("Text profile containment is cyclic");
+                }
+            }
+            return value;
+        };
+        const auto polygon_profile = [&](const Contour& contour) {
+            zima::kernel::ExtrusionRequest::PolygonProfile profile;
+            for (const auto& point : contour) {
+                profile.vertices.push_back(sketch.world_point(point[0], point[1]));
+            }
+            return profile;
+        };
+        std::vector<zima::kernel::ExtrusionRequest::ProfileRegion> regions;
+        for (std::size_t index = 0; index < contours.size(); ++index) {
+            if (depth(index) % 2 != 0) continue;
+            zima::kernel::ExtrusionRequest::ProfileRegion region;
+            region.outer_profile = polygon_profile(contours[index]);
+            for (std::size_t child = 0; child < contours.size(); ++child) {
+                if (parent[child] == static_cast<int>(index)) {
+                    region.inner_profiles.push_back(polygon_profile(contours[child]));
+                }
+            }
+            regions.push_back(std::move(region));
+        }
+        if (regions.empty()) throw std::runtime_error("Text profile has no solid region");
+        request.outer_profile = std::move(regions.front().outer_profile);
+        request.inner_profiles = std::move(regions.front().inner_profiles);
+        request.additional_profile_regions.assign(
+            std::make_move_iterator(regions.begin() + 1),
+            std::make_move_iterator(regions.end()));
+        return finalize(std::move(request));
+    }
     const auto closed_spline = std::find_if(profile_splines.begin(), profile_splines.end(),
         [](const auto* spline) { return spline->closed; });
     if (closed_spline != profile_splines.end()) {
@@ -620,6 +753,7 @@ zima::kernel::RevolutionRequest revolution_request(
     zima::kernel::RevolutionRequest request;
     request.outer_profile = source.outer_profile;
     request.inner_profiles = source.inner_profiles;
+    request.additional_profile_regions = source.additional_profile_regions;
     request.profile_normal = source.direction;
     request.axis_point = sketch.world_point(0.0, 0.0);
     if (axis == RevolutionAxis::SketchX) {

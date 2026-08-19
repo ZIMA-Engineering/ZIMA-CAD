@@ -770,6 +770,10 @@ void validate_extrusion(const ExtrusionRequest& request) {
     };
     validate_profile(request.outer_profile);
     for (const auto& profile : request.inner_profiles) validate_profile(profile);
+    for (const auto& region : request.additional_profile_regions) {
+        validate_profile(region.outer_profile);
+        for (const auto& profile : region.inner_profiles) validate_profile(profile);
+    }
     const double length = std::sqrt(
         request.direction.x * request.direction.x +
         request.direction.y * request.direction.y +
@@ -1202,6 +1206,41 @@ PrimitiveData make_extrusion_data(
             }
         }
     }
+    if (!request.additional_profile_regions.empty()) {
+        TopoDS_Compound compound;
+        BRep_Builder builder;
+        builder.MakeCompound(compound);
+        builder.Add(compound, result.shape);
+        for (std::size_t index = 0;
+             index < request.additional_profile_regions.size(); ++index) {
+            auto additional_request = request;
+            additional_request.outer_profile =
+                request.additional_profile_regions[index].outer_profile;
+            additional_request.inner_profiles =
+                request.additional_profile_regions[index].inner_profiles;
+            additional_request.additional_profile_regions.clear();
+            auto additional = make_extrusion_data(
+                additional_request, owner_id, exact_target);
+            const auto prefix = "region:" + std::to_string(index + 1) + ":";
+            for (auto& face : additional.faces) face.reference.semantic_key =
+                prefix + face.reference.semantic_key;
+            for (auto& edge : additional.edges) edge.reference.semantic_key =
+                prefix + edge.reference.semantic_key;
+            for (auto& vertex : additional.vertices) vertex.reference.semantic_key =
+                prefix + vertex.reference.semantic_key;
+            builder.Add(compound, additional.shape);
+            result.faces.insert(result.faces.end(),
+                std::make_move_iterator(additional.faces.begin()),
+                std::make_move_iterator(additional.faces.end()));
+            result.edges.insert(result.edges.end(),
+                std::make_move_iterator(additional.edges.begin()),
+                std::make_move_iterator(additional.edges.end()));
+            result.vertices.insert(result.vertices.end(),
+                std::make_move_iterator(additional.vertices.begin()),
+                std::make_move_iterator(additional.vertices.end()));
+        }
+        result.shape = compound;
+    }
     return result;
 }
 
@@ -1257,6 +1296,7 @@ void validate_revolution(const RevolutionRequest& request) {
     ExtrusionRequest profile_request;
     profile_request.outer_profile = request.outer_profile;
     profile_request.inner_profiles = request.inner_profiles;
+    profile_request.additional_profile_regions = request.additional_profile_regions;
     profile_request.direction = request.profile_normal;
     validate_extrusion(profile_request);
     const double axis_length = std::sqrt(
@@ -1360,6 +1400,40 @@ PrimitiveData make_revolution_data(
                 }
             }
         }
+    }
+    if (!request.additional_profile_regions.empty()) {
+        TopoDS_Compound compound;
+        BRep_Builder builder;
+        builder.MakeCompound(compound);
+        builder.Add(compound, result.shape);
+        for (std::size_t index = 0;
+             index < request.additional_profile_regions.size(); ++index) {
+            auto additional_request = request;
+            additional_request.outer_profile =
+                request.additional_profile_regions[index].outer_profile;
+            additional_request.inner_profiles =
+                request.additional_profile_regions[index].inner_profiles;
+            additional_request.additional_profile_regions.clear();
+            auto additional = make_revolution_data(additional_request, owner_id);
+            const auto prefix = "region:" + std::to_string(index + 1) + ":";
+            for (auto& face : additional.faces) face.reference.semantic_key =
+                prefix + face.reference.semantic_key;
+            for (auto& edge : additional.edges) edge.reference.semantic_key =
+                prefix + edge.reference.semantic_key;
+            for (auto& vertex : additional.vertices) vertex.reference.semantic_key =
+                prefix + vertex.reference.semantic_key;
+            builder.Add(compound, additional.shape);
+            result.faces.insert(result.faces.end(),
+                std::make_move_iterator(additional.faces.begin()),
+                std::make_move_iterator(additional.faces.end()));
+            result.edges.insert(result.edges.end(),
+                std::make_move_iterator(additional.edges.begin()),
+                std::make_move_iterator(additional.edges.end()));
+            result.vertices.insert(result.vertices.end(),
+                std::make_move_iterator(additional.vertices.begin()),
+                std::make_move_iterator(additional.vertices.end()));
+        }
+        result.shape = compound;
     }
     return result;
 }

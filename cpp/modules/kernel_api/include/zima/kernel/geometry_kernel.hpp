@@ -212,8 +212,13 @@ struct ExtrusionRequest {
     };
     using ProfileLoop = std::variant<
         PolygonProfile, CircleProfile, EllipseProfile, CurvedProfile>;
+    struct ProfileRegion {
+        ProfileLoop outer_profile{PolygonProfile{}};
+        std::vector<ProfileLoop> inner_profiles;
+    };
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
+    std::vector<ProfileRegion> additional_profile_regions;
     Vec3 direction{0.0, 0.0, 10.0};
     Extent extent{Extent::Blind};
     FaceReference target_face;
@@ -227,6 +232,7 @@ struct RevolutionRequest {
     ExtrusionRequest::ProfileLoop outer_profile{
         ExtrusionRequest::PolygonProfile{}};
     std::vector<ExtrusionRequest::ProfileLoop> inner_profiles;
+    std::vector<ExtrusionRequest::ProfileRegion> additional_profile_regions;
     Vec3 profile_normal{0.0, 0.0, 1.0};
     Vec3 axis_point;
     Vec3 axis_direction{1.0, 0.0, 0.0};
@@ -471,6 +477,12 @@ struct BodyResult {
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
                 }
+                u64(primitive.additional_profile_regions.size());
+                for (const auto& region : primitive.additional_profile_regions) {
+                    append_profile(region.outer_profile);
+                    u64(region.inner_profiles.size());
+                    for (const auto& profile : region.inner_profiles) append_profile(profile);
+                }
                 for (const double value : {
                         primitive.direction.x, primitive.direction.y,
                         primitive.direction.z}) {
@@ -575,6 +587,12 @@ struct BodyResult {
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
                     append_profile(profile);
+                }
+                u64(primitive.additional_profile_regions.size());
+                for (const auto& region : primitive.additional_profile_regions) {
+                    append_profile(region.outer_profile);
+                    u64(region.inner_profiles.size());
+                    for (const auto& profile : region.inner_profiles) append_profile(profile);
                 }
                 for (const double value : {
                         primitive.profile_normal.x, primitive.profile_normal.y,

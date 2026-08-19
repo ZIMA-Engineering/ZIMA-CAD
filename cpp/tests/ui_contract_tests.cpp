@@ -4,6 +4,7 @@
 #include "mate_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
+#include "sketch_text_properties_dialog.hpp"
 #include "file_dialog.hpp"
 
 #include <QApplication>
@@ -16,6 +17,7 @@
 #include <QFileSystemModel>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QPlainTextEdit>
 #include <QTimer>
 #include <QWidget>
 
@@ -464,6 +466,44 @@ int main(int argc, char* argv[]) {
         require(sketch_commits == 1 && sketch.plane_offset == 12.5,
                 "Sketch Properties did not commit exactly once on OK");
         application.processEvents();
+
+        auto initial_text = zima::sketcher::Sketch::create_text();
+        initial_text.value = "O";
+        int text_commits = 0;
+        zima::sketcher::SketchText committed_text;
+        auto* text_dialog = new zima::app::SketchTextPropertiesDialog(
+            initial_text, std::array{5.0, 7.0},
+            [](const std::optional<zima::sketcher::SketchText>&) {},
+            [&](zima::sketcher::SketchText value) {
+                ++text_commits;
+                committed_text = std::move(value);
+            }, &parent);
+        text_dialog->show();
+        application.processEvents();
+        auto* text_value =
+            text_dialog->findChild<QPlainTextEdit*>("sketchTextValue");
+        require(text_value && text_value->toPlainText() == QStringLiteral("O") &&
+                    text_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Editable Sketch Text did not reopen as a semantic internal dialog");
+        text_value->setPlainText(QStringLiteral("OI"));
+        text_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(text_commits == 1 && committed_text.value == "OI" &&
+                    !committed_text.contours.empty(),
+                "Sketch Text OK did not retain text and calculate profile contours");
+
+        auto* cancel_text_dialog = new zima::app::SketchTextPropertiesDialog(
+            committed_text, std::nullopt,
+            [](const std::optional<zima::sketcher::SketchText>&) {},
+            [&](zima::sketcher::SketchText) { ++text_commits; }, &parent);
+        cancel_text_dialog->show();
+        application.processEvents();
+        cancel_text_dialog->findChild<QPlainTextEdit*>("sketchTextValue")
+            ->setPlainText(QStringLiteral("discarded"));
+        cancel_text_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        application.processEvents();
+        require(text_commits == 1,
+                "Cancel committed an edited semantic Sketch Text");
 
         zima::sketcher::SketchDimension dimension{
             "dimension", zima::sketcher::DimensionKind::Distance,
