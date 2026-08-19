@@ -22,17 +22,20 @@ MatePropertiesDialog::MatePropertiesDialog(
     name_ = new QLineEdit(QString::fromStdString(initial_.name), this);
     form->addRow(tr("Název"), name_);
     const bool axis_mate = initial_.kind == zima::assembly::MateKind::AxisCoincident;
+    const bool axis_angle = initial_.kind == zima::assembly::MateKind::AxisAngle;
+    const bool plane_angle = initial_.kind == zima::assembly::MateKind::PlaneAngle;
+    const bool angle_mate = axis_angle || plane_angle;
     const bool point_mate = initial_.kind == zima::assembly::MateKind::PointCoincident;
     auto* dependent = new QLineEdit(
         QString::fromStdString(initial_.dependent.semantic_key), this);
     dependent->setReadOnly(true);
-    form->addRow(axis_mate ? tr("Pohyblivá osa")
+    form->addRow((axis_mate || axis_angle) ? tr("Pohyblivá osa")
                            : point_mate ? tr("Pohyblivý bod") : tr("Pohyblivá plocha"),
                  dependent);
     auto* prerequisite = new QLineEdit(
         QString::fromStdString(initial_.prerequisite.semantic_key), this);
     prerequisite->setReadOnly(true);
-    form->addRow(axis_mate ? tr("Referenční osa")
+    form->addRow((axis_mate || axis_angle) ? tr("Referenční osa")
                            : point_mate ? tr("Referenční bod") : tr("Referenční plocha"),
                  prerequisite);
     offset_ = new QDoubleSpinBox(this);
@@ -41,8 +44,16 @@ MatePropertiesDialog::MatePropertiesDialog(
     offset_->setSuffix(" mm");
     offset_->setObjectName("mateOffset");
     offset_->setValue(initial_.offset);
-    offset_->setEnabled(!axis_mate && !point_mate);
+    offset_->setEnabled(!axis_mate && !point_mate && !angle_mate);
     form->addRow(tr("Odsazení"), offset_);
+    angle_ = new QDoubleSpinBox(this);
+    angle_->setRange(0.0, 180.0);
+    angle_->setDecimals(3);
+    angle_->setSuffix(" °");
+    angle_->setObjectName("mateAngle");
+    angle_->setValue(initial_.angle_degrees);
+    angle_->setEnabled(angle_mate);
+    form->addRow(tr("Úhel"), angle_);
     flipped_ = new QCheckBox(tr("Obrátit orientaci reference"), this);
     flipped_->setChecked(initial_.flipped);
     flipped_->setEnabled(!point_mate);
@@ -63,6 +74,7 @@ bool MatePropertiesDialog::submit() {
     }
     initial_.name = name.toStdString();
     initial_.offset = offset_->value();
+    initial_.angle_degrees = angle_->value();
     initial_.flipped = flipped_->isChecked();
     try {
         commit_(std::move(initial_));

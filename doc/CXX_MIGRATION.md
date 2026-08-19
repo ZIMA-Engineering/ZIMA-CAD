@@ -273,6 +273,13 @@ výsledného OCCT tělesa nejsou nabízeny. Vazba přenese pohyblivý výskyt ta
 se zvolené body shodovaly, odebere tři translační stupně volnosti a nepoužívá
 nesmyslné odsazení ani Flip.
 
+Úhlová vazba dvou persistovaných os nebo dvou původních rovinných ploch používá
+samostatnou hodnotu ve stupních v rozsahu 0–180°, nikoliv milimetrové pole
+odsazení. Solver volí nejbližší směr na kuželu kolem referenční osy nebo normály,
+takže vazba odebere právě jeden rotační stupeň volnosti a neurčuje svévolně
+zbývající natočení. Flip volí doplňkový úhel a hodnota i vypočtená orientace
+přežijí uložení a opakovanou regeneraci.
+
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
 ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní

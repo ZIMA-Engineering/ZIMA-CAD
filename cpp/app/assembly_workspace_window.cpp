@@ -176,6 +176,10 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_axis_mate(); });
     point_mate_action_ = assembly->addAction(tr("Vazba bod–bod…"), this,
         [this] { start_point_mate(); });
+    angle_mate_action_ = assembly->addAction(tr("Úhel os…"), this,
+        [this] { start_angle_mate(); });
+    plane_angle_mate_action_ = assembly->addAction(tr("Úhel ploch…"), this,
+        [this] { start_plane_angle_mate(); });
 }
 
 void AssemblyWorkspaceWindow::create_layout() {
@@ -664,6 +668,28 @@ void AssemblyWorkspaceWindow::start_point_mate() {
     state_->setText(tr("Vyberte pohyblivý bod původního solidu."));
 }
 
+void AssemblyWorkspaceWindow::start_angle_mate() {
+    if (properties_dialog_ != nullptr ||
+        workspace_.open_assembly(workspace_.active_document_id()) == nullptr ||
+        workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
+    pending_mate_reference_.reset();
+    mate_selection_active_ = true;
+    pending_mate_kind_ = zima::assembly::MateKind::AxisAngle;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Axis});
+    state_->setText(tr("Vyberte pohyblivou osu pro úhlovou vazbu."));
+}
+
+void AssemblyWorkspaceWindow::start_plane_angle_mate() {
+    if (properties_dialog_ != nullptr ||
+        workspace_.open_assembly(workspace_.active_document_id()) == nullptr ||
+        workspace_.open_assembly(workspace_.displayed_document_id()) == nullptr) return;
+    pending_mate_reference_.reset();
+    mate_selection_active_ = true;
+    pending_mate_kind_ = zima::assembly::MateKind::PlaneAngle;
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    state_->setText(tr("Vyberte pohyblivou rovinnou plochu pro úhlovou vazbu."));
+}
+
 void AssemblyWorkspaceWindow::start_edge_treatment(
     zima::document::FeatureKind kind) {
     if (properties_dialog_ != nullptr ||
@@ -722,10 +748,12 @@ AssemblyWorkspaceWindow::local_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) const {
     const bool face = candidate.kind == zima::viewer::CandidateKind::Face &&
         candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
-        pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident;
+        (pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident ||
+         pending_mate_kind_ == zima::assembly::MateKind::PlaneAngle);
     const bool axis = candidate.kind == zima::viewer::CandidateKind::Axis &&
         candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
-        pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident;
+        (pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident ||
+         pending_mate_kind_ == zima::assembly::MateKind::AxisAngle);
     const bool point = candidate.kind == zima::viewer::CandidateKind::Vertex &&
         candidate.geometry == zima::viewer::CandidateGeometry::OriginalReference &&
         pending_mate_kind_ == zima::assembly::MateKind::PointCoincident;
@@ -759,9 +787,11 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
     }
     if (!pending_mate_reference_) {
         pending_mate_reference_ = std::move(reference);
-        state_->setText(pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
+        state_->setText((pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident ||
+                         pending_mate_kind_ == zima::assembly::MateKind::PlaneAngle)
             ? tr("Vyberte pevnou referenční rovinnou plochu.")
-            : pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident
+            : pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident ||
+              pending_mate_kind_ == zima::assembly::MateKind::AxisAngle
                 ? tr("Vyberte pevnou referenční osu.")
                 : tr("Vyberte pevný referenční bod."));
         return;
@@ -770,8 +800,12 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
         auto mate = zima::assembly::AssemblyDocument::create_mate(
             pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident
                 ? "Plocha na plochu"
+                : pending_mate_kind_ == zima::assembly::MateKind::PlaneAngle
+                    ? "Úhel ploch"
                 : pending_mate_kind_ == zima::assembly::MateKind::AxisCoincident
-                    ? "Osa na osu" : "Bod na bod",
+                    ? "Osa na osu"
+                    : pending_mate_kind_ == zima::assembly::MateKind::AxisAngle
+                        ? "Úhel os" : "Bod na bod",
             pending_mate_kind_,
             std::move(*pending_mate_reference_), std::move(*reference));
         pending_mate_reference_.reset();
@@ -2604,6 +2638,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     axis_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     point_mate_action_->setEnabled(
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
+    angle_mate_action_->setEnabled(
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
+    plane_angle_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());

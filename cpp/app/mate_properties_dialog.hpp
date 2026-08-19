@@ -29,6 +29,7 @@ private:
     CommitCallback commit_;
     QLineEdit* name_{};
     QDoubleSpinBox* offset_{};
+    QDoubleSpinBox* angle_{};
     QCheckBox* flipped_{};
     QLabel* error_{};
 };

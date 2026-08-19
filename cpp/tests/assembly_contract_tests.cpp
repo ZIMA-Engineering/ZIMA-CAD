@@ -170,6 +170,68 @@ int main() {
         std::filesystem::remove(point_mate_path);
         require(loaded_point_mate.mates == point_mated_assembly.mates,
                 "Point mate reference did not survive save/load");
+        auto angled_assembly = loaded;
+        auto angle_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Úhel os", zima::assembly::MateKind::AxisAngle,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "axis:z"});
+        angle_mate.angle_degrees = 60.0;
+        angled_assembly.add_mate(std::move(angle_mate));
+        angled_assembly.calculate_mates();
+        const auto angled_dependent = angled_assembly.resolve_axis(
+            angled_assembly.mates.front().dependent);
+        const auto angled_prerequisite = angled_assembly.resolve_axis(
+            angled_assembly.mates.front().prerequisite);
+        const double angle_alignment =
+            angled_dependent.axis.direction.x * angled_prerequisite.axis.direction.x +
+            angled_dependent.axis.direction.y * angled_prerequisite.axis.direction.y +
+            angled_dependent.axis.direction.z * angled_prerequisite.axis.direction.z;
+        require(angled_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(angle_alignment - 0.5) < 1.0e-7 &&
+                    angled_assembly.remaining_degrees_of_freedom(second_id) == 5,
+                "Axis angle mate did not reach its requested angle");
+        const auto angled_placement = angled_assembly.components.back().placement;
+        angled_assembly.calculate_mates();
+        require(angled_assembly.components.back().placement.rotation_x ==
+                    angled_placement.rotation_x &&
+                    angled_assembly.components.back().placement.rotation_y ==
+                    angled_placement.rotation_y &&
+                    angled_assembly.components.back().placement.rotation_z ==
+                    angled_placement.rotation_z,
+                "Axis angle mate was not idempotent");
+        auto plane_angled_assembly = loaded;
+        auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Úhel ploch", zima::assembly::MateKind::PlaneAngle,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"});
+        plane_angle_mate.angle_degrees = 45.0;
+        plane_angled_assembly.add_mate(std::move(plane_angle_mate));
+        plane_angled_assembly.calculate_mates();
+        const auto plane_angled_dependent = plane_angled_assembly.resolve_plane(
+            plane_angled_assembly.mates.front().dependent);
+        const auto plane_angled_prerequisite = plane_angled_assembly.resolve_plane(
+            plane_angled_assembly.mates.front().prerequisite);
+        const double plane_angle_alignment =
+            plane_angled_dependent.plane.normal.x *
+                plane_angled_prerequisite.plane.normal.x +
+            plane_angled_dependent.plane.normal.y *
+                plane_angled_prerequisite.plane.normal.y +
+            plane_angled_dependent.plane.normal.z *
+                plane_angled_prerequisite.plane.normal.z;
+        require(plane_angled_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(plane_angle_alignment - std::sqrt(0.5)) < 1.0e-7 &&
+                    plane_angled_assembly.remaining_degrees_of_freedom(second_id) == 5,
+                "Plane angle mate did not reach its requested angle");
         auto mated_assembly = loaded;
         auto plane_mate = zima::assembly::AssemblyDocument::create_mate(
             "Plocha na plochu",

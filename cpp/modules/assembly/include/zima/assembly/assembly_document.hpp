@@ -74,7 +74,9 @@ struct ComponentDependency {
 };
 
 enum class MateReferenceKind { Face, Axis, Point };
-enum class MateKind { PlaneCoincident, AxisCoincident, PointCoincident };
+enum class MateKind {
+    PlaneCoincident, AxisCoincident, PointCoincident, AxisAngle, PlaneAngle
+};
 enum class MateStatus { Uncalculated, Valid, MissingReference, UnsupportedGeometry };
 
 struct MateReference {
@@ -92,6 +94,7 @@ struct AssemblyMate {
     MateReference dependent;
     MateReference prerequisite;
     double offset{};
+    double angle_degrees{};
     bool flipped{};
     MateStatus status{MateStatus::Uncalculated};
     bool suppressed{};

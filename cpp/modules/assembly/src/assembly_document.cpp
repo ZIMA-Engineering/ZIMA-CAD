@@ -146,6 +146,34 @@ RotationMatrix shortest_rotation(
         cosine + unit.z * unit.z * one_minus_cosine}}};
 }
 
+zima::kernel::Vec3 nearest_direction_at_angle(
+    const zima::kernel::Vec3& source,
+    const zima::kernel::Vec3& reference,
+    double requested_radians) {
+    const double projection = dot(source, reference);
+    zima::kernel::Vec3 tangent{
+        source.x - projection * reference.x,
+        source.y - projection * reference.y,
+        source.z - projection * reference.z};
+    double tangent_length = length(tangent);
+    if (tangent_length <= 1.0e-12) {
+        const zima::kernel::Vec3 basis = std::abs(reference.x) < 0.9
+            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+            : zima::kernel::Vec3{0.0, 1.0, 0.0};
+        tangent = cross(reference, basis);
+        tangent_length = length(tangent);
+    }
+    tangent = {tangent.x / tangent_length, tangent.y / tangent_length,
+               tangent.z / tangent_length};
+    return {
+        reference.x * std::cos(requested_radians) +
+            tangent.x * std::sin(requested_radians),
+        reference.y * std::cos(requested_radians) +
+            tangent.y * std::sin(requested_radians),
+        reference.z * std::cos(requested_radians) +
+            tangent.z * std::sin(requested_radians)};
+}
+
 void set_placement_rotation(ComponentPlacement& placement, const RotationMatrix& rotation) {
     constexpr double degrees = 180.0 / 3.14159265358979323846;
     const double y = std::asin(std::clamp(-rotation.value[2][0], -1.0, 1.0));
@@ -234,6 +262,8 @@ const char* mate_kind_name(MateKind kind) {
     case MateKind::PlaneCoincident: return "plane_coincident";
     case MateKind::AxisCoincident: return "axis_coincident";
     case MateKind::PointCoincident: return "point_coincident";
+    case MateKind::AxisAngle: return "axis_angle";
+    case MateKind::PlaneAngle: return "plane_angle";
     }
     throw std::invalid_argument("Unknown Assembly mate kind");
 }
@@ -242,6 +272,8 @@ MateKind mate_kind_from_name(const std::string& name) {
     if (name == "plane_coincident") return MateKind::PlaneCoincident;
     if (name == "axis_coincident") return MateKind::AxisCoincident;
     if (name == "point_coincident") return MateKind::PointCoincident;
+    if (name == "axis_angle") return MateKind::AxisAngle;
+    if (name == "plane_angle") return MateKind::PlaneAngle;
     throw std::runtime_error("Unknown Assembly mate kind");
 }
 
@@ -477,11 +509,14 @@ AssemblyMate AssemblyDocument::create_mate(
         throw std::invalid_argument("Assembly mate definition is invalid");
     }
     return {make_id(), std::move(name), kind, std::move(dependent),
-            std::move(prerequisite), offset, false, MateStatus::Uncalculated, false};
+            std::move(prerequisite), offset, 0.0, false,
+            MateStatus::Uncalculated, false};
 }
 
 void AssemblyDocument::add_mate(AssemblyMate mate) {
     if (mate.mate_id.empty() || mate.name.empty() || !std::isfinite(mate.offset) ||
+        !std::isfinite(mate.angle_degrees) || mate.angle_degrees < 0.0 ||
+        mate.angle_degrees > 180.0 ||
         mate.dependent.instance_path.occurrence_ids.empty() ||
         mate.prerequisite.instance_path.occurrence_ids.empty() ||
         mate.dependent.instance_path.occurrence_ids.front() ==
@@ -810,6 +845,86 @@ void AssemblyDocument::calculate_mates() {
         }
         mate.status = MateStatus::Valid;
     };
+    const auto calculate_axis_angle = [&](AssemblyMate& mate) {
+        if (mate.dependent.kind != MateReferenceKind::Axis ||
+            mate.prerequisite.kind != MateReferenceKind::Axis ||
+            std::abs(mate.offset) > 1.0e-12) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            return;
+        }
+        const auto dependent = resolve_axis(mate.dependent);
+        const auto prerequisite = resolve_axis(mate.prerequisite);
+        if (dependent.status != MateStatus::Valid) {
+            mate.status = dependent.status;
+            return;
+        }
+        if (prerequisite.status != MateStatus::Valid) {
+            mate.status = prerequisite.status;
+            return;
+        }
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            return;
+        }
+        constexpr double radians = 3.14159265358979323846 / 180.0;
+        const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
+                                               : mate.angle_degrees) * radians;
+        const auto& source = dependent.axis.direction;
+        const auto& reference = prerequisite.axis.direction;
+        const auto target = nearest_direction_at_angle(source, reference, requested);
+        if (!occurrence->grounded) {
+            rotate_occurrence_about(*occurrence,
+                shortest_rotation(source, target), dependent.axis.point);
+        }
+        mate.status = MateStatus::Valid;
+    };
+    const auto calculate_plane_angle = [&](AssemblyMate& mate) {
+        if (mate.dependent.kind != MateReferenceKind::Face ||
+            mate.prerequisite.kind != MateReferenceKind::Face ||
+            std::abs(mate.offset) > 1.0e-12) {
+            mate.status = MateStatus::UnsupportedGeometry;
+            return;
+        }
+        const auto dependent = resolve_plane(mate.dependent);
+        const auto prerequisite = resolve_plane(mate.prerequisite);
+        if (dependent.status != MateStatus::Valid) {
+            mate.status = dependent.status;
+            return;
+        }
+        if (prerequisite.status != MateStatus::Valid) {
+            mate.status = prerequisite.status;
+            return;
+        }
+        auto* occurrence = find_occurrence(
+            mate.dependent.instance_path.occurrence_ids.front());
+        if (occurrence == nullptr) {
+            mate.status = MateStatus::MissingReference;
+            return;
+        }
+        constexpr double radians = 3.14159265358979323846 / 180.0;
+        const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
+                                               : mate.angle_degrees) * radians;
+        const auto target = nearest_direction_at_angle(
+            dependent.plane.normal, prerequisite.plane.normal, requested);
+        if (!occurrence->grounded) {
+            rotate_occurrence_about(*occurrence,
+                shortest_rotation(dependent.plane.normal, target),
+                dependent.plane.point);
+        }
+        mate.status = MateStatus::Valid;
+    };
+    for (auto& mate : mates) {
+        if (!mate.suppressed && mate.kind == MateKind::AxisAngle) {
+            calculate_axis_angle(mate);
+        }
+    }
+    for (auto& mate : mates) {
+        if (!mate.suppressed && mate.kind == MateKind::PlaneAngle) {
+            calculate_plane_angle(mate);
+        }
+    }
     for (auto& mate : mates) {
         if (!mate.suppressed && mate.kind == MateKind::AxisCoincident) {
             calculate_axis(mate);
@@ -878,7 +993,7 @@ void AssemblyDocument::calculate_mates() {
                     ? std::abs(alignment + 1.0)
                     : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
                 std::abs(offset - mate.offset) > parallel_tolerance;
-        } else {
+        } else if (mate.kind == MateKind::PointCoincident) {
             const auto dependent = resolve_point(mate.dependent);
             const auto prerequisite = resolve_point(mate.prerequisite);
             if (dependent.status != MateStatus::Valid ||
@@ -890,6 +1005,32 @@ void AssemblyDocument::calculate_mates() {
                 length({dependent.point.x - prerequisite.point.x,
                         dependent.point.y - prerequisite.point.y,
                         dependent.point.z - prerequisite.point.z}) > parallel_tolerance;
+        } else if (mate.kind == MateKind::AxisAngle) {
+            const auto dependent = resolve_axis(mate.dependent);
+            const auto prerequisite = resolve_axis(mate.prerequisite);
+            if (dependent.status != MateStatus::Valid ||
+                prerequisite.status != MateStatus::Valid) {
+                conflicts[index] = true;
+                continue;
+            }
+            constexpr double radians = 3.14159265358979323846 / 180.0;
+            const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
+                                                   : mate.angle_degrees) * radians;
+            conflicts[index] = std::abs(dot(dependent.axis.direction,
+                prerequisite.axis.direction) - std::cos(requested)) > parallel_tolerance;
+        } else {
+            const auto dependent = resolve_plane(mate.dependent);
+            const auto prerequisite = resolve_plane(mate.prerequisite);
+            if (dependent.status != MateStatus::Valid ||
+                prerequisite.status != MateStatus::Valid) {
+                conflicts[index] = true;
+                continue;
+            }
+            constexpr double radians = 3.14159265358979323846 / 180.0;
+            const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
+                                                   : mate.angle_degrees) * radians;
+            conflicts[index] = std::abs(dot(dependent.plane.normal,
+                prerequisite.plane.normal) - std::cos(requested)) > parallel_tolerance;
         }
     }
     std::unordered_set<std::string> conflicted_occurrences;
@@ -923,7 +1064,9 @@ int AssemblyDocument::remaining_degrees_of_freedom(
         if (mate.suppressed || mate.status != MateStatus::Valid ||
             mate.dependent.instance_path.occurrence_ids.empty() ||
             mate.dependent.instance_path.occurrence_ids.front() != occurrence_id) continue;
-        constrained += mate.kind == MateKind::AxisCoincident ? 4 : 3;
+        constrained += mate.kind == MateKind::AxisCoincident ? 4
+            : (mate.kind == MateKind::AxisAngle || mate.kind == MateKind::PlaneAngle)
+                ? 1 : 3;
     }
     return std::max(0, 6 - constrained);
 }
@@ -1093,7 +1236,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 3 ||
+        root.at("format_version").get<int>() != 4 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported C++ Assembly document format");
     }
@@ -1184,6 +1327,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         mate.dependent = load_reference(source.at("dependent"));
         mate.prerequisite = load_reference(source.at("prerequisite"));
         mate.offset = source.at("offset").get<double>();
+        mate.angle_degrees = source.at("angle_degrees").get<double>();
         mate.flipped = source.at("flipped").get<bool>();
         mate.status = mate_status_from_name(source.at("status").get<std::string>());
         mate.suppressed = source.at("suppressed").get<bool>();
@@ -1246,13 +1390,14 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"kind", mate_kind_name(mate.kind)},
             {"dependent", serialize_reference(mate.dependent)},
             {"prerequisite", serialize_reference(mate.prerequisite)},
-            {"offset", mate.offset}, {"flipped", mate.flipped},
+            {"offset", mate.offset}, {"angle_degrees", mate.angle_degrees},
+            {"flipped", mate.flipped},
             {"status", mate_status_name(mate.status)},
             {"suppressed", mate.suppressed},
         });
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 3},
+        {"format", "zima-cad-cpp"}, {"format_version", 4},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

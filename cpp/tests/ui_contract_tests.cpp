@@ -281,6 +281,36 @@ int main(int argc, char* argv[]) {
                     point_flip != nullptr && !point_flip->isEnabled(),
                 "Point mate exposed meaningless offset or orientation controls");
         point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        auto angle_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Úhel", zima::assembly::MateKind::AxisAngle,
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "axis:z"},
+            {zima::assembly::MateReferenceKind::Axis,
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "axis:z"});
+        auto* angle_dialog = new zima::app::MatePropertiesDialog(
+            angle_mate, [](zima::assembly::AssemblyMate) {}, &parent);
+        angle_dialog->show();
+        application.processEvents();
+        auto* angle_value = angle_dialog->findChild<QDoubleSpinBox*>("mateAngle");
+        require(angle_value != nullptr && angle_value->isEnabled() &&
+                    angle_value->suffix().contains("°"),
+                "Axis angle mate does not expose a degree-valued editor");
+        angle_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
+            "Úhel ploch", zima::assembly::MateKind::PlaneAngle,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "z_max"});
+        auto* plane_angle_dialog = new zima::app::MatePropertiesDialog(
+            plane_angle_mate, [](zima::assembly::AssemblyMate) {}, &parent);
+        plane_angle_dialog->show();
+        application.processEvents();
+        auto* plane_angle_value =
+            plane_angle_dialog->findChild<QDoubleSpinBox*>("mateAngle");
+        require(plane_angle_value != nullptr && plane_angle_value->isEnabled(),
+                "Plane angle mate does not expose its angle editor");
+        plane_angle_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
         auto sketch = zima::sketcher::Sketch::create_default();
         int sketch_commits = 0;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
