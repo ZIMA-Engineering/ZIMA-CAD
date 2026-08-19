@@ -15,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,8 @@ struct MeshView::Impl {
     bool middle_dragged{};
     QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
+    std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)>
+        transient_point_transform;
     QPoint last_pointer;
     QVector3D center;
     QVector3D pan;
@@ -269,7 +272,21 @@ void MeshView::set_candidate_drag_callbacks(
 }
 
 void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
+    if (impl_->transient_point_transform) {
+        for (auto& edge : edges) {
+            for (auto& point : edge.points) {
+                point = impl_->transient_point_transform(point);
+            }
+        }
+    }
     impl_->transient_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_transient_point_transform(
+    std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform) {
+    impl_->transient_point_transform = std::move(transform);
+    impl_->transient_edges.clear();
     update();
 }
 
@@ -371,6 +388,22 @@ void MeshView::set_standard_view(StandardView view) {
             impl_->pitch = -pi / 2.0F;
             break;
     }
+    impl_->pan = {};
+    impl_->candidates.clear();
+    update();
+}
+
+void MeshView::set_view_direction(const zima::kernel::Vec3& direction) {
+    const double length = std::sqrt(direction.x * direction.x +
+        direction.y * direction.y + direction.z * direction.z);
+    if (!std::isfinite(length) || length <= 1.0e-12) {
+        throw std::invalid_argument("View direction must be finite and non-zero");
+    }
+    const double x = direction.x / length;
+    const double y = direction.y / length;
+    const double z = std::clamp(direction.z / length, -1.0, 1.0);
+    impl_->yaw = static_cast<float>(std::atan2(y, x));
+    impl_->pitch = static_cast<float>(std::asin(z));
     impl_->pan = {};
     impl_->candidates.clear();
     update();

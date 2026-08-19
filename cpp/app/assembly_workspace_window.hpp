@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <optional>
 #include <array>
+#include <utility>
 #include <vector>
 
 class QAction;
@@ -427,6 +428,13 @@ private:
         const zima::document::PartDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    void add_part_tree_children(
+        QTreeWidgetItem* parent,
+        const zima::document::PartDocument& document);
+    [[nodiscard]] std::pair<zima::kernel::Vec3, zima::kernel::Vec3>
+    active_part_local_ray(
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction) const;
     void add_assembly_tree_children(
         QTreeWidgetItem* parent,
         const std::string& assembly_document_id,

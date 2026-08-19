@@ -51,6 +51,7 @@ public:
     void set_display_mode(DisplayMode mode);
     [[nodiscard]] DisplayMode display_mode() const;
     void set_standard_view(StandardView view);
+    void set_view_direction(const zima::kernel::Vec3& direction);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
@@ -81,6 +82,8 @@ public:
         std::function<bool(const ViewerCandidate&)> begin,
         std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
         std::function<void()> end);
+    void set_transient_point_transform(
+        std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(
