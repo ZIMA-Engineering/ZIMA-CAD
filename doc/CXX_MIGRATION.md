@@ -200,6 +200,12 @@ persistované parametry poloměru, výšky a umístění, stabilní původní pl
 válce. Typ prvku pouze určí zobrazená parametrická pole; umístění, operace,
 rollback, validace, OK/Cancel a MMB potvrzení nemají duplicitní cesty.
 
+Stejný kontejnerový kontrakt nyní podporuje kouli. Properties nabízí poloměr,
+Přičíst/Odečíst a placement. Koule vlastní persistovanou analytickou plochu
+`surface`, své původní hrany a body a datumové osy X/Y/Z; běžný výběr tedy
+nepoužívá topologii výsledného OCCT tělesa. Výpočet probíhá jen při OK nebo
+regeneraci a Part formát 6 ukládá poloměr, umístění i viewer packet.
+
 První Assembly datový řez zavádí `AssemblyDocument`, bezprostředně vlastněné
 `PartOccurrence` a samostatnou `InstancePath`. Každá komponenta drží stabilní
 occurrence ID, identitu a cestu zdrojového Partu, vlastní umístění a poslední
@@ -299,6 +305,34 @@ Geometrie kóty vzniká pouze z persistovaných původních ploch a os; sestaven
 scény nevolá OCCT. Obecný viewer kandidát `Dimension` nyní společně obsluhuje
 Sketcher i Assembly a nese vlastníka dokumentu a stabilní ID vazby. Dvojklik
 proto otevře tutéž interní Properties třídu jako položka vazby ve stromu.
+
+Lineární kótu rovinného odsazení lze táhnout LMB přímo ve 3D view. Paprsek
+kurzoru se deterministicky promítne na normálovou osu referenční plochy a
+výsledná hodnota prochází stejnou transakční cestou jako Properties. Transientní
+scéna se během pohybu obnovuje bez přizpůsobení kamery a bez OCCT. Dolní a horní
+mez hodnotu oříznou, konflikt ponechá poslední platnou polohu a uvolnění LMB
+vytvoří nejvýše jednu Assembly revizi.
+
+## Odložené rozšíření mechanismů
+
+Současný C++ základ mechanismů je záměrně uzavřen na lineárním tažení rovinného
+odsazení, hodnotových mezích a transakčním přepočtu. Další rozšíření je nad
+rámec funkční parity s původní aplikací a dokončí se až po zprovoznění a
+praktickém testování společné C++ aplikace.
+
+Odložené jsou zejména:
+
+- tažení úhlových vazeb přímo ve 3D view,
+- obecné tažení dílu ve zbývajících stupních volnosti,
+- zobrazovací značky bezhodnotových vazeb osa–osa a bod–bod,
+- obecný společný solver více sestavových vazeb a podrobná diagnostika
+  přeurčení,
+- úplné praktické ověření mechanismů v hluboce vnořených a opakovaných
+  podsestavách.
+
+Při návratu k této práci se má navázat na existující transakční API změny
+hodnoty vazby, absolutní meze a stabilní viewer kóty. Tyto části se nemají
+nahrazovat paralelní cestou.
 
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními

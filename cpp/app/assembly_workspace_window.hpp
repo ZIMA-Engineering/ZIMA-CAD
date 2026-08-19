@@ -39,6 +39,7 @@ private:
     QAction* redo_action_{};
     QAction* box_action_{};
     QAction* cylinder_action_{};
+    QAction* sphere_action_{};
     QAction* extrusion_action_{};
     QAction* revolution_action_{};
     QAction* fillet_action_{};
@@ -114,6 +115,12 @@ private:
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::string sketch_drag_point_id_;
     bool sketch_drag_changed_{};
+    std::optional<zima::assembly::AssemblyDocument> assembly_drag_document_;
+    std::string assembly_drag_document_id_;
+    std::string assembly_drag_mate_id_;
+    zima::kernel::Vec3 assembly_drag_axis_point_;
+    zima::kernel::Vec3 assembly_drag_axis_direction_;
+    bool assembly_drag_changed_{};
     zima::assembly::MateKind pending_mate_kind_{
         zima::assembly::MateKind::PlaneCoincident};
 
@@ -197,6 +204,12 @@ private:
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();
+    [[nodiscard]] bool begin_assembly_mate_drag(
+        const zima::viewer::ViewerCandidate& candidate);
+    void update_assembly_mate_drag(
+        const zima::kernel::Vec3& ray_origin,
+        const zima::kernel::Vec3& ray_direction);
+    void end_assembly_mate_drag();
     [[nodiscard]] bool delete_selected_sketch_geometry();
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {},

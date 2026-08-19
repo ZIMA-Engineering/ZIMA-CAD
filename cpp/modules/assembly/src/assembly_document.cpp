@@ -624,6 +624,31 @@ bool AssemblyDocument::set_mate_value(
     catch (const std::invalid_argument&) { return false; }
 }
 
+double AssemblyDocument::project_linear_drag_value(
+    const zima::kernel::Vec3& axis_point,
+    const zima::kernel::Vec3& axis_direction,
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction) {
+    const double axis_length = length(axis_direction);
+    const double ray_length = length(ray_direction);
+    if (axis_length <= 1.0e-12 || ray_length <= 1.0e-12) {
+        throw std::invalid_argument("Assembly drag direction is invalid");
+    }
+    const zima::kernel::Vec3 axis{axis_direction.x / axis_length,
+        axis_direction.y / axis_length, axis_direction.z / axis_length};
+    const zima::kernel::Vec3 ray{ray_direction.x / ray_length,
+        ray_direction.y / ray_length, ray_direction.z / ray_length};
+    const zima::kernel::Vec3 offset{axis_point.x - ray_origin.x,
+        axis_point.y - ray_origin.y, axis_point.z - ray_origin.z};
+    const double alignment = dot(axis, ray);
+    const double axis_offset = dot(axis, offset);
+    const double ray_offset = dot(ray, offset);
+    const double denominator = 1.0 - alignment * alignment;
+    return std::abs(denominator) > 1.0e-10
+        ? (alignment * ray_offset - axis_offset) / denominator
+        : -axis_offset;
+}
+
 void AssemblyDocument::remove_mate(const std::string& mate_id) {
     if (find_mate(mate_id) == nullptr) {
         throw std::invalid_argument("Assembly mate to remove does not exist");

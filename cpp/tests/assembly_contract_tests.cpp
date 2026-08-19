@@ -245,6 +245,13 @@ int main() {
         require(!value_edit.set_mate_value(limited_mate_id,
                     std::numeric_limits<double>::infinity()),
                 "Assembly accepted a non-finite mate value");
+        require(std::abs(zima::assembly::AssemblyDocument::project_linear_drag_value(
+                    {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0},
+                    {5.0, 0.0, 7.0}, {-1.0, 0.0, 0.0}) - 7.0) < 1.0e-9 &&
+                    std::abs(zima::assembly::AssemblyDocument::project_linear_drag_value(
+                    {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0},
+                    {0.0, 0.0, 7.0}, {0.0, 0.0, 1.0}) - 7.0) < 1.0e-9,
+                "Assembly linear drag ray was not projected onto the mate axis");
         auto invalid_limited_angle = zima::assembly::AssemblyDocument::create_mate(
             "Neplatný úhel", zima::assembly::MateKind::AxisAngle,
             {zima::assembly::MateReferenceKind::Axis,

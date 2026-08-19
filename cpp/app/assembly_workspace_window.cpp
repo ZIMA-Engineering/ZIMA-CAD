@@ -96,6 +96,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { show_primitive_properties(zima::document::FeatureKind::Box); });
     cylinder_action_ = modeling->addAction(tr("Válec…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Cylinder); });
+    sphere_action_ = modeling->addAction(tr("Koule…"), this,
+        [this] { show_primitive_properties(zima::document::FeatureKind::Sphere); });
     extrusion_action_ = modeling->addAction(tr("Vytažení…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Extrusion); });
     revolution_action_ = modeling->addAction(tr("Rotace…"), this,
@@ -383,11 +385,21 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     viewer_->set_candidate_drag_callbacks(
-        [this](const auto& candidate) { return begin_sketch_point_drag(candidate); },
-        [this](const auto& origin, const auto& direction) {
-            update_sketch_point_drag(origin, direction);
+        [this](const auto& candidate) {
+            return begin_assembly_mate_drag(candidate) ||
+                   begin_sketch_point_drag(candidate);
         },
-        [this] { end_sketch_point_drag(); });
+        [this](const auto& origin, const auto& direction) {
+            if (assembly_drag_document_) {
+                update_assembly_mate_drag(origin, direction);
+            } else {
+                update_sketch_point_drag(origin, direction);
+            }
+        },
+        [this] {
+            if (assembly_drag_document_) end_assembly_mate_drag();
+            else end_sketch_point_drag();
+        });
     splitter->addWidget(left);
     splitter->addWidget(viewer_);
     splitter->setStretchFactor(1, 1);
@@ -1177,6 +1189,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const auto initial = edit_mode ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
             ? zima::document::PartDocument::create_cylinder_container()
+        : feature_kind == zima::document::FeatureKind::Sphere
+            ? zima::document::PartDocument::create_sphere_container()
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(active_sketch_id_)
         : feature_kind == zima::document::FeatureKind::Revolution
@@ -1898,6 +1912,66 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
                               : tr("Poloha bodu se nezměnila."));
 }
 
+bool AssemblyWorkspaceWindow::begin_assembly_mate_drag(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (candidate.kind != zima::viewer::CandidateKind::Dimension ||
+        !candidate.semantic_key.starts_with("mate:") ||
+        candidate.owner_id != workspace_.active_document_id() ||
+        properties_dialog_ != nullptr) return false;
+    auto* assembly = workspace_.open_assembly(candidate.owner_id);
+    const std::string mate_id = candidate.semantic_key.substr(5);
+    const auto* mate = assembly == nullptr
+        ? nullptr : assembly->session.document().find_mate(mate_id);
+    if (mate == nullptr || mate->kind != zima::assembly::MateKind::PlaneCoincident ||
+        mate->suppressed || mate->status != zima::assembly::MateStatus::Valid) return false;
+    const auto prerequisite = assembly->session.document().resolve_plane(mate->prerequisite);
+    if (prerequisite.status != zima::assembly::MateStatus::Valid) return false;
+    assembly_drag_document_ = assembly->session.document();
+    assembly_drag_document_id_ = candidate.owner_id;
+    assembly_drag_mate_id_ = mate_id;
+    assembly_drag_axis_point_ = prerequisite.plane.point;
+    assembly_drag_axis_direction_ = prerequisite.plane.normal;
+    assembly_drag_changed_ = false;
+    state_->setText(tr("Tažením měníte odsazení vazby v povolených mezích."));
+    return true;
+}
+
+void AssemblyWorkspaceWindow::update_assembly_mate_drag(
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction) {
+    if (!assembly_drag_document_) return;
+    double value = zima::assembly::AssemblyDocument::project_linear_drag_value(
+        assembly_drag_axis_point_, assembly_drag_axis_direction_,
+        ray_origin, ray_direction);
+    const auto* mate = assembly_drag_document_->find_mate(assembly_drag_mate_id_);
+    if (mate == nullptr) return;
+    if (mate->lower_limit) value = std::max(value, *mate->lower_limit);
+    if (mate->upper_limit) value = std::min(value, *mate->upper_limit);
+    if (std::abs(value - mate->offset) <= 1.0e-9) return;
+    if (!assembly_drag_document_->set_mate_value(assembly_drag_mate_id_, value)) return;
+    assembly_drag_changed_ = true;
+    viewer_->set_mesh(assembly_drag_document_->build_scene(), false);
+    state_->setText(tr("Odsazení vazby: %1 mm").arg(value, 0, 'f', 3));
+}
+
+void AssemblyWorkspaceWindow::end_assembly_mate_drag() {
+    if (!assembly_drag_document_) return;
+    const std::string document_id = assembly_drag_document_id_;
+    auto result = std::move(*assembly_drag_document_);
+    const bool changed = assembly_drag_changed_;
+    assembly_drag_document_.reset();
+    assembly_drag_document_id_.clear();
+    assembly_drag_mate_id_.clear();
+    assembly_drag_changed_ = false;
+    if (changed) {
+        if (auto* assembly = workspace_.open_assembly(document_id)) {
+            assembly->session.commit(std::move(result));
+        }
+    }
+    refresh_tabs();
+    refresh_scene();
+}
+
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_segment_active_ || sketch_rectangle_active_ || sketch_circle_active_ ||
@@ -2570,6 +2644,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         save_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
+        sphere_action_->setEnabled(true);
         extrusion_action_->setEnabled(!active_sketch_id_.empty());
         revolution_action_->setEnabled(!active_sketch_id_.empty());
         sketch_action_->setEnabled(true);
@@ -2654,6 +2729,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
+    sphere_action_->setEnabled(active_part != nullptr);
     extrusion_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
     revolution_action_->setEnabled(active_part != nullptr && !active_sketch_id_.empty());
     sketch_action_->setEnabled(active_part != nullptr);

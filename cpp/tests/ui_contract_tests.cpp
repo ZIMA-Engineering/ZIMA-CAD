@@ -126,6 +126,24 @@ int main(int argc, char* argv[]) {
                     committed_cylinder.cylinder.height == 63.0,
                 "Cylinder Properties did not commit exact parameters");
 
+        auto sphere_initial = zima::document::PartDocument::create_sphere_container();
+        zima::document::HistoryContainer committed_sphere;
+        auto* sphere_dialog = new zima::app::PrimitivePropertiesDialog(
+            sphere_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_sphere = std::move(value);
+            }, &parent);
+        sphere_dialog->show();
+        application.processEvents();
+        auto* sphere_radius = sphere_dialog->findChild<QDoubleSpinBox*>("sphereRadius");
+        require(sphere_radius != nullptr, "Sphere dialog does not expose its radius");
+        sphere_radius->setValue(27.0);
+        sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
+                    committed_sphere.sphere.radius == 27.0,
+                "Sphere Properties did not commit its radius");
+
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
         int extrusion_commits = 0;

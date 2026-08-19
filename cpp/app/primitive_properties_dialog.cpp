@@ -13,6 +13,7 @@ namespace {
 
 QString primitive_label(zima::document::FeatureKind kind) {
     return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
+        : kind == zima::document::FeatureKind::Sphere ? QObject::tr("koule")
         : kind == zima::document::FeatureKind::Extrusion
             ? QObject::tr("vytažení")
         : kind == zima::document::FeatureKind::Revolution
@@ -38,6 +39,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
               ? tr("Vlastnosti %1").arg(primitive_label(initial.feature_kind))
               : initial.feature_kind == zima::document::FeatureKind::Cylinder
                   ? tr("Nový válec")
+                  : initial.feature_kind == zima::document::FeatureKind::Sphere
+                      ? tr("Nová koule")
                   : initial.feature_kind == zima::document::FeatureKind::Extrusion
                       ? tr("Nové vytažení")
                   : initial.feature_kind == zima::document::FeatureKind::Revolution
@@ -89,6 +92,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         height_ = dimension(initial.cylinder.height, "cylinderHeight");
         form->addRow(tr("Poloměr"), radius_);
         form->addRow(tr("Výška"), height_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::Sphere) {
+        radius_ = dimension(initial.sphere.radius, "sphereRadius");
+        form->addRow(tr("Poloměr"), radius_);
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion) {
         auto* sketch = new QLabel(QString::fromStdString(initial.extrusion.sketch_id), this);
         sketch->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -161,6 +167,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     };
     if (initial.feature_kind == zima::document::FeatureKind::Box ||
         initial.feature_kind == zima::document::FeatureKind::Cylinder ||
+        initial.feature_kind == zima::document::FeatureKind::Sphere ||
         initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         translation_ = {
             placement(initial.placement.x, false),
@@ -211,6 +218,8 @@ bool PrimitivePropertiesDialog::submit() {
         result.box = {length_->value(), width_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.cylinder = {radius_->value(), height_->value()};
+    } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
+        result.sphere = {radius_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.height = height_->value();
         const QString direction =
@@ -231,6 +240,7 @@ bool PrimitivePropertiesDialog::submit() {
     }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
         result.feature_kind == zima::document::FeatureKind::Cylinder ||
+        result.feature_kind == zima::document::FeatureKind::Sphere ||
         result.feature_kind == zima::document::FeatureKind::ImportedStep) {
         result.placement = {
             translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),

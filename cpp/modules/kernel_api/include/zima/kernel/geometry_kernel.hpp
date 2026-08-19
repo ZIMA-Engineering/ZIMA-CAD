@@ -129,6 +129,12 @@ struct CylinderRequest {
     Vec3 rotation_degrees;
 };
 
+struct SphereRequest {
+    double radius{40.0};
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
 struct ExtrusionRequest {
     struct PolygonProfile {
         std::vector<Vec3> vertices;
@@ -207,7 +213,7 @@ struct BoxOperation {
 };
 
 using PrimitiveRequest = std::variant<
-    BoxRequest, CylinderRequest, ExtrusionRequest, RevolutionRequest,
+    BoxRequest, CylinderRequest, SphereRequest, ExtrusionRequest, RevolutionRequest,
     StepRequest, FilletRequest, ChamferRequest>;
 
 struct HistoryOperation {
@@ -300,6 +306,14 @@ struct BodyResult {
                         primitive.translation.x, primitive.translation.y,
                         primitive.translation.z, primitive.rotation_degrees.x,
                         primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+            } else if constexpr (std::is_same_v<Request, SphereRequest>) {
+                for (const double value : {
+                        primitive.radius, primitive.translation.x,
+                        primitive.translation.y, primitive.translation.z,
+                        primitive.rotation_degrees.x, primitive.rotation_degrees.y,
+                        primitive.rotation_degrees.z}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {

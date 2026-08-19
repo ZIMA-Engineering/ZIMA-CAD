@@ -176,6 +176,11 @@ public:
     [[nodiscard]] bool replace_mate_and_calculate(AssemblyMate mate);
     [[nodiscard]] bool set_mate_value(
         const std::string& mate_id, double value);
+    [[nodiscard]] static double project_linear_drag_value(
+        const zima::kernel::Vec3& axis_point,
+        const zima::kernel::Vec3& axis_direction,
+        const zima::kernel::Vec3& ray_origin,
+        const zima::kernel::Vec3& ray_direction);
     void remove_mate(const std::string& mate_id);
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;

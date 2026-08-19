@@ -224,6 +224,21 @@ int main() {
         }
         require(cylinder_faces == std::set<std::string>{"side", "z_max", "z_min"},
                 "Cylinder semantic faces are incomplete");
+        zima::kernel::SphereRequest sphere;
+        sphere.radius = 10.0;
+        sphere.translation = {5.0, 6.0, 7.0};
+        const auto sphere_boundaries = kernel.evaluate_history({
+            {"sphere", sphere, zima::kernel::BooleanOperation::Add},
+        });
+        require(sphere_boundaries.size() == 1 &&
+                    std::abs(sphere_boundaries.front().volume -
+                        4.0 * std::numbers::pi * 1000.0 / 3.0) < 1e-5 &&
+                    !sphere_boundaries.front().mesh.original_references
+                        .triangle_references.empty() &&
+                    sphere_boundaries.front().mesh.original_references
+                        .triangle_references.front().semantic_key == "surface" &&
+                    sphere_boundaries.front().mesh.original_references.axes.size() == 3,
+                "Sphere geometry or stable references are incomplete");
         std::set<std::string> cylinder_edges;
         bool sampled_circle = false;
         for (const auto& edge : cylinder_boundaries.front().mesh.original_references.edges) {
@@ -350,6 +365,23 @@ int main() {
                     loaded_cylinder.history.front().cylinder.radius == 12.0 &&
                     loaded_cylinder_results.size() == 1,
                 "Cylinder document did not survive save/load");
+        auto sphere_document = zima::document::PartDocument::create_default();
+        auto sphere_container = zima::document::PartDocument::create_sphere_container();
+        sphere_container.sphere.radius = 22.0;
+        sphere_document.history.push_back(sphere_container);
+        const auto sphere_results = kernel.evaluate_history(sphere_document.kernel_operations());
+        const auto sphere_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-sphere-contract.zcp.json";
+        sphere_document.save(sphere_path, sphere_results);
+        std::vector<zima::kernel::BodyResult> loaded_sphere_results;
+        const auto loaded_sphere = zima::document::PartDocument::load(
+            sphere_path, &loaded_sphere_results);
+        std::filesystem::remove(sphere_path);
+        require(loaded_sphere.history.front().feature_kind ==
+                    zima::document::FeatureKind::Sphere &&
+                    loaded_sphere.history.front().sphere.radius == 22.0 &&
+                    loaded_sphere_results.size() == 1,
+                "Sphere document did not survive save/load");
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();
         extrusion_sketch.name = "Obdélníkový profil";

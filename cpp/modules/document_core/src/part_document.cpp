@@ -600,6 +600,14 @@ HistoryContainer PartDocument::create_cylinder_container() {
     return container;
 }
 
+HistoryContainer PartDocument::create_sphere_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = "Koule";
+    container.feature_kind = FeatureKind::Sphere;
+    return container;
+}
+
 HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id) {
     if (sketch_id.empty()) throw std::invalid_argument("Extrusion Sketch ID is required");
     HistoryContainer container;
@@ -703,6 +711,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             cylinder.translation = translation;
             cylinder.rotation_degrees = rotation;
             primitive = cylinder;
+        } else if (container.feature_kind == FeatureKind::Sphere) {
+            zima::kernel::SphereRequest sphere;
+            sphere.radius = container.sphere.radius;
+            sphere.translation = translation;
+            sphere.rotation_degrees = rotation;
+            primitive = sphere;
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             require_default_sketch_feature_placement(container.placement);
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
@@ -766,7 +780,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 5) {
+        root.at("format_version").get<int>() != 6) {
         throw std::runtime_error("Unsupported C++ prototype document format");
     }
     PartDocument document;
@@ -779,13 +793,14 @@ PartDocument PartDocument::load(
     std::unordered_set<std::string> container_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
-        if (type != "box" && type != "cylinder" && type != "extrusion" &&
+        if (type != "box" && type != "cylinder" && type != "sphere" && type != "extrusion" &&
             type != "revolution" && type != "imported_step" &&
             type != "fillet" && type != "chamfer") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
         container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
+            : type == "sphere" ? FeatureKind::Sphere
             : type == "extrusion" ? FeatureKind::Extrusion
             : type == "revolution" ? FeatureKind::Revolution
             : type == "imported_step" ? FeatureKind::ImportedStep
@@ -817,6 +832,9 @@ PartDocument PartDocument::load(
             container.cylinder.height = source.at("height").get<double>();
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else if (container.feature_kind == FeatureKind::Sphere) {
+            container.sphere.radius = source.at("radius").get<double>();
+            require_positive(container.sphere.radius, "radius");
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
             container.extrusion.height = source.at("height").get<double>();
@@ -1027,6 +1045,8 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else if (container.feature_kind == FeatureKind::Sphere) {
+            require_positive(container.sphere.radius, "radius");
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             if (container.extrusion.sketch_id.empty() ||
                 std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
@@ -1071,6 +1091,8 @@ void PartDocument::save(
             {"type", container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
+                : container.feature_kind == FeatureKind::Sphere
+                    ? "sphere"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
@@ -1103,6 +1125,8 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             serialized["radius"] = container.cylinder.radius;
             serialized["height"] = container.cylinder.height;
+        } else if (container.feature_kind == FeatureKind::Sphere) {
+            serialized["radius"] = container.sphere.radius;
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             serialized["sketch_id"] = container.extrusion.sketch_id;
             serialized["height"] = container.extrusion.height;
@@ -1159,7 +1183,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 5},
+        {"format_version", 6},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

@@ -13,6 +13,7 @@
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -155,6 +156,16 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
             return std::vector<ViewerAxis>{
                 transformed_axis(operation.owner_id, "axis", {0.0, 0.0, 1.0},
                                  length, transform)};
+        } else if constexpr (std::is_same_v<Request, SphereRequest>) {
+            const auto transform = primitive_transform(
+                primitive.translation, primitive.rotation_degrees);
+            return std::vector<ViewerAxis>{
+                transformed_axis(operation.owner_id, "axis:x", {1.0, 0.0, 0.0},
+                                 primitive.radius * 2.0, transform),
+                transformed_axis(operation.owner_id, "axis:y", {0.0, 1.0, 0.0},
+                                 primitive.radius * 2.0, transform),
+                transformed_axis(operation.owner_id, "axis:z", {0.0, 0.0, 1.0},
+                                 primitive.radius * 2.0, transform)};
         } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
             const double length = std::sqrt(
                 primitive.direction.x * primitive.direction.x +
@@ -334,6 +345,42 @@ PrimitiveData make_cylinder_data(
             ? "seam:z_min" : "seam:z_max";
         const TopoDS_Shape transformed = transformer.ModifiedShape(original);
         if (!transformed.IsNull()) result.vertices.push_back({transformed, {owner_id, key}});
+    }
+    return result;
+}
+
+void validate_sphere(const SphereRequest& request) {
+    if (!std::isfinite(request.radius) || request.radius <= 0.0) {
+        throw std::invalid_argument("Sphere radius must be finite and positive");
+    }
+    for (const double value : {request.translation.x, request.translation.y,
+            request.translation.z, request.rotation_degrees.x,
+            request.rotation_degrees.y, request.rotation_degrees.z}) {
+        if (!std::isfinite(value)) throw std::invalid_argument("Sphere placement must be finite");
+    }
+}
+
+PrimitiveData make_sphere_data(
+    const SphereRequest& request, const std::string& owner_id) {
+    const TopoDS_Shape unplaced = BRepPrimAPI_MakeSphere(request.radius).Shape();
+    BRepBuilderAPI_Transform transformer(unplaced,
+        primitive_transform(request.translation, request.rotation_degrees), true);
+    PrimitiveData result{transformer.Shape(), {}, {}, {}};
+    std::size_t edge_index{};
+    std::size_t vertex_index{};
+    for (TopExp_Explorer explorer(unplaced, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        const auto transformed = transformer.ModifiedShape(explorer.Current());
+        if (!transformed.IsNull()) result.faces.push_back({transformed, {owner_id, "surface"}});
+    }
+    for (TopExp_Explorer explorer(unplaced, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+        const auto transformed = transformer.ModifiedShape(explorer.Current());
+        if (!transformed.IsNull()) result.edges.push_back({transformed,
+            {owner_id, "edge:" + std::to_string(edge_index++)}});
+    }
+    for (TopExp_Explorer explorer(unplaced, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
+        const auto transformed = transformer.ModifiedShape(explorer.Current());
+        if (!transformed.IsNull()) result.vertices.push_back({transformed,
+            {owner_id, "point:" + std::to_string(vertex_index++)}});
     }
     return result;
 }
@@ -1127,6 +1174,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
                     validate_cylinder(primitive);
                     return make_cylinder_data(primitive, operation.owner_id);
+                } else if constexpr (std::is_same_v<Request, SphereRequest>) {
+                    validate_sphere(primitive);
+                    return make_sphere_data(primitive, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                     validate_extrusion(primitive);
                     return make_extrusion_data(primitive, operation.owner_id);

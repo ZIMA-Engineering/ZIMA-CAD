@@ -11,7 +11,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
+enum class FeatureKind { Box, Cylinder, Sphere, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class RevolutionAxis { SketchX, SketchY };
 
@@ -25,6 +25,8 @@ struct CylinderParameters {
     double radius{40.0};
     double height{50.0};
 };
+
+struct SphereParameters { double radius{40.0}; };
 
 struct ExtrusionParameters {
     std::string sketch_id;
@@ -67,6 +69,7 @@ struct HistoryContainer {
     Placement placement;
     BoxParameters box;
     CylinderParameters cylinder;
+    SphereParameters sphere;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
     ImportedStepParameters imported_step;
@@ -83,6 +86,7 @@ public:
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();
     [[nodiscard]] static HistoryContainer create_cylinder_container();
+    [[nodiscard]] static HistoryContainer create_sphere_container();
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(

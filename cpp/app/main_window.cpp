@@ -45,6 +45,8 @@ void MainWindow::create_actions() {
     auto* modeling = menuBar()->addMenu(tr("Modelování"));
     modeling->addAction(tr("Kvádr…"), this, [this] { show_box_properties(); });
     modeling->addAction(tr("Válec…"), this, [this] { show_cylinder_properties(); });
+    modeling->addAction(tr("Koule…"), this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Sphere); });
     modeling->addAction(tr("Regenerovat"), this, [this] { regenerate(); });
 }
 
@@ -243,6 +245,7 @@ void MainWindow::show_primitive_properties(
     if (container_id.empty() &&
         (feature_kind == zima::document::FeatureKind::Extrusion ||
          feature_kind == zima::document::FeatureKind::Revolution ||
+         feature_kind == zima::document::FeatureKind::Sphere ||
          feature_kind == zima::document::FeatureKind::Fillet ||
          feature_kind == zima::document::FeatureKind::Chamfer)) return;
     const auto* edited = container_id.empty()
@@ -258,6 +261,8 @@ void MainWindow::show_primitive_properties(
         ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
             ? zima::document::PartDocument::create_cylinder_container()
+        : feature_kind == zima::document::FeatureKind::Sphere
+            ? zima::document::PartDocument::create_sphere_container()
             : zima::document::PartDocument::create_box_container();
     const bool allow_subtract = !document.history.empty() &&
         !(edit_mode && document.history.front().id == initial.id);
