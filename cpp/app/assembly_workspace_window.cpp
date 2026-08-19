@@ -90,6 +90,77 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
         source_references.axes.begin(), source_references.axes.end());
 }
 
+using SketchPosition = std::array<double, 2>;
+
+std::optional<SketchPosition> projected_ellipse_minor(
+    const SketchPosition& center, const SketchPosition& major,
+    const SketchPosition& cursor) {
+    const double axis_x = major[0] - center[0];
+    const double axis_y = major[1] - center[1];
+    const double axis_length = std::hypot(axis_x, axis_y);
+    if (axis_length <= 1.0e-9) return std::nullopt;
+    const double normal_x = -axis_y / axis_length;
+    const double normal_y = axis_x / axis_length;
+    const double signed_length =
+        (cursor[0] - center[0]) * normal_x +
+        (cursor[1] - center[1]) * normal_y;
+    if (std::abs(signed_length) <= 1.0e-9) return std::nullopt;
+    return SketchPosition{
+        center[0] + signed_length * normal_x,
+        center[1] + signed_length * normal_y};
+}
+
+struct ProjectedEllipsePosition {
+    SketchPosition position;
+    double parameter{};
+};
+
+std::optional<ProjectedEllipsePosition> projected_ellipse_position(
+    const SketchPosition& center, const SketchPosition& major,
+    const SketchPosition& minor, const SketchPosition& cursor) {
+    const double major_x = major[0] - center[0];
+    const double major_y = major[1] - center[1];
+    const double minor_x = minor[0] - center[0];
+    const double minor_y = minor[1] - center[1];
+    const double determinant = major_x * minor_y - major_y * minor_x;
+    if (std::abs(determinant) <= 1.0e-12) return std::nullopt;
+    const double cursor_x = cursor[0] - center[0];
+    const double cursor_y = cursor[1] - center[1];
+    double cosine =
+        (cursor_x * minor_y - cursor_y * minor_x) / determinant;
+    double sine =
+        (major_x * cursor_y - major_y * cursor_x) / determinant;
+    const double scale = std::hypot(cosine, sine);
+    if (scale <= 1.0e-12) return std::nullopt;
+    cosine /= scale;
+    sine /= scale;
+    return ProjectedEllipsePosition{{
+        center[0] + major_x * cosine + minor_x * sine,
+        center[1] + major_y * cosine + minor_y * sine},
+        std::atan2(sine, cosine)};
+}
+
+zima::kernel::ViewerEdge ellipse_preview_edge(
+    const zima::sketcher::Sketch& sketch, const SketchPosition& center,
+    const SketchPosition& major, const SketchPosition& minor) {
+    zima::kernel::ViewerEdge edge;
+    constexpr std::size_t samples = 192;
+    constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    edge.points.reserve(samples + 1);
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double parameter = full_turn * static_cast<double>(sample) /
+            static_cast<double>(samples);
+        const double cosine = std::cos(parameter);
+        const double sine = std::sin(parameter);
+        edge.points.push_back(sketch.world_point(
+            center[0] + (major[0] - center[0]) * cosine +
+                (minor[0] - center[0]) * sine,
+            center[1] + (major[1] - center[1]) * cosine +
+                (minor[1] - center[1]) * sine));
+    }
+    return edge;
+}
+
 class NewDocumentDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using Accepted = std::function<QString(QString, QString)>;
@@ -494,6 +565,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_circle_action_ = make_action(tr("Kružnice"), "sketch-circle");
     sketch_arc_action_ = make_action(tr("Oblouk"), "sketch-arc");
     sketch_ellipse_action_ = make_action(tr("Elipsa"), "sketch-ellipse");
+    sketch_elliptical_arc_action_ = make_action(
+        tr("Eliptický oblouk"), "sketch-elliptical-arc");
+    sketch_elliptical_arc_action_->setObjectName("sketchEllipticalArcAction");
     sketch_bspline_action_ = make_action(tr("B-spline"), "sketch-spline");
     sketch_horizontal_action_ = make_action(tr("Vodorovná úsečka"));
     sketch_vertical_action_ = make_action(tr("Svislá úsečka"));
@@ -561,6 +635,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_circle_action_, &QAction::triggered, this, [this] { start_sketch_circle(); });
     connect(sketch_arc_action_, &QAction::triggered, this, [this] { start_sketch_arc(); });
     connect(sketch_ellipse_action_, &QAction::triggered, this, [this] { start_sketch_ellipse(); });
+    connect(sketch_elliptical_arc_action_, &QAction::triggered, this,
+        [this] { start_sketch_elliptical_arc(); });
     connect(sketch_bspline_action_, &QAction::triggered, this, [this] { start_sketch_bspline(); });
     connect(sketch_horizontal_action_, &QAction::triggered, this, [this] {
         constrain_selected_segment(zima::sketcher::ConstraintKind::Horizontal); });
@@ -974,6 +1050,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (accept_sketch_circle_ray(origin, direction)) return true;
         if (accept_sketch_arc_ray(origin, direction)) return true;
         if (accept_sketch_ellipse_ray(origin, direction)) return true;
+        if (accept_sketch_elliptical_arc_ray(origin, direction)) return true;
         return accept_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
@@ -983,6 +1060,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_circle_ray(origin, direction);
         preview_sketch_arc_ray(origin, direction);
         preview_sketch_ellipse_ray(origin, direction);
+        preview_sketch_elliptical_arc_ray(origin, direction);
         preview_sketch_bspline_ray(origin, direction);
     });
     viewer_->set_command_gesture_callbacks(
@@ -1126,6 +1204,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_circle_action_->setEnabled(true);
                 sketch_arc_action_->setEnabled(true);
                 sketch_ellipse_action_->setEnabled(true);
+                sketch_elliptical_arc_action_->setEnabled(true);
                 sketch_bspline_action_->setEnabled(true);
                 sketch_coincident_action_->setEnabled(true);
                 sketch_parallel_action_->setEnabled(true);
@@ -1536,7 +1615,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_segment_action_, sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
                              sketch_circle_action_, sketch_arc_action_,
-                             sketch_ellipse_action_, sketch_bspline_action_}) {
+                             sketch_ellipse_action_, sketch_elliptical_arc_action_,
+                             sketch_bspline_action_}) {
             add_command(action);
         }
         add_green_separator();
@@ -2878,6 +2958,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
     sketch_ellipse_active_ = false;
+    sketch_elliptical_arc_active_ = false;
     sketch_bspline_active_ = false;
     sketch_coincident_active_ = false;
     sketch_segment_pair_active_ = false;
@@ -2891,6 +2972,11 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_arc_start_.reset();
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
+    pending_elliptical_arc_center_.reset();
+    pending_elliptical_arc_major_.reset();
+    pending_elliptical_arc_minor_.reset();
+    pending_elliptical_arc_start_.reset();
+    pending_elliptical_arc_reversed_ = false;
     pending_bspline_points_.clear();
     pending_coincident_point_id_.clear();
     pending_pair_segment_id_.clear();
@@ -3405,6 +3491,39 @@ void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
     viewer_->set_transient_edges({});
 }
 
+void AssemblyWorkspaceWindow::start_sketch_elliptical_arc() {
+    if (properties_dialog_ != nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto found = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    if (found == part->session.document().sketches.end()) return;
+    cancel_sketch_segment();
+    sketch_elliptical_arc_active_ = true;
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    state_->setText(tr(
+        "Eliptický oblouk: určete střed. Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
+    sketch_elliptical_arc_active_ = false;
+    pending_elliptical_arc_center_.reset();
+    pending_elliptical_arc_major_.reset();
+    pending_elliptical_arc_minor_.reset();
+    pending_elliptical_arc_start_.reset();
+    pending_elliptical_arc_reversed_ = false;
+    viewer_->set_transient_edges({});
+}
+
 void AssemblyWorkspaceWindow::start_sketch_bspline() {
     if (properties_dialog_ != nullptr) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -3615,7 +3734,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
     zima::sketcher::ConstraintKind kind) {
     if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
-        sketch_ellipse_active_ ||
+        sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ || sketch_coincident_active_ || sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
@@ -3800,7 +3919,8 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
-        sketch_ellipse_active_ || sketch_bspline_active_ ||
+        sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
+        sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_ || candidate.kind !=
             zima::viewer::CandidateKind::SketchPoint ||
         candidate.owner_id != active_sketch_id_ ||
@@ -3940,7 +4060,8 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         sketch_point_active_ || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_mirror_active_ ||
         sketch_circle_active_ ||
-        sketch_arc_active_ || sketch_ellipse_active_ || sketch_bspline_active_ ||
+        sketch_arc_active_ || sketch_ellipse_active_ ||
+        sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ ||
         sketch_segment_pair_active_) return false;
     const std::string geometry_id = !selected_sketch_segment_id_.empty()
@@ -3987,7 +4108,8 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
-        sketch_ellipse_active_ || sketch_bspline_active_ ||
+        sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
+        sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_segment_pair_active_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -4501,6 +4623,242 @@ void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
     viewer_->set_transient_edges({std::move(preview)});
 }
 
+bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_elliptical_arc_active_) return false;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || active_sketch_id_.empty()) return false;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return false;
+    const auto position = sketch->intersect_ray(origin, direction);
+    if (!position) return true;
+    if (!pending_elliptical_arc_center_) {
+        pending_elliptical_arc_center_ = *position;
+        state_->setText(tr(
+            "Eliptický oblouk: určete konec hlavní poloosy."));
+        return true;
+    }
+    if (!pending_elliptical_arc_major_) {
+        if (std::hypot(
+                (*position)[0] - (*pending_elliptical_arc_center_)[0],
+                (*position)[1] - (*pending_elliptical_arc_center_)[1]) <=
+            1.0e-9) {
+            state_->setText(tr(
+                "Hlavní poloosa eliptického oblouku musí mít nenulovou délku."));
+            return true;
+        }
+        pending_elliptical_arc_major_ = *position;
+        state_->setText(tr(
+            "Eliptický oblouk: určete délku a stranu vedlejší poloosy."));
+        return true;
+    }
+    if (!pending_elliptical_arc_minor_) {
+        const auto minor = projected_ellipse_minor(
+            *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+            *position);
+        if (!minor) {
+            state_->setText(tr(
+                "Vedlejší poloosa eliptického oblouku musí mít nenulovou délku."));
+            return true;
+        }
+        pending_elliptical_arc_minor_ = *minor;
+        const double major_x =
+            (*pending_elliptical_arc_major_)[0] -
+            (*pending_elliptical_arc_center_)[0];
+        const double major_y =
+            (*pending_elliptical_arc_major_)[1] -
+            (*pending_elliptical_arc_center_)[1];
+        const double minor_x =
+            (*pending_elliptical_arc_minor_)[0] -
+            (*pending_elliptical_arc_center_)[0];
+        const double minor_y =
+            (*pending_elliptical_arc_minor_)[1] -
+            (*pending_elliptical_arc_center_)[1];
+        pending_elliptical_arc_reversed_ =
+            major_x * minor_y - major_y * minor_x < 0.0;
+        state_->setText(tr(
+            "Eliptický oblouk: určete počáteční bod na elipse."));
+        return true;
+    }
+    const auto projected = projected_ellipse_position(
+        *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+        *pending_elliptical_arc_minor_, *position);
+    if (!projected) {
+        state_->setText(tr(
+            "Bod eliptického oblouku nesmí ležet ve středu."));
+        return true;
+    }
+    if (!pending_elliptical_arc_start_) {
+        pending_elliptical_arc_start_ = projected->position;
+        state_->setText(pending_elliptical_arc_reversed_
+            ? tr("Eliptický oblouk: určete koncový bod ve směru hodinových ručiček.")
+            : tr("Eliptický oblouk: určete koncový bod proti směru hodinových ručiček."));
+        return true;
+    }
+    if (std::hypot(
+            projected->position[0] - (*pending_elliptical_arc_start_)[0],
+            projected->position[1] - (*pending_elliptical_arc_start_)[1]) <=
+        1.0e-9) {
+        state_->setText(tr(
+            "Počáteční a koncový bod eliptického oblouku musí být odlišné."));
+        return true;
+    }
+    try {
+        auto next = part->session.document();
+        const auto target = std::find_if(
+            next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (target == next.sketches.end()) return true;
+        static_cast<void>(target->add_elliptical_arc(
+            (*pending_elliptical_arc_center_)[0],
+            (*pending_elliptical_arc_center_)[1],
+            (*pending_elliptical_arc_major_)[0],
+            (*pending_elliptical_arc_major_)[1],
+            (*pending_elliptical_arc_minor_)[0],
+            (*pending_elliptical_arc_minor_)[1],
+            (*pending_elliptical_arc_start_)[0],
+            (*pending_elliptical_arc_start_)[1],
+            projected->position[0], projected->position[1],
+            pending_elliptical_arc_reversed_));
+        part->session.commit(
+            std::move(next), part->session.calculated_boundaries());
+        pending_elliptical_arc_center_.reset();
+        pending_elliptical_arc_major_.reset();
+        pending_elliptical_arc_minor_.reset();
+        pending_elliptical_arc_start_.reset();
+        pending_elliptical_arc_reversed_ = false;
+        viewer_->set_transient_edges({});
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr(
+            "Eliptický oblouk vytvořen. Kliknutím určete střed dalšího."));
+    } catch (const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    if (!sketch_elliptical_arc_active_ ||
+        !pending_elliptical_arc_center_) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto sketch = std::find_if(
+        part->session.document().sketches.begin(),
+        part->session.document().sketches.end(),
+        [&](const auto& value) { return value.id == active_sketch_id_; });
+    if (sketch == part->session.document().sketches.end()) return;
+    const auto cursor = sketch->intersect_ray(origin, direction);
+    if (!cursor) return;
+    if (!pending_elliptical_arc_major_) {
+        viewer_->set_transient_edges({{{
+            sketch->world_point(
+                (*pending_elliptical_arc_center_)[0],
+                (*pending_elliptical_arc_center_)[1]),
+            sketch->world_point((*cursor)[0], (*cursor)[1])}, {}}});
+        return;
+    }
+    SketchPosition minor;
+    if (pending_elliptical_arc_minor_) {
+        minor = *pending_elliptical_arc_minor_;
+    } else {
+        const auto projected_minor = projected_ellipse_minor(
+            *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+            *cursor);
+        if (!projected_minor) {
+            viewer_->set_transient_edges({});
+            return;
+        }
+        minor = *projected_minor;
+    }
+    std::vector<zima::kernel::ViewerEdge> preview;
+    zima::kernel::ViewerEdge axes;
+    axes.construction = true;
+    axes.points = {
+        sketch->world_point(
+            (*pending_elliptical_arc_center_)[0],
+            (*pending_elliptical_arc_center_)[1]),
+        sketch->world_point(
+            (*pending_elliptical_arc_major_)[0],
+            (*pending_elliptical_arc_major_)[1]),
+        sketch->world_point(
+            (*pending_elliptical_arc_center_)[0],
+            (*pending_elliptical_arc_center_)[1]),
+        sketch->world_point(minor[0], minor[1])};
+    preview.push_back(std::move(axes));
+    if (!pending_elliptical_arc_minor_) {
+        preview.push_back(ellipse_preview_edge(
+            *sketch, *pending_elliptical_arc_center_,
+            *pending_elliptical_arc_major_, minor));
+        viewer_->set_transient_edges(std::move(preview));
+        return;
+    }
+    const auto projected = projected_ellipse_position(
+        *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+        minor, *cursor);
+    if (!projected) {
+        viewer_->set_transient_edges(std::move(preview));
+        return;
+    }
+    if (!pending_elliptical_arc_start_) {
+        preview.push_back(ellipse_preview_edge(
+            *sketch, *pending_elliptical_arc_center_,
+            *pending_elliptical_arc_major_, minor));
+        zima::kernel::ViewerEdge radial;
+        radial.construction = true;
+        radial.points = {
+            sketch->world_point(
+                (*pending_elliptical_arc_center_)[0],
+                (*pending_elliptical_arc_center_)[1]),
+            sketch->world_point(
+                projected->position[0], projected->position[1])};
+        preview.push_back(std::move(radial));
+        viewer_->set_transient_edges(std::move(preview));
+        return;
+    }
+    const auto start = projected_ellipse_position(
+        *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+        minor, *pending_elliptical_arc_start_);
+    if (!start) {
+        viewer_->set_transient_edges(std::move(preview));
+        return;
+    }
+    constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    double end_parameter = projected->parameter;
+    while (end_parameter <= start->parameter) end_parameter += full_turn;
+    const double sweep = end_parameter - start->parameter;
+    if (sweep >= full_turn - 1.0e-12) {
+        viewer_->set_transient_edges(std::move(preview));
+        return;
+    }
+    zima::kernel::ViewerEdge arc;
+    const auto samples = std::max<std::size_t>(8,
+        static_cast<std::size_t>(std::ceil(192.0 * sweep / full_turn)));
+    arc.points.reserve(samples + 1);
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double parameter = start->parameter + sweep *
+            static_cast<double>(sample) / static_cast<double>(samples);
+        arc.points.push_back(sketch->world_point(
+            (*pending_elliptical_arc_center_)[0] +
+                ((*pending_elliptical_arc_major_)[0] -
+                 (*pending_elliptical_arc_center_)[0]) * std::cos(parameter) +
+                (minor[0] - (*pending_elliptical_arc_center_)[0]) *
+                    std::sin(parameter),
+            (*pending_elliptical_arc_center_)[1] +
+                ((*pending_elliptical_arc_major_)[1] -
+                 (*pending_elliptical_arc_center_)[1]) * std::cos(parameter) +
+                (minor[1] - (*pending_elliptical_arc_center_)[1]) *
+                    std::sin(parameter)));
+    }
+    preview.push_back(std::move(arc));
+    viewer_->set_transient_edges(std::move(preview));
+}
+
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape && edge_treatment_selection_) {
         edge_treatment_selection_.reset();
@@ -4523,6 +4881,7 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
          sketch_rectangle_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
          sketch_circle_active_ ||
          sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+         sketch_elliptical_arc_active_ ||
          sketch_bspline_active_ ||
          sketch_coincident_active_ ||
          sketch_segment_pair_active_)) {
@@ -4701,6 +5060,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_mirror_action_,
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
+                             sketch_elliptical_arc_action_,
                              sketch_bspline_action_, finish_sketch_action_,
                              plane_mate_action_, axis_mate_action_, point_mate_action_,
                              angle_mate_action_, plane_angle_mate_action_}) {
@@ -4927,6 +5287,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_elliptical_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
@@ -4964,6 +5325,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     sketch_polyline_action_, sketch_rectangle_action_,
                     sketch_polygon_action_, sketch_trim_action_, sketch_mirror_action_,
                     sketch_circle_action_, sketch_arc_action_, sketch_ellipse_action_,
+                    sketch_elliptical_arc_action_,
                     sketch_bspline_action_, sketch_horizontal_action_,
                     sketch_vertical_action_, sketch_coincident_action_,
                     sketch_parallel_action_, sketch_perpendicular_action_,
@@ -5084,6 +5446,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_circle_action_->setEnabled(false);
     sketch_arc_action_->setEnabled(false);
     sketch_ellipse_action_->setEnabled(false);
+    sketch_elliptical_arc_action_->setEnabled(false);
     sketch_bspline_action_->setEnabled(false);
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);

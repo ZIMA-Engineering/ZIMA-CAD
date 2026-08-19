@@ -6,6 +6,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <numbers>
 #include <set>
 #include <stdexcept>
 
@@ -972,6 +973,23 @@ int main() {
         require(elliptical_arc_sketch.elliptical_arcs.empty() &&
                     elliptical_arc_sketch.points.empty(),
                 "Elliptical Arc deletion retained orphan control points");
+        auto reversed_elliptical_arc = zima::sketcher::Sketch::create_default();
+        const auto reversed_elliptical_arc_id =
+            reversed_elliptical_arc.add_elliptical_arc(
+                0.0, 0.0, 8.0, 0.0, 0.0, -4.0,
+                8.0, 0.0, 0.0, -4.0, true);
+        require(reversed_elliptical_arc.elliptical_arcs.size() == 1 &&
+                    reversed_elliptical_arc.elliptical_arcs.front().reversed &&
+                    std::abs(
+                        reversed_elliptical_arc.elliptical_arcs.front().
+                            start_parameter) < 1.0e-9 &&
+                    std::abs(
+                        reversed_elliptical_arc.elliptical_arcs.front().
+                            end_parameter - 0.5 * std::numbers::pi) < 1.0e-9 &&
+                    reversed_elliptical_arc.viewer_mesh().edges.front().
+                        reference.semantic_key ==
+                        "elliptical_arc:" + reversed_elliptical_arc_id,
+                "Clockwise five-point Elliptical Arc lost its selected side");
         auto spline_sketch = zima::sketcher::Sketch::create_default();
         const auto spline_id = spline_sketch.add_bspline({
             {0.0, 0.0}, {10.0, 20.0}, {20.0, -10.0}, {30.0, 0.0}});

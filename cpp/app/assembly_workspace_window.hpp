@@ -119,6 +119,7 @@ private:
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
     QAction* sketch_ellipse_action_{};
+    QAction* sketch_elliptical_arc_action_{};
     QAction* sketch_bspline_action_{};
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
@@ -193,6 +194,12 @@ private:
     bool sketch_ellipse_active_{};
     std::optional<std::array<double, 2>> pending_ellipse_center_;
     std::optional<std::array<double, 2>> pending_ellipse_major_;
+    bool sketch_elliptical_arc_active_{};
+    std::optional<std::array<double, 2>> pending_elliptical_arc_center_;
+    std::optional<std::array<double, 2>> pending_elliptical_arc_major_;
+    std::optional<std::array<double, 2>> pending_elliptical_arc_minor_;
+    std::optional<std::array<double, 2>> pending_elliptical_arc_start_;
+    bool pending_elliptical_arc_reversed_{};
     bool sketch_bspline_active_{};
     std::vector<std::array<double, 2>> pending_bspline_points_;
     bool sketch_coincident_active_{};
@@ -296,6 +303,8 @@ private:
     void cancel_sketch_arc();
     void start_sketch_ellipse();
     void cancel_sketch_ellipse();
+    void start_sketch_elliptical_arc();
+    void cancel_sketch_elliptical_arc();
     void start_sketch_bspline();
     void cancel_sketch_bspline();
     bool finish_sketch_bspline();
@@ -325,6 +334,10 @@ private:
     bool accept_sketch_ellipse_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_ellipse_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_elliptical_arc_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void preview_sketch_elliptical_arc_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_bspline_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);

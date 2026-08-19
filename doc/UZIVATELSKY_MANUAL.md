@@ -441,6 +441,12 @@ křivku. `Delete`
 odstraní vybranou spline. Uzavřená spline může tvořit přesný profil Vytažení
 nebo Rotace; výpočet používá přesnou OCCT B-spline, nikoli čárový náhled.
 
+Nativní příkaz **Eliptický oblouk** používá postupně střed, konec hlavní
+poloosy, délku a stranu kolmé vedlejší poloosy, počáteční bod a koncový bod.
+Kurzor u obou konců pouze volí parametr; uložené body leží přesně na elipse.
+Do posledního platného bodu je celý tvar jen náhled. `Escape` jej zruší bez
+změny dokumentu; dokončený oblouk vznikne jako jedna vratná Part revize.
+
 Při kreslení úsečky směrem k lokální ose X nebo Y se přichycení k ose kombinuje
 s nabízenou vodorovnou nebo svislou vazbou. Koncový bod proto skončí přesně na
 ose a úsečka se současně srovná v nabízeném směru; nevznikne pouze přibližná

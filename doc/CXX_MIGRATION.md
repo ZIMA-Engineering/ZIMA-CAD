@@ -803,6 +803,14 @@ viewerová polyline zůstává jen zobrazením. Půlelipsa 10 × 4 mm uzavřená
 průměrovou úsečkou a vytažená o 10 mm musí mít objem `200π mm³`. Importovaný
 blok se nadále nenabízí k částečnému ořezu.
 
+Stejný persistovaný typ vytváří také přímý příkaz **Eliptický oblouk** v
+nativní pravé liště Skici. Pět vstupů určuje střed, hlavní poloosu, kolmou
+vedlejší poloosu, začátek a konec. Vedlejší poloosa i oba konce se před
+uložením přesně promítnou do analytické parametrizace; strana vedlejší poloosy
+určuje orientaci oblouku. První čtyři kroky jsou pouze transientní osy, elipsa
+a oblouk. Až platný pátý bod vytvoří jedinou Part revizi, zatímco Escape
+odstraní celý rozpracovaný náhled beze změny skici.
+
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
 tažení hlavního bodu. Viewer, strom, absolutní meze i editace používají stejné
