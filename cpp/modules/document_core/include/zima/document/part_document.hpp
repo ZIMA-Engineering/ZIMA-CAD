@@ -11,7 +11,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder, Extrusion, Revolution, Fillet, Chamfer };
+enum class FeatureKind { Box, Cylinder, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class RevolutionAxis { SketchX, SketchY };
 
@@ -45,6 +45,11 @@ struct EdgeTreatmentParameters {
     double size{1.0};
 };
 
+struct ImportedStepParameters {
+    std::string source_path;
+    std::string component_path;
+};
+
 struct Placement {
     double x{};
     double y{};
@@ -64,6 +69,7 @@ struct HistoryContainer {
     CylinderParameters cylinder;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
+    ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
 };
 
@@ -85,6 +91,9 @@ public:
         zima::kernel::EdgeReference edge);
     [[nodiscard]] static HistoryContainer create_chamfer_container(
         zima::kernel::EdgeReference edge);
+    [[nodiscard]] static HistoryContainer create_imported_step_container(
+        std::filesystem::path source_path, std::string component_path = {},
+        std::string component_name = {});
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
     [[nodiscard]] std::optional<std::size_t> history_index(

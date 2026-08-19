@@ -132,6 +132,7 @@ private:
     void save_active_assembly();
     void save_active_document();
     void import_file();
+    void import_step_into_assembly(const std::filesystem::path& path);
     void export_file();
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,

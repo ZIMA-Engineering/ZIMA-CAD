@@ -1,6 +1,8 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <STEPControl_Writer.hxx>
 
 #include <cmath>
 #include <algorithm>
@@ -22,6 +24,36 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         zima::kernel::OcctKernel kernel;
+        const auto step_path = std::filesystem::temp_directory_path() /
+            "zima-cad-imported-step-contract.step";
+        STEPControl_Writer step_writer;
+        require(step_writer.Transfer(BRepPrimAPI_MakeBox(12.0, 8.0, 5.0).Shape(),
+                    STEPControl_AsIs) == IFSelect_RetDone &&
+                    step_writer.Write(step_path.string().c_str()) == IFSelect_RetDone,
+                "STEP contract fixture could not be written");
+        auto step_document = zima::document::PartDocument::create_default();
+        step_document.history.push_back(
+            zima::document::PartDocument::create_imported_step_container(step_path));
+        const auto step_boundaries = kernel.evaluate_history(
+            step_document.kernel_operations());
+        require(step_boundaries.size() == 1 &&
+                    std::abs(step_boundaries.back().volume - 480.0) < 1.0e-6 &&
+                    !step_boundaries.back().mesh.original_references
+                        .triangle_references.empty(),
+                "Imported STEP did not create calculated body and original references");
+        const auto step_document_path = std::filesystem::temp_directory_path() /
+            "zima-cad-imported-step-contract.zcp.json";
+        step_document.save(step_document_path, step_boundaries);
+        std::vector<zima::kernel::BodyResult> loaded_step_boundaries;
+        const auto loaded_step_document = zima::document::PartDocument::load(
+            step_document_path, &loaded_step_boundaries);
+        std::filesystem::remove(step_document_path);
+        std::filesystem::remove(step_path);
+        require(loaded_step_document.history.size() == 1 &&
+                    loaded_step_document.history.front().feature_kind ==
+                        zima::document::FeatureKind::ImportedStep &&
+                    loaded_step_boundaries.size() == 1,
+                "Imported STEP container did not survive Part save/load");
         const auto body = kernel.make_box({100.0, 80.0, 50.0});
         require(std::abs(body.volume - 400000.0) < 1e-6, "Incorrect box volume");
         require(std::abs(body.surface_area - 34000.0) < 1e-6,

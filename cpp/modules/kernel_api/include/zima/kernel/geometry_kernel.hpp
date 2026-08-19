@@ -179,6 +179,11 @@ struct RevolutionRequest {
     double angle_degrees{360.0};
 };
 
+struct StepRequest {
+    std::string source_path;
+    std::string component_path;
+};
+
 enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };
 
 struct FilletRequest {
@@ -203,7 +208,7 @@ struct BoxOperation {
 
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, ExtrusionRequest, RevolutionRequest,
-    FilletRequest, ChamferRequest>;
+    StepRequest, FilletRequest, ChamferRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -447,6 +452,11 @@ struct BodyResult {
                         primitive.angle_degrees}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
+            } else if constexpr (std::is_same_v<Request, StepRequest>) {
+                u64(primitive.source_path.size());
+                for (const unsigned char value : primitive.source_path) byte(value);
+                u64(primitive.component_path.size());
+                for (const unsigned char value : primitive.component_path) byte(value);
             } else {
                 u64(primitive.edge.owner_id.size());
                 for (const unsigned char value : primitive.edge.owner_id) byte(value);

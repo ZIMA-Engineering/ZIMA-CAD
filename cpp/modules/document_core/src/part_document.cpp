@@ -646,6 +646,20 @@ HistoryContainer PartDocument::create_chamfer_container(
     return container;
 }
 
+HistoryContainer PartDocument::create_imported_step_container(
+    std::filesystem::path source_path, std::string component_path,
+    std::string component_name) {
+    if (source_path.empty()) throw std::invalid_argument("STEP source path is empty");
+    HistoryContainer container;
+    container.id = make_id();
+    container.name = component_name.empty() ? source_path.stem().string()
+                                            : std::move(component_name);
+    container.feature_kind = FeatureKind::ImportedStep;
+    container.imported_step.source_path = source_path.generic_string();
+    container.imported_step.component_path = std::move(component_path);
+    return container;
+}
+
 HistoryContainer* PartDocument::find_container(const std::string& id) {
     const auto found = std::find_if(history.begin(), history.end(),
         [&](const HistoryContainer& container) { return container.id == id; });
@@ -713,6 +727,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             primitive = revolution_request(
                 *sketch, container.revolution.axis,
                 container.revolution.angle_degrees);
+        } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            zima::kernel::StepRequest step{
+                container.imported_step.source_path,
+                container.imported_step.component_path};
+            primitive = std::move(step);
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::FilletRequest{
@@ -747,7 +766,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 4) {
+        root.at("format_version").get<int>() != 5) {
         throw std::runtime_error("Unsupported C++ prototype document format");
     }
     PartDocument document;
@@ -761,13 +780,15 @@ PartDocument PartDocument::load(
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
         if (type != "box" && type != "cylinder" && type != "extrusion" &&
-            type != "revolution" && type != "fillet" && type != "chamfer") {
+            type != "revolution" && type != "imported_step" &&
+            type != "fillet" && type != "chamfer") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
         container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
             : type == "extrusion" ? FeatureKind::Extrusion
             : type == "revolution" ? FeatureKind::Revolution
+            : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
@@ -833,6 +854,14 @@ PartDocument PartDocument::load(
                 container.revolution.angle_degrees <= 0.0 ||
                 container.revolution.angle_degrees > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
+            }
+        } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            container.imported_step.source_path = source.at("source_path").get<std::string>();
+            container.imported_step.component_path =
+                source.at("component_path").get<std::string>();
+            if (container.imported_step.source_path.empty() ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid imported STEP parameters");
             }
         } else {
             container.edge_treatment.edge = {
@@ -1018,6 +1047,11 @@ void PartDocument::save(
                 container.revolution.angle_degrees > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            if (container.imported_step.source_path.empty() ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid imported STEP parameters");
+            }
         } else if (!container.edge_treatment.edge.valid() ||
                    !container.edge_treatment.edge.instance_path.empty() ||
                    !std::isfinite(container.edge_treatment.size) ||
@@ -1041,6 +1075,8 @@ void PartDocument::save(
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
                     ? "revolution"
+                : container.feature_kind == FeatureKind::ImportedStep
+                    ? "imported_step"
                 : container.feature_kind == FeatureKind::Fillet
                     ? "fillet" : "chamfer"},
             {"name", container.name},
@@ -1080,6 +1116,9 @@ void PartDocument::save(
             serialized["axis"] = container.revolution.axis == RevolutionAxis::SketchX
                 ? "sketch_x" : "sketch_y";
             serialized["angle_degrees"] = container.revolution.angle_degrees;
+        } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            serialized["source_path"] = container.imported_step.source_path;
+            serialized["component_path"] = container.imported_step.component_path;
         } else {
             serialized["edge_owner"] = container.edge_treatment.edge.owner_id;
             serialized["edge_key"] = container.edge_treatment.edge.semantic_key;
@@ -1120,7 +1159,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 4},
+        {"format_version", 5},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

@@ -9,6 +9,7 @@
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/interchange/interchange.hpp>
 #include <zima/interchange/dxf.hpp>
+#include <zima/interchange/step.hpp>
 
 #include <QAction>
 #include <QBrush>
@@ -26,7 +27,9 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cctype>
 #include <set>
+#include <unordered_map>
 #include <type_traits>
 
 namespace zima::app {
@@ -869,7 +872,170 @@ void AssemblyWorkspaceWindow::import_file() {
         }
         return;
     }
+    if (format == zima::interchange::Format::Step) {
+        auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (part == nullptr) {
+            if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
+                try { import_step_into_assembly(path.toStdString()); }
+                catch (const std::exception& error) {
+                    QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
+                }
+            }
+            return;
+        }
+        try {
+            auto next = part->session.document();
+            const auto absolute = std::filesystem::absolute(path.toStdString());
+            const auto imported_parts = zima::interchange::inspect_step_parts(absolute);
+            if (imported_parts.empty()) {
+                throw std::runtime_error("STEP neobsahuje žádný samostatný díl");
+            }
+            std::size_t part_count{};
+            for (const auto& imported : imported_parts) {
+                if (imported.assembly) continue;
+                auto container =
+                    zima::document::PartDocument::create_imported_step_container(
+                        absolute, imported.definition_id, imported.name);
+                container.placement = {imported.global_x, imported.global_y,
+                    imported.global_z, imported.global_rotation_x,
+                    imported.global_rotation_y, imported.global_rotation_z};
+                next.history.push_back(std::move(container));
+                ++part_count;
+            }
+            if (part_count == 0) throw std::runtime_error("STEP neobsahuje žádný díl");
+            part->session.commit(next, calculate_part(next));
+            refresh_tabs();
+            refresh_scene();
+            state_->setText(tr("STEP importován: %1 samostatných kontejnerů")
+                .arg(part_count));
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
+        }
+        return;
+    }
     state_->setText(tr("Importní soubor připraven: %1").arg(path));
+}
+
+void AssemblyWorkspaceWindow::import_step_into_assembly(
+    const std::filesystem::path& source_path) {
+    const std::string target_id = workspace_.active_document_id();
+    if (workspace_.open_assembly(target_id) == nullptr) {
+        throw std::runtime_error("Aktivní dokument není sestava");
+    }
+    const auto source = std::filesystem::absolute(source_path);
+    const auto nodes = zima::interchange::inspect_step_parts(source);
+    if (nodes.empty()) throw std::runtime_error("STEP neobsahuje produktovou strukturu");
+    const auto safe_name = [](std::string name) {
+        for (auto& value : name) {
+            const unsigned char byte = static_cast<unsigned char>(value);
+            if (!std::isalnum(byte) && value != '-' && value != '_') value = '_';
+        }
+        return name.empty() ? std::string{"step"} : name;
+    };
+    auto* target_state = workspace_.open_assembly(target_id);
+    const auto base = target_state->path.empty() ? source.parent_path()
+        : target_state->path.parent_path();
+    const auto output_directory = base / (safe_name(source.stem().string()) + "_zima");
+    std::filesystem::create_directories(output_directory);
+
+    std::vector<std::string> part_definitions;
+    std::unordered_map<std::string, const zima::interchange::StepPart*> part_nodes;
+    for (const auto& node : nodes) if (!node.assembly && !part_nodes.contains(node.definition_id)) {
+        part_nodes.emplace(node.definition_id, &node);
+        part_definitions.push_back(node.definition_id);
+    }
+    std::vector<zima::kernel::StepRequest> requests;
+    for (const auto& definition : part_definitions) requests.push_back({source.string(), definition});
+    const auto calculated = kernel_.import_step_components(requests);
+    if (calculated.size() != part_definitions.size()) {
+        throw std::runtime_error("STEP díly nebyly vypočteny kompletně");
+    }
+    std::unordered_map<std::string, std::string> source_documents;
+    std::unordered_map<std::string, std::filesystem::path> source_paths;
+    for (std::size_t index = 0; index < part_definitions.size(); ++index) {
+        const auto* node = part_nodes.at(part_definitions[index]);
+        auto document = zima::document::PartDocument::create_default();
+        document.name = node->name;
+        auto container = zima::document::PartDocument::create_imported_step_container(
+            source, node->definition_id, node->name);
+        container.id = "step-import:" + std::to_string(index);
+        document.history.push_back(std::move(container));
+        const auto path = output_directory /
+            (safe_name(node->name) + "_" + std::to_string(index + 1) + ".zcp.json");
+        document.save(path, {calculated[index]});
+        source_documents[node->definition_id] = document.document_id;
+        source_paths[node->definition_id] = path;
+        workspace_.add_part(std::move(document), {calculated[index]}, path);
+    }
+
+    std::vector<const zima::interchange::StepPart*> assemblies;
+    std::unordered_map<std::string, const zima::interchange::StepPart*> assembly_nodes;
+    for (const auto& node : nodes) if (node.assembly && !assembly_nodes.contains(node.definition_id)) {
+        assembly_nodes.emplace(node.definition_id, &node);
+        assemblies.push_back(&node);
+    }
+    std::ranges::sort(assemblies, [](const auto* left, const auto* right) {
+        return std::ranges::count(left->component_path, '/') >
+               std::ranges::count(right->component_path, '/');
+    });
+    for (const auto* assembly_node : assemblies) {
+        auto document = zima::assembly::AssemblyDocument::create_default();
+        document.name = assembly_node->name;
+        for (const auto& child : nodes) {
+            if (child.parent_path != assembly_node->component_path) continue;
+            const auto id = source_documents.find(child.definition_id);
+            if (id == source_documents.end()) continue;
+            zima::assembly::PartOccurrence occurrence;
+            if (child.assembly) {
+                const auto* child_document = workspace_.open_assembly(id->second);
+                occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                    child.name, id->second, source_paths.at(child.definition_id),
+                    child_document->session.document());
+            } else {
+                const auto* child_document = workspace_.open_part(id->second);
+                occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
+                    child.name, id->second, source_paths.at(child.definition_id),
+                    child_document->session.calculated_boundaries().back());
+            }
+            occurrence.placement = {child.x, child.y, child.z,
+                child.rotation_x, child.rotation_y, child.rotation_z};
+            document.components.push_back(std::move(occurrence));
+        }
+        const auto path = output_directory /
+            (safe_name(assembly_node->name) + "_assembly_" +
+             std::to_string(source_documents.size() + 1) + ".zca.json");
+        document.save(path);
+        source_documents[assembly_node->definition_id] = document.document_id;
+        source_paths[assembly_node->definition_id] = path;
+        workspace_.add_assembly(std::move(document), path);
+    }
+
+    auto next = workspace_.open_assembly(target_id)->session.document();
+    for (const auto& root : nodes) {
+        if (!root.parent_path.empty()) continue;
+        const auto id = source_documents.find(root.definition_id);
+        if (id == source_documents.end()) continue;
+        zima::assembly::PartOccurrence occurrence;
+        if (root.assembly) {
+            const auto* generated = workspace_.open_assembly(id->second);
+            occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                root.name, id->second, source_paths.at(root.definition_id),
+                generated->session.document());
+        } else {
+            const auto* generated = workspace_.open_part(id->second);
+            occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
+                root.name, id->second, source_paths.at(root.definition_id),
+                generated->session.calculated_boundaries().back());
+        }
+        occurrence.placement = {root.x, root.y, root.z,
+            root.rotation_x, root.rotation_y, root.rotation_z};
+        next.components.push_back(std::move(occurrence));
+    }
+    workspace_.open_assembly(target_id)->session.commit(std::move(next));
+    refresh_tabs();
+    refresh_scene();
+    state_->setText(tr("STEP sestava importována: %1 unikátních Partů, %2 podsestav")
+        .arg(part_definitions.size()).arg(assemblies.size()));
 }
 
 void AssemblyWorkspaceWindow::export_file() {
@@ -945,7 +1111,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     }
     if (!edit_mode && (feature_kind == zima::document::FeatureKind::Fillet ||
-                       feature_kind == zima::document::FeatureKind::Chamfer)) return;
+                       feature_kind == zima::document::FeatureKind::Chamfer ||
+                       feature_kind == zima::document::FeatureKind::ImportedStep)) return;
     const auto initial = edit_mode ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
             ? zima::document::PartDocument::create_cylinder_container()

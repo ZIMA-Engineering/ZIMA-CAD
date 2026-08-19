@@ -20,7 +20,9 @@ QString primitive_label(zima::document::FeatureKind kind) {
         : kind == zima::document::FeatureKind::Fillet
             ? QObject::tr("zaoblení")
         : kind == zima::document::FeatureKind::Chamfer
-            ? QObject::tr("sražení") : QObject::tr("kvádru");
+            ? QObject::tr("sražení")
+        : kind == zima::document::FeatureKind::ImportedStep
+            ? QObject::tr("importovaného STEP") : QObject::tr("kvádru");
 }
 
 }  // namespace
@@ -43,7 +45,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                   : initial.feature_kind == zima::document::FeatureKind::Fillet
                       ? tr("Nové zaoblení")
                   : initial.feature_kind == zima::document::FeatureKind::Chamfer
-                      ? tr("Nové sražení") : tr("Nový kvádr"),
+                      ? tr("Nové sražení")
+                  : initial.feature_kind == zima::document::FeatureKind::ImportedStep
+                      ? tr("Import STEP") : tr("Nový kvádr"),
           parent),
       initial_(initial), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -127,6 +131,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         angle_->setObjectName("revolutionAngle");
         angle_->setValue(initial.revolution.angle_degrees);
         form->addRow(tr("Úhel"), angle_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
+        auto* source = new QLabel(
+            QString::fromStdString(initial.imported_step.source_path), this);
+        source->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        source->setWordWrap(true);
+        form->addRow(tr("Zdrojový soubor"), source);
     } else {
         auto* edge = new QLabel(
             QString::fromStdString(initial.edge_treatment.edge.owner_id + " / " +
@@ -150,7 +160,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         return field;
     };
     if (initial.feature_kind == zima::document::FeatureKind::Box ||
-        initial.feature_kind == zima::document::FeatureKind::Cylinder) {
+        initial.feature_kind == zima::document::FeatureKind::Cylinder ||
+        initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         translation_ = {
             placement(initial.placement.x, false),
             placement(initial.placement.y, false),
@@ -215,11 +226,12 @@ bool PrimitivePropertiesDialog::submit() {
                 ? zima::document::RevolutionAxis::SketchY
                 : zima::document::RevolutionAxis::SketchX;
         result.revolution.angle_degrees = angle_->value();
-    } else {
+    } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
         result.edge_treatment.size = treatment_size_->value();
     }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
-        result.feature_kind == zima::document::FeatureKind::Cylinder) {
+        result.feature_kind == zima::document::FeatureKind::Cylinder ||
+        result.feature_kind == zima::document::FeatureKind::ImportedStep) {
         result.placement = {
             translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
             rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),

@@ -5,6 +5,13 @@
 #include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_SurfaceType.hxx>
 #include <STEPControl_Reader.hxx>
+#include <STEPCAFControl_Reader.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDocStd_Document.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFPrs_DocumentExplorer.hxx>
+#include <TDF_Tool.hxx>
+#include <gp_Quaternion.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
@@ -74,6 +81,64 @@ PlanarCurve extract_curve(const TopoDS_Edge& edge, const gp_Ax3& frame) {
 }
 
 }  // namespace
+
+std::vector<StepPart> inspect_step_parts(
+    const std::filesystem::path& path, std::size_t maximum_parts) {
+    if (maximum_parts == 0) throw std::invalid_argument("Limit STEP dílů musí být kladný");
+    Handle(TDocStd_Document) document;
+    XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
+    STEPCAFControl_Reader reader;
+    if (reader.ReadFile(path.string().c_str()) != IFSelect_RetDone ||
+        !reader.Transfer(document)) {
+        throw std::runtime_error("STEP produktovou strukturu nelze načíst");
+    }
+    std::vector<StepPart> result;
+    XCAFPrs_DocumentExplorer explorer(
+        document, XCAFPrs_DocumentExplorerFlags_NoStyle);
+    for (; explorer.More(); explorer.Next()) {
+        if (result.size() == maximum_parts) {
+            throw std::runtime_error("STEP obsahuje příliš mnoho dílů");
+        }
+        const auto& node = explorer.Current();
+        std::string name = "STEP díl " + std::to_string(result.size() + 1);
+        Handle(TDataStd_Name) attribute;
+        const TDF_Label& name_label = node.RefLabel.IsNull() ? node.Label : node.RefLabel;
+        if (name_label.FindAttribute(TDataStd_Name::GetID(), attribute)) {
+            const auto& extended = attribute->Get();
+            std::vector<char> utf8(static_cast<std::size_t>(extended.LengthOfCString()) + 1);
+            Standard_PCharacter buffer = utf8.data();
+            extended.ToUTF8CString(buffer);
+            if (utf8.front() != '\0') name = utf8.data();
+        }
+        TCollection_AsciiString definition;
+        TDF_Tool::Entry(node.RefLabel.IsNull() ? node.Label : node.RefLabel, definition);
+        std::string parent_path;
+        const auto depth = explorer.CurrentDepth();
+        if (depth > 0) parent_path = explorer.Current(depth - 1).Id.ToCString();
+        const gp_Trsf transform = node.LocalTrsf.Transformation();
+        double rotation_x{};
+        double rotation_y{};
+        double rotation_z{};
+        transform.GetRotation().GetEulerAngles(
+            gp_Intrinsic_XYZ, rotation_x, rotation_y, rotation_z);
+        constexpr double degrees = 180.0 / 3.14159265358979323846;
+        const auto translation = transform.TranslationPart();
+        const gp_Trsf global_transform = node.Location.Transformation();
+        double global_rx{};
+        double global_ry{};
+        double global_rz{};
+        global_transform.GetRotation().GetEulerAngles(
+            gp_Intrinsic_XYZ, global_rx, global_ry, global_rz);
+        const auto global_translation = global_transform.TranslationPart();
+        result.push_back({node.Id.ToCString(), std::move(parent_path),
+            definition.ToCString(), std::move(name), node.IsAssembly,
+            translation.X(), translation.Y(), translation.Z(),
+            rotation_x * degrees, rotation_y * degrees, rotation_z * degrees,
+            global_translation.X(), global_translation.Y(), global_translation.Z(),
+            global_rx * degrees, global_ry * degrees, global_rz * degrees});
+    }
+    return result;
+}
 
 std::vector<StepPlanarFace> extract_step_planar_faces(
     const std::filesystem::path& path, std::size_t maximum_faces) {

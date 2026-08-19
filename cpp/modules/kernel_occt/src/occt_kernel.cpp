@@ -17,6 +17,15 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRep_Builder.hxx>
+#include <STEPControl_Reader.hxx>
+#include <STEPCAFControl_Reader.hxx>
+#include <TDocStd_Document.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFPrs_DocumentExplorer.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
+#include <TDF_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -53,6 +62,7 @@
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace zima::kernel {
@@ -679,6 +689,54 @@ PrimitiveData make_extrusion_data(
     return result;
 }
 
+PrimitiveData make_step_data(
+    const StepRequest& request, const std::string& owner_id,
+    std::unordered_map<std::string, Handle(TDocStd_Document)>& documents) {
+    if (request.source_path.empty()) throw std::invalid_argument("STEP source path is empty");
+    TopoDS_Shape imported;
+    if (request.component_path.empty()) {
+        STEPControl_Reader reader;
+        if (reader.ReadFile(request.source_path.c_str()) != IFSelect_RetDone ||
+            reader.TransferRoots() == 0) {
+            throw std::runtime_error("OCCT STEP import failed");
+        }
+        imported = reader.OneShape();
+    } else {
+        auto& document = documents[request.source_path];
+        if (document.IsNull()) {
+            XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
+            STEPCAFControl_Reader reader;
+            if (reader.ReadFile(request.source_path.c_str()) != IFSelect_RetDone ||
+                !reader.Transfer(document)) {
+                throw std::runtime_error("OCCT STEP product structure import failed");
+            }
+        }
+        TDF_Label definition;
+        TDF_Tool::Label(
+            document->GetData(), request.component_path.c_str(), definition, false);
+        imported = definition.IsNull() ? TopoDS_Shape{}
+            : XCAFDoc_DocumentTool::ShapeTool(document->Main())->GetShape(definition);
+        if (imported.IsNull()) throw std::runtime_error("STEP component is missing");
+    }
+    PrimitiveData result{std::move(imported), {}, {}, {}};
+    if (result.shape.IsNull() || !BRepCheck_Analyzer(result.shape).IsValid()) {
+        throw std::runtime_error("STEP did not produce a valid shape");
+    }
+    std::size_t index{};
+    for (TopExp_Explorer explorer(result.shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        result.faces.push_back({explorer.Current(), {owner_id, "step-face:" + std::to_string(index++)}});
+    }
+    index = 0;
+    for (TopExp_Explorer explorer(result.shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+        result.edges.push_back({explorer.Current(), {owner_id, "step-edge:" + std::to_string(index++)}});
+    }
+    index = 0;
+    for (TopExp_Explorer explorer(result.shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
+        result.vertices.push_back({explorer.Current(), {owner_id, "step-vertex:" + std::to_string(index++)}});
+    }
+    return result;
+}
+
 void validate_revolution(const RevolutionRequest& request) {
     ExtrusionRequest profile_request;
     profile_request.outer_profile = request.outer_profile;
@@ -949,6 +1007,24 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
     return evaluate_history(history);
 }
 
+std::vector<BodyResult> OcctKernel::import_step_components(
+    const std::vector<StepRequest>& requests) const {
+    std::unordered_map<std::string, Handle(TDocStd_Document)> documents;
+    std::vector<BodyResult> results;
+    results.reserve(requests.size());
+    for (std::size_t index = 0; index < requests.size(); ++index) {
+        const std::string owner = "step-import:" + std::to_string(index);
+        const auto data = make_step_data(requests[index], owner, documents);
+        auto result = make_result(data.shape, data.faces, data.edges, data.vertices);
+        auto references = make_result(
+            data.shape, data.faces, data.edges, data.vertices, true);
+        append_original_reference_geometry(
+            result.mesh.original_references, std::move(references.mesh));
+        results.push_back(std::move(result));
+    }
+    return results;
+}
+
 std::vector<BodyResult> OcctKernel::evaluate_history(
     const std::vector<HistoryOperation>& operations) const {
     if (operations.empty()) return {};
@@ -961,6 +1037,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
         std::vector<OwnedEdge> owned_edges;
         std::vector<OwnedVertex> owned_vertices;
         ViewerReferenceGeometry original_references;
+        std::unordered_map<std::string, Handle(TDocStd_Document)> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
         for (const auto& operation : operations) {
@@ -1040,6 +1117,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 apply_edge_treatment(*chamfer);
                 continue;
             }
+            const bool imported_step = std::holds_alternative<StepRequest>(operation.primitive);
             const PrimitiveData operand = std::visit([&](const auto& primitive)
                 -> PrimitiveData {
                 using Request = std::decay_t<decltype(primitive)>;
@@ -1055,6 +1133,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive, operation.owner_id);
+                } else if constexpr (std::is_same_v<Request, StepRequest>) {
+                    return make_step_data(primitive, operation.owner_id, step_documents);
                 } else {
                     throw std::logic_error("Edge treatment reached primitive builder");
                 }
@@ -1069,6 +1149,17 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 owned_faces = operand.faces;
                 owned_edges = operand.edges;
                 owned_vertices = operand.vertices;
+            } else if (imported_step && operation.operation == BooleanOperation::Add) {
+                TopoDS_Compound compound;
+                BRep_Builder builder;
+                builder.MakeCompound(compound);
+                builder.Add(compound, result_shape);
+                builder.Add(compound, operand.shape);
+                result_shape = compound;
+                owned_faces.insert(owned_faces.end(), operand.faces.begin(), operand.faces.end());
+                owned_edges.insert(owned_edges.end(), operand.edges.begin(), operand.edges.end());
+                owned_vertices.insert(
+                    owned_vertices.end(), operand.vertices.begin(), operand.vertices.end());
             } else if (operation.operation == BooleanOperation::Add) {
                 BRepAlgoAPI_Fuse algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);

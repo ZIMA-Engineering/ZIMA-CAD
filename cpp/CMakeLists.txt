@@ -55,6 +55,8 @@ target_link_libraries(zima_kernel_occt
     PRIVATE TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo
             TKTopAlgo TKPrim TKBO TKBool TKMesh)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
+target_link_libraries(zima_kernel_occt PRIVATE
+    TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
 
 add_library(zima_viewer
     modules/viewer/src/mesh_view.cpp
@@ -72,7 +74,7 @@ add_library(zima_interchange modules/interchange/src/interchange.cpp
     modules/interchange/src/step.cpp)
 target_include_directories(zima_interchange PUBLIC modules/interchange/include)
 target_link_libraries(zima_interchange PUBLIC zima_sketcher
-    PRIVATE TKDESTEP TKXSBase TKBRep TKGeomBase)
+    PRIVATE TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF TKBRep TKGeomBase)
 
 add_executable(zima-cad-cpp
     app/main.cpp app/main_window.cpp app/primitive_properties_dialog.cpp
