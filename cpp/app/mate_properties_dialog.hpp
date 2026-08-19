@@ -6,6 +6,7 @@
 #include <functional>
 
 class QDoubleSpinBox;
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 
@@ -28,6 +29,7 @@ private:
     CommitCallback commit_;
     QLineEdit* name_{};
     QDoubleSpinBox* offset_{};
+    QCheckBox* flipped_{};
     QLabel* error_{};
 };
 

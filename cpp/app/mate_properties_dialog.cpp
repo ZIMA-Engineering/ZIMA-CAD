@@ -1,6 +1,7 @@
 #include "mate_properties_dialog.hpp"
 
 #include <QDoubleSpinBox>
+#include <QCheckBox>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -37,6 +38,10 @@ MatePropertiesDialog::MatePropertiesDialog(
     offset_->setValue(initial_.offset);
     offset_->setEnabled(!axis_mate);
     form->addRow(tr("Odsazení"), offset_);
+    flipped_ = new QCheckBox(tr("Obrátit orientaci reference"), this);
+    flipped_->setChecked(initial_.flipped);
+    flipped_->setObjectName("mateFlipped");
+    form->addRow(tr("Orientace"), flipped_);
     content_layout()->addLayout(form);
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
@@ -52,6 +57,7 @@ bool MatePropertiesDialog::submit() {
     }
     initial_.name = name.toStdString();
     initial_.offset = offset_->value();
+    initial_.flipped = flipped_->isChecked();
     try {
         commit_(std::move(initial_));
     } catch (const std::exception& failure) {

@@ -173,6 +173,39 @@ int main() {
                     mated_assembly.components.back().placement.y == calculated_placement.y &&
                     mated_assembly.components.back().placement.z == calculated_placement.z,
                 "Plane mate did not calculate its offset idempotently");
+        auto flipped_plane_assembly = loaded;
+        auto flipped_plane = zima::assembly::AssemblyDocument::create_mate(
+            "Obrácená plocha",
+            zima::assembly::MateKind::PlaneCoincident,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(second_id),
+             "same-source-container", "z_min"},
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child(first_id),
+             "same-source-container", "z_max"});
+        flipped_plane.flipped = true;
+        flipped_plane_assembly.add_mate(std::move(flipped_plane));
+        flipped_plane_assembly.calculate_mates();
+        const auto flipped_dependent = flipped_plane_assembly.resolve_plane(
+            flipped_plane_assembly.mates.front().dependent);
+        const auto flipped_prerequisite = flipped_plane_assembly.resolve_plane(
+            flipped_plane_assembly.mates.front().prerequisite);
+        const double flipped_alignment =
+            flipped_dependent.plane.normal.x * flipped_prerequisite.plane.normal.x +
+            flipped_dependent.plane.normal.y * flipped_prerequisite.plane.normal.y +
+            flipped_dependent.plane.normal.z * flipped_prerequisite.plane.normal.z;
+        require(flipped_plane_assembly.mates.front().status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(flipped_alignment + 1.0) < 1.0e-7,
+                "Flipped Plane mate did not preserve opposite face orientation");
+        const auto flipped_mate_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-flipped-mate-contract.zca.json";
+        flipped_plane_assembly.save(flipped_mate_path);
+        const auto loaded_flipped_mates =
+            zima::assembly::AssemblyDocument::load(flipped_mate_path);
+        std::filesystem::remove(flipped_mate_path);
+        require(loaded_flipped_mates.mates.front().flipped,
+                "Assembly mate Flip did not survive save/load");
         auto broken_mate_assembly = mated_assembly;
         broken_mate_assembly.mates.front().dependent.semantic_key = "missing-face";
         broken_mate_assembly.calculate_mates();

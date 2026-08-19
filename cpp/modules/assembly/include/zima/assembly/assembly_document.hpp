@@ -92,6 +92,7 @@ struct AssemblyMate {
     MateReference dependent;
     MateReference prerequisite;
     double offset{};
+    bool flipped{};
     MateStatus status{MateStatus::Uncalculated};
     bool suppressed{};
     bool operator==(const AssemblyMate&) const = default;

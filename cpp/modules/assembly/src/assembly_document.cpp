@@ -113,26 +113,36 @@ RotationMatrix placement_rotation(const ComponentPlacement& placement) {
 }
 
 RotationMatrix shortest_rotation(
-    const zima::kernel::Vec3& source, zima::kernel::Vec3 target) {
+    const zima::kernel::Vec3& source, const zima::kernel::Vec3& target) {
     constexpr double epsilon = 1.0e-12;
-    if (dot(source, target) < 0.0) {
-        target = {-target.x, -target.y, -target.z};
-    }
     const auto axis = cross(source, target);
     const double sine = length(axis);
     const double cosine = std::clamp(dot(source, target), -1.0, 1.0);
-    if (sine < epsilon) return {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
-    const zima::kernel::Vec3 unit{axis.x / sine, axis.y / sine, axis.z / sine};
+    if (sine < epsilon && cosine > 0.0) {
+        return {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
+    }
+    zima::kernel::Vec3 unit;
+    if (sine < epsilon) {
+        const zima::kernel::Vec3 basis = std::abs(source.x) < 0.9
+            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+            : zima::kernel::Vec3{0.0, 1.0, 0.0};
+        unit = cross(source, basis);
+        const double magnitude = length(unit);
+        unit = {unit.x / magnitude, unit.y / magnitude, unit.z / magnitude};
+    } else {
+        unit = {axis.x / sine, axis.y / sine, axis.z / sine};
+    }
+    const double rotation_sine = sine < epsilon ? 0.0 : sine;
     const double one_minus_cosine = 1.0 - cosine;
     return {{{
         cosine + unit.x * unit.x * one_minus_cosine,
-        unit.x * unit.y * one_minus_cosine - unit.z * sine,
-        unit.x * unit.z * one_minus_cosine + unit.y * sine}, {
-        unit.y * unit.x * one_minus_cosine + unit.z * sine,
+        unit.x * unit.y * one_minus_cosine - unit.z * rotation_sine,
+        unit.x * unit.z * one_minus_cosine + unit.y * rotation_sine}, {
+        unit.y * unit.x * one_minus_cosine + unit.z * rotation_sine,
         cosine + unit.y * unit.y * one_minus_cosine,
-        unit.y * unit.z * one_minus_cosine - unit.x * sine}, {
-        unit.z * unit.x * one_minus_cosine - unit.y * sine,
-        unit.z * unit.y * one_minus_cosine + unit.x * sine,
+        unit.y * unit.z * one_minus_cosine - unit.x * rotation_sine}, {
+        unit.z * unit.x * one_minus_cosine - unit.y * rotation_sine,
+        unit.z * unit.y * one_minus_cosine + unit.x * rotation_sine,
         cosine + unit.z * unit.z * one_minus_cosine}}};
 }
 
@@ -455,7 +465,7 @@ AssemblyMate AssemblyDocument::create_mate(
         throw std::invalid_argument("Assembly mate definition is invalid");
     }
     return {make_id(), std::move(name), kind, std::move(dependent),
-            std::move(prerequisite), offset, MateStatus::Uncalculated, false};
+            std::move(prerequisite), offset, false, MateStatus::Uncalculated, false};
 }
 
 void AssemblyDocument::add_mate(AssemblyMate mate) {
@@ -628,6 +638,13 @@ void AssemblyDocument::calculate_mates() {
             dependent_normal.x * prerequisite_normal.x +
             dependent_normal.y * prerequisite_normal.y +
             dependent_normal.z * prerequisite_normal.z;
+        const zima::kernel::Vec3 desired_normal = mate.flipped
+            ? zima::kernel::Vec3{-prerequisite_normal.x, -prerequisite_normal.y,
+                                 -prerequisite_normal.z}
+            : alignment < 0.0
+                ? zima::kernel::Vec3{-prerequisite_normal.x, -prerequisite_normal.y,
+                                     -prerequisite_normal.z}
+                : prerequisite_normal;
         auto* occurrence = find_occurrence(
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
@@ -638,9 +655,12 @@ void AssemblyDocument::calculate_mates() {
             mate.status = MateStatus::Valid;
             return;
         }
-        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
+        const bool orientation_satisfied = mate.flipped
+            ? std::abs(alignment + 1.0) <= parallel_tolerance
+            : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
+        if (!orientation_satisfied) {
             rotate_occurrence_about(*occurrence,
-                shortest_rotation(dependent_normal, prerequisite_normal),
+                shortest_rotation(dependent_normal, desired_normal),
                 dependent_plane.plane.point);
         }
         const auto aligned_dependent = resolve_plane(mate.dependent);
@@ -681,6 +701,15 @@ void AssemblyDocument::calculate_mates() {
             dependent.axis.direction.x * prerequisite.axis.direction.x +
             dependent.axis.direction.y * prerequisite.axis.direction.y +
             dependent.axis.direction.z * prerequisite.axis.direction.z;
+        const zima::kernel::Vec3 desired_direction = mate.flipped
+            ? zima::kernel::Vec3{-prerequisite.axis.direction.x,
+                                 -prerequisite.axis.direction.y,
+                                 -prerequisite.axis.direction.z}
+            : alignment < 0.0
+                ? zima::kernel::Vec3{-prerequisite.axis.direction.x,
+                                     -prerequisite.axis.direction.y,
+                                     -prerequisite.axis.direction.z}
+                : prerequisite.axis.direction;
         auto* occurrence = find_occurrence(
             mate.dependent.instance_path.occurrence_ids.front());
         if (occurrence == nullptr) {
@@ -691,9 +720,12 @@ void AssemblyDocument::calculate_mates() {
             mate.status = MateStatus::Valid;
             return;
         }
-        if (std::abs(std::abs(alignment) - 1.0) > parallel_tolerance) {
+        const bool orientation_satisfied = mate.flipped
+            ? std::abs(alignment + 1.0) <= parallel_tolerance
+            : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
+        if (!orientation_satisfied) {
             rotate_occurrence_about(*occurrence,
-                shortest_rotation(dependent.axis.direction, prerequisite.axis.direction),
+                shortest_rotation(dependent.axis.direction, desired_direction),
                 dependent.axis.point);
         }
         const auto aligned_dependent = resolve_axis(mate.dependent);
@@ -755,7 +787,9 @@ void AssemblyDocument::calculate_mates() {
             const double alignment = dot(
                 dependent.axis.direction, prerequisite.axis.direction);
             conflicts[index] =
-                std::abs(std::abs(alignment) - 1.0) > parallel_tolerance ||
+                (mate.flipped
+                    ? std::abs(alignment + 1.0)
+                    : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
                 std::sqrt(
                 radial.x * radial.x + radial.y * radial.y + radial.z * radial.z) >
                 parallel_tolerance;
@@ -775,7 +809,9 @@ void AssemblyDocument::calculate_mates() {
             const double alignment = dot(
                 dependent.plane.normal, prerequisite.plane.normal);
             conflicts[index] =
-                std::abs(std::abs(alignment) - 1.0) > parallel_tolerance ||
+                (mate.flipped
+                    ? std::abs(alignment + 1.0)
+                    : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
                 std::abs(offset - mate.offset) > parallel_tolerance;
         }
     }
@@ -980,7 +1016,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 2 ||
+        root.at("format_version").get<int>() != 3 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported C++ Assembly document format");
     }
@@ -1071,6 +1107,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         mate.dependent = load_reference(source.at("dependent"));
         mate.prerequisite = load_reference(source.at("prerequisite"));
         mate.offset = source.at("offset").get<double>();
+        mate.flipped = source.at("flipped").get<bool>();
         mate.status = mate_status_from_name(source.at("status").get<std::string>());
         mate.suppressed = source.at("suppressed").get<bool>();
         document.add_mate(std::move(mate));
@@ -1132,12 +1169,13 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"kind", mate_kind_name(mate.kind)},
             {"dependent", serialize_reference(mate.dependent)},
             {"prerequisite", serialize_reference(mate.prerequisite)},
-            {"offset", mate.offset}, {"status", mate_status_name(mate.status)},
+            {"offset", mate.offset}, {"flipped", mate.flipped},
+            {"status", mate_status_name(mate.status)},
             {"suppressed", mate.suppressed},
         });
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 2},
+        {"format", "zima-cad-cpp"}, {"format_version", 3},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

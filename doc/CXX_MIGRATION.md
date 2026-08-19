@@ -261,6 +261,12 @@ nešíří. Obnovení předpokladu automaticky obnoví jen odvozeně potlačené
 komponenty, zatímco jejich vlastní ruční potlačení zůstává zachované. Cyklus
 je odmítnut už při vložení vazby.
 
+Rovinné a osové sestavové vazby persistují také explicitní `Flip`. Bez Flipu
+solver zachová nejbližší rovnoběžnou orientaci, takže zbytečně nepřetočí již
+ustavený díl a neporuší jinou platnou vazbu. Zapnutý Flip vyžaduje opačný směr
+normál nebo os, je součástí stejného interního Properties dialogu a přežije
+uložení i opětovný výpočet sestavy.
+
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
 ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní
