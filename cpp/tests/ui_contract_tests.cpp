@@ -4,16 +4,24 @@
 #include "mate_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
+#include "file_dialog.hpp"
 
 #include <QApplication>
+#include <QAbstractProxyModel>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QFileDialog>
+#include <QFileSystemModel>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QTimer>
 #include <QWidget>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -315,7 +323,7 @@ int main(int argc, char* argv[]) {
 
         zima::kernel::BodyResult component_body;
         auto component = zima::assembly::AssemblyDocument::create_part_occurrence(
-            "Komponenta", "source-part", "source.zcp.json", component_body);
+            "Komponenta", "source-part", "source.prtz", component_body);
         const std::string source_id = component.source_document_id;
         int component_commits = 0;
         zima::assembly::PartOccurrence committed_component;
@@ -486,6 +494,74 @@ int main(int argc, char* argv[]) {
         require(dimension_commits == 1 && committed_dimension.lower_limit == 0.0 &&
                     committed_dimension.upper_limit == 20.0,
                 "Sketch dimension Properties did not commit its absolute limits");
+
+        const auto file_dialog_directory = std::filesystem::temp_directory_path() /
+            ("zima-cad-file-dialog-contract-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(file_dialog_directory / "0000-index");
+        std::filesystem::create_directories(file_dialog_directory / "visible-folder");
+        std::ofstream(file_dialog_directory / "visible.prtz") << "{}";
+        std::ofstream(file_dialog_directory / "0000-index.prtz") << "{}";
+        bool file_dialog_inspected = false;
+        bool file_dialog_contents_valid = false;
+        int file_dialog_attempts = 0;
+        QTimer file_dialog_probe;
+        file_dialog_probe.setInterval(10);
+        QObject::connect(&file_dialog_probe, &QTimer::timeout, [&] {
+            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (dialog == nullptr) return;
+            if (++file_dialog_attempts > 200) {
+                file_dialog_inspected = true;
+                dialog->reject();
+                return;
+            }
+            auto* proxy = dialog->proxyModel();
+            auto* files = proxy == nullptr
+                ? nullptr : qobject_cast<QFileSystemModel*>(proxy->sourceModel());
+            if (files == nullptr) return;
+            const auto source_root = files->index(
+                QString::fromStdString(file_dialog_directory.string()));
+            if (!source_root.isValid()) return;
+            const auto root = proxy->mapFromSource(source_root);
+            QStringList names;
+            for (int row = 0; row < proxy->rowCount(root); ++row)
+                names.push_back(proxy->index(row, 0, root).data().toString());
+            if (!names.contains("visible-folder") || !names.contains("visible.prtz") ||
+                !names.contains("0000-index.prtz")) return;
+            const bool hidden_index = !names.contains("0000-index");
+            proxy->sort(0, Qt::DescendingOrder);
+            const auto sorted_root = proxy->mapFromSource(source_root);
+            bool file_seen = false;
+            bool directories_first = true;
+            for (int row = 0; row < proxy->rowCount(sorted_root); ++row) {
+                const bool directory = files->fileInfo(
+                    proxy->mapToSource(proxy->index(row, 0, sorted_root))).isDir();
+                if (!directory) file_seen = true;
+                else if (file_seen) directories_first = false;
+            }
+            file_dialog_contents_valid = hidden_index && directories_first;
+            file_dialog_inspected = true;
+            dialog->reject();
+        });
+        file_dialog_probe.start();
+        QTimer file_dialog_timeout;
+        file_dialog_timeout.setSingleShot(true);
+        QObject::connect(&file_dialog_timeout, &QTimer::timeout, [] {
+            if (auto* dialog = qobject_cast<QFileDialog*>(
+                    QApplication::activeModalWidget())) dialog->reject();
+        });
+        file_dialog_timeout.start(3000);
+        const auto selected_file = zima::app::open_file(
+            &parent, "File dialog contract",
+            QString::fromStdString(file_dialog_directory.string()),
+            "ZIMA-CAD Part (*.prtz)");
+        file_dialog_probe.stop();
+        file_dialog_timeout.stop();
+        std::filesystem::remove_all(file_dialog_directory);
+        require(selected_file.isEmpty(),
+                "Rejected file dialog unexpectedly returned a selection");
+        require(file_dialog_inspected && file_dialog_contents_valid,
+                "File dialog did not hide 0000-index or keep directories first");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

@@ -42,7 +42,7 @@ int main() {
                         .triangle_references.empty(),
                 "Imported STEP did not create calculated body and original references");
         const auto step_document_path = std::filesystem::temp_directory_path() /
-            "zima-cad-imported-step-contract.zcp.json";
+            "zima-cad-imported-step-contract.prtz";
         step_document.save(step_document_path, step_boundaries);
         std::vector<zima::kernel::BodyResult> loaded_step_boundaries;
         const auto loaded_step_document = zima::document::PartDocument::load(
@@ -299,7 +299,7 @@ int main() {
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
         const auto empty_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-empty-contract.zcp.json";
+            "zima-cad-cpp-empty-contract.prtz";
         document.save(empty_path);
         const auto empty_loaded = zima::document::PartDocument::load(empty_path);
         std::filesystem::remove(empty_path);
@@ -324,7 +324,7 @@ int main() {
         const auto part_sketch_id = part_sketch.id;
         document.sketches.push_back(std::move(part_sketch));
         const auto path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-contract.zcp.json";
+            "zima-cad-cpp-contract.prtz";
         auto persisted_boundaries =
             kernel.evaluate_history(document.kernel_operations());
         persisted_boundaries.back().mesh.dimensions.push_back({
@@ -394,7 +394,7 @@ int main() {
         const auto cylinder_results =
             kernel.evaluate_history(cylinder_document.kernel_operations());
         const auto cylinder_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-cylinder-contract.zcp.json";
+            "zima-cad-cpp-cylinder-contract.prtz";
         cylinder_document.save(cylinder_path, cylinder_results);
         std::vector<zima::kernel::BodyResult> loaded_cylinder_results;
         const auto loaded_cylinder = zima::document::PartDocument::load(
@@ -412,7 +412,7 @@ int main() {
         sphere_document.history.push_back(sphere_container);
         const auto sphere_results = kernel.evaluate_history(sphere_document.kernel_operations());
         const auto sphere_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-sphere-contract.zcp.json";
+            "zima-cad-cpp-sphere-contract.prtz";
         sphere_document.save(sphere_path, sphere_results);
         std::vector<zima::kernel::BodyResult> loaded_sphere_results;
         const auto loaded_sphere = zima::document::PartDocument::load(
@@ -429,7 +429,7 @@ int main() {
         cone_document.history.push_back(cone_container);
         const auto cone_results = kernel.evaluate_history(cone_document.kernel_operations());
         const auto cone_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-cone-contract.zcp.json";
+            "zima-cad-cpp-cone-contract.prtz";
         cone_document.save(cone_path, cone_results);
         const auto loaded_cone = zima::document::PartDocument::load(cone_path);
         std::filesystem::remove(cone_path);
@@ -446,7 +446,7 @@ int main() {
         poly_document.history = {pyramid_container, wedge_container};
         const auto poly_results = kernel.evaluate_history(poly_document.kernel_operations());
         const auto poly_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-poly-primitives-contract.zcp.json";
+            "zima-cad-cpp-poly-primitives-contract.prtz";
         poly_document.save(poly_path, poly_results);
         const auto loaded_poly = zima::document::PartDocument::load(poly_path);
         std::filesystem::remove(poly_path);
@@ -473,7 +473,7 @@ int main() {
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
         const auto construction_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-constructions-contract.zcp.json";
+            "zima-cad-cpp-constructions-contract.prtz";
         constructions.save(construction_path);
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
@@ -544,7 +544,7 @@ int main() {
                         extrusion_results.front().source_fingerprint,
                 "Symmetric Extrusion is not centered on the Sketch plane");
         const auto extrusion_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-extrusion-contract.zcp.json";
+            "zima-cad-cpp-extrusion-contract.prtz";
         symmetric_extrusion_document.save(
             extrusion_path, symmetric_extrusion_results);
         std::vector<zima::kernel::BodyResult> loaded_extrusion_results;
@@ -776,7 +776,7 @@ int main() {
                     spline_up_to_results.back().volume > spline_boundary.volume,
                 "Extrusion could not terminate on a B-spline Extrusion surface");
         const auto spline_target_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-spline-up-to-contract.zcp.json";
+            "zima-cad-cpp-spline-up-to-contract.prtz";
         spline_target_document.save(spline_target_path, spline_up_to_results);
         const auto loaded_spline_target =
             zima::document::PartDocument::load(spline_target_path);
@@ -788,7 +788,7 @@ int main() {
                         spline_side_triangles.size(),
                 "B-spline Up-to target triangulation did not survive save/load");
         const auto up_to_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-up-to-contract.zcp.json";
+            "zima-cad-cpp-up-to-contract.prtz";
         up_to_document.save(up_to_path, up_to_results);
         const auto loaded_up_to = zima::document::PartDocument::load(up_to_path);
         std::filesystem::remove(up_to_path);
@@ -1191,7 +1191,7 @@ int main() {
                     partial_revolution_faces.contains("profile_end"),
                 "Partial Revolution lost its start or end profile face");
         const auto revolution_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-revolution-contract.zcp.json";
+            "zima-cad-cpp-revolution-contract.prtz";
         half_revolution_document.save(revolution_path, half_revolution_results);
         std::vector<zima::kernel::BodyResult> loaded_revolution_results;
         const auto loaded_revolution = zima::document::PartDocument::load(

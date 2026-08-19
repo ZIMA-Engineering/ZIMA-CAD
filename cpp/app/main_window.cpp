@@ -1,9 +1,9 @@
 #include "main_window.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "file_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
-#include <QFileDialog>
 #include <QAction>
 #include <QFont>
 #include <QCloseEvent>
@@ -25,7 +25,7 @@ namespace zima::app {
 
 MainWindow::MainWindow()
     : session_(zima::document::PartDocument::create_default()) {
-    setWindowTitle(tr("ZIMA-CAD C++ – první řez"));
+    setWindowTitle(tr("ZIMA-CAD"));
     resize(1100, 720);
     create_actions();
     create_layout();
@@ -314,8 +314,8 @@ void MainWindow::new_document() {
 
 void MainWindow::open_document() {
     if (properties_dialog_ != nullptr || !confirm_document_replacement()) return;
-    const QString selected = QFileDialog::getOpenFileName(
-        this, tr("Otevřít C++ prototyp"), {}, tr("ZIMA-CAD C++ Part (*.zcp.json)"));
+    const QString selected = open_file(
+        this, tr("Otevřít díl"), {}, tr("ZIMA-CAD díl (*.prtz)"));
     if (selected.isEmpty()) return;
     try {
         std::vector<zima::kernel::BodyResult> loaded_boundaries;
@@ -333,11 +333,12 @@ void MainWindow::open_document() {
 bool MainWindow::save_document() {
     QString selected = file_path_.empty() ? QString{} : QString::fromStdString(file_path_.string());
     if (selected.isEmpty()) {
-        selected = QFileDialog::getSaveFileName(
-            this, tr("Uložit C++ prototyp"), "part.zcp.json",
-            tr("ZIMA-CAD C++ Part (*.zcp.json)"));
+        selected = save_file(
+            this, tr("Uložit díl"), "part.prtz",
+            tr("ZIMA-CAD díl (*.prtz)"), "prtz");
     }
     if (selected.isEmpty()) return false;
+    if (!selected.endsWith(".prtz", Qt::CaseInsensitive)) selected += ".prtz";
     try {
         session_.document().save(
             selected.toStdString(), session_.calculated_boundaries());
@@ -413,7 +414,7 @@ void MainWindow::update_document_actions() {
     redo_action_->setEnabled(properties_dialog_ == nullptr && session_.can_redo());
     const QString file_name = file_path_.empty()
         ? tr("Nový díl") : QString::fromStdString(file_path_.filename().string());
-    setWindowTitle(tr("ZIMA-CAD C++ – %1%2")
+    setWindowTitle(tr("ZIMA-CAD – %1%2")
         .arg(file_name, session_.is_dirty() ? " *" : ""));
 }
 

@@ -7,6 +7,7 @@
 #include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
 #include "drawing_window.hpp"
+#include "file_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/interchange/interchange.hpp>
@@ -16,7 +17,6 @@
 #include <QAction>
 #include <QBrush>
 #include <QColor>
-#include <QFileDialog>
 #include <QFont>
 #include <QLabel>
 #include <QKeyEvent>
@@ -73,7 +73,7 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
-    setWindowTitle(tr("ZIMA-CAD C++ – Workspace sestavy"));
+    setWindowTitle(tr("ZIMA-CAD"));
     resize(1180, 760);
     create_actions();
     create_layout();
@@ -624,8 +624,8 @@ void AssemblyWorkspaceWindow::new_assembly() {
 }
 
 void AssemblyWorkspaceWindow::open_part() {
-    const QString path = QFileDialog::getOpenFileName(
-        this, tr("Otevřít vypočtený Part"), {}, tr("ZIMA-CAD C++ Part (*.zcp.json)"));
+    const QString path = open_file(
+        this, tr("Otevřít díl"), {}, tr("ZIMA-CAD díl (*.prtz)"));
     if (path.isEmpty()) return;
     try {
         std::vector<zima::kernel::BodyResult> calculated;
@@ -648,8 +648,8 @@ void AssemblyWorkspaceWindow::open_part() {
 }
 
 void AssemblyWorkspaceWindow::open_assembly() {
-    const QString path = QFileDialog::getOpenFileName(
-        this, tr("Otevřít sestavu"), {}, tr("ZIMA-CAD C++ Assembly (*.zca.json)"));
+    const QString path = open_file(
+        this, tr("Otevřít sestavu"), {}, tr("ZIMA-CAD sestava (*.asmz)"));
     if (path.isEmpty()) return;
     try {
         auto document = zima::assembly::AssemblyDocument::load(path.toStdString());
@@ -672,7 +672,7 @@ void AssemblyWorkspaceWindow::open_assembly() {
 }
 
 void AssemblyWorkspaceWindow::open_drawing() {
-    const QString path=QFileDialog::getOpenFileName(
+    const QString path=open_file(
         this,tr("Otevřít výkres"),{},tr("ZIMA-CAD Výkres (*.drwz)"));
     if(path.isEmpty()) return;
     try {
@@ -1037,10 +1037,11 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
     auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) return;
     QString path = QString::fromStdString(assembly->path.string());
-    if (path.isEmpty()) path = QFileDialog::getSaveFileName(
-        this, tr("Uložit sestavu"), "assembly.zca.json",
-        tr("ZIMA-CAD C++ Assembly (*.zca.json)"));
+    if (path.isEmpty()) path = save_file(
+        this, tr("Uložit sestavu"), "assembly.asmz",
+        tr("ZIMA-CAD sestava (*.asmz)"), "asmz");
     if (path.isEmpty()) return;
+    if (!path.endsWith(".asmz", Qt::CaseInsensitive)) path += ".asmz";
     try {
         assembly->session.document().save(path.toStdString());
         assembly->path = path.toStdString();
@@ -1054,10 +1055,10 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 void AssemblyWorkspaceWindow::save_active_document() {
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
         QString path=QString::fromStdString(drawing->path.string());
-        if(path.isEmpty()) path=QFileDialog::getSaveFileName(
-            this,tr("Uložit výkres"),"drawing.drwz",tr("ZIMA-CAD Výkres (*.drwz)"));
+        if(path.isEmpty()) path=save_file(
+            this,tr("Uložit výkres"),"drawing.drwz",tr("ZIMA-CAD Výkres (*.drwz)"),"drwz");
         if(path.isEmpty()) return;
-        if(!path.endsWith(".drwz")) path += ".drwz";
+        if(!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
         try { drawing->document.save(path.toStdString()); drawing->path=path.toStdString();
             drawing_workspace_->edit_workspace_document(drawing->document.document_id);
             refresh_tabs(); }
@@ -1073,10 +1074,11 @@ void AssemblyWorkspaceWindow::save_active_document() {
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     QString path = QString::fromStdString(part->path.string());
-    if (path.isEmpty()) path = QFileDialog::getSaveFileName(
-        this, tr("Uložit Part"), "part.zcp.json",
-        tr("ZIMA-CAD C++ Part (*.zcp.json)"));
+    if (path.isEmpty()) path = save_file(
+        this, tr("Uložit díl"), "part.prtz",
+        tr("ZIMA-CAD díl (*.prtz)"), "prtz");
     if (path.isEmpty()) return;
+    if (!path.endsWith(".prtz", Qt::CaseInsensitive)) path += ".prtz";
     try {
         part->session.document().save(path.toStdString(),
                                       part->session.calculated_boundaries());
@@ -1090,7 +1092,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
 }
 
 void AssemblyWorkspaceWindow::import_file() {
-    const QString path = QFileDialog::getOpenFileName(this, tr("Importovat"), {},
+    const QString path = open_file(this, tr("Importovat"), {},
         tr("Podporované soubory (*.dxf *.step *.stp);;DXF (*.dxf);;STEP (*.step *.stp)"));
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
@@ -1219,7 +1221,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         container.id = "step-import:" + std::to_string(index);
         document.history.push_back(std::move(container));
         const auto path = output_directory /
-            (safe_name(node->name) + "_" + std::to_string(index + 1) + ".zcp.json");
+            (safe_name(node->name) + "_" + std::to_string(index + 1) + ".prtz");
         document.save(path, {calculated[index]});
         source_documents[node->definition_id] = document.document_id;
         source_paths[node->definition_id] = path;
@@ -1261,7 +1263,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         }
         const auto path = output_directory /
             (safe_name(assembly_node->name) + "_assembly_" +
-             std::to_string(source_documents.size() + 1) + ".zca.json");
+             std::to_string(source_documents.size() + 1) + ".asmz");
         document.save(path);
         source_documents[assembly_node->definition_id] = document.document_id;
         source_paths[assembly_node->definition_id] = path;
@@ -1297,7 +1299,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
 }
 
 void AssemblyWorkspaceWindow::export_file() {
-    const QString path = QFileDialog::getSaveFileName(this, tr("Exportovat"), {},
+    const QString path = save_file(this, tr("Exportovat"), {},
         tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()

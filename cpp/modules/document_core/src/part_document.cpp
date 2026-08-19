@@ -1053,7 +1053,7 @@ PartDocument PartDocument::load(
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
         root.at("format_version").get<int>() != 11) {
-        throw std::runtime_error("Unsupported C++ prototype document format");
+        throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();

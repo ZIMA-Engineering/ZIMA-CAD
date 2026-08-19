@@ -16,7 +16,7 @@ no commit on Cancel and middle-button double-click OK even over the parent
 window. `BoxPropertiesDialog` is the same class for creation and later editing.
 OCCT calculation starts only after a successful OK commit.
 
-The prototype Part is no longer a one-object shortcut. Its text model owns an
+The Part implementation is no longer a one-object shortcut. Its text model owns an
 ordered history of containers with stable unique IDs and explicit Add/Subtract
 semantics. The application evaluates the complete history in one explicit
 kernel request, and only the final ZIMA viewer packet crosses back into UI.
@@ -135,7 +135,7 @@ does not call OCCT. Repeated insertions of one source retain the same feature
 owners but carry distinct length-prefixed occurrence paths through picking,
 deduplication, and exact highlighting.
 
-The Assembly prototype has its own `.zca.json` text format. It persists
+The Assembly implementation uses the current `.asmz` text format. It persists
 Assembly identity, stable occurrence IDs, source document IDs/paths,
 Assembly-owned placement, and each Part's last explicitly acquired
 `BodyResult`. Part and Assembly share one viewer-packet serializer and
@@ -149,11 +149,15 @@ revisioned `AssemblySession` state. Part edits do not implicitly update parent
 Assemblies; insertion and Regenerate explicitly consume authoritative
 in-memory calculated Part results, including unsaved ones.
 
-The `zima-cad-workspace-cpp` migration target provides the first Assembly GUI:
+The `zima-cad-workspace-cpp` target provides the common Part, Assembly and Drawing GUI:
 document tabs, new/open/save Assembly, open Part, insert active Part, explicit
 Regenerate, occurrence tree, leaf occurrence picking, and Assembly-owned
-component Properties. It remains a separate executable until its Workspace
-shell is merged with the already verified Part modeling commands.
+component Properties. The older standalone Part and Drawing executables remain
+available as behavioural comparison targets.
+
+Drawing dimensions render witness lines, a dimension line, and arrowheads.
+They can be selected independently of views, moved by dragging their label,
+removed with Delete, and deselected or cancelled with Escape.
 
 The Workspace target now also owns the verified Part commands: new/open Part,
 Box, Cylinder, shared Properties, explicit Part Regenerate, Save, and
@@ -493,9 +497,9 @@ revolutions persist distinct start/end profile faces, all generated side faces
 retain the Revolution owner, and angle/axis participate in the history
 fingerprint.
 
-It intentionally uses its own prototype suffix (`.zcp.json`). It must not
-silently claim compatibility with current `.prtz` files before the C++ model
-can preserve their complete current contract.
+It uses the current `.prtz` suffix. Legacy Python document compatibility is
+not provided; `.prtz` identifies the current data model rather than guaranteeing
+that older documents can be loaded.
 
 ## Modules
 

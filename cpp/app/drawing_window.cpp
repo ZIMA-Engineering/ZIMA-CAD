@@ -1,4 +1,5 @@
 #include "drawing_window.hpp"
+#include "file_dialog.hpp"
 
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
@@ -8,9 +9,9 @@
 #include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFileDialog>
 #include <QFormLayout>
 #include <QLabel>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -229,15 +230,14 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
                         workspace->open_assembly(*open_id) != nullptr))
             return {*open_id, workspace->authoritative_viewer_mesh(*open_id)};
     }
-    const auto filename=path.filename().string();
-    if (path.extension() == ".prtz" || filename.ends_with(".zcp.json")) {
+    if (path.extension() == ".prtz") {
         std::vector<zima::kernel::BodyResult> boundaries;
         const auto part = zima::document::PartDocument::load(path, &boundaries);
         if (boundaries.empty()) throw std::runtime_error(
             "Part nemá uložený vypočtený model. Nejprve jej regenerujte a uložte.");
         return {part.document_id, std::move(boundaries.back().mesh)};
     }
-    if (path.extension() == ".asmz" || filename.ends_with(".zca.json")) {
+    if (path.extension() == ".asmz") {
         const auto assembly = zima::assembly::AssemblyDocument::load(path);
         return {assembly.document_id, assembly.build_scene()};
     }
@@ -249,9 +249,18 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
 class DrawingCanvas final : public QWidget {
 public:
     explicit DrawingCanvas(QWidget* parent = nullptr) : QWidget(parent) {
-        setMinimumSize(640, 480); setMouseTracking(true);
+        setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
     }
-    void set_sheet(zima::drawing::DrawingSheet* sheet) { sheet_ = sheet; selected_.clear(); update(); }
+    void set_sheet(zima::drawing::DrawingSheet* sheet) {
+        sheet_ = sheet;
+        selected_.clear();
+        selected_dimension_id_.clear();
+        dragged_dimension_id_.clear();
+        drag_view_id_.clear();
+        first_edge_.reset();
+        dimension_mode_ = false;
+        update();
+    }
     [[nodiscard]] const std::string& selected_view_id() const { return selected_; }
     void set_changed_callback(std::function<void()> callback) { changed_=std::move(callback); }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
@@ -340,8 +349,9 @@ protected:
             }
         }
         for (const auto& dimension : sheet_->dimensions) {
-            painter.setPen(QPen(dimension.unresolved ? QColor("#c62828")
-                                                     : QColor("#d6a600"), 1.0));
+            const QColor dimension_color=dimension.id==selected_dimension_id_ ? QColor("#00bcd4")
+                : dimension.unresolved ? QColor("#c62828") : QColor("#d6a600");
+            painter.setPen(QPen(dimension_color,dimension.id==selected_dimension_id_?2.0:1.0));
             const auto* view = [&]() -> const zima::drawing::DrawingView* {
                 const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
                     [&](const auto& item) { return item.id == dimension.view_id; });
@@ -355,8 +365,33 @@ protected:
             const QPointF first = screen(dimension.first_point);
             const QPointF second = screen(dimension.second_point);
             const QPointF label = screen(dimension.label_position);
-            painter.drawLine(first, label); painter.drawLine(second, label);
-            painter.drawLine(first, second);
+            const double mx=dimension.second_point.x-dimension.first_point.x;
+            const double my=dimension.second_point.y-dimension.first_point.y;
+            const double measured_length=std::hypot(mx,my);
+            if(measured_length<=1e-9) continue;
+            const double nx=mx/measured_length,ny=my/measured_length;
+            const auto on_dimension_line=[&](const zima::drawing::Point2& witness) {
+                const double projection=(witness.x-dimension.label_position.x)*nx+
+                                        (witness.y-dimension.label_position.y)*ny;
+                return zima::drawing::Point2{dimension.label_position.x+projection*nx,
+                                            dimension.label_position.y+projection*ny};
+            };
+            const QPointF line_first=screen(on_dimension_line(dimension.first_point));
+            const QPointF line_second=screen(on_dimension_line(dimension.second_point));
+            painter.drawLine(first,line_first); painter.drawLine(second,line_second);
+            painter.drawLine(line_first,line_second);
+            const QPointF arrow_delta=line_second-line_first;
+            const double arrow_length=std::hypot(arrow_delta.x(),arrow_delta.y());
+            if(arrow_length>1e-9) {
+                const QPointF direction=arrow_delta/arrow_length;
+                const QPointF normal(-direction.y(),direction.x());
+                painter.setBrush(dimension_color); painter.setPen(Qt::NoPen);
+                painter.drawPolygon(QPolygonF{line_first,line_first+direction*8.0+normal*3.0,
+                    line_first+direction*8.0-normal*3.0});
+                painter.drawPolygon(QPolygonF{line_second,line_second-direction*8.0+normal*3.0,
+                    line_second-direction*8.0-normal*3.0});
+                painter.setPen(QPen(dimension_color,dimension.id==selected_dimension_id_?2.0:1.0));
+            }
             painter.drawText(label + QPointF(4, -4),
                 QString::number(dimension.measured_value, 'f', 3) + tr(" mm"));
         }
@@ -378,6 +413,38 @@ protected:
             const QPointF nearest = a + parameter * delta;
             return std::hypot(point.x() - nearest.x(), point.y() - nearest.y());
         };
+        setFocus();
+        if(!dimension_mode_) for(auto& dimension:sheet_->dimensions) {
+            const auto view=std::find_if(sheet_->views.begin(),sheet_->views.end(),[&](const auto& item) {
+                return item.id==dimension.view_id; });
+            if(view==sheet_->views.end()) continue;
+            const auto screen_point=[&](const zima::drawing::Point2& point) {
+                return QPointF(origin.x()+(view->x+point.x*view->scale)*zoom,
+                    origin.y()+(view->y-point.y*view->scale)*zoom); };
+            const QPointF label=screen_point(dimension.label_position);
+            const double label_distance=std::hypot(label.x()-event->position().x(),
+                                                    label.y()-event->position().y());
+            const double mx=dimension.second_point.x-dimension.first_point.x;
+            const double my=dimension.second_point.y-dimension.first_point.y;
+            const double length=std::hypot(mx,my); if(length<=1e-9) continue;
+            const double nx=mx/length,ny=my/length;
+            const auto line_point=[&](const zima::drawing::Point2& witness) {
+                const double along=(witness.x-dimension.label_position.x)*nx+
+                    (witness.y-dimension.label_position.y)*ny;
+                return zima::drawing::Point2{dimension.label_position.x+along*nx,
+                    dimension.label_position.y+along*ny}; };
+            const double line_distance=segment_distance(event->position(),
+                screen_point(line_point(dimension.first_point)),
+                screen_point(line_point(dimension.second_point)));
+            if(label_distance<=14.0 || line_distance<=7.0) {
+                selected_dimension_id_=dimension.id; selected_.clear(); drag_view_id_.clear();
+                if(label_distance<=14.0) { dragged_dimension_id_=dimension.id;
+                    dimension_drag_start_=event->position();
+                    dimension_label_start_=dimension.label_position; }
+                update(); return;
+            }
+        }
+        selected_dimension_id_.clear();
         double best = 8.0;
         std::string hit;
         const zima::drawing::DrawingView* hit_view{};
@@ -441,11 +508,24 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
-        if (sheet_ == nullptr || drag_view_id_.empty() ||
-            !(event->buttons() & Qt::LeftButton)) return;
+        if(sheet_==nullptr) return;
         const double margin = 24.0;
         const double zoom = std::min((width() - 2 * margin) / sheet_->width_mm(),
                                      (height() - 2 * margin) / sheet_->height_mm());
+        if(!dragged_dimension_id_.empty() && (event->buttons()&Qt::LeftButton)) {
+            const auto dimension=std::find_if(sheet_->dimensions.begin(),sheet_->dimensions.end(),
+                [&](const auto& item){return item.id==dragged_dimension_id_;});
+            if(dimension==sheet_->dimensions.end()) return;
+            const auto view=std::find_if(sheet_->views.begin(),sheet_->views.end(),
+                [&](const auto& item){return item.id==dimension->view_id;});
+            if(view==sheet_->views.end() || zoom<=0.0 || view->scale<=0.0) return;
+            dimension->label_position={dimension_label_start_.x+
+                (event->position().x()-dimension_drag_start_.x())/(zoom*view->scale),
+                dimension_label_start_.y-
+                (event->position().y()-dimension_drag_start_.y())/(zoom*view->scale)};
+            update(); return;
+        }
+        if(drag_view_id_.empty() || !(event->buttons()&Qt::LeftButton)) return;
         const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
             [&](const auto& view) { return view.id == drag_view_id_; });
         if (found == sheet_->views.end() || zoom <= 0.0) return;
@@ -472,8 +552,25 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent*) override {
-        if(!drag_view_id_.empty() && changed_) changed_();
+        if((!drag_view_id_.empty() || !dragged_dimension_id_.empty()) && changed_) changed_();
         drag_view_id_.clear();
+        dragged_dimension_id_.clear();
+    }
+    void keyPressEvent(QKeyEvent* event) override {
+        if(event->key()==Qt::Key_Escape) {
+            if(dimension_mode_ && first_edge_) first_edge_.reset();
+            else if(dimension_mode_) dimension_mode_=false;
+            else { selected_dimension_id_.clear(); selected_.clear(); }
+            update(); event->accept(); return;
+        }
+        if(event->key()==Qt::Key_Delete && sheet_!=nullptr &&
+           !selected_dimension_id_.empty()) {
+            std::erase_if(sheet_->dimensions,[&](const auto& dimension) {
+                return dimension.id==selected_dimension_id_; });
+            selected_dimension_id_.clear(); if(changed_) changed_(); update();
+            event->accept(); return;
+        }
+        QWidget::keyPressEvent(event);
     }
 private:
     zima::drawing::DrawingSheet* sheet_{};
@@ -485,12 +582,16 @@ private:
     QPointF drag_start_;
     zima::drawing::Point2 drag_origin_;
     std::function<void()> changed_;
+    std::string selected_dimension_id_;
+    std::string dragged_dimension_id_;
+    QPointF dimension_drag_start_;
+    zima::drawing::Point2 dimension_label_start_;
 };
 
 DrawingWindow::DrawingWindow(
     zima::workspace::Workspace* workspace, bool create_initial_document)
     : workspace_(workspace) {
-    setWindowTitle(tr("ZIMA-CAD C++ – Výkres")); resize(1180, 760);
+    setWindowTitle(tr("ZIMA-CAD – Výkres")); resize(1180, 760);
     create_actions(); create_layout();
     if(create_initial_document) new_document();
 }
@@ -542,7 +643,7 @@ void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     workspace_document_id_=document_id; document_=state->document; path_=state->path; refresh();
 }
 void DrawingWindow::open_document() {
-    const auto path = QFileDialog::getOpenFileName(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
+    const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
     if (path.isEmpty()) return;
     try {
         document_ = zima::drawing::DrawingDocument::load(path.toStdString()); path_ = path.toStdString();
@@ -559,8 +660,9 @@ void DrawingWindow::open_document() {
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), error.what()); }
 }
 void DrawingWindow::save_document() {
-    auto path = path_.empty() ? QFileDialog::getSaveFileName(this, tr("Uložit výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)")) : QString::fromStdString(path_.string());
-    if (path.isEmpty()) return; if (!path.endsWith(".drwz")) path += ".drwz";
+    auto path = path_.empty() ? save_file(this, tr("Uložit výkres"), "drawing.drwz", tr("Výkres ZIMA-CAD (*.drwz)"), "drwz") : QString::fromStdString(path_.string());
+    if (path.isEmpty()) return;
+    if (!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
     try { document_.save(path.toStdString()); path_ = path.toStdString();
         sync_workspace_document(); state_->setText(tr("Výkres uložen.")); }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
@@ -586,7 +688,7 @@ void DrawingWindow::edit_sheet() {
 }
 void DrawingWindow::load_frame() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    const auto path=QFileDialog::getOpenFileName(this,tr("Načíst formát"),"config/formats",
+    const auto path=open_file(this,tr("Načíst formát"),"config/formats",
                                                  tr("Formát výkresu (*.frmz)"));
     if(path.isEmpty()) return;
     try { zima::drawing::load_frame_template(*sheet,path.toStdString()); refresh(); }
@@ -594,7 +696,7 @@ void DrawingWindow::load_frame() {
 }
 void DrawingWindow::load_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    const auto path=QFileDialog::getOpenFileName(this,tr("Načíst razítko"),"config/formats",
+    const auto path=open_file(this,tr("Načíst razítko"),"config/formats",
                                                  tr("Razítko výkresu (*.tblz)"));
     if(path.isEmpty()) return;
     try { zima::drawing::load_title_block_template(*sheet,path.toStdString()); refresh(); }
@@ -638,8 +740,8 @@ void DrawingWindow::insert_view() {
 }
 
 void DrawingWindow::insert_view_from_file() {
-    const auto path = QFileDialog::getOpenFileName(this, tr("Vybrat zdroj pohledu"), {},
-        tr("Model ZIMA-CAD (*.prtz *.asmz *.zcp.json *.zca.json)"));
+    const auto path = open_file(this, tr("Vybrat zdroj pohledu"), {},
+        tr("Model ZIMA-CAD (*.prtz *.asmz)"));
     if (path.isEmpty() || active_sheet() == nullptr) return;
     try {
         auto [source_id, mesh] = load_drawing_source(path.toStdString(),workspace_);
@@ -654,9 +756,8 @@ void DrawingWindow::begin_view_insertion(
     std::optional<zima::assembly::AssemblyDocument> loaded;
     if(workspace_!=nullptr) if(const auto* open=workspace_->open_assembly(source_id))
         assembly=&open->session.document();
-    const auto filename=source_path.filename().string();
     if(assembly==nullptr && (!source_path.empty()) &&
-       (source_path.extension()==".asmz" || filename.ends_with(".zca.json"))) {
+       source_path.extension()==".asmz") {
         loaded=zima::assembly::AssemblyDocument::load(source_path); assembly=&*loaded;
     }
     if(assembly!=nullptr) for(const auto& component:assembly->components) {

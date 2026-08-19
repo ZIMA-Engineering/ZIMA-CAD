@@ -1414,7 +1414,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
         root.at("format_version").get<int>() != 5 ||
         root.at("type").get<std::string>() != "assembly") {
-        throw std::runtime_error("Unsupported C++ Assembly document format");
+        throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();

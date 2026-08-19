@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
-    application.setApplicationName("ZIMA-CAD C++");
+    application.setApplicationName("ZIMA-CAD");
     zima::app::MainWindow window;
     window.show();
     return application.exec();

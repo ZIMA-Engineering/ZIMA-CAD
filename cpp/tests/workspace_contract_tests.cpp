@@ -28,7 +28,7 @@ int main() {
         auto assembly = zima::assembly::AssemblyDocument::create_default();
         const std::string part_id = part.document_id;
         const std::string assembly_id = assembly.document_id;
-        workspace.add_part(std::move(part), part_calculation, "open-part.zcp.json");
+        workspace.add_part(std::move(part), part_calculation, "open-part.prtz");
         workspace.add_assembly(std::move(assembly));
         auto drawing = zima::drawing::DrawingDocument::create_default();
         const std::string drawing_id = drawing.document_id;
@@ -37,7 +37,7 @@ int main() {
                     workspace.open_assembly(assembly_id) != nullptr &&
                     workspace.open_drawing(drawing_id) != nullptr,
                 "Workspace did not retain typed open documents");
-        require(workspace.document_id_for_path("open-part.zcp.json") == part_id &&
+        require(workspace.document_id_for_path("open-part.prtz") == part_id &&
                     !workspace.authoritative_viewer_mesh(part_id).triangles.empty(),
                 "Workspace did not expose the authoritative open Drawing source");
         workspace.display_top_level(assembly_id);
@@ -93,13 +93,13 @@ int main() {
         auto subassembly = zima::assembly::AssemblyDocument::create_default();
         subassembly.name = "Podsestava";
         const std::string subassembly_id = subassembly.document_id;
-        workspace.add_assembly(std::move(subassembly), "subassembly.zca.json");
+        workspace.add_assembly(std::move(subassembly), "subassembly.asmz");
         const std::string nested_part_occurrence = workspace.insert_open_part(
             subassembly_id, part_id, "Vnitřní díl");
         auto topassembly = zima::assembly::AssemblyDocument::create_default();
         topassembly.name = "Horní sestava";
         const std::string topassembly_id = topassembly.document_id;
-        workspace.add_assembly(std::move(topassembly), "topassembly.zca.json");
+        workspace.add_assembly(std::move(topassembly), "topassembly.asmz");
         const std::string subassembly_occurrence = workspace.insert_open_assembly(
             topassembly_id, subassembly_id, "Vložená podsestava");
         const std::string direct_part_occurrence = workspace.insert_open_part(
@@ -177,7 +177,7 @@ int main() {
                     ->nested_snapshot.front().name == "Přejmenovaný vnitřní díl",
                 "Top-level Regenerate did not refresh nested structural snapshot");
         const auto nested_save_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-nested-snapshot-contract.zca.json";
+            "zima-cad-cpp-nested-snapshot-contract.asmz";
         workspace.open_assembly(topassembly_id)->session.document().save(
             nested_save_path);
         const auto loaded_nested = zima::assembly::AssemblyDocument::load(

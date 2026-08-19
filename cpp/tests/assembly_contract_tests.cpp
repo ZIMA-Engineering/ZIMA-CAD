@@ -25,9 +25,9 @@ int main() {
         });
         auto assembly = zima::assembly::AssemblyDocument::create_default();
         auto first = zima::assembly::AssemblyDocument::create_part_occurrence(
-            "První", "same-part-document", "same.zcp.json", source.back());
+            "První", "same-part-document", "same.prtz", source.back());
         auto second = zima::assembly::AssemblyDocument::create_part_occurrence(
-            "Druhý", "same-part-document", "same.zcp.json", source.back());
+            "Druhý", "same-part-document", "same.prtz", source.back());
         first.placement.z = 5.0;
         second.placement.z = 30.0;
         const std::string first_id = first.occurrence_id;
@@ -101,7 +101,7 @@ int main() {
         require(malformed_path_rejected,
                 "Malformed instance path was accepted");
         const auto assembly_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-assembly-contract.zca.json";
+            "zima-cad-cpp-assembly-contract.asmz";
         assembly.save(assembly_path);
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         std::filesystem::remove(assembly_path);
@@ -164,7 +164,7 @@ int main() {
                     point_mated_assembly.remaining_degrees_of_freedom(second_id) == 3,
                 "Point mate did not align persisted original-solid points");
         const auto point_mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-point-mate-contract.zca.json";
+            "zima-cad-cpp-point-mate-contract.asmz";
         point_mated_assembly.save(point_mate_path);
         const auto loaded_point_mate =
             zima::assembly::AssemblyDocument::load(point_mate_path);
@@ -217,7 +217,7 @@ int main() {
                     angled_scene.dimensions.front().value == 60.0,
                 "Axis angle mate did not create its editable viewer dimension");
         const auto limited_mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-limited-mate-contract.zca.json";
+            "zima-cad-cpp-limited-mate-contract.asmz";
         angled_assembly.save(limited_mate_path);
         const auto loaded_limited_mate =
             zima::assembly::AssemblyDocument::load(limited_mate_path);
@@ -384,7 +384,7 @@ int main() {
                     std::abs(flipped_alignment + 1.0) < 1.0e-7,
                 "Flipped Plane mate did not preserve opposite face orientation");
         const auto flipped_mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-flipped-mate-contract.zca.json";
+            "zima-cad-cpp-flipped-mate-contract.asmz";
         flipped_plane_assembly.save(flipped_mate_path);
         const auto loaded_flipped_mates =
             zima::assembly::AssemblyDocument::load(flipped_mate_path);
@@ -407,7 +407,7 @@ int main() {
                         .contains(second_id),
                 "Repaired mate remained trapped in its previous error suppression");
         const auto mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-mate-contract.zca.json";
+            "zima-cad-cpp-mate-contract.asmz";
         mated_assembly.save(mate_path);
         const auto loaded_mates = zima::assembly::AssemblyDocument::load(mate_path);
         std::filesystem::remove(mate_path);
@@ -493,7 +493,7 @@ int main() {
                              rotated_axis_placement.rotation_z) < 1.0e-7,
                 "Axis mate did not rotate a perpendicular axis idempotently");
         const auto rotated_mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-rotated-mate-contract.zca.json";
+            "zima-cad-cpp-rotated-mate-contract.asmz";
         rotated_axis_mate.save(rotated_mate_path);
         const auto loaded_rotated_mate =
             zima::assembly::AssemblyDocument::load(rotated_mate_path);
@@ -659,7 +659,7 @@ int main() {
                     !state_document.components.front().calculated_source.mesh.vertices.empty(),
                 "Suppression/hide deleted component data or left it displayed");
         const auto state_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-assembly-state-contract.zca.json";
+            "zima-cad-cpp-assembly-state-contract.asmz";
         state_document.save(state_path);
         const auto loaded_state = zima::assembly::AssemblyDocument::load(state_path);
         std::filesystem::remove(state_path);
@@ -670,7 +670,7 @@ int main() {
                 "Assembly suppression, visibility or grounding were not persisted separately");
         auto dependent_assembly = loaded;
         auto third = zima::assembly::AssemblyDocument::create_part_occurrence(
-            "Třetí", "third-part-document", "third.zcp.json", source.back());
+            "Třetí", "third-part-document", "third.prtz", source.back());
         third.placement.z = 60.0;
         const std::string third_id = third.occurrence_id;
         dependent_assembly.components.push_back(std::move(third));
@@ -723,7 +723,7 @@ int main() {
         require(component_cycle_rejected,
                 "Component dependency graph accepted an indirect cycle");
         const auto dependency_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-component-dependency-contract.zca.json";
+            "zima-cad-cpp-component-dependency-contract.asmz";
         dependent_assembly.save(dependency_path);
         const auto loaded_dependencies =
             zima::assembly::AssemblyDocument::load(dependency_path);

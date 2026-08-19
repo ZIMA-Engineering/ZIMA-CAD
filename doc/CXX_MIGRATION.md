@@ -73,17 +73,17 @@ ovládání ani konstrukční záměr dokumentu. Specializované algoritmy se do
 po stabilizaci základního C++ modelu; před jejich zapnutím se porovnají přesnost,
 objem, hranice platnosti a čas regenerace se stejnou obecnou OCCT operací.
 
-První vertikální řez je v `cpp/`: textový prototyp Part dokumentu, přímý OCCT
-výpočet kvádru, převod na ZIMA `ViewerMesh`, Qt viewer a deterministický test
-objemu, plochy, meshe a save/load. Prototyp používá vlastní příponu `.zcp.json`,
-aby předčasně nepředstíral úplnou kompatibilitu se současným `.prtz`.
+První vertikální řez je v `cpp/`: textový Part dokument, přímý OCCT výpočet
+kvádru, převod na ZIMA `ViewerMesh`, Qt viewer a deterministický test objemu,
+plochy, meshe a save/load. Používá aktuální příponu `.prtz`; kompatibilita se
+staršími Python dokumenty se neposkytuje.
 
 Společný C++ `PropertiesSubWindow` a jeden `BoxPropertiesDialog` pro tvorbu i
 editaci zavádějí interní `SubWindow`, pouze OK/Cancel, transakční Cancel a
 potvrzení dvojklikem prostředního tlačítka i nad hlavním oknem. GUI kontrakt je
 automaticky testovaný; OCCT výpočet kvádru proběhne až po úspěšném OK.
 
-Part prototyp nyní vlastní obecnou uspořádanou historii kontejnerů místo
+Part implementace nyní vlastní obecnou uspořádanou historii kontejnerů místo
 jednoho speciálního kvádru. Kontejnery mají stabilní unikátní ID a explicitní
 operaci Add/Subtract; první Subtract, duplicitní ID a neplatné rozměry jsou
 deterministicky odmítnuty. Celá historie se vyhodnotí jediným explicitním
@@ -260,7 +260,7 @@ zdrojového Partu proto zachovají shodné feature/container vlastníky, ale ve
 viewer referencích mají odlišnou délkově kódovanou instance path. Picking,
 deduplikace a přesné zvýraznění nyní zahrnují tuto occurrence identitu.
 
-Assembly prototyp má vlastní textový formát `.zca.json`. Persistuje identitu
+Assembly implementace používá aktuální textový formát `.asmz`. Persistuje identitu
 sestavy, stabilní occurrence ID, zdrojové document ID/cesty, sestavou vlastněné
 umístění a poslední explicitně převzatý vypočtený `BodyResult` každého Partu.
 Part i Assembly používají jednu sdílenou serializaci a validaci viewer packetu.
@@ -278,7 +278,7 @@ stavu závislosti pouze označí odvozený stav k uložení.
 Workspace umí vložit aktuální vypočtený stav otevřeného Partu a explicitně
 regenerovat přímé Part závislosti z autoritativních in-memory dokumentů.
 Obyčejná změna Partu parent Assembly nemění. Nový Assembly Workspace GUI
-prototyp `zima-cad-workspace-cpp` nabízí taby otevřených dokumentů, vytvoření a
+`zima-cad-workspace-cpp` nabízí taby otevřených dokumentů, vytvoření a
 otevření sestavy, otevření Partu, vložení aktivního Partu, uložení, explicitní
 Regenerovat, occurrence strom a leaf Part occurrence picking. Samostatný
 `ComponentPropertiesDialog` mění pouze sestavou vlastněný název a placement;
@@ -817,9 +817,10 @@ První GUI používá papírový prostor v milimetrech, A4 na výšku a A3–A0 
 Zobrazuje rámeček, základní razítko, modelové pohledy a asociativní lineární kótu
 mezi dvěma rovnoběžnými hranami téhož pohledu. Vlastnosti listu i pohledu jsou
 interní `Qt::SubWindow` se společným OK/Cancel a potvrzením dvojklikem prostředního
-tlačítka. Souborové volby zůstávají systémovými dialogy. Samostatný spustitelný
-cíl `zima-cad-drawing-cpp` slouží pro izolované testování; společná workspace
-aplikace zpřístupňuje nový výkres ze stejného menu Soubor.
+tlačítka. Souborové volby používají společný nenativní Qt dialog; adresáře jsou
+řazené před soubory a technický adresář `0000-index` se nezobrazuje. Samostatný
+spustitelný cíl `zima-cad-drawing-cpp` slouží pro izolované testování; společná
+workspace aplikace zpřístupňuje nový výkres ze stejného menu Soubor.
 
 Lineární kóta po explicitní regeneraci znovu vyhledá obě stabilní reference,
 přepočítá body i měřenou hodnotu a chybějící či již nerovnoběžnou dvojici ponechá
