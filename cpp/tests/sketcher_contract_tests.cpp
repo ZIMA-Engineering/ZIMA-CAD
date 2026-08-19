@@ -650,15 +650,84 @@ int main() {
                     fixed_tangent.points == fixed_tangent_before.points &&
                     fixed_tangent.constraints == fixed_tangent_before.constraints,
                 "Blocked Tangent relation partially changed the Sketch");
+        auto tangent_ellipse = zima::sketcher::Sketch::create_default();
+        const auto ellipse_tangent_line = tangent_ellipse.add_segment(
+            -10.0, 0.0, 10.0, 0.0);
+        const auto driven_tangent_ellipse = tangent_ellipse.add_ellipse(
+            0.0, 5.0, 4.0, 5.0, 0.0, 7.0);
+        static_cast<void>(tangent_ellipse.add_tangent_constraint(
+            ellipse_tangent_line, driven_tangent_ellipse));
+        const auto* driven_ellipse_center = tangent_ellipse.find_point(
+            tangent_ellipse.ellipses.front().center_point_id);
+        const auto* driven_ellipse_major = tangent_ellipse.find_point(
+            tangent_ellipse.ellipses.front().major_point_id);
+        const auto* driven_ellipse_minor = tangent_ellipse.find_point(
+            tangent_ellipse.ellipses.front().minor_point_id);
+        require(std::abs(driven_ellipse_center->y - 2.0) < 1.0e-8 &&
+                    std::abs(driven_ellipse_major->y - 2.0) < 1.0e-8 &&
+                    std::abs(driven_ellipse_minor->y - 4.0) < 1.0e-8,
+                "Tangent did not translate a driven ellipse rigidly");
+        const auto loaded_tangent_ellipse =
+            zima::sketcher::Sketch::from_serialized(tangent_ellipse.serialized());
+        require(loaded_tangent_ellipse.constraints == tangent_ellipse.constraints &&
+                    loaded_tangent_ellipse.ellipses == tangent_ellipse.ellipses,
+                "Ellipse Tangent constraint did not survive serialization");
+        auto rotated_tangent_ellipse = zima::sketcher::Sketch::create_default();
+        const auto rotated_tangent_line = rotated_tangent_ellipse.add_segment(
+            -10.0, 0.0, 10.0, 0.0);
+        constexpr double root_half = 0.70710678118654752440;
+        const auto rotated_ellipse = rotated_tangent_ellipse.add_ellipse(
+            0.0, 8.0,
+            4.0 * root_half, 8.0 + 4.0 * root_half,
+            -2.0 * root_half, 8.0 + 2.0 * root_half);
+        static_cast<void>(rotated_tangent_ellipse.add_tangent_constraint(
+            rotated_tangent_line, rotated_ellipse));
+        require(std::abs(rotated_tangent_ellipse.find_point(
+                    rotated_tangent_ellipse.ellipses.front().center_point_id)->y -
+                    std::sqrt(10.0)) < 1.0e-8,
+                "Tangent used an axis-aligned approximation for a rotated ellipse");
+        auto tangent_elliptical_arc = zima::sketcher::Sketch::create_default();
+        const auto elliptical_arc_tangent_line =
+            tangent_elliptical_arc.add_segment(-10.0, 0.0, 10.0, 0.0);
+        const auto driven_tangent_elliptical_arc =
+            tangent_elliptical_arc.add_elliptical_arc(
+                0.0, 5.0, 4.0, 5.0, 0.0, 7.0,
+                -4.0, 5.0, 4.0, 5.0);
+        static_cast<void>(tangent_elliptical_arc.add_tangent_constraint(
+            elliptical_arc_tangent_line, driven_tangent_elliptical_arc));
+        require(std::abs(tangent_elliptical_arc.find_point(
+                    tangent_elliptical_arc.elliptical_arcs.front().center_point_id)->y -
+                    2.0) < 1.0e-8 &&
+                    tangent_elliptical_arc.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Tangent did not preserve a driven elliptical arc");
+        auto outside_tangent_elliptical_arc =
+            zima::sketcher::Sketch::create_default();
+        const auto outside_elliptical_arc_line =
+            outside_tangent_elliptical_arc.add_segment(-10.0, 0.0, 10.0, 0.0);
+        const auto outside_elliptical_arc =
+            outside_tangent_elliptical_arc.add_elliptical_arc(
+                0.0, 5.0, 4.0, 5.0, 0.0, 7.0,
+                4.0, 5.0, -4.0, 5.0);
+        bool outside_elliptical_arc_rejected = false;
+        try {
+            static_cast<void>(outside_tangent_elliptical_arc.add_tangent_constraint(
+                outside_elliptical_arc_line, outside_elliptical_arc));
+        } catch (const std::invalid_argument&) {
+            outside_elliptical_arc_rejected = true;
+        }
+        require(outside_elliptical_arc_rejected &&
+                    outside_tangent_elliptical_arc.constraints.empty(),
+                "Tangent accepted contact outside an elliptical arc");
         auto unsupported_tangent = zima::sketcher::Sketch::create_default();
         const auto unsupported_line = unsupported_tangent.add_segment(
             -5.0, 0.0, 5.0, 0.0);
-        const auto unsupported_ellipse = unsupported_tangent.add_ellipse(
-            0.0, 4.0, 4.0, 4.0, 0.0, 6.0);
+        const auto unsupported_bspline = unsupported_tangent.add_bspline({
+            {-3.0, 4.0}, {-1.0, 6.0}, {1.0, 2.0}, {3.0, 4.0}});
         bool unsupported_tangent_rejected = false;
         try {
             static_cast<void>(unsupported_tangent.add_tangent_constraint(
-                unsupported_line, unsupported_ellipse));
+                unsupported_line, unsupported_bspline));
         } catch (const std::invalid_argument&) {
             unsupported_tangent_rejected = true;
         }

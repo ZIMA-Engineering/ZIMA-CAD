@@ -4094,7 +4094,9 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
     const auto curve_candidate = [](const auto& candidate) {
         return candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
             (candidate.semantic_key.starts_with("circle:") ||
-             candidate.semantic_key.starts_with("arc:"));
+             candidate.semantic_key.starts_with("arc:") ||
+             candidate.semantic_key.starts_with("ellipse:") ||
+             candidate.semantic_key.starts_with("elliptical_arc:"));
     };
     const auto segment_candidate = [](const auto& candidate) {
         return candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -4145,7 +4147,7 @@ void AssemblyWorkspaceWindow::start_sketch_tangent() {
     selected_sketch_point_id_.clear();
     set_sketch_tangent_contract();
     state_->setText(tr(
-        "Tečná vazba: vyberte referenční úsečku, kružnici nebo kruhový oblouk."));
+        "Tečná vazba: vyberte referenční úsečku, kružnici, oblouk nebo elipsu."));
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
@@ -4159,7 +4161,9 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
         is_segment = true;
     } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
         for (const std::string_view prefix : {
-                std::string_view{"circle:"}, std::string_view{"arc:"}}) {
+                std::string_view{"circle:"}, std::string_view{"arc:"},
+                std::string_view{"ellipse:"},
+                std::string_view{"elliptical_arc:"}}) {
             if (candidate.semantic_key.starts_with(prefix)) {
                 geometry_id = candidate.semantic_key.substr(prefix.size());
                 break;
@@ -4172,13 +4176,13 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
         pending_tangent_reference_is_segment_ = is_segment;
         set_sketch_tangent_contract();
         state_->setText(is_segment
-            ? tr("Tečná vazba: vyberte řízenou kružnici nebo kruhový oblouk.")
+            ? tr("Tečná vazba: vyberte řízenou kružnici, oblouk nebo elipsu.")
             : tr("Tečná vazba: vyberte řízenou úsečku."));
         return;
     }
     if (is_segment == pending_tangent_reference_is_segment_) {
         state_->setText(tr(
-            "Tečná vazba vyžaduje jednu úsečku a jednu kružnici nebo oblouk."));
+            "Tečná vazba vyžaduje jednu úsečku a jednu podporovanou křivku."));
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());

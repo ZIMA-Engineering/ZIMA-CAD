@@ -524,15 +524,16 @@ je pouze rozpracovaný stav, platná druhá křivka vytvoří jednu Part revizi 
 `Escape` příkaz zruší.
 
 Nativní vazba **Tečná** v této fázi pracuje s jednou konečnou úsečkou
-(profilovou i konstrukční) a jednou kružnicí nebo kruhovým obloukem. První
-výběr je reference a druhá geometrie je řízená: solver ji pouze přeloží,
-zachová délku úsečky, poloměr i úhlový rozsah oblouku. Bod dotyku musí ležet
-uvnitř konečné úsečky a u oblouku také uvnitř jeho skutečného úhlového rozsahu;
-jinak se vazba odmítne bez změny skici. Pevný nebo s referencí sdílený bod,
-který brání tuhému překladu, je rovněž transakční konflikt. Elipsy, eliptické
-oblouky a tečnost dvou křivek se zatím v tomto nativním příkazu nenabízejí.
-První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape`
-příkaz zruší.
+(profilovou i konstrukční) a jednou kružnicí, kruhovým obloukem, elipsou nebo
+eliptickým obloukem. První výběr je reference a druhá geometrie je řízená:
+solver ji pouze přeloží, zachová délku úsečky, poloměry, natočení i skutečný
+rozsah oblouku. Pro elipsu počítá přesný opěrný bod v jejích natočených osách,
+nikoli kruhovou nebo osově zarovnanou aproximaci. Bod dotyku musí ležet uvnitř
+konečné úsečky a u oblouku také uvnitř jeho parametrického rozsahu; jinak se
+vazba odmítne bez změny skici. Pevný nebo s referencí sdílený bod, který brání
+tuhému překladu, je rovněž transakční konflikt. Tečnost dvou křivek se zatím
+v tomto nativním příkazu nenabízí. První klik nic neukládá, druhý platný klik
+vytvoří jednu Part revizi a `Escape` příkaz zruší.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice

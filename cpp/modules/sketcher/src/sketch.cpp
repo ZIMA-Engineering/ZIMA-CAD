@@ -202,32 +202,67 @@ std::set<std::string> center_curve_translation_points(
     return result;
 }
 
-struct CircularCurveData {
+struct TangentCurveData {
     std::string center_point_id;
-    double radius{};
-    std::optional<std::pair<double, double>> angular_domain;
+    double major_x{};
+    double major_y{};
+    double minor_x{};
+    double minor_y{};
+    std::optional<std::pair<double, double>> parameter_domain;
 };
 
-std::optional<CircularCurveData> circular_curve_data(
+std::optional<TangentCurveData> tangent_curve_data(
     const Sketch& sketch, const std::string& geometry_id) {
     if (const auto circle = std::find_if(
             sketch.circles.begin(), sketch.circles.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         circle != sketch.circles.end()) {
-        return CircularCurveData{circle->center_point_id, circle->radius};
+        return TangentCurveData{
+            circle->center_point_id, circle->radius, 0.0, 0.0, circle->radius};
     }
     if (const auto arc = std::find_if(
             sketch.arcs.begin(), sketch.arcs.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         arc != sketch.arcs.end()) {
-        return CircularCurveData{
-            arc->center_point_id, arc->radius,
+        return TangentCurveData{
+            arc->center_point_id, arc->radius, 0.0, 0.0, arc->radius,
             std::pair{arc->start_angle, arc->end_angle}};
+    }
+    if (const auto ellipse = std::find_if(
+            sketch.ellipses.begin(), sketch.ellipses.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        ellipse != sketch.ellipses.end()) {
+        const auto* center = sketch.find_point(ellipse->center_point_id);
+        const auto* major = sketch.find_point(ellipse->major_point_id);
+        const auto* minor = sketch.find_point(ellipse->minor_point_id);
+        if (center == nullptr || major == nullptr || minor == nullptr) {
+            return std::nullopt;
+        }
+        return TangentCurveData{
+            ellipse->center_point_id,
+            major->x - center->x, major->y - center->y,
+            minor->x - center->x, minor->y - center->y};
+    }
+    if (const auto arc = std::find_if(
+            sketch.elliptical_arcs.begin(), sketch.elliptical_arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        arc != sketch.elliptical_arcs.end()) {
+        const auto* center = sketch.find_point(arc->center_point_id);
+        const auto* major = sketch.find_point(arc->major_point_id);
+        const auto* minor = sketch.find_point(arc->minor_point_id);
+        if (center == nullptr || major == nullptr || minor == nullptr) {
+            return std::nullopt;
+        }
+        return TangentCurveData{
+            arc->center_point_id,
+            major->x - center->x, major->y - center->y,
+            minor->x - center->x, minor->y - center->y,
+            std::pair{arc->start_parameter, arc->end_parameter}};
     }
     return std::nullopt;
 }
 
-struct SegmentCircularTangentState {
+struct SegmentCurveTangentState {
     std::string first_point_id;
     std::string second_point_id;
     std::string center_point_id;
@@ -239,13 +274,13 @@ struct SegmentCircularTangentState {
     bool contact_on_curve{};
 };
 
-std::optional<SegmentCircularTangentState> segment_circular_tangent_state(
+std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const Sketch& sketch, const std::string& segment_id,
     const std::string& curve_id) {
     const auto segment = std::find_if(
         sketch.segments.begin(), sketch.segments.end(),
         [&](const auto& value) { return value.id == segment_id; });
-    const auto curve = circular_curve_data(sketch, curve_id);
+    const auto curve = tangent_curve_data(sketch, curve_id);
     if (segment == sketch.segments.end() || !curve) return std::nullopt;
     const auto* first = sketch.find_point(segment->first_point_id);
     const auto* second = sketch.find_point(segment->second_point_id);
@@ -262,24 +297,46 @@ std::optional<SegmentCircularTangentState> segment_circular_tangent_state(
     const double center_x = center->x - first->x;
     const double center_y = center->y - first->y;
     const double signed_distance = center_x * normal_x + center_y * normal_y;
-    const double along = center_x * tangent_x + center_y * tangent_y;
+    const double normal_major =
+        normal_x * curve->major_x + normal_y * curve->major_y;
+    const double normal_minor =
+        normal_x * curve->minor_x + normal_y * curve->minor_y;
+    const double support = std::hypot(normal_major, normal_minor);
+    const double determinant =
+        curve->major_x * curve->minor_y - curve->major_y * curve->minor_x;
+    if (support <= 1.0e-12 || std::abs(determinant) <= 1.0e-12) {
+        return std::nullopt;
+    }
+    const double side = signed_distance >= 0.0 ? 1.0 : -1.0;
+    const double contact_offset_x = -side * (
+        normal_major * curve->major_x + normal_minor * curve->minor_x) / support;
+    const double contact_offset_y = -side * (
+        normal_major * curve->major_y + normal_minor * curve->minor_y) / support;
+    const double along =
+        (center_x + contact_offset_x) * tangent_x +
+        (center_y + contact_offset_y) * tangent_y;
     const double target_distance = signed_distance >= 0.0
-        ? curve->radius : -curve->radius;
+        ? support : -support;
     constexpr double linear_tolerance = 1.0e-8;
     const bool contact_on_segment =
         along >= -linear_tolerance && along <= length + linear_tolerance;
     bool contact_on_curve = true;
-    if (curve->angular_domain) {
+    if (curve->parameter_domain) {
         constexpr double circle_turn = 2.0 * 3.14159265358979323846;
-        const double side = target_distance >= 0.0 ? 1.0 : -1.0;
-        const double angle = std::atan2(-side * normal_y, -side * normal_x);
+        const double cosine =
+            (contact_offset_x * curve->minor_y -
+             contact_offset_y * curve->minor_x) / determinant;
+        const double sine =
+            (curve->major_x * contact_offset_y -
+             curve->major_y * contact_offset_x) / determinant;
+        const double parameter = std::atan2(sine, cosine);
         double relative = std::fmod(
-            angle - curve->angular_domain->first, circle_turn);
+            parameter - curve->parameter_domain->first, circle_turn);
         if (relative < 0.0) relative += circle_turn;
         contact_on_curve = relative <=
-            curve->angular_domain->second - curve->angular_domain->first + 1.0e-8;
+            curve->parameter_domain->second - curve->parameter_domain->first + 1.0e-8;
     }
-    return SegmentCircularTangentState{
+    return SegmentCurveTangentState{
         segment->first_point_id, segment->second_point_id,
         curve->center_point_id, normal_x, normal_y,
         signed_distance, target_distance,
@@ -548,10 +605,10 @@ void Sketch::validate() const {
             ? center_curve_point_id(*this, constraint.geometry_id) : std::nullopt;
         const auto second_curve_center = concentric
             ? center_curve_point_id(*this, constraint.second_geometry_id) : std::nullopt;
-        const auto first_circular_curve = tangent
-            ? circular_curve_data(*this, constraint.geometry_id) : std::nullopt;
-        const auto second_circular_curve = tangent
-            ? circular_curve_data(*this, constraint.second_geometry_id) : std::nullopt;
+        const auto first_tangent_curve = tangent
+            ? tangent_curve_data(*this, constraint.geometry_id) : std::nullopt;
+        const auto second_tangent_curve = tangent
+            ? tangent_curve_data(*this, constraint.second_geometry_id) : std::nullopt;
         const auto symmetry_axis = symmetric
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
@@ -586,7 +643,7 @@ void Sketch::validate() const {
              (owned_segment != segments.end()) ==
                  (second_owned_segment != segments.end()) ||
              (owned_segment != segments.end()
-                 ? !second_circular_curve : !first_circular_curve))) ||
+                 ? !second_tangent_curve : !first_tangent_curve))) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -1343,8 +1400,8 @@ std::string Sketch::add_tangent_constraint(
         segments.begin(), segments.end(), [&](const auto& value) {
             return value.id == driven_geometry_id;
         });
-    const auto reference_curve = circular_curve_data(*this, reference_geometry_id);
-    const auto driven_curve = circular_curve_data(*this, driven_geometry_id);
+    const auto reference_curve = tangent_curve_data(*this, reference_geometry_id);
+    const auto driven_curve = tangent_curve_data(*this, driven_geometry_id);
     if (reference_geometry_id.empty() || driven_geometry_id.empty() ||
         reference_geometry_id == driven_geometry_id ||
         reference_is_segment == driven_is_segment ||
@@ -1355,10 +1412,10 @@ std::string Sketch::add_tangent_constraint(
         ? reference_geometry_id : driven_geometry_id;
     const std::string& curve_id = reference_is_segment
         ? driven_geometry_id : reference_geometry_id;
-    const auto state = segment_circular_tangent_state(*this, segment_id, curve_id);
+    const auto state = segment_curve_tangent_state(*this, segment_id, curve_id);
     if (!state || !state->contact_on_segment || !state->contact_on_curve) {
         throw std::invalid_argument(
-            "Tangent contact lies outside the selected segment or arc");
+            "Tangent contact lies outside the selected segment or curve domain");
     }
     if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
             return !constraint.suppressed &&
@@ -2584,7 +2641,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     ? constraint.geometry_id : constraint.second_geometry_id;
                 const std::string& curve_id = reference_is_segment
                     ? constraint.second_geometry_id : constraint.geometry_id;
-                const auto state = segment_circular_tangent_state(
+                const auto state = segment_curve_tangent_state(
                     *this, segment_id, curve_id);
                 if (!state || !state->contact_on_segment || !state->contact_on_curve) {
                     maximum_residual = std::max(maximum_residual, 1.0);
@@ -2960,7 +3017,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.geometry_id;
                     });
-                const auto state = segment_circular_tangent_state(
+                const auto state = segment_curve_tangent_state(
                     *this,
                     reference_is_segment
                         ? constraint.geometry_id : constraint.second_geometry_id,
