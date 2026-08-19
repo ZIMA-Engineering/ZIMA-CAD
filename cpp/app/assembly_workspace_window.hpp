@@ -39,6 +39,7 @@ class SketchTextPropertiesDialog;
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
     AssemblyWorkspaceWindow();
+    [[nodiscard]] bool open_document_path(const QString& path);
 
 private:
     enum class ApplicationMode {
@@ -260,7 +261,6 @@ private:
     void new_drawing();
     void close_document(int tab_index = -1);
     void open_document();
-    void open_document_path(const QString& path);
     void rebuild_insert_menu();
     [[nodiscard]] bool has_insertable_component() const;
     void insert_component(const std::string& source_document_id);

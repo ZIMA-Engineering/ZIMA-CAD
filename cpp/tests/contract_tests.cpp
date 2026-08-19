@@ -1637,6 +1637,44 @@ int main() {
                     loaded_revolution.history.front().revolution.angle_degrees == 180.0 &&
                     loaded_revolution_results.size() == 1,
                 "Revolution did not survive save/load");
+        zima::document::DocumentSession revolution_session(
+            half_revolution_document, half_revolution_results);
+        auto edited_revolution = revolution_session.document();
+        edited_revolution.history.front().revolution.angle_degrees = 225.0;
+        const auto edited_revolution_results = kernel.evaluate_history(
+            edited_revolution.kernel_operations());
+        revolution_session.commit(
+            std::move(edited_revolution), edited_revolution_results);
+        require(revolution_session.document().history.front()
+                        .revolution.angle_degrees == 225.0 &&
+                    revolution_session.undo() &&
+                    revolution_session.document().history.front()
+                        .revolution.angle_degrees == 180.0 &&
+                    revolution_session.calculated_boundaries().front()
+                        .source_fingerprint ==
+                        half_revolution_results.front().source_fingerprint &&
+                    revolution_session.redo() &&
+                    revolution_session.document().history.front()
+                        .revolution.angle_degrees == 225.0,
+                "Revolution edit did not behave as one Undo/Redo revision");
+        auto source_edited_revolution = revolution_session.document();
+        for (auto& point : source_edited_revolution.sketches.front().points) {
+            if (point.x > 15.0) point.x += 2.0;
+        }
+        const auto source_edited_revolution_results = kernel.evaluate_history(
+            source_edited_revolution.kernel_operations());
+        require(source_edited_revolution_results.front().volume >
+                    revolution_session.calculated_boundaries().front().volume &&
+                std::ranges::all_of(revolution_point_ids, [&](const auto& id) {
+                    return std::ranges::any_of(
+                        source_edited_revolution_results.front().mesh
+                            .original_references.edges,
+                        [&](const auto& edge) {
+                            return edge.reference.semantic_key ==
+                                "generated:" + id;
+                        });
+                }),
+                "Source Sketch edit broke Revolution point ancestry");
         auto torus_revolution_document =
             zima::document::PartDocument::create_default();
         auto torus_revolution_sketch =

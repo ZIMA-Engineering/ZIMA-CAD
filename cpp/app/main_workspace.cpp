@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QImage>
 #include <QLabel>
@@ -26,6 +27,8 @@
 #include <QWidget>
 
 #include <iostream>
+#include <filesystem>
+#include <tuple>
 
 namespace {
 
@@ -95,6 +98,10 @@ int verify_startup_contract(
     auto* save_as = window.findChild<QAction*>("saveDocumentAsAction");
     auto* working_directory = window.findChild<QAction*>("workingDirectoryAction");
     auto* new_document = window.findChild<QAction*>("newDocumentAction");
+    auto* undo = window.findChild<QAction*>("undoAction");
+    auto* redo = window.findChild<QAction*>("redoAction");
+    auto* save = window.findChild<QAction*>("saveDocumentAction");
+    auto* close = window.findChild<QAction*>("closeDocumentAction");
     if (!verify(tabs != nullptr && tree != nullptr, "document navigation is missing") ||
         !verify(splitter != nullptr && main_toolbar != nullptr &&
                     view_toolbar != nullptr && tools_toolbar != nullptr,
@@ -124,7 +131,9 @@ int verify_startup_contract(
                     sketch_dimensions->menu()->actions().size() == 9 &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
-                    working_directory != nullptr && new_document != nullptr,
+                    working_directory != nullptr && new_document != nullptr &&
+                    undo != nullptr && redo != nullptr &&
+                    save != nullptr && close != nullptr,
                 "primary actions are missing") ||
         !verify(tabs->count() == 0 && !splitter->isVisible() &&
                     window.windowTitle() == QStringLiteral("ZIMA-CAD — Bez dokumentu"),
@@ -367,6 +376,108 @@ int verify_startup_contract(
                 "Sketch rectangle must produce a committed Extrusion history item")) {
         return 1;
     }
+    auto open_extrusion_properties = [&]() {
+        auto* root = tree->topLevelItem(0);
+        QTreeWidgetItem* item{};
+        if (root != nullptr) {
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* candidate = root->child(index);
+                if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-container") &&
+                    candidate->text(0) == QStringLiteral("Vytažení")) {
+                    item = candidate;
+                    break;
+                }
+            }
+        }
+        if (item != nullptr) tree->itemDoubleClicked(item, 0);
+        application.processEvents();
+        auto* dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        return std::pair{dialog, dialog == nullptr
+            ? nullptr : dialog->findChild<QDoubleSpinBox*>("extrusionHeight")};
+    };
+    auto [edit_dialog, edit_height] = open_extrusion_properties();
+    if (!verify(edit_dialog != nullptr && edit_height != nullptr &&
+                    edit_height->value() == 10.0,
+                "existing Extrusion did not reopen with its persisted value")) {
+        return 1;
+    }
+    edit_height->setValue(37.0);
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    if (!verify(edit_height != nullptr && edit_height->value() == 10.0,
+                "Cancel changed the persisted Extrusion value")) {
+        return 1;
+    }
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    edit_height->setValue(18.0);
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    undo->trigger();
+    application.processEvents();
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    if (!verify(edit_height != nullptr && edit_height->value() == 10.0,
+                "Undo did not restore the previous Extrusion value")) {
+        return 1;
+    }
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    undo->trigger();
+    application.processEvents();
+    if (!verify(tree->topLevelItem(0)->childCount() == 2,
+                "unchanged Extrusion OK created an extra Undo revision")) {
+        return 1;
+    }
+    redo->trigger();
+    redo->trigger();
+    application.processEvents();
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    if (!verify(edit_height != nullptr && edit_height->value() == 18.0,
+                "Redo did not restore the edited Extrusion value")) {
+        return 1;
+    }
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    const auto saved_part_path = std::filesystem::current_path() /
+        (part_name.toStdString() + ".prtz");
+    save->trigger();
+    application.processEvents();
+    if (!verify(std::filesystem::exists(saved_part_path),
+                "Save did not persist the edited Part")) {
+        return 1;
+    }
+    close->trigger();
+    application.processEvents();
+    if (!verify(tabs->count() == 0 &&
+                    window.open_document_path(
+                        QString::fromStdString(saved_part_path.string())) &&
+                    tabs->count() == 1 && tree->topLevelItem(0)->childCount() == 3,
+                "saved Part did not close and reopen through the application")) {
+        return 1;
+    }
+    std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    if (!verify(edit_height != nullptr && edit_height->value() == 18.0,
+                "reopened Part lost the edited Extrusion value")) {
+        return 1;
+    }
+    edit_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    std::filesystem::remove(saved_part_path);
 
     if (!create_document(QStringLiteral("assembly"), assembly_name)) {
         return 1;
@@ -476,6 +587,14 @@ int main(int argc, char* argv[]) {
         !part_capture_path.isEmpty() || !drawing_capture_path.isEmpty()) {
         return verify_startup_contract(
             application, window, part_capture_path, drawing_capture_path);
+    }
+    for (const auto& argument : application.arguments().mid(1)) {
+        if (argument.startsWith('-')) continue;
+        if (argument.endsWith(".prtz", Qt::CaseInsensitive) ||
+            argument.endsWith(".asmz", Qt::CaseInsensitive) ||
+            argument.endsWith(".drwz", Qt::CaseInsensitive)) {
+            if (!window.open_document_path(argument)) return 1;
+        }
     }
     window.show();
     return application.exec();

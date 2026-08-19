@@ -14,6 +14,7 @@ struct Vec3 {
     double x{};
     double y{};
     double z{};
+    bool operator==(const Vec3&) const = default;
 };
 
 struct FaceReference {

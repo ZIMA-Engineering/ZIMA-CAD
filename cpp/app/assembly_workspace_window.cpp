@@ -522,6 +522,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     edit->addSeparator();
     undo_action_ = make_action(tr("Zpět"), "undo");
     redo_action_ = make_action(tr("Znovu"), "redo");
+    undo_action_->setObjectName("undoAction");
+    redo_action_->setObjectName("redoAction");
     connect(undo_action_, &QAction::triggered, this, [this] { undo(); });
     connect(redo_action_, &QAction::triggered, this, [this] { redo(); });
     edit->addAction(undo_action_);
@@ -2092,10 +2094,10 @@ void AssemblyWorkspaceWindow::open_document() {
         QString::fromStdString(working_directory_.string()),
         tr("Dokument ZIMA-CAD (*.prtz *.asmz *.drwz)"));
     if (path.isEmpty()) return;
-    open_document_path(path);
+    static_cast<void>(open_document_path(path));
 }
 
-void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
+bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     try {
         std::string id;
         if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
@@ -2120,7 +2122,7 @@ void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         workspace_.display_top_level(id);
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
-        return;
+        return false;
     }
     const std::filesystem::path opened_path = path.toStdString();
     if (!opened_path.parent_path().empty()) {
@@ -2140,6 +2142,7 @@ void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     cancel_sketch_segment();
     refresh_tabs();
     refresh_scene();
+    return true;
 }
 
 bool AssemblyWorkspaceWindow::has_insertable_component() const {
@@ -3127,6 +3130,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (edit_mode) {
                 auto* target = next.find_container(committed.id);
                 if (target == nullptr) throw std::runtime_error("Container no longer exists");
+                if (*target == committed) return;
                 *target = std::move(committed);
             } else {
                 next.history.push_back(std::move(committed));

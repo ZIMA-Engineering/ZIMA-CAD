@@ -30,22 +30,32 @@ struct BoxParameters {
     double length{100.0};
     double width{80.0};
     double height{50.0};
+    bool operator==(const BoxParameters&) const = default;
 };
 
 struct CylinderParameters {
     double radius{40.0};
     double height{50.0};
+    bool operator==(const CylinderParameters&) const = default;
 };
 
-struct SphereParameters { double radius{40.0}; };
+struct SphereParameters {
+    double radius{40.0};
+    bool operator==(const SphereParameters&) const = default;
+};
 struct ConeParameters {
     double bottom_radius{20.0};
     double top_radius{};
     double height{50.0};
+    bool operator==(const ConeParameters&) const = default;
 };
-struct PyramidParameters { double length{40.0}; double width{40.0}; double height{50.0}; };
+struct PyramidParameters {
+    double length{40.0}; double width{40.0}; double height{50.0};
+    bool operator==(const PyramidParameters&) const = default;
+};
 struct WedgeParameters {
     double length{60.0}; double width{40.0}; double height{40.0}; double top_offset{30.0};
+    bool operator==(const WedgeParameters&) const = default;
 };
 
 struct ExtrusionParameters {
@@ -57,12 +67,14 @@ struct ExtrusionParameters {
     zima::kernel::Vec3 target_plane_origin;
     zima::kernel::Vec3 target_plane_normal{0.0, 0.0, 1.0};
     std::vector<zima::kernel::Vec3> target_surface_triangles;
+    bool operator==(const ExtrusionParameters&) const = default;
 };
 
 struct RevolutionParameters {
     std::string sketch_id;
     RevolutionAxis axis{RevolutionAxis::SketchX};
     double angle_degrees{360.0};
+    bool operator==(const RevolutionParameters&) const = default;
 };
 
 struct EdgeTreatmentParameters {
@@ -70,11 +82,13 @@ struct EdgeTreatmentParameters {
     zima::kernel::EdgeSelectionOrigin origin{
         zima::kernel::EdgeSelectionOrigin::OriginalEntity};
     double size{1.0};
+    bool operator==(const EdgeTreatmentParameters&) const = default;
 };
 
 struct ImportedStepParameters {
     std::string source_path;
     std::string component_path;
+    bool operator==(const ImportedStepParameters&) const = default;
 };
 
 struct Placement {
@@ -84,6 +98,7 @@ struct Placement {
     double rotation_x{};
     double rotation_y{};
     double rotation_z{};
+    bool operator==(const Placement&) const = default;
 };
 
 struct HistoryContainer {
@@ -102,6 +117,7 @@ struct HistoryContainer {
     RevolutionParameters revolution;
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
+    bool operator==(const HistoryContainer&) const = default;
 };
 
 class PartDocument {
