@@ -22,6 +22,7 @@ enum class DimensionKind {
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow };
+enum class ExternalReferenceKind { Edge, Point };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -128,6 +129,18 @@ struct SketchText {
     bool operator==(const SketchText&) const = default;
 };
 
+struct SketchExternalReference {
+    std::string id;
+    ExternalReferenceKind kind{ExternalReferenceKind::Edge};
+    std::string source_document_id;
+    std::string source_owner_id;
+    std::string source_semantic_key;
+    std::string source_instance_path;
+    std::vector<std::array<double, 2>> cached_points;
+    bool broken{};
+    bool operator==(const SketchExternalReference&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -186,6 +199,7 @@ public:
     std::vector<SketchBSpline> bsplines;
     std::vector<SketchImportBlock> import_blocks;
     std::vector<SketchText> texts;
+    std::vector<SketchExternalReference> external_references;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -272,6 +286,9 @@ public:
     [[nodiscard]] static SketchText create_text();
     void add_text(SketchText text);
     void update_text(SketchText text);
+    [[nodiscard]] static SketchExternalReference create_external_reference(
+        ExternalReferenceKind kind);
+    void add_external_reference(SketchExternalReference reference);
     void transform_import_block(
         const std::string& block_id, double translation_x,
         double translation_y, double rotation);
@@ -290,6 +307,8 @@ public:
         const std::string& ellipse_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
+    [[nodiscard]] std::array<double, 2> local_point(
+        const zima::kernel::Vec3& point) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(
         const zima::kernel::Vec3& origin,
         const zima::kernel::Vec3& direction) const;

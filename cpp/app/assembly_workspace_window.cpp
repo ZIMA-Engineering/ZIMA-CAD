@@ -37,6 +37,7 @@
 #include <QKeySequence>
 #include <QPixmap>
 #include <QRadioButton>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -103,6 +104,18 @@ std::optional<std::string> sketch_text_id_from_key(const std::string& key) {
     return key.substr(prefix.size(), color_separator - prefix.size());
 }
 
+std::optional<std::string> sketch_external_reference_id_from_key(
+    const std::string& key) {
+    const std::string_view edge_prefix{"external_edge:"};
+    const std::string_view point_prefix{"external_point:"};
+    const auto prefix = key.starts_with(edge_prefix) ? edge_prefix
+        : key.starts_with(point_prefix) ? point_prefix : std::string_view{};
+    if (prefix.empty() || key.size() == prefix.size()) return std::nullopt;
+    const auto suffix = key.find(':', prefix.size());
+    return key.substr(prefix.size(), suffix == std::string::npos
+        ? std::string::npos : suffix - prefix.size());
+}
+
 std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
     const zima::sketcher::Sketch& sketch,
     const zima::sketcher::SketchText& text) {
@@ -119,6 +132,29 @@ std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
         edges.push_back(std::move(edge));
     }
     return edges;
+}
+
+std::set<std::string> sketch_external_reference_source_owners(
+    const zima::document::PartDocument& document,
+    const std::string& sketch_id) {
+    std::size_t first_consumer = document.history.size();
+    for (std::size_t index = 0; index < document.history.size(); ++index) {
+        const auto& container = document.history[index];
+        const bool extrusion_consumer =
+            container.feature_kind == zima::document::FeatureKind::Extrusion &&
+            container.extrusion.sketch_id == sketch_id;
+        const bool revolution_consumer =
+            container.feature_kind == zima::document::FeatureKind::Revolution &&
+            container.revolution.sketch_id == sketch_id;
+        if (extrusion_consumer || revolution_consumer) {
+            first_consumer = std::min(first_consumer, index);
+        }
+    }
+    std::set<std::string> owners;
+    for (std::size_t index = 0; index < first_consumer; ++index) {
+        owners.insert(document.history[index].id);
+    }
+    return owners;
 }
 
 std::optional<SketchPosition> projected_ellipse_minor(
@@ -559,6 +595,12 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_normal_view_action_ = make_action(tr("Pohled kolmo"), "view-normal");
     sketch_normal_view_action_->setObjectName("sketchNormalViewAction");
     sketch_normal_view_action_->setEnabled(false);
+    sketch_external_reference_action_ = make_action(
+        tr("Externí reference"), "sketch-reference");
+    sketch_external_reference_action_->setObjectName(
+        "sketchExternalReferenceAction");
+    sketch_external_reference_action_->setCheckable(true);
+    sketch_external_reference_action_->setEnabled(false);
     sketch_point_action_ = make_action(tr("Bod"), "point");
     sketch_point_action_->setObjectName("sketchPointAction");
     sketch_point_action_->setEnabled(false);
@@ -693,6 +735,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_action_, &QAction::triggered, this, [this] { show_sketch_properties(); });
     connect(sketch_normal_view_action_, &QAction::triggered, this,
         [this] { align_active_sketch_view(); });
+    connect(sketch_external_reference_action_, &QAction::toggled, this,
+        [this](bool enabled) { set_sketch_external_reference_mode(enabled); });
     connect(sketch_point_action_, &QAction::triggered, this,
         [this] { start_sketch_point(); });
     connect(sketch_construction_action_, &QAction::triggered, this,
@@ -946,6 +990,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_mate_reference(candidate);
             return;
         }
+        if (sketch_external_reference_active_) {
+            accept_sketch_external_reference(candidate);
+            return;
+        }
         if (sketch_coincident_active_) {
             accept_sketch_coincident_point(candidate);
             return;
@@ -982,6 +1030,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         sketch_ellipse_minor_dimension_action_->setEnabled(false);
         sketch_ellipse_rotation_dimension_action_->setEnabled(false);
         selected_sketch_text_id_.clear();
+        selected_sketch_external_reference_id_.clear();
         if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
@@ -1132,6 +1181,31 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_diameter_dimension_action_->setEnabled(false);
             sketch_fix_point_action_->setEnabled(false);
             state_->setText(tr("Vybrán text skici."));
+        } else if (candidate.kind ==
+                       zima::viewer::CandidateKind::SketchExternalReference &&
+                   candidate.owner_id == active_sketch_id_) {
+            const auto reference_id = sketch_external_reference_id_from_key(
+                candidate.semantic_key);
+            if (!reference_id) return;
+            selected_sketch_segment_id_.clear();
+            selected_sketch_circle_id_.clear();
+            selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
+            selected_sketch_bspline_id_.clear();
+            selected_sketch_text_id_.clear();
+            selected_sketch_point_id_.clear();
+            selected_sketch_external_reference_id_ = *reference_id;
+            sketch_horizontal_action_->setEnabled(false);
+            sketch_vertical_action_->setEnabled(false);
+            sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
+            sketch_radius_dimension_action_->setEnabled(false);
+            sketch_diameter_dimension_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
+            state_->setText(tr("Vybrána externí reference skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("point:")) {
@@ -1161,6 +1235,20 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if (candidate.kind ==
+                    zima::viewer::CandidateKind::SketchExternalReference &&
+                candidate.owner_id == active_sketch_id_) {
+                const auto reference_id = sketch_external_reference_id_from_key(
+                    candidate.semantic_key);
+                if (!reference_id) return;
+                selected_sketch_external_reference_id_ = *reference_id;
+                QMenu menu(this);
+                auto* remove = menu.addAction(tr("Odstranit"));
+                if (menu.exec(global_position) == remove) {
+                    static_cast<void>(delete_selected_sketch_geometry());
+                }
+                return;
+            }
             if (candidate.kind == zima::viewer::CandidateKind::SketchText &&
                 candidate.owner_id == active_sketch_id_) {
                 const auto text_id = sketch_text_id_from_key(candidate.semantic_key);
@@ -1340,6 +1428,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 selected_sketch_text_id_.clear();
                 cancel_sketch_segment();
                 sketch_normal_view_action_->setEnabled(true);
+                sketch_external_reference_action_->setEnabled(true);
                 sketch_point_action_->setEnabled(true);
                 sketch_construction_action_->setEnabled(true);
                 sketch_segment_action_->setEnabled(true);
@@ -1766,6 +1855,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (!active_sketch_id_.empty()) {
         add_command(sketch_normal_view_action_);
         add_command(selection_action_);
+        add_command(sketch_external_reference_action_);
         tools_toolbar_->addSeparator();
         add_command(sketch_trim_action_);
         add_command(sketch_mirror_action_);
@@ -3102,6 +3192,123 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
         : tr("Text skici: klikněte na polohu, potom potvrďte OK."));
 }
 
+void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
+    const bool was_active = sketch_external_reference_active_;
+    if (enabled) {
+        if (properties_dialog_ != nullptr || active_sketch_id_.empty()) {
+            enabled = false;
+        } else {
+            const auto* part = workspace_.open_part(workspace_.active_document_id());
+            if (part == nullptr || workspace_.displayed_document_id() !=
+                    workspace_.active_document_id() ||
+                std::none_of(part->session.document().sketches.begin(),
+                    part->session.document().sketches.end(), [&](const auto& sketch) {
+                        return sketch.id == active_sketch_id_;
+                    })) {
+                enabled = false;
+            }
+        }
+    }
+    if (enabled) {
+        cancel_sketch_segment();
+        sketch_external_reference_active_ = true;
+        selected_sketch_segment_id_.clear();
+        selected_sketch_circle_id_.clear();
+        selected_sketch_arc_id_.clear();
+        selected_sketch_ellipse_id_.clear();
+        selected_sketch_elliptical_arc_id_.clear();
+        selected_sketch_bspline_id_.clear();
+        selected_sketch_text_id_.clear();
+        selected_sketch_external_reference_id_.clear();
+        selected_sketch_point_id_.clear();
+        selection_action_->setChecked(true);
+        viewer_->clear_selection();
+    } else {
+        sketch_external_reference_active_ = false;
+        selected_sketch_external_reference_id_.clear();
+    }
+    {
+        const QSignalBlocker blocker(sketch_external_reference_action_);
+        sketch_external_reference_action_->setChecked(enabled);
+    }
+    if (enabled || was_active) {
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(enabled
+            ? tr("Externí reference: vyberte persistovanou původní hranu nebo vrchol. "
+                 "Pravým tlačítkem lze přepínat kandidáty.")
+            : tr("Režim externích referencí byl ukončen."));
+    }
+}
+
+void AssemblyWorkspaceWindow::accept_sketch_external_reference(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (!sketch_external_reference_active_ ||
+        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
+        (candidate.kind != zima::viewer::CandidateKind::Edge &&
+         candidate.kind != zima::viewer::CandidateKind::Vertex)) return;
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || workspace_.displayed_document_id() !=
+            workspace_.active_document_id()) return;
+    const auto allowed_owners = sketch_external_reference_source_owners(
+        part->session.document(), active_sketch_id_);
+    if (!allowed_owners.contains(candidate.owner_id) ||
+        !candidate.instance_path.empty()) {
+        state_->setText(tr(
+            "Tato geometrie není platný zdroj před aktivní skicou."));
+        return;
+    }
+    try {
+        auto next = part->session.document();
+        const auto sketch = std::find_if(
+            next.sketches.begin(), next.sketches.end(),
+            [&](const auto& value) { return value.id == active_sketch_id_; });
+        if (sketch == next.sketches.end()) return;
+        auto reference = zima::sketcher::Sketch::create_external_reference(
+            candidate.kind == zima::viewer::CandidateKind::Edge
+                ? zima::sketcher::ExternalReferenceKind::Edge
+                : zima::sketcher::ExternalReferenceKind::Point);
+        reference.source_document_id = next.document_id;
+        reference.source_owner_id = candidate.owner_id;
+        reference.source_semantic_key = candidate.semantic_key;
+        reference.source_instance_path = candidate.instance_path;
+        if (candidate.kind == zima::viewer::CandidateKind::Edge) {
+            const auto edge = viewer_->candidate_edge(candidate);
+            if (!edge || edge->points.size() < 2) {
+                throw std::runtime_error(
+                    "Persisted source edge geometry is unavailable");
+            }
+            for (const auto& world : edge->points) {
+                const auto local = sketch->local_point(world);
+                if (reference.cached_points.empty() || std::hypot(
+                        local[0] - reference.cached_points.back()[0],
+                        local[1] - reference.cached_points.back()[1]) > 1.0e-9) {
+                    reference.cached_points.push_back(local);
+                }
+            }
+        } else {
+            const auto point = viewer_->candidate_point(candidate);
+            if (!point) {
+                throw std::runtime_error(
+                    "Persisted source point geometry is unavailable");
+            }
+            reference.cached_points.push_back(
+                sketch->local_point(point->position));
+        }
+        sketch->add_external_reference(std::move(reference));
+        part->session.commit(
+            std::move(next), part->session.calculated_boundaries());
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr(
+            "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj."));
+    } catch (const std::exception& error) {
+        state_->setText(tr("Externí referenci nelze vytvořit: %1")
+            .arg(QString::fromUtf8(error.what())));
+    }
+}
+
 void AssemblyWorkspaceWindow::align_active_sketch_view() {
     const auto* part = workspace_.open_part(workspace_.active_document_id());
     if (viewer_ == nullptr || part == nullptr || active_sketch_id_.empty()) return;
@@ -3216,6 +3423,12 @@ void AssemblyWorkspaceWindow::start_sketch_polyline() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_segment() {
+    sketch_external_reference_active_ = false;
+    selected_sketch_external_reference_id_.clear();
+    if (sketch_external_reference_action_ != nullptr) {
+        const QSignalBlocker blocker(sketch_external_reference_action_);
+        sketch_external_reference_action_->setChecked(false);
+    }
     sketch_point_active_ = false;
     sketch_segment_active_ = false;
     sketch_segment_construction_ = false;
@@ -4850,7 +5063,8 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         : !selected_sketch_elliptical_arc_id_.empty()
             ? selected_sketch_elliptical_arc_id_
         : !selected_sketch_bspline_id_.empty() ? selected_sketch_bspline_id_
-        : selected_sketch_text_id_;
+        : !selected_sketch_text_id_.empty() ? selected_sketch_text_id_
+        : selected_sketch_external_reference_id_;
     if (geometry_id.empty() && selected_sketch_point_id_.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || workspace_.displayed_document_id() !=
@@ -4870,6 +5084,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         selected_sketch_elliptical_arc_id_.clear();
         selected_sketch_bspline_id_.clear();
         selected_sketch_text_id_.clear();
+        selected_sketch_external_reference_id_.clear();
         selected_sketch_point_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5811,6 +6026,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_constraints_action_->setEnabled(false);
         sketch_dimensions_action_->setEnabled(false);
         sketch_text_action_->setEnabled(false);
+        sketch_external_reference_action_->setEnabled(false);
         rebuild_application_toolbar();
         return;
     }
@@ -5840,7 +6056,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, regenerate_part_action_,
-                             sketch_normal_view_action_, sketch_point_action_,
+                             sketch_normal_view_action_,
+                             sketch_external_reference_action_, sketch_point_action_,
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
@@ -5950,6 +6167,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         root->setExpanded(true);
         viewer_->set_selection_contract(!selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
+            : sketch_external_reference_active_
+                ? std::vector{zima::viewer::CandidateKind::Edge,
+                              zima::viewer::CandidateKind::Vertex}
             : sketch_trim_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
             : sketch_mirror_active_
@@ -6008,8 +6228,22 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::Dimension,
                               zima::viewer::CandidateKind::SketchCurve,
-                              zima::viewer::CandidateKind::SketchText});
-        if (sketch_symmetric_active_ && pending_symmetric_point_ids_.size() == 2) {
+                              zima::viewer::CandidateKind::SketchText,
+                              zima::viewer::CandidateKind::SketchExternalReference});
+        if (sketch_external_reference_active_) {
+            const auto source_owners = sketch_external_reference_source_owners(
+                document, active_sketch_id_);
+            viewer_->set_candidate_filter(
+                [source_owners](const auto& candidate) {
+                    return candidate.geometry ==
+                            zima::viewer::CandidateGeometry::OriginalReference &&
+                        candidate.instance_path.empty() &&
+                        source_owners.contains(candidate.owner_id) &&
+                        (candidate.kind == zima::viewer::CandidateKind::Edge ||
+                         candidate.kind == zima::viewer::CandidateKind::Vertex);
+                });
+        } else if (sketch_symmetric_active_ &&
+                   pending_symmetric_point_ids_.size() == 2) {
             set_sketch_symmetric_axis_contract();
         } else if (sketch_concentric_active_) {
             set_sketch_concentric_contract();
@@ -6108,6 +6342,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         revolution_action_->setEnabled(has_selected_sketch);
         sketch_action_->setEnabled(true);
         sketch_normal_view_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_external_reference_action_->setEnabled(!active_sketch_id_.empty());
         sketch_point_action_->setEnabled(!active_sketch_id_.empty());
         sketch_construction_action_->setEnabled(!active_sketch_id_.empty());
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
@@ -6169,6 +6404,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     sketch_circle_action_, sketch_arc_action_, sketch_ellipse_action_,
                     sketch_elliptical_arc_action_,
                     sketch_bspline_action_, sketch_text_action_,
+                    sketch_external_reference_action_,
                     sketch_constraints_action_,
                     sketch_dimensions_action_, sketch_horizontal_action_,
                     sketch_vertical_action_, sketch_coincident_action_,
@@ -6283,6 +6519,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     revolution_action_->setEnabled(active_part_has_selected_sketch);
     sketch_action_->setEnabled(active_part != nullptr);
     sketch_normal_view_action_->setEnabled(false);
+    sketch_external_reference_action_->setEnabled(false);
     sketch_point_action_->setEnabled(false);
     sketch_construction_action_->setEnabled(false);
     sketch_segment_action_->setEnabled(false);

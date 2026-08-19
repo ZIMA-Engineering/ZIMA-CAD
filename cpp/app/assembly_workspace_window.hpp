@@ -108,6 +108,7 @@ private:
     QAction* chamfer_action_{};
     QAction* sketch_action_{};
     QAction* sketch_normal_view_action_{};
+    QAction* sketch_external_reference_action_{};
     QAction* sketch_point_action_{};
     QAction* sketch_construction_action_{};
     QAction* sketch_segment_action_{};
@@ -176,6 +177,7 @@ private:
     std::string selected_sketch_elliptical_arc_id_;
     std::string selected_sketch_bspline_id_;
     std::string selected_sketch_text_id_;
+    std::string selected_sketch_external_reference_id_;
     std::string selected_sketch_point_id_;
     bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
@@ -216,6 +218,7 @@ private:
     bool sketch_text_active_{};
     std::string editing_sketch_text_id_;
     SketchTextPropertiesDialog* sketch_text_dialog_{};
+    bool sketch_external_reference_active_{};
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
     bool sketch_midpoint_active_{};
@@ -296,6 +299,9 @@ private:
         const std::string& sketch_id, const std::string& bspline_id);
     void show_sketch_text_properties(
         const std::string& sketch_id, const std::string& text_id = {});
+    void set_sketch_external_reference_mode(bool enabled);
+    void accept_sketch_external_reference(
+        const zima::viewer::ViewerCandidate& candidate);
     void align_active_sketch_view();
     void finish_active_sketch();
     void start_sketch_point();

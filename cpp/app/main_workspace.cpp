@@ -81,6 +81,8 @@ int verify_startup_contract(
     auto* sketch_tangent = window.findChild<QAction*>("sketchTangentAction");
     auto* sketch_equal = window.findChild<QAction*>("sketchEqualAction");
     auto* sketch_text = window.findChild<QAction*>("sketchTextAction");
+    auto* sketch_external_reference =
+        window.findChild<QAction*>("sketchExternalReferenceAction");
     auto* sketch_constraints =
         window.findChild<QAction*>("sketchConstraintsAction");
     auto* sketch_dimensions =
@@ -109,6 +111,7 @@ int verify_startup_contract(
                     sketch_tangent != nullptr &&
                     sketch_equal != nullptr &&
                     sketch_text != nullptr &&
+                    sketch_external_reference != nullptr &&
                     sketch_constraints != nullptr &&
                     sketch_constraints->menu() != nullptr &&
                     sketch_constraints->menu()->actions().size() == 12 &&
@@ -265,6 +268,7 @@ int verify_startup_contract(
                     sketch_concentric->isEnabled() &&
                     sketch_tangent->isEnabled() &&
                     sketch_text->isEnabled() &&
+                    sketch_external_reference->isEnabled() &&
                     sketch_constraints->isEnabled() &&
                     sketch_dimensions->isEnabled() &&
                     finish_sketch->isEnabled(),
@@ -275,6 +279,7 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_mirror) &&
                     tools_toolbar->actions().contains(sketch_elliptical_arc) &&
                     tools_toolbar->actions().contains(sketch_text) &&
+                    tools_toolbar->actions().contains(sketch_external_reference) &&
                     tools_toolbar->actions().contains(sketch_constraints) &&
                     tools_toolbar->actions().contains(sketch_dimensions) &&
                     sketch_constraints->menu()->actions().contains(sketch_midpoint) &&
@@ -282,6 +287,18 @@ int verify_startup_contract(
                     sketch_constraints->menu()->actions().contains(sketch_concentric) &&
                     sketch_constraints->menu()->actions().contains(sketch_tangent),
                 "Sketch commands must be exposed in the shared right toolbar")) {
+        return 1;
+    }
+    sketch_external_reference->trigger();
+    application.processEvents();
+    if (!verify(sketch_external_reference->isChecked(),
+                "Sketch external-reference command must enter its viewer mode")) {
+        return 1;
+    }
+    sketch_external_reference->trigger();
+    application.processEvents();
+    if (!verify(!sketch_external_reference->isChecked(),
+                "Sketch external-reference command must leave its viewer mode")) {
         return 1;
     }
     sketch_text->trigger();

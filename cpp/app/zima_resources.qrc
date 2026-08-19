@@ -34,6 +34,7 @@
     <file alias="icons/sketch-elliptical-arc.svg">../../resources/icons/sketch-elliptical-arc.svg</file>
     <file alias="icons/sketch-spline.svg">../../resources/icons/sketch-spline.svg</file>
     <file alias="icons/sketch-text.svg">../../resources/icons/sketch-text.svg</file>
+    <file alias="icons/sketch-reference.svg">../../resources/icons/sketch-reference.svg</file>
     <file alias="icons/sketch-constraints.svg">../../resources/icons/sketch-constraints.svg</file>
     <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>

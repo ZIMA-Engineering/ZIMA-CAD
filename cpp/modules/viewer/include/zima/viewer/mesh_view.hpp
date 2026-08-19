@@ -83,6 +83,10 @@ public:
         std::function<void()> end);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
+    [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(
+        const ViewerCandidate& candidate) const;
+    [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(
+        const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
 protected:

@@ -147,6 +147,34 @@ std::optional<ViewerCandidate> MeshView::confirmed_candidate() const {
     return impl_->confirmed_candidate;
 }
 
+std::optional<zima::kernel::ViewerEdge> MeshView::candidate_edge(
+    const ViewerCandidate& candidate) const {
+    const auto& edges = candidate.geometry == CandidateGeometry::OriginalReference
+        ? impl_->mesh.original_references.edges : impl_->mesh.edges;
+    if (candidate.geometry_index >= edges.size()) return std::nullopt;
+    const auto& edge = edges[candidate.geometry_index];
+    if (edge.reference.owner_id != candidate.owner_id ||
+        edge.reference.semantic_key != candidate.semantic_key ||
+        edge.reference.instance_path != candidate.instance_path) {
+        return std::nullopt;
+    }
+    return edge;
+}
+
+std::optional<zima::kernel::ViewerPoint> MeshView::candidate_point(
+    const ViewerCandidate& candidate) const {
+    const auto& points = candidate.geometry == CandidateGeometry::OriginalReference
+        ? impl_->mesh.original_references.points : impl_->mesh.points;
+    if (candidate.geometry_index >= points.size()) return std::nullopt;
+    const auto& point = points[candidate.geometry_index];
+    if (point.reference.owner_id != candidate.owner_id ||
+        point.reference.semantic_key != candidate.semantic_key ||
+        point.reference.instance_path != candidate.instance_path) {
+        return std::nullopt;
+    }
+    return point;
+}
+
 void MeshView::confirm_container(const std::string& owner_id) {
     auto candidate = container_candidate(impl_->mesh, owner_id);
     if (!candidate) {
@@ -584,9 +612,16 @@ void MeshView::paintGL() {
                 edge.reference.semantic_key.starts_with("ellipse:") ||
                 edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                 edge.reference.semantic_key.starts_with("bspline:") ||
-                edge.reference.semantic_key.starts_with("text:");
+                edge.reference.semantic_key.starts_with("text:") ||
+                edge.reference.semantic_key.starts_with("external_edge:");
         });
-    const bool points_visible = impl_->show_points && !impl_->mesh.points.empty();
+    const bool external_points_visible = impl_->show_sketches && std::any_of(
+        impl_->mesh.points.begin(), impl_->mesh.points.end(), [](const auto& point) {
+            return point.reference.semantic_key.starts_with("external_point:");
+        });
+    const bool points_visible =
+        (impl_->show_points && !impl_->mesh.points.empty()) ||
+        external_points_visible;
     const bool planes_visible = impl_->show_planes && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key == "border";
@@ -600,6 +635,7 @@ void MeshView::paintGL() {
             highlighted->kind == CandidateKind::SketchSegment ||
             highlighted->kind == CandidateKind::SketchCurve ||
             highlighted->kind == CandidateKind::SketchText ||
+            highlighted->kind == CandidateKind::SketchExternalReference ||
             highlighted->kind == CandidateKind::SketchTrimPiece ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
@@ -625,13 +661,19 @@ void MeshView::paintGL() {
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
                     !edge.reference.semantic_key.starts_with("elliptical_arc:") &&
                     !edge.reference.semantic_key.starts_with("bspline:") &&
-                    !edge.reference.semantic_key.starts_with("text:")) continue;
+                    !edge.reference.semantic_key.starts_with("text:") &&
+                    !edge.reference.semantic_key.starts_with("external_edge:")) continue;
                 const bool text = edge.reference.semantic_key.starts_with("text:");
+                const bool external = edge.reference.semantic_key.starts_with(
+                    "external_edge:");
                 const QColor text_color = edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
                     : edge.reference.semantic_key.ends_with(":white")
                         ? QColor(235, 235, 235) : QColor(77, 216, 17);
+                const QColor external_color = edge.reference.semantic_key.ends_with(
+                    ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
                 painter.setPen(text ? QPen(text_color, 1.8)
+                    : external ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
                         : QPen(QColor(220, 220, 220), 1.8));
@@ -650,10 +692,25 @@ void MeshView::paintGL() {
             }
         }
         if (points_visible) {
-            painter.setPen(QPen(QColor(245, 205, 80), 1.5));
-            painter.setBrush(QColor(245, 205, 80));
             for (const auto& point : impl_->mesh.points) {
-                painter.drawEllipse(project(point.position), 3.5, 3.5);
+                const bool external = point.reference.semantic_key.starts_with(
+                    "external_point:");
+                if ((!external && !impl_->show_points) ||
+                    (external && !impl_->show_sketches)) continue;
+                if (external) {
+                    const QColor color = point.reference.semantic_key.ends_with(
+                        ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
+                    painter.setPen(QPen(color, 1.8));
+                    const QPointF center = project(point.position);
+                    painter.drawLine(center + QPointF(-4.0, -4.0),
+                                     center + QPointF(4.0, 4.0));
+                    painter.drawLine(center + QPointF(-4.0, 4.0),
+                                     center + QPointF(4.0, -4.0));
+                } else {
+                    painter.setPen(QPen(QColor(245, 205, 80), 1.5));
+                    painter.setBrush(QColor(245, 205, 80));
+                    painter.drawEllipse(project(point.position), 3.5, 3.5);
+                }
             }
         }
         if (!impl_->transient_edges.empty()) {
@@ -746,6 +803,8 @@ void MeshView::paintGL() {
                  highlighted->kind == CandidateKind::SketchSegment ||
                  highlighted->kind == CandidateKind::SketchCurve ||
                  highlighted->kind == CandidateKind::SketchText ||
+                 (highlighted->kind == CandidateKind::SketchExternalReference &&
+                  highlighted->semantic_key.starts_with("external_edge:")) ||
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
@@ -766,7 +825,9 @@ void MeshView::paintGL() {
                     }
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
-                        highlighted->kind == CandidateKind::SketchPoint) &&
+                        highlighted->kind == CandidateKind::SketchPoint ||
+                        (highlighted->kind == CandidateKind::SketchExternalReference &&
+                         highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size()) {
                 painter.setPen(QPen(color, 2.0));
                 painter.setBrush(color);

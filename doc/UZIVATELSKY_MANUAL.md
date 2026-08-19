@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 18, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 19, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -448,6 +448,22 @@ vypočítá při explicitním OK a uloží se společně se sémantickými param
 otevření, výběr a vykreslení textu proto nevolá OCCT ani znovu nenačítá písmo.
 V aktuálním C++ řezu je text samostatná skicová grafika a zatím nevstupuje do
 profilu Vytažení nebo Rotace.
+
+Příkaz **Externí reference** vedle nástroje Výběr přepne nativní C++ Sketcher
+do výběru původní persistované topologie. V tomto prvním řezu lze převzít hranu
+nebo vrchol lokálního Partu z kontejneru, který leží před prvním Vytažením či
+Rotací používající aktivní skicu. Tím se zabrání kruhové závislosti skici na
+jejím vlastním výsledku. Hover zvýrazní přesně nabízenou hranu nebo vrchol,
+pravé tlačítko cykluje společný seznam kandidátů a levé tlačítko uloží projekci
+jako jednu Part revizi. Režim zůstane aktivní pro další výběr a ukončí se
+opětovným stisknutím tlačítka.
+
+Uložená externí hrana se kreslí hnědou čárkovanou čarou a vrchol hnědým
+křížkem. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo
+`Delete`. Kliknutí, hover, otevření ani mazání nevolá OCCT: používá se pouze
+stabilní identita a geometrie z persistovaného viewer packetu. Plochy, osy,
+zdroje z jiné komponenty sestavy a asociativní obnovení projekce při explicitní
+regeneraci budou doplněny v navazujících řezech.
 
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
 řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.

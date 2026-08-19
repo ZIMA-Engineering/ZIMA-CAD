@@ -256,6 +256,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
             const auto kind = edge.reference.semantic_key.starts_with("trim_piece:")
                 ? CandidateKind::SketchTrimPiece
+                : edge.reference.semantic_key.starts_with("external_edge:")
+                ? CandidateKind::SketchExternalReference
                 : edge.reference.semantic_key.starts_with("text:")
                 ? CandidateKind::SketchText
                 : edge.reference.semantic_key.starts_with("segment:")
@@ -280,8 +282,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
-            const auto kind = vertex.reference.semantic_key.starts_with("point:")
-                ? CandidateKind::SketchPoint : CandidateKind::Vertex;
+            const auto kind = vertex.reference.semantic_key.starts_with(
+                    "external_point:")
+                ? CandidateKind::SketchExternalReference
+                : vertex.reference.semantic_key.starts_with("point:")
+                    ? CandidateKind::SketchPoint : CandidateKind::Vertex;
             result.push_back({kind, vertex.distance, vertex.point,
                               vertex.reference.owner_id, vertex.reference.semantic_key,
                               vertex.reference.instance_path, geometry});
@@ -315,6 +320,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         switch (kind) {
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
+        case CandidateKind::SketchExternalReference: return 1;
         case CandidateKind::SketchText: return 2;
         case CandidateKind::SketchCurve: return 2;
         case CandidateKind::SketchPoint: return 0;

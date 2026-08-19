@@ -140,6 +140,50 @@ int main() {
         require(text_sketch.texts.empty(),
                 "Sketch text was not removed through the common geometry operation");
 
+        auto external_edge = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        external_edge.source_document_id = "part-source";
+        external_edge.source_owner_id = "container-source";
+        external_edge.source_semantic_key = "edge:stable-source";
+        external_edge.cached_points = {{2.0, 3.0}, {7.0, 3.0}};
+        const auto external_edge_id = external_edge.id;
+        text_sketch.add_external_reference(external_edge);
+        auto external_point = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Point);
+        external_point.source_document_id = "part-source";
+        external_point.source_owner_id = "container-source";
+        external_point.source_semantic_key = "vertex:stable-source";
+        external_point.cached_points = {{2.0, 3.0}};
+        text_sketch.add_external_reference(external_point);
+        const auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
+            text_sketch.serialized());
+        require(external_roundtrip.external_references ==
+                    text_sketch.external_references,
+                "Persisted Sketch external references did not round-trip");
+        const auto external_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                text_sketch.viewer_mesh(), {4.0, 3.0, 10.0},
+                {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchExternalReference});
+        require(external_candidates.size() == 1 &&
+                    external_candidates.front().semantic_key ==
+                        "external_edge:" + external_edge_id,
+                "Sketch external edge did not use the common viewer candidate list");
+        const auto before_duplicate_reference = text_sketch.serialized();
+        bool duplicate_reference_rejected = false;
+        try {
+            external_edge.id.clear();
+            text_sketch.add_external_reference(std::move(external_edge));
+        } catch (const std::invalid_argument&) {
+            duplicate_reference_rejected = true;
+        }
+        require(duplicate_reference_rejected &&
+                    text_sketch.serialized() == before_duplicate_reference,
+                "Duplicate external reference partially changed the Sketch");
+        text_sketch.remove_geometry(external_edge_id);
+        require(text_sketch.external_references.size() == 1,
+                "External reference was not removed as one Sketch entity");
+
         const auto xy_hit = sketch.intersect_ray({4.0, 7.0, 10.0}, {0.0, 0.0, -1.0});
         require(xy_hit && std::abs((*xy_hit)[0] - 4.0) < 1.0e-9 &&
                     std::abs((*xy_hit)[1] - 7.0) < 1.0e-9,

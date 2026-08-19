@@ -533,6 +533,14 @@ display and picking consume the stored contours without loading a font or
 calling OCCT. Text contours are not yet profile input for Extrusion or
 Revolution.
 
+The first native Sketch external-reference slice persists a stable source
+document/container/topology identity and the projected local geometry of an
+original edge or vertex. Creation consumes the exact candidate from the common
+viewer list and accepts only persisted `OriginalReference` data from history
+before the Sketch's first consumer, so it neither traverses OCCT nor introduces
+a dependency cycle. Face/axis, Assembly-occurrence, and explicit associative
+refresh support remain subsequent slices.
+
 ## Linux build
 
 Qt and OCCT are consumed from the existing bundled runtime and are not rebuilt:

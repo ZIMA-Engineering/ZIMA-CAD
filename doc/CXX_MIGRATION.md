@@ -986,3 +986,19 @@ náhled transientní až do potvrzení. OK zapíše jednu Part revizi, Cancel ob
 nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontury na profil
 Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
 větvení do starého formátu.
+
+První nativní řez **Externí reference** přidává Sketch formát verze 16 a Part
+formát verze 19. Read-only entita ukládá stabilní identitu zdrojového dokumentu,
+kontejneru a původní hrany nebo vrcholu spolu s hotovou projekcí do lokálních
+souřadnic skici. Viewer ji nabízí jako jednu vlastní kandidátní třídu, kreslí
+přesnou hranu nebo bod a používá pro hover, LMB potvrzení, RMB i mazání tentýž
+seřazený seznam kandidátů.
+
+Příkaz přijímá pouze `CandidateGeometry::OriginalReference` z persistovaného
+viewer packetu; result-body topologie je filtrem vyloučená a UI cesta nevolá
+OCCT. Zdrojové kontejnery jsou navíc omezené na historii před prvním
+kontejnerem, který aktivní skicu spotřebovává, takže nelze vytvořit přímý cyklus
+na vlastním Vytažení nebo Rotaci. Zatím jsou podporované lokální hrany a vrcholy.
+Plochy, osy, assembly occurrence zdroje a explicitní asociativní obnovení cache
+zůstávají samostatnými dalšími řezy; žádná kompatibilní větev pro formát 15/18
+se nepřidává.

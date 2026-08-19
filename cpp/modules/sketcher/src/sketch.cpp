@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -151,6 +152,21 @@ SketchTextColor text_color_from_name(const std::string& name) {
     if (name == "white") return SketchTextColor::White;
     if (name == "yellow") return SketchTextColor::Yellow;
     throw std::runtime_error("Unknown sketch text color");
+}
+
+const char* external_reference_kind_name(ExternalReferenceKind kind) {
+    switch (kind) {
+    case ExternalReferenceKind::Edge: return "edge";
+    case ExternalReferenceKind::Point: return "point";
+    }
+    throw std::invalid_argument("Unknown Sketch external reference kind");
+}
+
+ExternalReferenceKind external_reference_kind_from_name(
+    const std::string& name) {
+    if (name == "edge") return ExternalReferenceKind::Edge;
+    if (name == "point") return ExternalReferenceKind::Point;
+    throw std::runtime_error("Unknown Sketch external reference kind");
 }
 
 void require_finite(double value, const char* field) {
@@ -771,6 +787,44 @@ void Sketch::validate() const {
             }
             if (std::abs(signed_area) <= 1.0e-12) {
                 throw std::runtime_error("Sketch text contour has zero area");
+            }
+        }
+    }
+    ids.clear();
+    std::vector<std::tuple<ExternalReferenceKind, std::string, std::string,
+                           std::string, std::string>> external_sources;
+    for (const auto& reference : external_references) {
+        static_cast<void>(external_reference_kind_name(reference.kind));
+        if (reference.id.empty() || !ids.insert(reference.id).second ||
+            reference.source_document_id.empty() ||
+            reference.source_owner_id.empty() ||
+            reference.source_semantic_key.empty() ||
+            reference.source_owner_id == id || reference.cached_points.empty()) {
+            throw std::runtime_error("Sketch external reference is invalid");
+        }
+        const auto source = std::tuple{
+            reference.kind, reference.source_document_id,
+            reference.source_owner_id, reference.source_semantic_key,
+            reference.source_instance_path};
+        if (std::ranges::find(external_sources, source) !=
+            external_sources.end()) {
+            throw std::runtime_error("Sketch external reference is duplicated");
+        }
+        external_sources.push_back(source);
+        if ((reference.kind == ExternalReferenceKind::Point &&
+             reference.cached_points.size() != 1) ||
+            (reference.kind == ExternalReferenceKind::Edge &&
+             reference.cached_points.size() < 2)) {
+            throw std::runtime_error("Sketch external reference geometry is invalid");
+        }
+        for (std::size_t index = 0; index < reference.cached_points.size(); ++index) {
+            const auto& point = reference.cached_points[index];
+            if (!std::isfinite(point[0]) || !std::isfinite(point[1]) ||
+                (index > 0 && std::hypot(
+                    point[0] - reference.cached_points[index - 1][0],
+                    point[1] - reference.cached_points[index - 1][1]) <= 1.0e-12)) {
+                throw std::runtime_error(
+                    "Sketch external reference geometry is invalid");
             }
         }
     }
@@ -1787,8 +1841,11 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto text_count = std::erase_if(next.texts,
         [&](const auto& value) { return value.id == geometry_id; });
+    const auto external_reference_count = std::erase_if(next.external_references,
+        [&](const auto& value) { return value.id == geometry_id; });
     if (segment_count + circle_count + arc_count + ellipse_count +
-            elliptical_arc_count + spline_count + text_count != 1) {
+            elliptical_arc_count + spline_count + text_count +
+            external_reference_count != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
@@ -2580,6 +2637,34 @@ void Sketch::update_text(SketchText text) {
         throw std::invalid_argument("Sketch text does not exist");
     }
     *found = std::move(text);
+    next.validate();
+    *this = std::move(next);
+}
+
+SketchExternalReference Sketch::create_external_reference(
+    ExternalReferenceKind kind) {
+    SketchExternalReference reference;
+    reference.id = make_id();
+    reference.kind = kind;
+    return reference;
+}
+
+void Sketch::add_external_reference(SketchExternalReference reference) {
+    if (reference.id.empty()) reference.id = make_id();
+    const auto same_source = [&](const auto& value) {
+        return value.kind == reference.kind &&
+            value.source_document_id == reference.source_document_id &&
+            value.source_owner_id == reference.source_owner_id &&
+            value.source_semantic_key == reference.source_semantic_key &&
+            value.source_instance_path == reference.source_instance_path;
+    };
+    if (std::ranges::any_of(external_references, [&](const auto& value) {
+            return value.id == reference.id || same_source(value);
+        })) {
+        throw std::invalid_argument("Sketch external reference already exists");
+    }
+    auto next = *this;
+    next.external_references.push_back(std::move(reference));
     next.validate();
     *this = std::move(next);
 }
@@ -3706,6 +3791,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             }
         }
     }
+    for (const auto& reference : external_references) {
+        for (const auto& point : reference.cached_points) {
+            axis_half_extent = std::max(axis_half_extent,
+                1.25 * std::max(std::abs(point[0]), std::abs(point[1])));
+        }
+    }
     const auto origin = world_point(0.0, 0.0);
     const auto x_end = world_point(1.0, 0.0);
     const auto y_end = world_point(0.0, 1.0);
@@ -3720,6 +3811,13 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     result.points.reserve(points.size());
     for (const auto& point : points) {
         result.points.push_back({project(point), {id, "point:" + point.id, {}}});
+    }
+    for (const auto& reference : external_references) {
+        if (reference.kind != ExternalReferenceKind::Point) continue;
+        const auto& point = reference.cached_points.front();
+        result.points.push_back({world_point(point[0], point[1]),
+            {id, "external_point:" + reference.id +
+                (reference.broken ? ":broken" : ""), {}}});
     }
     result.edges.reserve(segments.size());
     for (const auto& segment : segments) {
@@ -3916,6 +4014,19 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.edges.push_back(std::move(edge));
         }
     }
+    for (const auto& reference : external_references) {
+        if (reference.kind != ExternalReferenceKind::Edge) continue;
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {id, "external_edge:" + reference.id +
+            (reference.broken ? ":broken" : ""), {}};
+        edge.construction = true;
+        edge.overlay = true;
+        edge.points.reserve(reference.cached_points.size());
+        for (const auto& point : reference.cached_points) {
+            edge.points.push_back(world_point(point[0], point[1]));
+        }
+        result.edges.push_back(std::move(edge));
+    }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed) continue;
@@ -4036,6 +4147,16 @@ zima::kernel::Vec3 Sketch::world_point(double x, double y) const {
     return {plane_offset, x, y};
 }
 
+std::array<double, 2> Sketch::local_point(
+    const zima::kernel::Vec3& point) const {
+    require_finite(point.x, "world x");
+    require_finite(point.y, "world y");
+    require_finite(point.z, "world z");
+    if (plane == SketchPlane::XY) return {point.x, point.y};
+    if (plane == SketchPlane::XZ) return {point.x, point.z};
+    return {point.y, point.z};
+}
+
 std::optional<std::array<double, 2>> Sketch::intersect_ray(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) const {
@@ -4125,6 +4246,22 @@ std::string Sketch::serialized() const {
             {"color", text_color_name(text.color)}, {"font", text.font},
             {"contours", std::move(contours)}});
     }
+    nlohmann::json external_reference_values = nlohmann::json::array();
+    for (const auto& reference : external_references) {
+        nlohmann::json points = nlohmann::json::array();
+        for (const auto& point : reference.cached_points) {
+            points.push_back({point[0], point[1]});
+        }
+        external_reference_values.push_back({
+            {"id", reference.id},
+            {"kind", external_reference_kind_name(reference.kind)},
+            {"source_document_id", reference.source_document_id},
+            {"source_owner_id", reference.source_owner_id},
+            {"source_semantic_key", reference.source_semantic_key},
+            {"source_instance_path", reference.source_instance_path},
+            {"cached_points", std::move(points)},
+            {"broken", reference.broken}});
+    }
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -4142,7 +4279,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 15},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 16},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -4153,6 +4290,7 @@ std::string Sketch::serialized() const {
         {"bsplines", std::move(spline_values)},
         {"import_blocks", std::move(import_block_values)},
         {"texts", std::move(text_values)},
+        {"external_references", std::move(external_reference_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
     return root.dump(2);
@@ -4160,7 +4298,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 15) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 16) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -4242,6 +4380,26 @@ Sketch Sketch::from_serialized(const std::string& value) {
             text.contours.push_back(std::move(contour));
         }
         sketch.texts.push_back(std::move(text));
+    }
+    for (const auto& value : root.at("external_references")) {
+        SketchExternalReference reference;
+        reference.id = value.at("id").get<std::string>();
+        reference.kind = external_reference_kind_from_name(
+            value.at("kind").get<std::string>());
+        reference.source_document_id =
+            value.at("source_document_id").get<std::string>();
+        reference.source_owner_id =
+            value.at("source_owner_id").get<std::string>();
+        reference.source_semantic_key =
+            value.at("source_semantic_key").get<std::string>();
+        reference.source_instance_path =
+            value.at("source_instance_path").get<std::string>();
+        for (const auto& point : value.at("cached_points")) {
+            reference.cached_points.push_back({
+                point.at(0).get<double>(), point.at(1).get<double>()});
+        }
+        reference.broken = value.at("broken").get<bool>();
+        sketch.external_references.push_back(std::move(reference));
     }
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
