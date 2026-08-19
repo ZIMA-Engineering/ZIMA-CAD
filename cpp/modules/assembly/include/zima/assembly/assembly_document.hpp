@@ -173,6 +173,9 @@ public:
     [[nodiscard]] const AssemblyMate* find_mate(const std::string& mate_id) const;
     [[nodiscard]] AssemblyMate* find_mate(const std::string& mate_id);
     void replace_mate(AssemblyMate mate);
+    [[nodiscard]] bool replace_mate_and_calculate(AssemblyMate mate);
+    [[nodiscard]] bool set_mate_value(
+        const std::string& mate_id, double value);
     void remove_mate(const std::string& mate_id);
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;

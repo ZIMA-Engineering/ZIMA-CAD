@@ -6,6 +6,7 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <set>
 #include <stdexcept>
 
@@ -206,6 +207,15 @@ int main() {
                     angled_assembly.components.back().placement.rotation_z ==
                     angled_placement.rotation_z,
                 "Axis angle mate was not idempotent");
+        const auto angled_scene = angled_assembly.build_scene();
+        require(angled_scene.dimensions.size() == 1 &&
+                    angled_scene.dimensions.front().reference.owner_id ==
+                        angled_assembly.document_id &&
+                    angled_scene.dimensions.front().reference.semantic_key ==
+                        "mate:" + angled_assembly.mates.front().mate_id &&
+                    angled_scene.dimensions.front().unit_suffix == " °" &&
+                    angled_scene.dimensions.front().value == 60.0,
+                "Axis angle mate did not create its editable viewer dimension");
         const auto limited_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-limited-mate-contract.zca.json";
         angled_assembly.save(limited_mate_path);
@@ -215,6 +225,26 @@ int main() {
         require(loaded_limited_mate.mates.front().lower_limit == 30.0 &&
                     loaded_limited_mate.mates.front().upper_limit == 90.0,
                 "Assembly mate absolute limits did not survive save/load");
+        auto value_edit = loaded_limited_mate;
+        const std::string limited_mate_id = value_edit.mates.front().mate_id;
+        require(value_edit.set_mate_value(limited_mate_id, 75.0) &&
+                    value_edit.mates.front().angle_degrees == 75.0 &&
+                    value_edit.mates.front().status ==
+                        zima::assembly::MateStatus::Valid,
+                "Transactional Assembly mate value edit did not calculate");
+        const auto valid_value_placement = value_edit.components.back().placement;
+        require(!value_edit.set_mate_value(limited_mate_id, 100.0) &&
+                    value_edit.mates.front().angle_degrees == 75.0 &&
+                    value_edit.components.back().placement.rotation_x ==
+                        valid_value_placement.rotation_x &&
+                    value_edit.components.back().placement.rotation_y ==
+                        valid_value_placement.rotation_y &&
+                    value_edit.components.back().placement.rotation_z ==
+                        valid_value_placement.rotation_z,
+                "Rejected Assembly mate value damaged the previous valid state");
+        require(!value_edit.set_mate_value(limited_mate_id,
+                    std::numeric_limits<double>::infinity()),
+                "Assembly accepted a non-finite mate value");
         auto invalid_limited_angle = zima::assembly::AssemblyDocument::create_mate(
             "Neplatný úhel", zima::assembly::MateKind::AxisAngle,
             {zima::assembly::MateReferenceKind::Axis,
@@ -312,6 +342,15 @@ int main() {
                     mated_assembly.components.back().placement.y == calculated_placement.y &&
                     mated_assembly.components.back().placement.z == calculated_placement.z,
                 "Plane mate did not calculate its offset idempotently");
+        const auto mated_scene = mated_assembly.build_scene();
+        require(mated_scene.dimensions.size() == 1 &&
+                    mated_scene.dimensions.front().reference.owner_id ==
+                        mated_assembly.document_id &&
+                    mated_scene.dimensions.front().reference.semantic_key ==
+                        "mate:" + mated_assembly.mates.front().mate_id &&
+                    mated_scene.dimensions.front().unit_suffix == " mm" &&
+                    mated_scene.dimensions.front().value == 2.5,
+                "Plane mate did not create its editable viewer dimension");
         auto flipped_plane_assembly = loaded;
         auto flipped_plane = zima::assembly::AssemblyDocument::create_mate(
             "Obrácená plocha",

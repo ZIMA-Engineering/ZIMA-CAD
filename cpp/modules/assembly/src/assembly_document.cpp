@@ -586,6 +586,44 @@ void AssemblyDocument::replace_mate(AssemblyMate mate) {
     *this = std::move(replacement);
 }
 
+bool AssemblyDocument::replace_mate_and_calculate(AssemblyMate mate) {
+    const auto* existing = find_mate(mate.mate_id);
+    if (existing == nullptr || mate.dependent.instance_path.occurrence_ids.empty()) {
+        throw std::invalid_argument("Assembly mate to replace does not exist");
+    }
+    const std::string affected_occurrence =
+        mate.dependent.instance_path.occurrence_ids.front();
+    auto candidate = *this;
+    candidate.replace_mate(std::move(mate));
+    candidate.calculate_mates();
+    const bool valid = std::ranges::all_of(candidate.mates, [&](const auto& item) {
+        return item.suppressed || item.dependent.instance_path.occurrence_ids.empty() ||
+            item.dependent.instance_path.occurrence_ids.front() != affected_occurrence ||
+            item.status == MateStatus::Valid;
+    });
+    if (!valid) return false;
+    *this = std::move(candidate);
+    return true;
+}
+
+bool AssemblyDocument::set_mate_value(
+    const std::string& mate_id, double value) {
+    if (!std::isfinite(value)) return false;
+    const auto* existing = find_mate(mate_id);
+    if (existing == nullptr) throw std::invalid_argument("Assembly mate does not exist");
+    auto changed = *existing;
+    if (changed.kind == MateKind::PlaneCoincident) {
+        changed.offset = value;
+    } else if (changed.kind == MateKind::AxisAngle ||
+               changed.kind == MateKind::PlaneAngle) {
+        changed.angle_degrees = value;
+    } else {
+        return false;
+    }
+    try { return replace_mate_and_calculate(std::move(changed)); }
+    catch (const std::invalid_argument&) { return false; }
+}
+
 void AssemblyDocument::remove_mate(const std::string& mate_id) {
     if (find_mate(mate_id) == nullptr) {
         throw std::invalid_argument("Assembly mate to remove does not exist");
@@ -1216,6 +1254,106 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             axis.direction = transform_direction(axis.direction, component.placement);
             target_references.axes.push_back(std::move(axis));
         }
+    }
+    const auto find_axis = [&](const MateReference& reference)
+        -> std::optional<ResolvedAxis> {
+        const auto path = reference.instance_path.encoded();
+        const auto found = std::ranges::find_if(scene.original_references.axes,
+            [&](const auto& axis) {
+                return axis.reference.instance_path == path &&
+                    axis.reference.owner_id == reference.owner_id &&
+                    axis.reference.semantic_key == reference.semantic_key;
+            });
+        if (found == scene.original_references.axes.end()) return std::nullopt;
+        return ResolvedAxis{found->point, found->direction};
+    };
+    const auto find_plane = [&](const MateReference& reference)
+        -> std::optional<ResolvedPlane> {
+        const auto path = reference.instance_path.encoded();
+        const auto& geometry = scene.original_references;
+        for (std::size_t triangle = 0;
+             triangle < geometry.triangle_references.size(); ++triangle) {
+            const auto& candidate = geometry.triangle_references[triangle];
+            if (candidate.instance_path != path ||
+                candidate.owner_id != reference.owner_id ||
+                candidate.semantic_key != reference.semantic_key) continue;
+            const auto& a = geometry.vertices[geometry.triangles[triangle * 3]];
+            const auto& b = geometry.vertices[geometry.triangles[triangle * 3 + 1]];
+            const auto& c = geometry.vertices[geometry.triangles[triangle * 3 + 2]];
+            auto normal = cross({b.x - a.x, b.y - a.y, b.z - a.z},
+                                {c.x - a.x, c.y - a.y, c.z - a.z});
+            const double magnitude = length(normal);
+            if (magnitude <= 1.0e-12) continue;
+            normal = {normal.x / magnitude, normal.y / magnitude,
+                      normal.z / magnitude};
+            return ResolvedPlane{a, normal};
+        }
+        return std::nullopt;
+    };
+    for (const auto& mate : mates) {
+        if (mate.suppressed || mate.status != MateStatus::Valid) continue;
+        zima::kernel::ViewerDimension dimension;
+        dimension.reference = {document_id, "mate:" + mate.mate_id, {}};
+        if (mate.kind == MateKind::PlaneCoincident) {
+            const auto dependent = find_plane(mate.dependent);
+            const auto prerequisite = find_plane(mate.prerequisite);
+            if (!dependent || !prerequisite) continue;
+            const auto& normal = prerequisite->normal;
+            const zima::kernel::Vec3 basis = std::abs(normal.x) < 0.9
+                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                : zima::kernel::Vec3{0.0, 1.0, 0.0};
+            auto side = cross(normal, basis);
+            const double side_length = length(side);
+            side = {side.x * 10.0 / side_length, side.y * 10.0 / side_length,
+                    side.z * 10.0 / side_length};
+            dimension.witness_first = prerequisite->point;
+            dimension.witness_second = dependent->point;
+            dimension.line_first = {prerequisite->point.x + side.x,
+                                    prerequisite->point.y + side.y,
+                                    prerequisite->point.z + side.z};
+            dimension.line_second = {dependent->point.x + side.x,
+                                     dependent->point.y + side.y,
+                                     dependent->point.z + side.z};
+            dimension.value = mate.offset;
+            dimension.label_prefix = "d=";
+        } else if (mate.kind == MateKind::AxisAngle) {
+            const auto dependent = find_axis(mate.dependent);
+            const auto prerequisite = find_axis(mate.prerequisite);
+            if (!dependent || !prerequisite) continue;
+            dimension.witness_first = prerequisite->point;
+            dimension.witness_second = prerequisite->point;
+            dimension.line_first = {
+                prerequisite->point.x + prerequisite->direction.x * 30.0,
+                prerequisite->point.y + prerequisite->direction.y * 30.0,
+                prerequisite->point.z + prerequisite->direction.z * 30.0};
+            dimension.line_second = {
+                prerequisite->point.x + dependent->direction.x * 30.0,
+                prerequisite->point.y + dependent->direction.y * 30.0,
+                prerequisite->point.z + dependent->direction.z * 30.0};
+            dimension.value = mate.angle_degrees;
+            dimension.label_prefix = "∠=";
+            dimension.unit_suffix = " °";
+        } else if (mate.kind == MateKind::PlaneAngle) {
+            const auto dependent = find_plane(mate.dependent);
+            const auto prerequisite = find_plane(mate.prerequisite);
+            if (!dependent || !prerequisite) continue;
+            dimension.witness_first = prerequisite->point;
+            dimension.witness_second = prerequisite->point;
+            dimension.line_first = {
+                prerequisite->point.x + prerequisite->normal.x * 30.0,
+                prerequisite->point.y + prerequisite->normal.y * 30.0,
+                prerequisite->point.z + prerequisite->normal.z * 30.0};
+            dimension.line_second = {
+                prerequisite->point.x + dependent->normal.x * 30.0,
+                prerequisite->point.y + dependent->normal.y * 30.0,
+                prerequisite->point.z + dependent->normal.z * 30.0};
+            dimension.value = mate.angle_degrees;
+            dimension.label_prefix = "∠=";
+            dimension.unit_suffix = " °";
+        } else {
+            continue;
+        }
+        scene.dimensions.push_back(std::move(dimension));
     }
     if (scene.triangle_references.size() != scene.triangles.size() / 3) {
         throw std::runtime_error("Assembly triangle references are not aligned");

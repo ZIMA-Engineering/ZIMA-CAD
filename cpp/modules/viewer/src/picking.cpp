@@ -291,14 +291,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     append_geometry(references, CandidateGeometry::OriginalReference);
     for (const auto& dimension : ordered_dimension_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
-        result.push_back({CandidateKind::SketchDimension, dimension.distance,
+        result.push_back({CandidateKind::Dimension, dimension.distance,
                           dimension.dimension, dimension.reference.owner_id,
                           dimension.reference.semantic_key,
                           dimension.reference.instance_path});
     }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
-        case CandidateKind::SketchDimension: return 0;
+        case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchCurve: return 2;
         case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;

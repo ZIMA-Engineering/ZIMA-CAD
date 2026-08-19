@@ -68,7 +68,7 @@ int main() {
         const auto dimension_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 mesh, {12.5, 5.0, 10.0}, {0.0, 0.0, -1.0}, 0.25),
-            {zima::viewer::CandidateKind::SketchDimension});
+            {zima::viewer::CandidateKind::Dimension});
         require(dimension_candidates.size() == 1 &&
                     dimension_candidates.front().semantic_key == "dimension:length",
                 "Sketch dimension did not join the common viewer candidate list");

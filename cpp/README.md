@@ -305,7 +305,7 @@ Sketch dimensions are now first-class ZIMA viewer data rather than tree-only UI
 rows. A dimension packet carries its two witness points, offset dimension line,
 numeric value, stable Sketch owner, semantic dimension key, and occurrence path.
 The OpenGL viewer draws witness/measurement lines and a three-decimal millimetre
-label. Its line contributes a dedicated `SketchDimension` candidate to the same
+label. Its line contributes a dedicated `Dimension` candidate to the same
 ordered picker; double-clicking it opens the identical Properties class used by
 the tree. Viewer-packet JSON validates and persists dimensions, while Assembly
 composition transforms every dimension point and prefixes exact nested instance

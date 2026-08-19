@@ -89,7 +89,7 @@ int main() {
         const auto dimension_contract = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 mesh, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
-            {zima::viewer::CandidateKind::SketchDimension});
+            {zima::viewer::CandidateKind::Dimension});
         require(dimension_contract.size() == 1 &&
                     dimension_contract.front().owner_id == "sketch",
                 "Dimension selection contract left the common candidate list");

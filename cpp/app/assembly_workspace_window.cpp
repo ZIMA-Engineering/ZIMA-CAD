@@ -198,7 +198,8 @@ void AssemblyWorkspaceWindow::create_layout() {
     state_->setWordWrap(true);
     left_layout->addWidget(state_);
     viewer_ = new zima::viewer::MeshView(splitter);
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
+                                     zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
         if (edge_treatment_selection_) {
             accept_edge_treatment(candidate);
@@ -365,11 +366,15 @@ void AssemblyWorkspaceWindow::create_layout() {
         return finish_sketch_bspline();
     });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
-        if (candidate.kind == zima::viewer::CandidateKind::SketchDimension &&
+        if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == active_sketch_id_ &&
             candidate.semantic_key.starts_with("dimension:")) {
             show_sketch_dimension_properties(
                 active_sketch_id_, candidate.semantic_key.substr(10));
+        } else if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                   candidate.semantic_key.starts_with("mate:") &&
+                   workspace_.open_assembly(candidate.owner_id) != nullptr) {
+            show_mate_properties(candidate.owner_id, candidate.semantic_key.substr(5));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("bspline:")) {
@@ -837,7 +842,8 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
     } catch (const std::exception& error) {
         pending_mate_reference_.reset();
         mate_selection_active_ = false;
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
+                                         zima::viewer::CandidateKind::Occurrence});
         QMessageBox::warning(this, tr("Vazbu nelze vytvořit"), error.what());
         refresh_scene();
     }
@@ -2537,7 +2543,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             ? std::vector{zima::viewer::CandidateKind::Container}
             : std::vector{zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchPoint,
-                          zima::viewer::CandidateKind::SketchDimension,
+                          zima::viewer::CandidateKind::Dimension,
                           zima::viewer::CandidateKind::SketchCurve});
         const auto& calculated = part->session.calculated_boundaries();
         if (part_rollback_ &&
@@ -2606,7 +2612,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         add_mate_tree_children(root, document.document_id);
     }
     root->setExpanded(true);
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
+                                     zima::viewer::CandidateKind::Occurrence});
     if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
@@ -2920,8 +2927,10 @@ void AssemblyWorkspaceWindow::show_mate_properties(
             auto* target = workspace_.open_assembly(assembly_document_id);
             if (target == nullptr) throw std::runtime_error("Assembly is no longer open");
             auto next = target->session.document();
-            next.replace_mate(std::move(committed));
-            next.calculate_mates();
+            if (!next.replace_mate_and_calculate(std::move(committed))) {
+                throw std::runtime_error(
+                    "Změna vazby je mimo povolené meze nebo je v konfliktu s jinou vazbou");
+            }
             target->session.commit(std::move(next));
         }, this);
     properties_dialog_ = dialog;

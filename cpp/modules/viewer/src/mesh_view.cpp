@@ -392,7 +392,7 @@ void MeshView::paintGL() {
             highlighted->kind == CandidateKind::SketchCurve ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
-            highlighted->kind == CandidateKind::SketchDimension ||
+            highlighted->kind == CandidateKind::Dimension ||
             highlighted->kind == CandidateKind::Axis))) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
@@ -426,7 +426,7 @@ void MeshView::paintGL() {
             for (std::size_t index = 0; index < impl_->mesh.dimensions.size(); ++index) {
                 const auto& dimension = impl_->mesh.dimensions[index];
                 const bool selected = highlighted &&
-                    highlighted->kind == CandidateKind::SketchDimension &&
+                    highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;
                 const QColor color = selected
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)

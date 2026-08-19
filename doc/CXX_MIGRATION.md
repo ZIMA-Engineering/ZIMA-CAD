@@ -286,6 +286,20 @@ vazby osa–osa a bod–bod je záměrně nenabízejí. Při prvním zapnutí se
 předvyplní nulou a horní současnou hodnotou. Obrácené meze nebo hodnota mimo
 rozsah jsou odmítnuty před výpočtem a meze se persistují v Assembly formátu 5.
 
+Změna číselné hodnoty sestavové vazby má jednu transakční modelovou cestu.
+Podporuje rovinné odsazení a oba druhy úhlových vazeb, ověří konečnost a
+absolutní meze, přepočítá všechny vazby stejného pohyblivého výskytu a změnu
+přijme jen tehdy, když zůstanou platné. Neplatná hodnota nebo konflikt zachová
+přesnou předchozí hodnotu i placement. Stejnou cestu používá Properties a je
+připravená pro budoucí editaci kóty ve view a tažení mechanismu.
+
+Platné hodnotové sestavové vazby se skládají do viewer scény jako obecné
+klikací kóty. Rovinné odsazení zobrazuje milimetry, úhel os a ploch stupně.
+Geometrie kóty vzniká pouze z persistovaných původních ploch a os; sestavení
+scény nevolá OCCT. Obecný viewer kandidát `Dimension` nyní společně obsluhuje
+Sketcher i Assembly a nese vlastníka dokumentu a stabilní ID vazby. Dvojklik
+proto otevře tutéž interní Properties třídu jako položka vazby ve stromu.
+
 Occurrence může nově odkazovat také na Assembly. Snapshot podsestavy uchovává
 vnitřní instance paths a samostatný rekurzivní strukturální strom se stabilními
 ID, názvy, typy zdrojů a stavy komponent. Parent při skládání přidá vlastní
