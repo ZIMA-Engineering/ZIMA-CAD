@@ -829,3 +829,11 @@ je omezen na jeho projekční paprsek. Formát `.frmz` a razítko `.tblz` se př
 výslovném načtení převedou na C++ čáry, texty a editovatelná pole vložená přímo
 do `.drwz`. Otevření hotového výkresu proto šablony znovu nečte. Pohled sestavy
 vytvoří základní BOM seskupený podle bezprostředních komponent a jejich množství.
+
+Drawing je třetí typ dokumentu společného `Workspace`, nikoliv samostatná
+vedlejší aplikace. Má vlastní hlavní záložku; její aktivace ve stejné pracovní
+ploše nahradí modelový viewer výkresovým editorem. Vložení pohledu nabízí otevřené
+Party a Assembly v interním zdrojovém dialogu a používá jejich autoritativní
+aktuální výsledek v paměti, včetně dosud neuložených změn. Uložený soubor je
+pouze náhradní zdroj, pokud dokument není otevřený. Regenerace je nadále výslovná
+a otevřená změna Partu či Assembly sama výkres nepřepočítá.

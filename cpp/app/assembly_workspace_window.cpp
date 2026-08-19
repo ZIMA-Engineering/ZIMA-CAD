@@ -24,6 +24,7 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QTabBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -83,13 +84,16 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* file = menuBar()->addMenu(tr("Soubor"));
     file->addAction(tr("Nový Part"), this, [this] { new_part(); });
     file->addAction(tr("Nová sestava"), this, [this] { new_assembly(); });
-    file->addAction(tr("Nový výkres"), this, [] {
-        auto* window = new DrawingWindow;
-        window->setAttribute(Qt::WA_DeleteOnClose);
-        window->show();
+    file->addAction(tr("Nový výkres"), this, [this] {
+        auto drawing=zima::drawing::DrawingDocument::create_default();
+        const auto id=drawing.document_id;
+        workspace_.add_drawing(std::move(drawing));
+        workspace_.activate(id); workspace_.display_top_level(id);
+        refresh_tabs(); refresh_scene();
     });
     file->addAction(tr("Otevřít Part…"), this, [this] { open_part(); });
     file->addAction(tr("Otevřít sestavu…"), this, [this] { open_assembly(); });
+    file->addAction(tr("Otevřít výkres…"), this, [this] { open_drawing(); });
     save_action_ = file->addAction(tr("Uložit…"), this,
         [this] { save_active_document(); });
     file->addSeparator();
@@ -426,7 +430,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     splitter->addWidget(left);
     splitter->addWidget(viewer_);
     splitter->setStretchFactor(1, 1);
-    layout->addWidget(splitter, 1);
+    model_workspace_ = splitter;
+    workspace_stack_ = new QStackedWidget(central);
+    workspace_stack_->addWidget(model_workspace_);
+    drawing_workspace_ = new DrawingWindow(&workspace_, false);
+    drawing_workspace_->setWindowFlags(Qt::Widget);
+    workspace_stack_->addWidget(drawing_workspace_);
+    layout->addWidget(workspace_stack_, 1);
     setCentralWidget(central);
     connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
         if (index < 0) return;
@@ -658,6 +668,21 @@ void AssemblyWorkspaceWindow::open_assembly() {
         refresh_scene();
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Otevření sestavy selhalo"), error.what());
+    }
+}
+
+void AssemblyWorkspaceWindow::open_drawing() {
+    const QString path=QFileDialog::getOpenFileName(
+        this,tr("Otevřít výkres"),{},tr("ZIMA-CAD Výkres (*.drwz)"));
+    if(path.isEmpty()) return;
+    try {
+        auto document=zima::drawing::DrawingDocument::load(path.toStdString());
+        const auto id=document.document_id;
+        workspace_.add_drawing(std::move(document),path.toStdString());
+        workspace_.activate(id); workspace_.display_top_level(id);
+        refresh_tabs(); refresh_scene();
+    } catch(const std::exception& error) {
+        QMessageBox::critical(this,tr("Otevření výkresu selhalo"),error.what());
     }
 }
 
@@ -1027,6 +1052,19 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document() {
+    if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
+        QString path=QString::fromStdString(drawing->path.string());
+        if(path.isEmpty()) path=QFileDialog::getSaveFileName(
+            this,tr("Uložit výkres"),"drawing.drwz",tr("ZIMA-CAD Výkres (*.drwz)"));
+        if(path.isEmpty()) return;
+        if(!path.endsWith(".drwz")) path += ".drwz";
+        try { drawing->document.save(path.toStdString()); drawing->path=path.toStdString();
+            drawing_workspace_->edit_workspace_document(drawing->document.document_id);
+            refresh_tabs(); }
+        catch(const std::exception& error) {
+            QMessageBox::critical(this,tr("Uložení výkresu selhalo"),error.what()); }
+        return;
+    }
     if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
         workspace_.display_top_level(workspace_.active_document_id());
         save_active_assembly();
@@ -2744,11 +2782,17 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
     for (const auto& state : workspace_.documents()) {
         std::visit([&](const auto& document) {
             using State = std::decay_t<decltype(document)>;
-            const auto& model = document.session.document();
-            const int index = tabs_->addTab(QString::fromStdString(
-                model.name + (document.session.is_dirty() ? " *" : "")));
-            tabs_->setTabData(index, QString::fromStdString(model.document_id));
-            if (model.document_id == workspace_.active_document_id()) active_index = index;
+            if constexpr(std::is_same_v<State,zima::workspace::DrawingState>) {
+                const int index=tabs_->addTab(QString::fromStdString(document.document.name));
+                tabs_->setTabData(index,QString::fromStdString(document.document.document_id));
+                if(document.document.document_id==workspace_.active_document_id()) active_index=index;
+            } else {
+                const auto& model = document.session.document();
+                const int index = tabs_->addTab(QString::fromStdString(
+                    model.name + (document.session.is_dirty() ? " *" : "")));
+                tabs_->setTabData(index, QString::fromStdString(model.document_id));
+                if (model.document_id == workspace_.active_document_id()) active_index = index;
+            }
         }, state);
     }
     tabs_->setCurrentIndex(active_index);
@@ -2756,6 +2800,22 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    if (workspace_stack_ != nullptr) {
+        if (workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr) {
+            workspace_stack_->setCurrentWidget(drawing_workspace_);
+            drawing_workspace_->edit_workspace_document(
+                workspace_.displayed_document_id());
+            insert_action_->setEnabled(false); regenerate_action_->setEnabled(false);
+            box_action_->setEnabled(false); cylinder_action_->setEnabled(false);
+            sphere_action_->setEnabled(false); cone_action_->setEnabled(false);
+            pyramid_action_->setEnabled(false); wedge_action_->setEnabled(false);
+            sketch_action_->setEnabled(false); extrusion_action_->setEnabled(false);
+            revolution_action_->setEnabled(false); fillet_action_->setEnabled(false);
+            chamfer_action_->setEnabled(false);
+            return;
+        }
+        workspace_stack_->setCurrentWidget(model_workspace_);
+    }
     tree_->clear();
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) {

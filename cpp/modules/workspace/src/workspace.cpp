@@ -39,8 +39,10 @@ const std::string& Workspace::id_of(const DocumentState& state) {
         using State = std::decay_t<decltype(document)>;
         if constexpr (std::is_same_v<State, PartState>) {
             return document.session.document().document_id;
-        } else {
+        } else if constexpr (std::is_same_v<State, AssemblyState>) {
             return document.session.document().document_id;
+        } else {
+            return document.document.document_id;
         }
     }, state);
 }
@@ -70,6 +72,17 @@ void Workspace::add_assembly(
     const std::string id = document.document_id;
     documents_.push_back(AssemblyState{
         zima::assembly::AssemblySession(std::move(document)), std::move(path)});
+    if (active_document_id_.empty()) active_document_id_ = id;
+    if (displayed_document_id_.empty()) displayed_document_id_ = id;
+}
+
+void Workspace::add_drawing(
+    zima::drawing::DrawingDocument document, std::filesystem::path path) {
+    if (document.document_id.empty() || find(document.document_id) != nullptr) {
+        throw std::invalid_argument("Workspace document ID must be non-empty and unique");
+    }
+    const std::string id = document.document_id;
+    documents_.push_back(DrawingState{std::move(document), std::move(path)});
     if (active_document_id_.empty()) active_document_id_ = id;
     if (displayed_document_id_.empty()) displayed_document_id_ = id;
 }
@@ -128,6 +141,42 @@ AssemblyState* Workspace::open_assembly(const std::string& document_id) {
 const AssemblyState* Workspace::open_assembly(const std::string& document_id) const {
     const auto* state = find(document_id);
     return state == nullptr ? nullptr : std::get_if<AssemblyState>(state);
+}
+
+DrawingState* Workspace::open_drawing(const std::string& document_id) {
+    auto* state = find(document_id);
+    return state == nullptr ? nullptr : std::get_if<DrawingState>(state);
+}
+
+const DrawingState* Workspace::open_drawing(const std::string& document_id) const {
+    const auto* state = find(document_id);
+    return state == nullptr ? nullptr : std::get_if<DrawingState>(state);
+}
+
+std::optional<std::string> Workspace::document_id_for_path(
+    const std::filesystem::path& path) const {
+    if (path.empty()) return std::nullopt;
+    const auto normalized = std::filesystem::absolute(path).lexically_normal();
+    for (const auto& state : documents_) {
+        const auto* candidate = std::visit([](const auto& document)
+            -> const std::filesystem::path* { return &document.path; }, state);
+        if (!candidate->empty() &&
+            std::filesystem::absolute(*candidate).lexically_normal() == normalized)
+            return id_of(state);
+    }
+    return std::nullopt;
+}
+
+zima::kernel::ViewerMesh Workspace::authoritative_viewer_mesh(
+    const std::string& document_id) const {
+    if (const auto* part = open_part(document_id)) {
+        if (part->session.calculated_boundaries().empty())
+            throw std::runtime_error("Open Part has no calculated body");
+        return part_result(*part).mesh;
+    }
+    if (const auto* assembly = open_assembly(document_id))
+        return assembly->session.document().build_scene();
+    throw std::invalid_argument("Drawing source must be an open Part or Assembly");
 }
 
 const std::vector<DocumentState>& Workspace::documents() const { return documents_; }

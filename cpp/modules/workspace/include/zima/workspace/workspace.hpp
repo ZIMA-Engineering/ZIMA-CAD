@@ -3,6 +3,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
 #include <zima/document/document_session.hpp>
+#include <zima/drawing/drawing_document.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -22,7 +23,12 @@ struct AssemblyState {
     std::filesystem::path path;
 };
 
-using DocumentState = std::variant<PartState, AssemblyState>;
+struct DrawingState {
+    zima::drawing::DrawingDocument document;
+    std::filesystem::path path;
+};
+
+using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;
 
 struct OccurrenceAddress {
     std::string owner_assembly_document_id;
@@ -41,6 +47,9 @@ public:
     void add_assembly(
         zima::assembly::AssemblyDocument document,
         std::filesystem::path path = {});
+    void add_drawing(
+        zima::drawing::DrawingDocument document,
+        std::filesystem::path path = {});
 
     [[nodiscard]] std::size_t size() const;
     [[nodiscard]] DocumentState* find(const std::string& document_id);
@@ -54,6 +63,12 @@ public:
     [[nodiscard]] const PartState* open_part(const std::string& document_id) const;
     [[nodiscard]] AssemblyState* open_assembly(const std::string& document_id);
     [[nodiscard]] const AssemblyState* open_assembly(const std::string& document_id) const;
+    [[nodiscard]] DrawingState* open_drawing(const std::string& document_id);
+    [[nodiscard]] const DrawingState* open_drawing(const std::string& document_id) const;
+    [[nodiscard]] std::optional<std::string> document_id_for_path(
+        const std::filesystem::path& path) const;
+    [[nodiscard]] zima::kernel::ViewerMesh authoritative_viewer_mesh(
+        const std::string& document_id) const;
     [[nodiscard]] const std::vector<DocumentState>& documents() const;
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,

@@ -30,9 +30,16 @@ int main() {
         const std::string assembly_id = assembly.document_id;
         workspace.add_part(std::move(part), part_calculation, "open-part.zcp.json");
         workspace.add_assembly(std::move(assembly));
-        require(workspace.size() == 2 && workspace.open_part(part_id) != nullptr &&
-                    workspace.open_assembly(assembly_id) != nullptr,
+        auto drawing = zima::drawing::DrawingDocument::create_default();
+        const std::string drawing_id = drawing.document_id;
+        workspace.add_drawing(std::move(drawing), "open-drawing.drwz");
+        require(workspace.size() == 3 && workspace.open_part(part_id) != nullptr &&
+                    workspace.open_assembly(assembly_id) != nullptr &&
+                    workspace.open_drawing(drawing_id) != nullptr,
                 "Workspace did not retain typed open documents");
+        require(workspace.document_id_for_path("open-part.zcp.json") == part_id &&
+                    !workspace.authoritative_viewer_mesh(part_id).triangles.empty(),
+                "Workspace did not expose the authoritative open Drawing source");
         workspace.display_top_level(assembly_id);
         workspace.activate(part_id);
         require(workspace.active_document_id() == part_id &&

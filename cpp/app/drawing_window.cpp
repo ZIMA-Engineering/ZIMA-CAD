@@ -3,6 +3,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/workspace/workspace.hpp>
 
 #include <QAction>
 #include <QComboBox>
@@ -179,6 +180,26 @@ private:
     }
 };
 
+class DrawingSourceDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    DrawingSourceDialog(QMainWindow* parent,
+        const std::vector<std::pair<std::string,std::string>>& sources,
+        std::function<void(std::string)> accepted)
+        : PropertiesSubWindow(QObject::tr("Zdroj výkresového pohledu"),parent),
+          accepted_(std::move(accepted)) {
+        auto* content=new QWidget(this); auto* form=new QFormLayout(content);
+        source_=new QComboBox(content);
+        for(const auto& [id,name]:sources)
+            source_->addItem(QString::fromStdString(name),QString::fromStdString(id));
+        source_->addItem(QObject::tr("Vybrat soubor…"),QString{});
+        form->addRow(QObject::tr("Zdroj"),source_); content_layout()->addWidget(content);
+        setAttribute(Qt::WA_DeleteOnClose);
+    }
+private:
+    QComboBox* source_{}; std::function<void(std::string)> accepted_;
+    bool submit() override { accepted_(source_->currentData().toString().toStdString()); return true; }
+};
+
 zima::drawing::Point2 projection_placement(
     zima::drawing::ProjectionDirection direction, double distance) {
     constexpr double diagonal = 0.7071067811865475244;
@@ -197,15 +218,26 @@ zima::drawing::Point2 projection_placement(
 }
 
 std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
-    const std::filesystem::path& path) {
-    if (path.extension() == ".prtz") {
+    const std::filesystem::path& path, zima::workspace::Workspace* workspace = nullptr,
+    const std::string& expected_document_id = {}) {
+    if (workspace != nullptr) {
+        std::optional<std::string> open_id;
+        if (!expected_document_id.empty() && workspace->find(expected_document_id) != nullptr)
+            open_id = expected_document_id;
+        else open_id = workspace->document_id_for_path(path);
+        if (open_id && (workspace->open_part(*open_id) != nullptr ||
+                        workspace->open_assembly(*open_id) != nullptr))
+            return {*open_id, workspace->authoritative_viewer_mesh(*open_id)};
+    }
+    const auto filename=path.filename().string();
+    if (path.extension() == ".prtz" || filename.ends_with(".zcp.json")) {
         std::vector<zima::kernel::BodyResult> boundaries;
         const auto part = zima::document::PartDocument::load(path, &boundaries);
         if (boundaries.empty()) throw std::runtime_error(
             "Part nemá uložený vypočtený model. Nejprve jej regenerujte a uložte.");
         return {part.document_id, std::move(boundaries.back().mesh)};
     }
-    if (path.extension() == ".asmz") {
+    if (path.extension() == ".asmz" || filename.ends_with(".zca.json")) {
         const auto assembly = zima::assembly::AssemblyDocument::load(path);
         return {assembly.document_id, assembly.build_scene()};
     }
@@ -221,6 +253,7 @@ public:
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) { sheet_ = sheet; selected_.clear(); update(); }
     [[nodiscard]] const std::string& selected_view_id() const { return selected_; }
+    void set_changed_callback(std::function<void()> callback) { changed_=std::move(callback); }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
 protected:
@@ -393,6 +426,7 @@ protected:
                                                         (b_mid.y - a_mid.y) * dx / length);
                     sheet_->dimensions.push_back(std::move(dimension));
                     dimension_mode_ = false; first_edge_.reset();
+                    if(changed_) changed_();
                 }
             }
             update(); return;
@@ -437,7 +471,10 @@ protected:
         move_children(found->id);
         update();
     }
-    void mouseReleaseEvent(QMouseEvent*) override { drag_view_id_.clear(); }
+    void mouseReleaseEvent(QMouseEvent*) override {
+        if(!drag_view_id_.empty() && changed_) changed_();
+        drag_view_id_.clear();
+    }
 private:
     zima::drawing::DrawingSheet* sheet_{};
     std::string selected_;
@@ -447,11 +484,15 @@ private:
     std::string drag_view_id_;
     QPointF drag_start_;
     zima::drawing::Point2 drag_origin_;
+    std::function<void()> changed_;
 };
 
-DrawingWindow::DrawingWindow() {
+DrawingWindow::DrawingWindow(
+    zima::workspace::Workspace* workspace, bool create_initial_document)
+    : workspace_(workspace) {
     setWindowTitle(tr("ZIMA-CAD C++ – Výkres")); resize(1180, 760);
-    create_actions(); create_layout(); new_document();
+    create_actions(); create_layout();
+    if(create_initial_document) new_document();
 }
 
 void DrawingWindow::create_actions() {
@@ -480,22 +521,48 @@ void DrawingWindow::create_layout() {
     auto* central = new QWidget(this); auto* layout = new QVBoxLayout(central);
     sheets_ = new QTabBar(central); sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); state_ = new QLabel(central);
+    canvas_->set_changed_callback([this] { sync_workspace_document(); });
     layout->addWidget(sheets_); layout->addWidget(canvas_, 1); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
 }
 
-void DrawingWindow::new_document() { document_ = zima::drawing::DrawingDocument::create_default(); path_.clear(); refresh(); }
+void DrawingWindow::new_document() {
+    document_ = zima::drawing::DrawingDocument::create_default(); path_.clear();
+    workspace_document_id_.clear();
+    if(workspace_!=nullptr) {
+        workspace_->add_drawing(document_); workspace_document_id_=document_.document_id;
+        workspace_->activate(workspace_document_id_); workspace_->display_top_level(workspace_document_id_);
+    }
+    refresh();
+}
+void DrawingWindow::edit_workspace_document(const std::string& document_id) {
+    if(workspace_==nullptr) return;
+    auto* state=workspace_->open_drawing(document_id); if(state==nullptr) return;
+    workspace_document_id_=document_id; document_=state->document; path_=state->path; refresh();
+}
 void DrawingWindow::open_document() {
     const auto path = QFileDialog::getOpenFileName(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
     if (path.isEmpty()) return;
-    try { document_ = zima::drawing::DrawingDocument::load(path.toStdString()); path_ = path.toStdString(); refresh(); }
+    try {
+        document_ = zima::drawing::DrawingDocument::load(path.toStdString()); path_ = path.toStdString();
+        workspace_document_id_.clear();
+        if(workspace_!=nullptr) {
+            if(auto* existing=workspace_->open_drawing(document_.document_id)) {
+                existing->document=document_; existing->path=path_; }
+            else workspace_->add_drawing(document_,path_);
+            workspace_document_id_=document_.document_id;
+            workspace_->activate(workspace_document_id_); workspace_->display_top_level(workspace_document_id_);
+        }
+        refresh();
+    }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), error.what()); }
 }
 void DrawingWindow::save_document() {
     auto path = path_.empty() ? QFileDialog::getSaveFileName(this, tr("Uložit výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)")) : QString::fromStdString(path_.string());
     if (path.isEmpty()) return; if (!path.endsWith(".drwz")) path += ".drwz";
-    try { document_.save(path.toStdString()); path_ = path.toStdString(); state_->setText(tr("Výkres uložen.")); }
+    try { document_.save(path.toStdString()); path_ = path.toStdString();
+        sync_workspace_document(); state_->setText(tr("Výkres uložen.")); }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
@@ -545,22 +612,61 @@ void DrawingWindow::edit_title_block() {
 zima::drawing::DrawingSheet* DrawingWindow::active_sheet() { const auto index = sheets_->currentIndex(); return index < 0 || index >= static_cast<int>(document_.sheets.size()) ? nullptr : &document_.sheets[index]; }
 
 void DrawingWindow::insert_view() {
-    const auto path = QFileDialog::getOpenFileName(this, tr("Vybrat zdroj pohledu"), {}, tr("Model ZIMA-CAD (*.prtz *.asmz)"));
+    if(active_sheet()==nullptr) return;
+    std::vector<std::pair<std::string,std::string>> sources;
+    if(workspace_!=nullptr) for(const auto& state:workspace_->documents())
+        std::visit([&](const auto& item) {
+            using State=std::decay_t<decltype(item)>;
+            if constexpr(std::is_same_v<State,zima::workspace::PartState> ||
+                         std::is_same_v<State,zima::workspace::AssemblyState>)
+                sources.push_back({item.session.document().document_id,item.session.document().name});
+        },state);
+    if(!sources.empty()) {
+        auto* dialog=new DrawingSourceDialog(this,sources,[this](std::string id) {
+            if(id.empty()) { insert_view_from_file(); return; }
+            try {
+                std::filesystem::path path;
+                if(const auto* part=workspace_->open_part(id)) path=part->path;
+                else if(const auto* assembly=workspace_->open_assembly(id)) path=assembly->path;
+                begin_view_insertion(id,path,workspace_->authoritative_viewer_mesh(id));
+            } catch(const std::exception& error) {
+                QMessageBox::warning(this,tr("Nelze vložit pohled"),error.what()); }
+        });
+        dialog->show(); return;
+    }
+    insert_view_from_file();
+}
+
+void DrawingWindow::insert_view_from_file() {
+    const auto path = QFileDialog::getOpenFileName(this, tr("Vybrat zdroj pohledu"), {},
+        tr("Model ZIMA-CAD (*.prtz *.asmz *.zcp.json *.zca.json)"));
     if (path.isEmpty() || active_sheet() == nullptr) return;
     try {
-        auto [source_id, mesh] = load_drawing_source(path.toStdString());
-        std::vector<zima::drawing::BomRow> bom;
-        if(path.endsWith(".asmz")) {
-            const auto assembly=zima::assembly::AssemblyDocument::load(path.toStdString());
-            for(const auto& component:assembly.components) {
-                const auto existing=std::find_if(bom.begin(),bom.end(),[&](const auto& row) {
-                    return row.designation==component.source_document_id; });
-                if(existing==bom.end()) bom.push_back({static_cast<int>(bom.size()+1),1,
-                    component.name,component.source_document_id,{}});
-                else ++existing->quantity;
-            }
-        }
-        auto view = zima::drawing::DrawingDocument::create_view(source_id, path.toStdString(), mesh);
+        auto [source_id, mesh] = load_drawing_source(path.toStdString(),workspace_);
+        begin_view_insertion(std::move(source_id),path.toStdString(),std::move(mesh));
+    } catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze vložit pohled"), error.what()); }
+}
+
+void DrawingWindow::begin_view_insertion(
+    std::string source_id,std::filesystem::path source_path,zima::kernel::ViewerMesh mesh) {
+    std::vector<zima::drawing::BomRow> bom;
+    const zima::assembly::AssemblyDocument* assembly{};
+    std::optional<zima::assembly::AssemblyDocument> loaded;
+    if(workspace_!=nullptr) if(const auto* open=workspace_->open_assembly(source_id))
+        assembly=&open->session.document();
+    const auto filename=source_path.filename().string();
+    if(assembly==nullptr && (!source_path.empty()) &&
+       (source_path.extension()==".asmz" || filename.ends_with(".zca.json"))) {
+        loaded=zima::assembly::AssemblyDocument::load(source_path); assembly=&*loaded;
+    }
+    if(assembly!=nullptr) for(const auto& component:assembly->components) {
+        const auto existing=std::find_if(bom.begin(),bom.end(),[&](const auto& row) {
+            return row.designation==component.source_document_id; });
+        if(existing==bom.end()) bom.push_back({static_cast<int>(bom.size()+1),1,
+            component.name,component.source_document_id,{}});
+        else ++existing->quantity;
+    }
+    auto view=zima::drawing::DrawingDocument::create_view(source_id,source_path,mesh);
         auto* dialog = new ViewPropertiesDialog(this, view,
             [this, mesh = std::move(mesh), bom = std::move(bom)](auto accepted) mutable {
             accepted.camera = zima::drawing::standard_camera(accepted.orientation);
@@ -569,8 +675,7 @@ void DrawingWindow::insert_view() {
             if(!bom.empty() && active_sheet()->bom_rows.empty()) active_sheet()->bom_rows=std::move(bom);
             active_sheet()->views.push_back(std::move(accepted)); refresh();
         });
-        dialog->show();
-    } catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze vložit pohled"), error.what()); }
+    dialog->show();
 }
 void DrawingWindow::create_projected_view() {
     const auto* parent = document_.find_view(canvas_->selected_view_id());
@@ -581,7 +686,8 @@ void DrawingWindow::create_projected_view() {
     auto* dialog = new ProjectionPropertiesDialog(this,
         [this, parent_copy](zima::drawing::ProjectionDirection direction) {
             try {
-                auto [source_id, mesh] = load_drawing_source(parent_copy.source_path);
+                auto [source_id, mesh] = load_drawing_source(
+                    parent_copy.source_path,workspace_,parent_copy.source_document_id);
                 if (source_id != parent_copy.source_document_id)
                     throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
                 auto view = zima::drawing::DrawingDocument::create_view(
@@ -607,7 +713,8 @@ void DrawingWindow::create_projected_view() {
 void DrawingWindow::regenerate_selected_view() {
     auto* view = document_.find_view(canvas_->selected_view_id()); if (view == nullptr) return;
     try {
-        auto [source_id, mesh] = load_drawing_source(view->source_path);
+        auto [source_id, mesh] = load_drawing_source(
+            view->source_path,workspace_,view->source_document_id);
         if (source_id != view->source_document_id)
             throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
         document_.refresh_view(view->id, mesh); refresh(); state_->setText(tr("Pohled regenerován."));
@@ -644,7 +751,8 @@ void DrawingWindow::edit_selected_view() {
             accepted.projected_triangles = target->projected_triangles;
         } else {
             try {
-                auto [source_id, mesh] = load_drawing_source(accepted.source_path);
+                auto [source_id, mesh] = load_drawing_source(
+                    accepted.source_path,workspace_,accepted.source_document_id);
                 if (source_id != accepted.source_document_id)
                     throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
                 accepted.camera = zima::drawing::standard_camera(accepted.orientation);
@@ -669,6 +777,20 @@ void DrawingWindow::refresh() {
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));
     sheets_->setCurrentIndex(wanted); sheets_->blockSignals(false); canvas_->set_sheet(active_sheet());
     state_->setText(tr("Výkres: %1 listů, %2 pohledů").arg(document_.sheets.size()).arg(active_sheet() ? active_sheet()->views.size() : 0));
+    sync_workspace_document();
+}
+
+void DrawingWindow::sync_workspace_document() {
+    if(workspace_!=nullptr) for(auto& sheet:document_.sheets) for(auto& view:sheet.views)
+        if(view.source_path.empty()) {
+            if(const auto* part=workspace_->open_part(view.source_document_id)) view.source_path=part->path;
+            else if(const auto* assembly=workspace_->open_assembly(view.source_document_id))
+                view.source_path=assembly->path;
+        }
+    if(workspace_!=nullptr && !workspace_document_id_.empty())
+        if(auto* state=workspace_->open_drawing(workspace_document_id_)) {
+            state->document=document_; state->path=path_;
+        }
 }
 
 }  // namespace zima::app

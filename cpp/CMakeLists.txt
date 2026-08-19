@@ -42,15 +42,15 @@ target_link_libraries(zima_assembly
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(zima_workspace modules/workspace/src/workspace.cpp)
-target_include_directories(zima_workspace PUBLIC modules/workspace/include)
-target_link_libraries(zima_workspace PUBLIC zima_document_core zima_assembly)
-
 add_library(zima_drawing modules/drawing/src/drawing_document.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
     PUBLIC zima_kernel_api
     PRIVATE nlohmann_json::nlohmann_json)
+
+add_library(zima_workspace modules/workspace/src/workspace.cpp)
+target_include_directories(zima_workspace PUBLIC modules/workspace/include)
+target_link_libraries(zima_workspace PUBLIC zima_document_core zima_assembly zima_drawing)
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)

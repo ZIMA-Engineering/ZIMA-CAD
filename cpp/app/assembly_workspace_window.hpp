@@ -16,12 +16,14 @@ class QKeyEvent;
 class QTabBar;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QStackedWidget;
 
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::app {
 
 class PrimitivePropertiesDialog;
+class DrawingWindow;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
@@ -33,6 +35,9 @@ private:
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
     zima::viewer::MeshView* viewer_{};
+    QStackedWidget* workspace_stack_{};
+    QWidget* model_workspace_{};
+    DrawingWindow* drawing_workspace_{};
     QLabel* state_{};
     QAction* insert_action_{};
     QAction* regenerate_action_{};
@@ -140,6 +145,7 @@ private:
     void new_part();
     void open_part();
     void open_assembly();
+    void open_drawing();
     void insert_active_component();
     void regenerate_assembly();
     void start_plane_mate();

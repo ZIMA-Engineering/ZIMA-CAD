@@ -10,17 +10,24 @@ class QComboBox;
 class QLabel;
 class QTabBar;
 
+namespace zima::workspace { class Workspace; }
+
 namespace zima::app {
 
 class DrawingCanvas;
 
 class DrawingWindow final : public QMainWindow {
 public:
-    DrawingWindow();
+    explicit DrawingWindow(
+        zima::workspace::Workspace* workspace = nullptr,
+        bool create_initial_document = true);
+    void edit_workspace_document(const std::string& document_id);
 
 private:
     zima::drawing::DrawingDocument document_;
     std::filesystem::path path_;
+    zima::workspace::Workspace* workspace_{};
+    std::string workspace_document_id_;
     QTabBar* sheets_{};
     DrawingCanvas* canvas_{};
     QLabel* state_{};
@@ -37,12 +44,17 @@ private:
     void load_title_block();
     void edit_title_block();
     void insert_view();
+    void insert_view_from_file();
+    void begin_view_insertion(
+        std::string source_id, std::filesystem::path source_path,
+        zima::kernel::ViewerMesh mesh);
     void create_projected_view();
     void edit_selected_view();
     void regenerate_selected_view();
     void delete_selected_view();
     void start_linear_dimension();
     void refresh();
+    void sync_workspace_document();
     [[nodiscard]] zima::drawing::DrawingSheet* active_sheet();
 };
 
