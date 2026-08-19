@@ -46,6 +46,12 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC zima_document_core zima_assembly)
 
+add_library(zima_drawing modules/drawing/src/drawing_document.cpp)
+target_include_directories(zima_drawing PUBLIC modules/drawing/include)
+target_link_libraries(zima_drawing
+    PUBLIC zima_kernel_api
+    PRIVATE nlohmann_json::nlohmann_json)
+
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)
 target_include_directories(zima_kernel_occt PUBLIC
@@ -87,6 +93,7 @@ target_link_libraries(zima-cad-cpp PRIVATE
 
 add_executable(zima-cad-workspace-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
+    app/drawing_window.cpp
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
@@ -94,8 +101,14 @@ add_executable(zima-cad-workspace-cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-workspace-cpp PRIVATE app)
 target_link_libraries(zima-cad-workspace-cpp PRIVATE
-    zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer zima_ui
+    zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange
+    Qt6::Core Qt6::Gui Qt6::Widgets)
+
+add_executable(zima-cad-drawing-cpp app/main_drawing.cpp app/drawing_window.cpp)
+target_include_directories(zima-cad-drawing-cpp PRIVATE app)
+target_link_libraries(zima-cad-drawing-cpp PRIVATE
+    zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
 if(ZIMA_BUILD_TESTS)
@@ -132,4 +145,7 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
+    add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)
 endif()

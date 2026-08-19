@@ -800,3 +800,22 @@ přesně `195π mm³` a obě koncové plochy. Kružnice R2 se středem 10 mm od 
 musí vytvořit přesný torus o objemu `80π² mm³`; stejný profil ze dvou oblouků
 musí dát totožný výsledek. Obdélníkový profil s vnitřní kružnicí R1 na poloměru
 6,5 mm má po plné rotaci kontrolní objem `390π − 13π² mm³`.
+
+## C++ základ technického výkresu
+
+Výkres má vlastní modul `zima_drawing` a současný dokumentový formát verze 1.
+Formát záměrně nenačítá starší prototypové výkresy. Dokument persistuje listy,
+jejich formát A4–A0, metodu promítání, modelové pohledy a lineární kóty. Pohled
+drží ID a cestu zdrojového Partu nebo Assembly, stabilní reference promítnutých
+hran a hotovou vektorovou projekci. Otevření výkresu proto nevolá OCCT ani
+neprochází živou topologii. Příkaz **Regenerovat pohled** je explicitní akce,
+která načte uložený výsledek zdrojového dokumentu a teprve potom nahradí
+persistovanou projekci.
+
+První GUI používá papírový prostor v milimetrech, A4 na výšku a A3–A0 na šířku.
+Zobrazuje rámeček, základní razítko, modelové pohledy a asociativní lineární kótu
+mezi dvěma rovnoběžnými hranami téhož pohledu. Vlastnosti listu i pohledu jsou
+interní `Qt::SubWindow` se společným OK/Cancel a potvrzením dvojklikem prostředního
+tlačítka. Souborové volby zůstávají systémovými dialogy. Samostatný spustitelný
+cíl `zima-cad-drawing-cpp` slouží pro izolované testování; společná workspace
+aplikace zpřístupňuje nový výkres ze stejného menu Soubor.

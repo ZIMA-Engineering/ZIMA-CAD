@@ -6,6 +6,7 @@
 #include "sketch_properties_dialog.hpp"
 #include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
+#include "drawing_window.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/interchange/interchange.hpp>
@@ -82,6 +83,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* file = menuBar()->addMenu(tr("Soubor"));
     file->addAction(tr("Nový Part"), this, [this] { new_part(); });
     file->addAction(tr("Nová sestava"), this, [this] { new_assembly(); });
+    file->addAction(tr("Nový výkres"), this, [] {
+        auto* window = new DrawingWindow;
+        window->setAttribute(Qt::WA_DeleteOnClose);
+        window->show();
+    });
     file->addAction(tr("Otevřít Part…"), this, [this] { open_part(); });
     file->addAction(tr("Otevřít sestavu…"), this, [this] { open_assembly(); });
     save_action_ = file->addAction(tr("Uložit…"), this,
