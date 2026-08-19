@@ -19,6 +19,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QTabBar>
+#include <QToolBar>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -263,6 +264,9 @@ public:
     }
     [[nodiscard]] const std::string& selected_view_id() const { return selected_; }
     void set_changed_callback(std::function<void()> callback) { changed_=std::move(callback); }
+    void set_selection_changed_callback(std::function<void()> callback) {
+        selection_changed_ = std::move(callback);
+    }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
 protected:
@@ -441,6 +445,7 @@ protected:
                 if(label_distance<=14.0) { dragged_dimension_id_=dimension.id;
                     dimension_drag_start_=event->position();
                     dimension_label_start_=dimension.label_position; }
+                if (selection_changed_) selection_changed_();
                 update(); return;
             }
         }
@@ -505,6 +510,7 @@ protected:
                     [&](const auto& view) { return view.id == drag_view_id_; });
                 found != sheet_->views.end()) drag_origin_ = {found->x, found->y};
         }
+        if (selection_changed_) selection_changed_();
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
@@ -561,6 +567,7 @@ protected:
             if(dimension_mode_ && first_edge_) first_edge_.reset();
             else if(dimension_mode_) dimension_mode_=false;
             else { selected_dimension_id_.clear(); selected_.clear(); }
+            if (selection_changed_) selection_changed_();
             update(); event->accept(); return;
         }
         if(event->key()==Qt::Key_Delete && sheet_!=nullptr &&
@@ -568,6 +575,7 @@ protected:
             std::erase_if(sheet_->dimensions,[&](const auto& dimension) {
                 return dimension.id==selected_dimension_id_; });
             selected_dimension_id_.clear(); if(changed_) changed_(); update();
+            if (selection_changed_) selection_changed_();
             event->accept(); return;
         }
         QWidget::keyPressEvent(event);
@@ -582,6 +590,7 @@ private:
     QPointF drag_start_;
     zima::drawing::Point2 drag_origin_;
     std::function<void()> changed_;
+    std::function<void()> selection_changed_;
     std::string selected_dimension_id_;
     std::string dragged_dimension_id_;
     QPointF dimension_drag_start_;
@@ -600,29 +609,66 @@ void DrawingWindow::create_actions() {
     auto* file = menuBar()->addMenu(tr("Soubor"));
     file->addAction(tr("Nový výkres"), this, [this] { new_document(); });
     file->addAction(tr("Otevřít výkres…"), this, [this] { open_document(); });
-    file->addAction(tr("Uložit výkres…"), this, [this] { save_document(); });
+    save_action_ = file->addAction(tr("Uložit výkres…"), this,
+        [this] { save_document(); });
+    save_action_->setObjectName("drawingSaveAction");
     auto* drawing = menuBar()->addMenu(tr("Výkres"));
-    drawing->addAction(tr("Přidat list"), this, [this] { add_sheet(); });
-    drawing->addAction(tr("Odstranit list"), this, [this] { remove_sheet(); });
-    drawing->addAction(tr("Vlastnosti listu…"), this, [this] { edit_sheet(); });
+    add_sheet_action_ = drawing->addAction(tr("Přidat list"), this,
+        [this] { add_sheet(); });
+    remove_sheet_action_ = drawing->addAction(tr("Odstranit list"), this,
+        [this] { remove_sheet(); });
+    edit_sheet_action_ = drawing->addAction(tr("Vlastnosti listu…"), this,
+        [this] { edit_sheet(); });
     drawing->addAction(tr("Načíst formát…"), this, [this] { load_frame(); });
     drawing->addAction(tr("Načíst razítko…"), this, [this] { load_title_block(); });
-    drawing->addAction(tr("Hodnoty razítka…"), this, [this] { edit_title_block(); });
+    edit_title_block_action_ = drawing->addAction(tr("Hodnoty razítka…"), this,
+        [this] { edit_title_block(); });
     drawing->addSeparator();
-    drawing->addAction(tr("Vložit pohled…"), this, [this] { insert_view(); });
-    drawing->addAction(tr("Vytvořit promítnutý pohled…"), this,
-                       [this] { create_projected_view(); });
-    drawing->addAction(tr("Vlastnosti pohledu…"), this, [this] { edit_selected_view(); });
-    drawing->addAction(tr("Regenerovat pohled"), this, [this] { regenerate_selected_view(); });
-    drawing->addAction(tr("Odstranit pohled"), this, [this] { delete_selected_view(); });
-    drawing->addAction(tr("Lineární kóta"), this, [this] { start_linear_dimension(); });
+    insert_view_action_ = drawing->addAction(tr("Vložit pohled…"), this,
+        [this] { insert_view(); });
+    insert_view_action_->setObjectName("insertDrawingViewAction");
+    projected_view_action_ = drawing->addAction(
+        tr("Vytvořit promítnutý pohled…"), this,
+        [this] { create_projected_view(); });
+    edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
+        [this] { edit_selected_view(); });
+    regenerate_view_action_ = drawing->addAction(tr("Regenerovat pohled"), this,
+        [this] { regenerate_selected_view(); });
+    delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,
+        [this] { delete_selected_view(); });
+    linear_dimension_action_ = drawing->addAction(tr("Lineární kóta"), this,
+        [this] { start_linear_dimension(); });
+    linear_dimension_action_->setCheckable(true);
+
+    drawing_toolbar_ = new QToolBar(tr("Výkres"), this);
+    drawing_toolbar_->setObjectName("drawingToolbar");
+    drawing_toolbar_->setMovable(false);
+    drawing_toolbar_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    drawing_toolbar_->addAction(insert_view_action_);
+    drawing_toolbar_->addAction(projected_view_action_);
+    drawing_toolbar_->addAction(linear_dimension_action_);
+    drawing_toolbar_->addSeparator();
+    drawing_toolbar_->addAction(edit_view_action_);
+    drawing_toolbar_->addAction(regenerate_view_action_);
+    drawing_toolbar_->addAction(delete_view_action_);
+    drawing_toolbar_->addSeparator();
+    drawing_toolbar_->addAction(add_sheet_action_);
+    drawing_toolbar_->addAction(edit_sheet_action_);
+    addToolBar(Qt::TopToolBarArea, drawing_toolbar_);
 }
 
 void DrawingWindow::create_layout() {
     auto* central = new QWidget(this); auto* layout = new QVBoxLayout(central);
-    sheets_ = new QTabBar(central); sheets_->setExpanding(false);
-    canvas_ = new DrawingCanvas(central); state_ = new QLabel(central);
-    canvas_->set_changed_callback([this] { sync_workspace_document(); });
+    layout->setContentsMargins(4, 4, 4, 4);
+    sheets_ = new QTabBar(central); sheets_->setObjectName("drawingSheetTabs");
+    sheets_->setExpanding(false);
+    canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
+    state_ = new QLabel(central); state_->setObjectName("drawingState");
+    canvas_->set_changed_callback([this] {
+        sync_workspace_document();
+        update_action_states();
+    });
+    canvas_->set_selection_changed_callback([this] { update_action_states(); });
     layout->addWidget(sheets_); layout->addWidget(canvas_, 1); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
@@ -870,14 +916,40 @@ void DrawingWindow::edit_selected_view() {
 }
 void DrawingWindow::start_linear_dimension() {
     canvas_->start_linear_dimension();
+    update_action_states();
     state_->setText(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
+}
+void DrawingWindow::update_action_states() {
+    const auto* sheet = active_sheet();
+    const bool has_sheet = sheet != nullptr;
+    const bool has_view = has_sheet && !sheet->views.empty();
+    const bool selected_view = has_sheet &&
+        document_.find_view(canvas_->selected_view_id()) != nullptr;
+    save_action_->setEnabled(has_sheet);
+    add_sheet_action_->setEnabled(true);
+    remove_sheet_action_->setEnabled(document_.sheets.size() > 1);
+    edit_sheet_action_->setEnabled(has_sheet);
+    edit_title_block_action_->setEnabled(
+        has_sheet && !sheet->title_block_fields.empty());
+    insert_view_action_->setEnabled(has_sheet);
+    projected_view_action_->setEnabled(selected_view);
+    edit_view_action_->setEnabled(selected_view);
+    regenerate_view_action_->setEnabled(selected_view);
+    delete_view_action_->setEnabled(selected_view);
+    linear_dimension_action_->setEnabled(has_view);
+    linear_dimension_action_->setChecked(canvas_->dimension_mode());
 }
 void DrawingWindow::refresh() {
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));
     sheets_->setCurrentIndex(wanted); sheets_->blockSignals(false); canvas_->set_sheet(active_sheet());
-    state_->setText(tr("Výkres: %1 listů, %2 pohledů").arg(document_.sheets.size()).arg(active_sheet() ? active_sheet()->views.size() : 0));
+    const auto view_count = active_sheet() ? active_sheet()->views.size() : 0;
+    state_->setText(view_count == 0
+        ? tr("Nový výkres: použijte Vložit pohled a vyberte otevřený Part nebo sestavu.")
+        : tr("Výkres: %1 listů, %2 pohledů")
+            .arg(document_.sheets.size()).arg(view_count));
+    update_action_states();
     sync_workspace_document();
 }
 

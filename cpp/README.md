@@ -149,22 +149,22 @@ revisioned `AssemblySession` state. Part edits do not implicitly update parent
 Assemblies; insertion and Regenerate explicitly consume authoritative
 in-memory calculated Part results, including unsaved ones.
 
-The `zima-cad-workspace-cpp` target provides the common Part, Assembly and Drawing GUI:
-document tabs, new/open/save Assembly, open Part, insert active Part, explicit
-Regenerate, occurrence tree, leaf occurrence picking, and Assembly-owned
-component Properties. The older standalone Part and Drawing executables remain
-available as behavioural comparison targets.
+The canonical `zima-cad-cpp` target provides the common Part, Assembly and Drawing GUI:
+document tabs, unified new/open/save actions, insertion of a selected open Part
+or subassembly, explicit Regenerate, occurrence tree, leaf occurrence picking,
+and Assembly-owned component Properties. The standalone Part and Drawing
+programs are named `zima-cad-part-harness` and `zima-cad-drawing-harness`; they
+exist only for isolated development checks.
 
 Drawing dimensions render witness lines, a dimension line, and arrowheads.
 They can be selected independently of views, moved by dragging their label,
 removed with Delete, and deselected or cancelled with Escape.
 
-The Workspace target now also owns the verified Part commands: new/open Part,
+The common application also owns the verified Part commands: new/open Part,
 Box, Cylinder, shared Properties, explicit Part Regenerate, Save, and
 revisioned Undo/Redo. Editing an active Part while an Assembly remains
 displayed does not mutate the parent snapshot; only explicit Assembly
-Regenerate pulls the new in-memory result. The older Part-only executable is
-retained temporarily as a behavioural comparison target.
+Regenerate pulls the new in-memory result.
 
 Part rollback also works inside a still-displayed Assembly. The Workspace
 requires an exact occurrence context and never guesses among repeated sources.
@@ -522,8 +522,10 @@ cmake --preset linux-runtime-debug
 cmake --build --preset linux-debug
 ctest --preset linux-debug
 ../build/cpp-debug/zima-cad-cpp
-../build/cpp-debug/zima-cad-workspace-cpp
 ```
+
+The `zima-cad-part-harness` and `zima-cad-drawing-harness` executables are
+developer harnesses, not separate user applications.
 
 CMake and Ninja are build prerequisites. They are deliberately not embedded
 into the application runtime.

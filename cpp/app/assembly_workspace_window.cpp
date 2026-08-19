@@ -23,9 +23,11 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMenu>
+#include <QKeySequence>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -77,25 +79,30 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
     resize(1180, 760);
     create_actions();
     create_layout();
-    new_assembly();
+    new_part();
 }
 
 void AssemblyWorkspaceWindow::create_actions() {
     auto* file = menuBar()->addMenu(tr("Soubor"));
-    file->addAction(tr("Nový Part"), this, [this] { new_part(); });
-    file->addAction(tr("Nová sestava"), this, [this] { new_assembly(); });
-    file->addAction(tr("Nový výkres"), this, [this] {
-        auto drawing=zima::drawing::DrawingDocument::create_default();
-        const auto id=drawing.document_id;
-        workspace_.add_drawing(std::move(drawing));
-        workspace_.activate(id); workspace_.display_top_level(id);
-        refresh_tabs(); refresh_scene();
-    });
-    file->addAction(tr("Otevřít Part…"), this, [this] { open_part(); });
-    file->addAction(tr("Otevřít sestavu…"), this, [this] { open_assembly(); });
-    file->addAction(tr("Otevřít výkres…"), this, [this] { open_drawing(); });
+    new_part_action_ = file->addAction(tr("Nový Part"), this,
+        [this] { new_part(); });
+    new_part_action_->setObjectName("newPartAction");
+    new_part_action_->setShortcut(QKeySequence::New);
+    new_assembly_action_ = file->addAction(tr("Nová sestava"), this,
+        [this] { new_assembly(); });
+    new_assembly_action_->setObjectName("newAssemblyAction");
+    new_drawing_action_ = file->addAction(tr("Nový výkres"), this,
+        [this] { new_drawing(); });
+    new_drawing_action_->setObjectName("newDrawingAction");
+    file->addSeparator();
+    open_document_action_ = file->addAction(tr("Otevřít…"), this,
+        [this] { open_document(); });
+    open_document_action_->setObjectName("openDocumentAction");
+    open_document_action_->setShortcut(QKeySequence::Open);
     save_action_ = file->addAction(tr("Uložit…"), this,
         [this] { save_active_document(); });
+    save_action_->setObjectName("saveDocumentAction");
+    save_action_->setShortcut(QKeySequence::Save);
     file->addSeparator();
     file->addAction(tr("Importovat…"), this, [this] { import_file(); });
     file->addAction(tr("Exportovat…"), this, [this] { export_file(); });
@@ -105,6 +112,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* modeling = menuBar()->addMenu(tr("Modelování"));
     box_action_ = modeling->addAction(tr("Kvádr…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Box); });
+    box_action_->setObjectName("boxAction");
     cylinder_action_ = modeling->addAction(tr("Válec…"), this,
         [this] { show_primitive_properties(zima::document::FeatureKind::Cylinder); });
     sphere_action_ = modeling->addAction(tr("Koule…"), this,
@@ -131,6 +139,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_edge_treatment(zima::document::FeatureKind::Chamfer); });
     sketch_action_ = modeling->addAction(tr("Skica…"), this,
         [this] { show_sketch_properties(); });
+    sketch_action_->setObjectName("sketchAction");
     sketch_segment_action_ = modeling->addAction(tr("Úsečka skici"), this,
         [this] { start_sketch_segment(); });
     sketch_rectangle_action_ = modeling->addAction(tr("Obdélník skici"), this,
@@ -190,11 +199,17 @@ void AssemblyWorkspaceWindow::create_actions() {
             zima::sketcher::DimensionKind::EllipseRotation); });
     regenerate_part_action_ = modeling->addAction(tr("Regenerovat Part"), this,
         [this] { regenerate_active_part(); });
+    regenerate_part_action_->setObjectName("regeneratePartAction");
     auto* assembly = menuBar()->addMenu(tr("Sestava"));
-    insert_action_ = assembly->addAction(tr("Vložit aktivní dokument"), this,
-        [this] { insert_active_component(); });
+    insert_menu_ = assembly->addMenu(tr("Vložit otevřený dokument"));
+    insert_menu_->setObjectName("insertComponentMenu");
+    insert_action_ = insert_menu_->menuAction();
+    insert_action_->setObjectName("insertComponentAction");
+    connect(insert_menu_, &QMenu::aboutToShow, this,
+        [this] { rebuild_insert_menu(); });
     regenerate_action_ = assembly->addAction(tr("Regenerovat"), this,
         [this] { regenerate_assembly(); });
+    regenerate_action_->setObjectName("regenerateAssemblyAction");
     plane_mate_action_ = assembly->addAction(tr("Vazba plocha–plocha…"), this,
         [this] { start_plane_mate(); });
     axis_mate_action_ = assembly->addAction(tr("Vazba osa–osa…"), this,
@@ -205,24 +220,80 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_angle_mate(); });
     plane_angle_mate_action_ = assembly->addAction(tr("Úhel ploch…"), this,
         [this] { start_plane_angle_mate(); });
+
+    main_toolbar_ = new QToolBar(tr("Dokument"), this);
+    main_toolbar_->setObjectName("mainToolbar");
+    main_toolbar_->setMovable(false);
+    main_toolbar_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    main_toolbar_->addAction(new_part_action_);
+    main_toolbar_->addAction(new_assembly_action_);
+    main_toolbar_->addAction(new_drawing_action_);
+    main_toolbar_->addSeparator();
+    main_toolbar_->addAction(open_document_action_);
+    main_toolbar_->addAction(save_action_);
+    main_toolbar_->addSeparator();
+    main_toolbar_->addAction(undo_action_);
+    main_toolbar_->addAction(redo_action_);
+    addToolBar(Qt::TopToolBarArea, main_toolbar_);
+
+    part_toolbar_ = new QToolBar(tr("Modelování"), this);
+    part_toolbar_->setObjectName("partToolbar");
+    part_toolbar_->setMovable(false);
+    part_toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    for (auto* action : {box_action_, cylinder_action_, sphere_action_,
+                         cone_action_, pyramid_action_, wedge_action_}) {
+        part_toolbar_->addAction(action);
+    }
+    part_toolbar_->addSeparator();
+    part_toolbar_->addAction(sketch_action_);
+    part_toolbar_->addAction(extrusion_action_);
+    part_toolbar_->addAction(revolution_action_);
+    part_toolbar_->addSeparator();
+    part_toolbar_->addAction(fillet_action_);
+    part_toolbar_->addAction(chamfer_action_);
+    part_toolbar_->addSeparator();
+    part_toolbar_->addAction(regenerate_part_action_);
+    addToolBar(Qt::RightToolBarArea, part_toolbar_);
+
+    assembly_toolbar_ = new QToolBar(tr("Sestava"), this);
+    assembly_toolbar_->setObjectName("assemblyToolbar");
+    assembly_toolbar_->setMovable(false);
+    assembly_toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    assembly_toolbar_->addAction(insert_action_);
+    assembly_toolbar_->addSeparator();
+    assembly_toolbar_->addAction(plane_mate_action_);
+    assembly_toolbar_->addAction(axis_mate_action_);
+    assembly_toolbar_->addAction(point_mate_action_);
+    assembly_toolbar_->addAction(angle_mate_action_);
+    assembly_toolbar_->addAction(plane_angle_mate_action_);
+    assembly_toolbar_->addSeparator();
+    assembly_toolbar_->addAction(regenerate_action_);
+    addToolBar(Qt::RightToolBarArea, assembly_toolbar_);
 }
 
 void AssemblyWorkspaceWindow::create_layout() {
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
+    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(6);
     tabs_ = new QTabBar(central);
+    tabs_->setObjectName("documentTabs");
     tabs_->setExpanding(false);
     layout->addWidget(tabs_);
     auto* splitter = new QSplitter(central);
     auto* left = new QWidget(splitter);
     auto* left_layout = new QVBoxLayout(left);
     tree_ = new QTreeWidget(left);
+    tree_->setObjectName("documentTree");
     tree_->setHeaderHidden(true);
+    tree_->setMinimumWidth(210);
     left_layout->addWidget(tree_, 1);
     state_ = new QLabel(left);
+    state_->setObjectName("workspaceState");
     state_->setWordWrap(true);
     left_layout->addWidget(state_);
     viewer_ = new zima::viewer::MeshView(splitter);
+    viewer_->setObjectName("modelViewer");
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
@@ -431,9 +502,12 @@ void AssemblyWorkspaceWindow::create_layout() {
     splitter->addWidget(viewer_);
     splitter->setStretchFactor(1, 1);
     model_workspace_ = splitter;
+    model_workspace_->setObjectName("modelWorkspace");
     workspace_stack_ = new QStackedWidget(central);
+    workspace_stack_->setObjectName("workspaceStack");
     workspace_stack_->addWidget(model_workspace_);
     drawing_workspace_ = new DrawingWindow(&workspace_, false);
+    drawing_workspace_->setObjectName("drawingWorkspace");
     drawing_workspace_->setWindowFlags(Qt::Widget);
     workspace_stack_->addWidget(drawing_workspace_);
     layout->addWidget(workspace_stack_, 1);
@@ -623,84 +697,145 @@ void AssemblyWorkspaceWindow::new_assembly() {
     refresh_scene();
 }
 
-void AssemblyWorkspaceWindow::open_part() {
-    const QString path = open_file(
-        this, tr("Otevřít díl"), {}, tr("ZIMA-CAD díl (*.prtz)"));
-    if (path.isEmpty()) return;
-    try {
-        std::vector<zima::kernel::BodyResult> calculated;
-        auto document = zima::document::PartDocument::load(path.toStdString(), &calculated);
-        const std::string id = document.document_id;
-        workspace_.add_part(std::move(document), std::move(calculated), path.toStdString());
-        workspace_.activate(id);
-        active_occurrence_path_.clear();
-        active_sketch_id_.clear();
-        selected_sketch_segment_id_.clear();
-        selected_sketch_point_id_.clear();
-        selected_sketch_circle_id_.clear();
-        selected_sketch_arc_id_.clear();
-        cancel_sketch_segment();
-        refresh_tabs();
-        refresh_scene();
-    } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Otevření Partu selhalo"), error.what());
-    }
+void AssemblyWorkspaceWindow::new_drawing() {
+    auto document = zima::drawing::DrawingDocument::create_default();
+    const std::string id = document.document_id;
+    workspace_.add_drawing(std::move(document));
+    workspace_.activate(id);
+    workspace_.display_top_level(id);
+    active_occurrence_path_.clear();
+    active_sketch_id_.clear();
+    cancel_sketch_segment();
+    refresh_tabs();
+    refresh_scene();
 }
 
-void AssemblyWorkspaceWindow::open_assembly() {
-    const QString path = open_file(
-        this, tr("Otevřít sestavu"), {}, tr("ZIMA-CAD sestava (*.asmz)"));
+void AssemblyWorkspaceWindow::open_document() {
+    const QString path = open_file(this, tr("Otevřít dokument"), {},
+        tr("Dokument ZIMA-CAD (*.prtz *.asmz *.drwz)"));
     if (path.isEmpty()) return;
+    open_document_path(path);
+}
+
+void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     try {
-        auto document = zima::assembly::AssemblyDocument::load(path.toStdString());
-        const std::string id = document.document_id;
-        workspace_.add_assembly(std::move(document), path.toStdString());
+        std::string id;
+        if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
+            std::vector<zima::kernel::BodyResult> calculated;
+            auto document = zima::document::PartDocument::load(
+                path.toStdString(), &calculated);
+            id = document.document_id;
+            workspace_.add_part(
+                std::move(document), std::move(calculated), path.toStdString());
+        } else if (path.endsWith(".asmz", Qt::CaseInsensitive)) {
+            auto document = zima::assembly::AssemblyDocument::load(path.toStdString());
+            id = document.document_id;
+            workspace_.add_assembly(std::move(document), path.toStdString());
+        } else if (path.endsWith(".drwz", Qt::CaseInsensitive)) {
+            auto document = zima::drawing::DrawingDocument::load(path.toStdString());
+            id = document.document_id;
+            workspace_.add_drawing(std::move(document), path.toStdString());
+        } else {
+            throw std::runtime_error("Nepodporovaná přípona dokumentu ZIMA-CAD.");
+        }
         workspace_.activate(id);
         workspace_.display_top_level(id);
-        active_occurrence_path_.clear();
-        active_sketch_id_.clear();
-        selected_sketch_segment_id_.clear();
-        selected_sketch_point_id_.clear();
-        selected_sketch_circle_id_.clear();
-        selected_sketch_arc_id_.clear();
-        cancel_sketch_segment();
-        refresh_tabs();
-        refresh_scene();
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Otevření sestavy selhalo"), error.what());
+        QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
+        return;
+    }
+    active_occurrence_path_.clear();
+    active_sketch_id_.clear();
+    selected_sketch_segment_id_.clear();
+    selected_sketch_point_id_.clear();
+    selected_sketch_circle_id_.clear();
+    selected_sketch_arc_id_.clear();
+    selected_sketch_ellipse_id_.clear();
+    selected_sketch_bspline_id_.clear();
+    cancel_sketch_segment();
+    refresh_tabs();
+    refresh_scene();
+}
+
+bool AssemblyWorkspaceWindow::has_insertable_component() const {
+    const std::string owner_id = workspace_.displayed_document_id();
+    if (workspace_.open_assembly(owner_id) == nullptr) return false;
+    for (const auto& state : workspace_.documents()) {
+        const bool available = std::visit([&](const auto& item) {
+            using State = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<State, zima::workspace::PartState>) {
+                return item.session.document().document_id != owner_id &&
+                    !item.session.document().history.empty() &&
+                    !item.session.calculated_boundaries().empty();
+            } else if constexpr (
+                std::is_same_v<State, zima::workspace::AssemblyState>) {
+                return item.session.document().document_id != owner_id;
+            }
+            return false;
+        }, state);
+        if (available) return true;
+    }
+    return false;
+}
+
+void AssemblyWorkspaceWindow::rebuild_insert_menu() {
+    insert_menu_->clear();
+    const std::string owner_id = workspace_.displayed_document_id();
+    if (workspace_.open_assembly(owner_id) == nullptr) return;
+    for (const auto& state : workspace_.documents()) {
+        std::visit([&](const auto& item) {
+            using State = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<State, zima::workspace::PartState>) {
+                const auto& document = item.session.document();
+                if (document.document_id == owner_id) return;
+                const bool calculated = !document.history.empty() &&
+                    !item.session.calculated_boundaries().empty();
+                auto* action = insert_menu_->addAction(
+                    QString::fromStdString(document.name) +
+                    (calculated ? tr(" — Part") : tr(" — Part (není vypočtený)")));
+                action->setObjectName("insertSourceAction");
+                action->setEnabled(calculated);
+                if (!calculated) {
+                    action->setToolTip(tr(
+                        "Part musí obsahovat alespoň jeden potvrzený a vypočtený prvek."));
+                }
+                connect(action, &QAction::triggered, this,
+                    [this, id = document.document_id] { insert_component(id); });
+            } else if constexpr (
+                std::is_same_v<State, zima::workspace::AssemblyState>) {
+                const auto& document = item.session.document();
+                if (document.document_id == owner_id) return;
+                auto* action = insert_menu_->addAction(
+                    QString::fromStdString(document.name) + tr(" — sestava"));
+                action->setObjectName("insertSourceAction");
+                connect(action, &QAction::triggered, this,
+                    [this, id = document.document_id] { insert_component(id); });
+            }
+        }, state);
+    }
+    if (insert_menu_->actions().empty()) {
+        auto* empty = insert_menu_->addAction(tr("Není otevřený žádný zdrojový dokument"));
+        empty->setEnabled(false);
     }
 }
 
-void AssemblyWorkspaceWindow::open_drawing() {
-    const QString path=open_file(
-        this,tr("Otevřít výkres"),{},tr("ZIMA-CAD Výkres (*.drwz)"));
-    if(path.isEmpty()) return;
-    try {
-        auto document=zima::drawing::DrawingDocument::load(path.toStdString());
-        const auto id=document.document_id;
-        workspace_.add_drawing(std::move(document),path.toStdString());
-        workspace_.activate(id); workspace_.display_top_level(id);
-        refresh_tabs(); refresh_scene();
-    } catch(const std::exception& error) {
-        QMessageBox::critical(this,tr("Otevření výkresu selhalo"),error.what());
-    }
-}
-
-void AssemblyWorkspaceWindow::insert_active_component() {
-    const std::string source_id = workspace_.active_document_id();
+void AssemblyWorkspaceWindow::insert_component(
+    const std::string& source_document_id) {
     const std::string assembly_id = workspace_.displayed_document_id();
     if (workspace_.open_assembly(assembly_id) == nullptr) return;
     try {
         std::string occurrence_id;
-        if (const auto* part = workspace_.open_part(source_id)) {
+        if (const auto* part = workspace_.open_part(source_document_id)) {
             occurrence_id = workspace_.insert_open_part(
-                assembly_id, source_id, part->session.document().name);
-        } else if (const auto* source = workspace_.open_assembly(source_id)) {
+                assembly_id, source_document_id, part->session.document().name);
+        } else if (const auto* source = workspace_.open_assembly(source_document_id)) {
             occurrence_id = workspace_.insert_open_assembly(
-                assembly_id, source_id, source->session.document().name);
+                assembly_id, source_document_id, source->session.document().name);
         } else {
             return;
         }
+        workspace_.activate(assembly_id);
+        refresh_tabs();
         refresh_scene();
         viewer_->confirm_occurrence(
             zima::assembly::InstancePath{}.child(occurrence_id).encoded());
@@ -2807,13 +2942,27 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             workspace_stack_->setCurrentWidget(drawing_workspace_);
             drawing_workspace_->edit_workspace_document(
                 workspace_.displayed_document_id());
+            part_toolbar_->setVisible(false);
+            assembly_toolbar_->setVisible(false);
             insert_action_->setEnabled(false); regenerate_action_->setEnabled(false);
             box_action_->setEnabled(false); cylinder_action_->setEnabled(false);
             sphere_action_->setEnabled(false); cone_action_->setEnabled(false);
             pyramid_action_->setEnabled(false); wedge_action_->setEnabled(false);
+            construction_point_action_->setEnabled(false);
+            construction_axis_action_->setEnabled(false);
+            construction_plane_action_->setEnabled(false);
             sketch_action_->setEnabled(false); extrusion_action_->setEnabled(false);
             revolution_action_->setEnabled(false); fillet_action_->setEnabled(false);
             chamfer_action_->setEnabled(false);
+            regenerate_part_action_->setEnabled(false);
+            plane_mate_action_->setEnabled(false);
+            axis_mate_action_->setEnabled(false);
+            point_mate_action_->setEnabled(false);
+            angle_mate_action_->setEnabled(false);
+            plane_angle_mate_action_->setEnabled(false);
+            save_action_->setEnabled(true);
+            undo_action_->setEnabled(false);
+            redo_action_->setEnabled(false);
             return;
         }
         workspace_stack_->setCurrentWidget(model_workspace_);
@@ -2823,10 +2972,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     if (assembly == nullptr) {
         const auto* part = workspace_.open_part(workspace_.displayed_document_id());
         if (part == nullptr) {
+            part_toolbar_->setVisible(false);
+            assembly_toolbar_->setVisible(false);
             viewer_->set_mesh({});
             state_->setText(tr("Není vybrán zobrazovaný dokument."));
             return;
         }
+        part_toolbar_->setVisible(true);
+        assembly_toolbar_->setVisible(false);
         const auto& document = part->session.document();
         if (!active_sketch_id_.empty() && std::none_of(
                 document.sketches.begin(), document.sketches.end(),
@@ -2916,12 +3069,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(std::move(display), !preserve_view_on_refresh_);
             preserve_view_on_refresh_ = false;
         }
-        state_->setText(tr("Zobrazený Part: %1").arg(
-            QString::fromStdString(document.name)));
+        state_->setText(document.history.empty()
+            ? tr("Nový Part: začněte příkazem Kvádr, jiným tělesem nebo Skica.")
+            : tr("Zobrazený Part: %1").arg(QString::fromStdString(document.name)));
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
         plane_mate_action_->setEnabled(false);
         axis_mate_action_->setEnabled(false);
+        point_mate_action_->setEnabled(false);
+        angle_mate_action_->setEnabled(false);
+        plane_angle_mate_action_->setEnabled(false);
         save_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
@@ -2929,6 +3086,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         cone_action_->setEnabled(true);
         pyramid_action_->setEnabled(true);
         wedge_action_->setEnabled(true);
+        fillet_action_->setEnabled(!document.history.empty());
+        chamfer_action_->setEnabled(!document.history.empty());
         construction_point_action_->setEnabled(true);
         construction_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
@@ -2968,6 +3127,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         return;
     }
     const auto& document = assembly->session.document();
+    assembly_toolbar_->setVisible(true);
     auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
     add_assembly_tree_children(root, document.document_id, {});
     if (document.document_id == workspace_.active_document_id()) {
@@ -2995,12 +3155,15 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     } else {
         viewer_->set_mesh(document.build_scene());
     }
-    state_->setText(tr("Zobrazená sestava: %1\nAktivní dokument: %2")
-        .arg(QString::fromStdString(document.name),
-             QString::fromStdString(workspace_.active_document_id())));
-    insert_action_->setEnabled(
-        workspace_.active_document_id() != workspace_.displayed_document_id() &&
-        workspace_.find(workspace_.active_document_id()) != nullptr);
+    state_->setText(document.components.empty()
+        ? has_insertable_component()
+            ? tr("Nová sestava: zvolte Vložit otevřený dokument.")
+            : tr("Nová sestava: nejprve vytvořte a vypočtěte Part, potom jej zde vložte.")
+        : tr("Zobrazená sestava: %1\nAktivní dokument: %2")
+            .arg(QString::fromStdString(document.name),
+                 QString::fromStdString(workspace_.active_document_id())));
+    rebuild_insert_menu();
+    insert_action_->setEnabled(has_insertable_component());
     regenerate_action_->setEnabled(true);
     plane_mate_action_->setEnabled(
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
@@ -3014,12 +3177,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
     save_action_->setEnabled(true);
     const auto* active_part = workspace_.open_part(workspace_.active_document_id());
+    part_toolbar_->setVisible(active_part != nullptr);
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
     sphere_action_->setEnabled(active_part != nullptr);
     cone_action_->setEnabled(active_part != nullptr);
     pyramid_action_->setEnabled(active_part != nullptr);
     wedge_action_->setEnabled(active_part != nullptr);
+    fillet_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
+    chamfer_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
     construction_point_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(active_part != nullptr);
     construction_plane_action_->setEnabled(active_part != nullptr);

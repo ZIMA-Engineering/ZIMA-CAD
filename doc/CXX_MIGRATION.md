@@ -277,10 +277,10 @@ stavu závislosti pouze označí odvozený stav k uložení.
 
 Workspace umí vložit aktuální vypočtený stav otevřeného Partu a explicitně
 regenerovat přímé Part závislosti z autoritativních in-memory dokumentů.
-Obyčejná změna Partu parent Assembly nemění. Nový Assembly Workspace GUI
-`zima-cad-workspace-cpp` nabízí taby otevřených dokumentů, vytvoření a
-otevření sestavy, otevření Partu, vložení aktivního Partu, uložení, explicitní
-Regenerovat, occurrence strom a leaf Part occurrence picking. Samostatný
+Obyčejná změna Partu parent Assembly nemění. Společná aplikace
+`zima-cad-cpp` nabízí taby otevřených dokumentů, vytvoření a otevření Partu,
+sestavy i výkresu, vložení zvoleného otevřeného Partu nebo podsestavy, uložení,
+explicitní Regenerovat, occurrence strom a leaf Part occurrence picking. Samostatný
 `ComponentPropertiesDialog` mění pouze sestavou vlastněný název a placement;
 zdrojová identita a geometrie zůstávají read-only.
 
@@ -818,9 +818,10 @@ Zobrazuje rámeček, základní razítko, modelové pohledy a asociativní line�
 mezi dvěma rovnoběžnými hranami téhož pohledu. Vlastnosti listu i pohledu jsou
 interní `Qt::SubWindow` se společným OK/Cancel a potvrzením dvojklikem prostředního
 tlačítka. Souborové volby používají společný nenativní Qt dialog; adresáře jsou
-řazené před soubory a technický adresář `0000-index` se nezobrazuje. Samostatný
-spustitelný cíl `zima-cad-drawing-cpp` slouží pro izolované testování; společná
-workspace aplikace zpřístupňuje nový výkres ze stejného menu Soubor.
+řazené před soubory a technický adresář `0000-index` se nezobrazuje. Vývojový
+spustitelný cíl `zima-cad-drawing-harness` slouží pouze pro izolované testování;
+uživatelská aplikace `zima-cad-cpp` zpřístupňuje výkres jako třetí typ dokumentu
+ze stejného menu Soubor.
 
 Lineární kóta po explicitní regeneraci znovu vyhledá obě stabilní reference,
 přepočítá body i měřenou hodnotu a chybějící či již nerovnoběžnou dvojici ponechá

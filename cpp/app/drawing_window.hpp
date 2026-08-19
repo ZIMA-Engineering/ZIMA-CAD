@@ -6,9 +6,11 @@
 
 #include <filesystem>
 
+class QAction;
 class QComboBox;
 class QLabel;
 class QTabBar;
+class QToolBar;
 
 namespace zima::workspace { class Workspace; }
 
@@ -31,6 +33,18 @@ private:
     QTabBar* sheets_{};
     DrawingCanvas* canvas_{};
     QLabel* state_{};
+    QToolBar* drawing_toolbar_{};
+    QAction* save_action_{};
+    QAction* add_sheet_action_{};
+    QAction* remove_sheet_action_{};
+    QAction* edit_sheet_action_{};
+    QAction* edit_title_block_action_{};
+    QAction* insert_view_action_{};
+    QAction* projected_view_action_{};
+    QAction* edit_view_action_{};
+    QAction* regenerate_view_action_{};
+    QAction* delete_view_action_{};
+    QAction* linear_dimension_action_{};
 
     void create_actions();
     void create_layout();
@@ -53,6 +67,7 @@ private:
     void regenerate_selected_view();
     void delete_selected_view();
     void start_linear_dimension();
+    void update_action_states();
     void refresh();
     void sync_workspace_document();
     [[nodiscard]] zima::drawing::DrawingSheet* active_sheet();

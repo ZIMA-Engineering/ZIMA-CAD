@@ -88,15 +88,15 @@ target_include_directories(zima_interchange PUBLIC modules/interchange/include)
 target_link_libraries(zima_interchange PUBLIC zima_sketcher
     PRIVATE TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF TKBRep TKGeomBase)
 
-add_executable(zima-cad-cpp
+add_executable(zima-cad-part-harness
     app/main.cpp app/main_window.cpp app/file_dialog.cpp
     app/primitive_properties_dialog.cpp)
-target_include_directories(zima-cad-cpp PRIVATE app)
-target_link_libraries(zima-cad-cpp PRIVATE
+target_include_directories(zima-cad-part-harness PRIVATE app)
+target_link_libraries(zima-cad-part-harness PRIVATE
     zima_document_core zima_kernel_occt zima_viewer zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
-add_executable(zima-cad-workspace-cpp
+add_executable(zima-cad-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
     app/drawing_window.cpp app/file_dialog.cpp
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
@@ -104,16 +104,16 @@ add_executable(zima-cad-workspace-cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
-target_include_directories(zima-cad-workspace-cpp PRIVATE app)
-target_link_libraries(zima-cad-workspace-cpp PRIVATE
+target_include_directories(zima-cad-cpp PRIVATE app)
+target_link_libraries(zima-cad-cpp PRIVATE
     zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
-add_executable(zima-cad-drawing-cpp
+add_executable(zima-cad-drawing-harness
     app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp)
-target_include_directories(zima-cad-drawing-cpp PRIVATE app)
-target_link_libraries(zima-cad-drawing-cpp PRIVATE
+target_include_directories(zima-cad-drawing-harness PRIVATE app)
+target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
@@ -153,6 +153,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_test(NAME zima_cpp_workspace_startup_contract
+        COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)
