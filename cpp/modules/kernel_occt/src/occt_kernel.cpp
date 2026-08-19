@@ -1639,7 +1639,10 @@ std::vector<BodyResult> OcctKernel::import_step_components(
 std::vector<BodyResult> OcctKernel::evaluate_history(
     const std::vector<HistoryOperation>& operations) const {
     if (operations.empty()) return {};
-    if (operations.front().operation == BooleanOperation::Subtract) {
+    const auto first_active = std::find_if(operations.begin(), operations.end(),
+        [](const auto& operation) { return !operation.suppressed; });
+    if (first_active != operations.end() &&
+        first_active->operation == BooleanOperation::Subtract) {
         throw std::invalid_argument("The first history operation cannot subtract");
     }
     try {
@@ -1654,6 +1657,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
         for (const auto& operation : operations) {
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");
+            }
+            if (operation.suppressed) {
+                auto boundary = boundaries.empty() ? BodyResult{} : boundaries.back();
+                boundary.source_fingerprint = history_fingerprint(
+                    operations, boundaries.size() + 1);
+                boundaries.push_back(std::move(boundary));
+                continue;
             }
             const auto apply_edge_treatment = [&](const auto& treatment) {
                 if (result_shape.IsNull()) {

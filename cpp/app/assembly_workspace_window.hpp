@@ -158,6 +158,7 @@ private:
     QAction* point_mate_action_{};
     QAction* angle_mate_action_{};
     QAction* plane_angle_mate_action_{};
+    QAction* parameters_action_{};
     QDialog* properties_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
@@ -278,6 +279,7 @@ private:
     void set_active_application(ApplicationMode mode);
     void update_document_area_visibility();
     void regenerate_active_document();
+    void edit_document_parameters();
     void regenerate_assembly();
     void start_plane_mate();
     void start_axis_mate();
@@ -441,6 +443,9 @@ private:
     void remove_sketch_relation(
         const std::string& sketch_id, const std::string& relation_id,
         bool dimension);
+    void toggle_part_container_suppressed(const std::string& container_id);
+    void move_part_container(const std::string& container_id, int direction);
+    void delete_part_object(const std::string& object_id, const QString& kind);
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {},
         zima::sketcher::DimensionKind creation_kind =

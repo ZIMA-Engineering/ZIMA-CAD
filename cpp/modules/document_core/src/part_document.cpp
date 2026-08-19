@@ -1985,6 +1985,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             container.combine_mode == CombineMode::Subtract
                 ? zima::kernel::BooleanOperation::Subtract
                 : zima::kernel::BooleanOperation::Add,
+            container.suppressed,
         });
     }
     return operations;
@@ -2000,12 +2001,14 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 23) {
+        root.at("format_version").get<int>() != 25) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.user_parameters =
+        root.at("user_parameters").get<std::map<std::string, std::string>>();
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -2045,6 +2048,7 @@ PartDocument PartDocument::load(
         }
         container.combine_mode = combine == "subtract"
             ? CombineMode::Subtract : CombineMode::Add;
+        container.suppressed = source.at("suppressed").get<bool>();
         if (container.feature_kind == FeatureKind::Box) {
             container.box.length = source.at("length").get<double>();
             container.box.width = source.at("width").get<double>();
@@ -2301,8 +2305,12 @@ PartDocument PartDocument::load(
             throw std::runtime_error("Revolution references a missing Sketch");
         }
     }
-    if (!document.history.empty() &&
-        document.history.front().combine_mode == CombineMode::Subtract) {
+    const auto first_active = std::find_if(document.history.begin(),
+        document.history.end(), [](const auto& container) {
+            return !container.suppressed;
+        });
+    if (first_active != document.history.end() &&
+        first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
@@ -2509,7 +2517,7 @@ void PartDocument::save(
                     ? "fillet" : "chamfer"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
-                ? "subtract" : "add"},
+                ? "subtract" : "add"}, {"suppressed", container.suppressed},
         };
         if (container.feature_kind != FeatureKind::Extrusion &&
             container.feature_kind != FeatureKind::Revolution &&
@@ -2593,7 +2601,10 @@ void PartDocument::save(
         }
         serialized_history.push_back(std::move(serialized));
     }
-    if (!history.empty() && history.front().combine_mode == CombineMode::Subtract) {
+    const auto first_active = std::find_if(history.begin(), history.end(),
+        [](const auto& container) { return !container.suppressed; });
+    if (first_active != history.end() &&
+        first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
     if (!calculated_boundaries.empty() &&
@@ -2669,10 +2680,11 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 23},
+        {"format_version", 25},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
+        {"user_parameters", user_parameters},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

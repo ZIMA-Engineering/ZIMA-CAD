@@ -36,6 +36,7 @@
 #include <QMenu>
 #include <QKeySequence>
 #include <QPixmap>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
@@ -43,6 +44,7 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
+#include <QTableWidget>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
@@ -466,6 +468,89 @@ private:
     bool submit() override { return true; }
 };
 
+class DocumentParametersDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    using Parameters = std::map<std::string, std::string>;
+    using Accepted = std::function<void(Parameters)>;
+
+    DocumentParametersDialog(
+        const Parameters& parameters, Accepted accepted, QMainWindow* parent)
+        : PropertiesSubWindow(QObject::tr("Parametry dokumentu"), parent),
+          accepted_(std::move(accepted)) {
+        setObjectName("documentParametersDialog");
+        setMinimumSize(520, 340);
+        table_ = new QTableWidget(0, 2, this);
+        table_->setObjectName("documentParametersTable");
+        table_->setHorizontalHeaderLabels(
+            {QObject::tr("Název"), QObject::tr("Hodnota / výraz")});
+        table_->horizontalHeader()->setStretchLastSection(true);
+        for (const auto& [name, value] : parameters) add_row(name, value);
+        content_layout()->addWidget(table_);
+        auto* controls = new QHBoxLayout;
+        auto* add = new QPushButton(QObject::tr("Přidat"), this);
+        add->setObjectName("addDocumentParameterButton");
+        auto* remove = new QPushButton(QObject::tr("Odstranit"), this);
+        remove->setObjectName("removeDocumentParameterButton");
+        controls->addWidget(add);
+        controls->addWidget(remove);
+        controls->addStretch();
+        content_layout()->addLayout(controls);
+        error_ = new QLabel(this);
+        error_->setStyleSheet(QStringLiteral("color:#F08A85;"));
+        error_->hide();
+        content_layout()->addWidget(error_);
+        connect(add, &QPushButton::clicked, this,
+            [this] { add_row({}, {}); table_->editItem(table_->item(table_->rowCount() - 1, 0)); });
+        connect(remove, &QPushButton::clicked, this, [this] {
+            const int row = table_->currentRow();
+            if (row >= 0) table_->removeRow(row);
+        });
+        setAttribute(Qt::WA_DeleteOnClose);
+    }
+
+private:
+    QTableWidget* table_{};
+    QLabel* error_{};
+    Accepted accepted_;
+
+    void add_row(const std::string& name, const std::string& value) {
+        const int row = table_->rowCount();
+        table_->insertRow(row);
+        table_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(name)));
+        table_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(value)));
+    }
+
+    bool submit() override {
+        Parameters result;
+        for (int row = 0; row < table_->rowCount(); ++row) {
+            const QString name = table_->item(row, 0) == nullptr
+                ? QString{} : table_->item(row, 0)->text().trimmed();
+            const QString value = table_->item(row, 1) == nullptr
+                ? QString{} : table_->item(row, 1)->text().trimmed();
+            if (name.isEmpty() || value.isEmpty()) {
+                error_->setText(QObject::tr("Název ani hodnota nesmí být prázdné."));
+                error_->show();
+                return false;
+            }
+            const auto bytes = name.toStdString();
+            const bool valid = !bytes.empty() &&
+                (std::isalpha(static_cast<unsigned char>(bytes.front())) ||
+                    bytes.front() == '_') &&
+                std::all_of(bytes.begin() + 1, bytes.end(), [](unsigned char character) {
+                    return std::isalnum(character) || character == '_';
+                });
+            if (!valid || !result.emplace(bytes, value.toStdString()).second) {
+                error_->setText(QObject::tr(
+                    "Název musí být jedinečný identifikátor (písmena, číslice, _)."));
+                error_->show();
+                return false;
+            }
+        }
+        accepted_(std::move(result));
+        return true;
+    }
+};
+
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
@@ -677,11 +762,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     application_actions_[0]->setChecked(true);
 
     auto* tools = menuBar()->addMenu(tr("Nástroje"));
-    for (const auto& label : {tr("Materiál..."), tr("Parametry..."),
-                              tr("Relace..."), tr("Family Table...")}) {
+    for (const auto& label : {tr("Materiál..."), tr("Relace..."),
+                              tr("Family Table...")}) {
         auto* action = tools->addAction(label);
         action->setEnabled(false);
     }
+    parameters_action_ = tools->addAction(tr("Parametry..."));
+    parameters_action_->setObjectName("documentParametersAction");
+    connect(parameters_action_, &QAction::triggered,
+        this, &AssemblyWorkspaceWindow::edit_document_parameters);
     tools->addSeparator();
     auto* file_settings_action = tools->addAction(tr("Nastavení souboru..."));
     file_settings_action->setEnabled(false);
@@ -723,6 +812,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     construction_point_action_ = make_action(tr("Bod"), "point");
     construction_axis_action_ = make_action(tr("Osa"), "axis");
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
+    construction_point_action_->setObjectName("constructionPointAction");
+    construction_axis_action_->setObjectName("constructionAxisAction");
+    construction_plane_action_->setObjectName("constructionPlaneAction");
     extrusion_action_ = make_action(tr("Vytažení"), "protrusion");
     extrusion_action_->setObjectName("extrusionAction");
     revolution_action_ = make_action(tr("Rotace"), "revolve");
@@ -971,6 +1063,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     point_mate_action_ = make_action(tr("Vazba bod–bod…"), "point");
     angle_mate_action_ = make_action(tr("Úhel os…"));
     plane_angle_mate_action_ = make_action(tr("Úhel ploch…"));
+    plane_mate_action_->setObjectName("planeMateAction");
+    axis_mate_action_->setObjectName("axisMateAction");
+    point_mate_action_->setObjectName("pointMateAction");
+    angle_mate_action_->setObjectName("axisAngleMateAction");
+    plane_angle_mate_action_->setObjectName("planeAngleMateAction");
     connect(regenerate_action_, &QAction::triggered, this, [this] { regenerate_assembly(); });
     connect(plane_mate_action_, &QAction::triggered, this, [this] { start_plane_mate(); });
     connect(axis_mate_action_, &QAction::triggered, this, [this] { start_axis_mate(); });
@@ -1748,7 +1845,27 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
                 const auto* container = part == nullptr
                     ? nullptr : part->session.document().find_container(id);
-                if (container != nullptr) show_primitive_properties(container->feature_kind, id);
+                if (container == nullptr) return;
+                QMenu menu(this);
+                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* suppress = menu.addAction(container->suppressed
+                    ? tr("Obnovit") : tr("Potlačit"));
+                auto* move_up = menu.addAction(tr("Posunout výše"));
+                auto* move_down = menu.addAction(tr("Posunout níže"));
+                auto* remove = menu.addAction(tr("Odstranit"));
+                const auto* selected = menu.exec(
+                    tree_->viewport()->mapToGlobal(position));
+                if (selected == properties) {
+                    show_primitive_properties(container->feature_kind, id);
+                } else if (selected == suppress) {
+                    toggle_part_container_suppressed(id);
+                } else if (selected == move_up) {
+                    move_part_container(id, -1);
+                } else if (selected == move_down) {
+                    move_part_container(id, 1);
+                } else if (selected == remove) {
+                    delete_part_object(id, QStringLiteral("container"));
+                }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "part-construction" ||
                        item->data(0, Qt::UserRole + 3).toString() ==
@@ -1761,10 +1878,28 @@ void AssemblyWorkspaceWindow::create_layout() {
                     ? part->session.document().find_construction(id)
                     : assembly != nullptr
                         ? assembly->session.document().find_construction(id) : nullptr;
-                if (object != nullptr) show_construction_properties(object->kind, id);
+                if (object == nullptr) return;
+                QMenu menu(this);
+                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* remove = menu.addAction(tr("Odstranit"));
+                const auto* selected = menu.exec(
+                    tree_->viewport()->mapToGlobal(position));
+                if (selected == properties) {
+                    show_construction_properties(object->kind, id);
+                } else if (selected == remove) {
+                    delete_part_object(id, item->data(0, Qt::UserRole + 3).toString());
+                }
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
-                show_sketch_properties(
-                    item->data(0, Qt::UserRole).toString().toStdString());
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                QMenu menu(this);
+                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* remove = menu.addAction(tr("Odstranit"));
+                const auto* selected = menu.exec(
+                    tree_->viewport()->mapToGlobal(position));
+                if (selected == properties) show_sketch_properties(id);
+                else if (selected == remove) {
+                    delete_part_object(id, QStringLiteral("sketch"));
+                }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                        "part-sketch-dimension") {
                 const auto sketch_id =
@@ -2143,6 +2278,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         add_command(insert_action_);
         add_green_separator();
+        for (auto* action : {construction_point_action_, construction_axis_action_,
+                             construction_plane_action_}) {
+            add_command(action);
+        }
+        add_green_separator();
         for (auto* action : {plane_mate_action_, axis_mate_action_, point_mate_action_,
                              angle_mate_action_, plane_angle_mate_action_}) {
             add_command(action);
@@ -2172,6 +2312,41 @@ void AssemblyWorkspaceWindow::regenerate_active_document() {
             action->trigger();
         }
     }
+}
+
+void AssemblyWorkspaceWindow::edit_document_parameters() {
+    if (properties_dialog_ != nullptr) {
+        properties_dialog_->raise();
+        return;
+    }
+    const std::string active_id = workspace_.active_document_id();
+    std::map<std::string, std::string> parameters;
+    if (const auto* part = workspace_.open_part(active_id)) {
+        parameters = part->session.document().user_parameters;
+    } else if (const auto* assembly = workspace_.open_assembly(active_id)) {
+        parameters = assembly->session.document().user_parameters;
+    } else {
+        return;
+    }
+    auto* dialog = new DocumentParametersDialog(parameters,
+        [this, active_id](std::map<std::string, std::string> values) {
+            if (auto* part = workspace_.open_part(active_id)) {
+                auto next = part->session.document();
+                next.user_parameters = std::move(values);
+                part->session.commit(
+                    std::move(next), part->session.calculated_boundaries());
+            } else if (auto* assembly = workspace_.open_assembly(active_id)) {
+                auto next = assembly->session.document();
+                next.user_parameters = std::move(values);
+                assembly->session.commit(std::move(next));
+            }
+            refresh_tabs();
+        }, this);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] {
+        if (properties_dialog_ == dialog) properties_dialog_ = nullptr;
+    });
+    dialog->show();
 }
 
 void AssemblyWorkspaceWindow::new_part() {
@@ -5907,6 +6082,170 @@ void AssemblyWorkspaceWindow::remove_sketch_relation(
     }
 }
 
+void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
+    const std::string& container_id) {
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || properties_dialog_ != nullptr) return;
+    try {
+        auto next = part->session.document();
+        auto* container = next.find_container(container_id);
+        if (container == nullptr) return;
+        container->suppressed = !container->suppressed;
+        auto calculated = calculate_part(next);
+        next.resolve_constructions(calculated.empty()
+            ? zima::kernel::ViewerReferenceGeometry{}
+            : calculated.back().mesh.original_references);
+        static_cast<void>(refresh_sketch_external_references(next, calculated));
+        part->session.commit(std::move(next), std::move(calculated));
+        refresh_tabs();
+        refresh_scene();
+    } catch (const std::exception& error) {
+        QMessageBox::warning(this, tr("Potlačení nelze změnit"), error.what());
+    }
+}
+
+void AssemblyWorkspaceWindow::move_part_container(
+    const std::string& container_id, int direction) {
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr || properties_dialog_ != nullptr ||
+        (direction != -1 && direction != 1)) return;
+    try {
+        auto next = part->session.document();
+        const auto index = next.history_index(container_id);
+        if (!index) return;
+        if ((direction < 0 && *index == 0) ||
+            (direction > 0 && *index + 1 >= next.history.size())) return;
+        const auto target = static_cast<std::size_t>(
+            static_cast<std::ptrdiff_t>(*index) + direction);
+        std::swap(next.history[*index], next.history[target]);
+        auto calculated = calculate_part(next);
+        next.resolve_constructions(calculated.empty()
+            ? zima::kernel::ViewerReferenceGeometry{}
+            : calculated.back().mesh.original_references);
+        static_cast<void>(refresh_sketch_external_references(next, calculated));
+        part->session.commit(std::move(next), std::move(calculated));
+        refresh_tabs();
+        refresh_scene();
+    } catch (const std::exception& error) {
+        QMessageBox::warning(this, tr("Pořadí nelze změnit"), error.what());
+    }
+}
+
+void AssemblyWorkspaceWindow::delete_part_object(
+    const std::string& object_id, const QString& kind) {
+    if (properties_dialog_ != nullptr || object_id.empty()) return;
+    if (QMessageBox::question(this, tr("Odstranit objekt"),
+            tr("Opravdu chcete vybraný objekt odstranit?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
+        QMessageBox::Yes) return;
+    try {
+        if (kind == QStringLiteral("assembly-construction")) {
+            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+            if (assembly == nullptr) return;
+            auto next = assembly->session.document();
+            const auto document_states = workspace_.documents();
+            const bool used_by_external_sketch = std::any_of(
+                document_states.begin(), document_states.end(),
+                [&](const auto& state) {
+                    const auto* part = std::get_if<zima::workspace::PartState>(&state);
+                    return part != nullptr && std::any_of(
+                        part->session.document().sketches.begin(),
+                        part->session.document().sketches.end(), [&](const auto& sketch) {
+                            return std::any_of(sketch.external_references.begin(),
+                                sketch.external_references.end(), [&](const auto& reference) {
+                                    return reference.source_document_id == next.document_id &&
+                                        reference.source_owner_id == object_id;
+                                });
+                        });
+                });
+            if (std::any_of(next.mates.begin(), next.mates.end(), [&](const auto& mate) {
+                    return mate.dependent.owner_id == object_id ||
+                        mate.prerequisite.owner_id == object_id;
+                }) || std::any_of(next.constructions.begin(), next.constructions.end(),
+                    [&](const auto& construction) {
+                        return construction.id != object_id &&
+                            std::any_of(construction.references.begin(),
+                                construction.references.end(), [&](const auto& reference) {
+                                    return reference.owner_id == object_id;
+                                });
+                    }) || used_by_external_sketch) {
+                throw std::runtime_error(
+                    "Assembly datum is still used by a mate or another datum");
+            }
+            const auto old_size = next.constructions.size();
+            std::erase_if(next.constructions,
+                [&](const auto& object) { return object.id == object_id; });
+            if (next.constructions.size() == old_size) return;
+            next.resolve_constructions();
+            next.calculate_mates();
+            assembly->session.commit(std::move(next));
+        } else {
+            auto* part = workspace_.open_part(workspace_.active_document_id());
+            if (part == nullptr) return;
+            auto next = part->session.document();
+            if (kind == QStringLiteral("sketch")) {
+                if (std::any_of(next.history.begin(), next.history.end(),
+                        [&](const auto& container) {
+                            return (container.feature_kind ==
+                                        zima::document::FeatureKind::Extrusion &&
+                                    container.extrusion.sketch_id == object_id) ||
+                                (container.feature_kind ==
+                                        zima::document::FeatureKind::Revolution &&
+                                    container.revolution.sketch_id == object_id);
+                        })) {
+                    throw std::runtime_error("Sketch is still used by a feature");
+                }
+                std::erase_if(next.sketches,
+                    [&](const auto& sketch) { return sketch.id == object_id; });
+            } else if (kind == QStringLiteral("part-construction")) {
+                const bool used_by_datum = std::any_of(next.constructions.begin(),
+                    next.constructions.end(), [&](const auto& construction) {
+                        return construction.id != object_id &&
+                            std::any_of(construction.references.begin(),
+                                construction.references.end(), [&](const auto& reference) {
+                                    return reference.owner_id == object_id;
+                                });
+                    });
+                const bool used_by_feature = std::any_of(next.history.begin(),
+                    next.history.end(), [&](const auto& container) {
+                        return container.feature_kind ==
+                                zima::document::FeatureKind::Extrusion &&
+                            container.extrusion.target_face.owner_id == object_id;
+                    });
+                const bool used_by_sketch = std::any_of(next.sketches.begin(),
+                    next.sketches.end(), [&](const auto& sketch) {
+                        return std::any_of(sketch.external_references.begin(),
+                            sketch.external_references.end(), [&](const auto& reference) {
+                                return reference.source_document_id == next.document_id &&
+                                    reference.source_owner_id == object_id;
+                            });
+                    });
+                if (used_by_datum || used_by_feature || used_by_sketch) {
+                    throw std::runtime_error(
+                        "Construction object is still used by another definition");
+                }
+                std::erase_if(next.constructions,
+                    [&](const auto& object) { return object.id == object_id; });
+            } else {
+                std::erase_if(next.history,
+                    [&](const auto& container) { return container.id == object_id; });
+            }
+            auto calculated = calculate_part(next);
+            next.resolve_constructions(calculated.empty()
+                ? zima::kernel::ViewerReferenceGeometry{}
+                : calculated.back().mesh.original_references);
+            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            part->session.commit(std::move(next), std::move(calculated));
+            if (active_sketch_id_ == object_id) active_sketch_id_.clear();
+            if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
+        }
+        refresh_tabs();
+        refresh_scene();
+    } catch (const std::exception& error) {
+        QMessageBox::warning(this, tr("Objekt nelze odstranit"), error.what());
+    }
+}
+
 void AssemblyWorkspaceWindow::start_sketch_point_dimension(
     zima::sketcher::DimensionKind kind) {
     if (properties_dialog_ != nullptr || selected_sketch_point_id_.empty() ||
@@ -7054,9 +7393,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
         for (std::size_t index = 0; index < document.history.size(); ++index) {
             const auto& container = document.history[index];
-            auto* item = new QTreeWidgetItem(root, {QString::fromStdString(container.name)});
+            auto* item = new QTreeWidgetItem(root,
+                {QString::fromStdString(container.name) +
+                 (container.suppressed ? tr(" [potlačeno]") : QString{})});
             item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
             item->setData(0, Qt::UserRole + 3, "part-container");
+            if (container.suppressed) {
+                item->setForeground(0, QBrush(QColor(125, 125, 125)));
+            }
             if (part_rollback_ &&
                 part_rollback_->part_document_id == document.document_id) {
                 if (index == part_rollback_->history_limit) {
@@ -7703,10 +8047,14 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     const zima::document::PartDocument& document) {
     for (std::size_t index = 0; index < document.history.size(); ++index) {
         const auto& container = document.history[index];
-        auto* item = new QTreeWidgetItem(
-            parent, {QString::fromStdString(container.name)});
+        auto* item = new QTreeWidgetItem(parent,
+            {QString::fromStdString(container.name) +
+             (container.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         item->setData(0, Qt::UserRole + 3, "part-container");
+        if (container.suppressed) {
+            item->setForeground(0, QBrush(QColor(125, 125, 125)));
+        }
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {
             if (index == part_rollback_->history_limit) {

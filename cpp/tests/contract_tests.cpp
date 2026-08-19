@@ -456,6 +456,35 @@ int main() {
                     loaded_poly.history[1].feature_kind == zima::document::FeatureKind::Wedge &&
                     loaded_poly.history[1].wedge.top_offset == 15.0,
                 "Pyramid/Wedge documents did not survive save/load");
+        auto suppression_document = zima::document::PartDocument::create_default();
+        suppression_document.history.push_back(
+            zima::document::PartDocument::create_box_container());
+        suppression_document.history.push_back(
+            zima::document::PartDocument::create_cylinder_container());
+        const auto unsuppressed_results = kernel.evaluate_history(
+            suppression_document.kernel_operations());
+        suppression_document.history.back().suppressed = true;
+        suppression_document.user_parameters = {
+            {"wall_thickness", "2.5 mm"}, {"rib_count", "4"}};
+        const auto suppressed_results = kernel.evaluate_history(
+            suppression_document.kernel_operations());
+        require(suppressed_results.size() == 2 &&
+                    suppressed_results.back().volume ==
+                        suppressed_results.front().volume &&
+                    suppressed_results.back().volume !=
+                        unsuppressed_results.back().volume,
+                "Suppressed Part feature changed boundary indexing or remained calculated");
+        const auto suppression_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-suppression-contract.prtz";
+        suppression_document.save(suppression_path, suppressed_results);
+        const auto loaded_suppression = zima::document::PartDocument::load(
+            suppression_path);
+        std::filesystem::remove(suppression_path);
+        require(loaded_suppression.history.back().suppressed,
+                "Part feature suppression did not survive save/load");
+        require(loaded_suppression.user_parameters ==
+                    suppression_document.user_parameters,
+                "Part user parameters did not survive save/load");
         auto constructions = zima::document::PartDocument::create_default();
         auto point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);

@@ -4,6 +4,7 @@
 #include <zima/sketcher/sketch.hpp>
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -141,6 +142,7 @@ struct HistoryContainer {
     RevolutionParameters revolution;
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
+    bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
 };
 
@@ -148,6 +150,7 @@ class PartDocument {
 public:
     std::string document_id;
     std::string name{"Nový díl"};
+    std::map<std::string, std::string> user_parameters;
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;

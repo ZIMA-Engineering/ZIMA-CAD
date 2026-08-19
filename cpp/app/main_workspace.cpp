@@ -22,6 +22,7 @@
 #include <QStackedWidget>
 #include <QSurfaceFormat>
 #include <QTabBar>
+#include <QTableWidget>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QWidget>
@@ -68,6 +69,9 @@ int verify_startup_contract(
     auto* view_toolbar = window.findChild<QToolBar*>("viewToolbar");
     auto* tools_toolbar = window.findChild<QToolBar*>("toolsToolbar");
     auto* box = window.findChild<QAction*>("boxAction");
+    auto* construction_point = window.findChild<QAction*>("constructionPointAction");
+    auto* construction_axis = window.findChild<QAction*>("constructionAxisAction");
+    auto* construction_plane = window.findChild<QAction*>("constructionPlaneAction");
     auto* sketch = window.findChild<QAction*>("sketchAction");
     auto* sketch_normal = window.findChild<QAction*>("sketchNormalViewAction");
     auto* sketch_point = window.findChild<QAction*>("sketchPointAction");
@@ -102,6 +106,7 @@ int verify_startup_contract(
     auto* redo = window.findChild<QAction*>("redoAction");
     auto* save = window.findChild<QAction*>("saveDocumentAction");
     auto* close = window.findChild<QAction*>("closeDocumentAction");
+    auto* parameters = window.findChild<QAction*>("documentParametersAction");
     if (!verify(tabs != nullptr && tree != nullptr, "document navigation is missing") ||
         !verify(splitter != nullptr && main_toolbar != nullptr &&
                     view_toolbar != nullptr && tools_toolbar != nullptr,
@@ -133,7 +138,7 @@ int verify_startup_contract(
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr &&
                     undo != nullptr && redo != nullptr &&
-                    save != nullptr && close != nullptr,
+                    save != nullptr && close != nullptr && parameters != nullptr,
                 "primary actions are missing") ||
         !verify(tabs->count() == 0 && !splitter->isVisible() &&
                     window.windowTitle() == QStringLiteral("ZIMA-CAD — Bez dokumentu"),
@@ -182,6 +187,22 @@ int verify_startup_contract(
         !verify(save_as->isEnabled(), "Save As must be available for an open document")) {
         return 1;
     }
+
+    parameters->trigger();
+    application.processEvents();
+    auto* parameters_dialog =
+        window.findChild<QDialog*>("documentParametersDialog");
+    if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
+                    parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                    parameters_dialog->findChild<QTableWidget*>(
+                        "documentParametersTable") != nullptr,
+                "document parameters must use the shared internal dialog")) {
+        return 1;
+    }
+    parameters_dialog->reject();
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
 
     new_document->trigger();
     application.processEvents();
@@ -531,7 +552,14 @@ int verify_startup_contract(
                         assembly_name + QStringLiteral(".asmz"),
                 "New Assembly must become a visible second document") ||
         !verify(insert != nullptr && insert->isEnabled() && insert_menu != nullptr,
-                "calculated open Part must be insertable into the Assembly")) {
+                "calculated open Part must be insertable into the Assembly") ||
+        !verify(construction_point != nullptr && construction_point->isEnabled() &&
+                    construction_axis != nullptr && construction_axis->isEnabled() &&
+                    construction_plane != nullptr && construction_plane->isEnabled() &&
+                    tools_toolbar->actions().contains(construction_point) &&
+                    tools_toolbar->actions().contains(construction_axis) &&
+                    tools_toolbar->actions().contains(construction_plane),
+                "Assembly toolbar is missing its Point/Axis/Plane commands")) {
         return 1;
     }
     QAction* source_action{};

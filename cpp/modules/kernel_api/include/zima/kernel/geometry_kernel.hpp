@@ -298,6 +298,7 @@ struct HistoryOperation {
     std::string owner_id;
     PrimitiveRequest primitive;
     BooleanOperation operation{BooleanOperation::Add};
+    bool suppressed{};
 };
 
 struct BodyResult {
@@ -367,6 +368,7 @@ struct BodyResult {
         u64(operation.owner_id.size());
         for (const unsigned char value : operation.owner_id) byte(value);
         byte(static_cast<std::uint8_t>(operation.operation));
+        byte(operation.suppressed ? 1U : 0U);
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;

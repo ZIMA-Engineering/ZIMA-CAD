@@ -112,6 +112,7 @@ int main() {
                 "Malformed instance path was accepted");
         const auto assembly_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-contract.asmz";
+        assembly.user_parameters = {{"clearance", "0.15 mm"}};
         assembly.save(assembly_path);
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         std::filesystem::remove(assembly_path);
@@ -122,7 +123,8 @@ int main() {
                     loaded.components.back().source_document_id == "same-part-document" &&
                     loaded.components.back().source_kind ==
                         zima::assembly::ComponentSourceKind::Part &&
-                    loaded.components.back().placement.z == 30.0,
+                    loaded.components.back().placement.z == 30.0 &&
+                    loaded.user_parameters == assembly.user_parameters,
                 "Assembly identity and placement did not survive save/load");
         const auto loaded_scene = loaded.build_scene();
         std::set<std::string> loaded_paths;

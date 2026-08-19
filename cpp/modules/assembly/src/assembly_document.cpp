@@ -1630,13 +1630,15 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 8 ||
+        root.at("format_version").get<int>() != 9 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.user_parameters =
+        root.at("user_parameters").get<std::map<std::string, std::string>>();
     std::unordered_set<std::string> construction_ids;
     for (const auto& source : root.at("constructions")) {
         zima::document::ConstructionObject object;
@@ -1900,8 +1902,9 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         mates_json.push_back(std::move(serialized));
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 8},
+        {"format", "zima-cad-cpp"}, {"format_version", 9},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
+        {"user_parameters", user_parameters},
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},

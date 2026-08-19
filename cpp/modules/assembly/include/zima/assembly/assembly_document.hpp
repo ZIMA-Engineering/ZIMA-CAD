@@ -4,6 +4,7 @@
 #include <zima/document/part_document.hpp>
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -136,6 +137,7 @@ class AssemblyDocument {
 public:
     std::string document_id;
     std::string name{"Nová sestava"};
+    std::map<std::string, std::string> user_parameters;
     std::vector<PartOccurrence> components;
     std::vector<zima::document::ConstructionObject> constructions;
     std::vector<ComponentDependency> dependencies;
