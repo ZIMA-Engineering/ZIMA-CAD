@@ -75,6 +75,7 @@ int verify_startup_contract(
     auto* sketch_elliptical_arc =
         window.findChild<QAction*>("sketchEllipticalArcAction");
     auto* sketch_midpoint = window.findChild<QAction*>("sketchMidpointAction");
+    auto* sketch_symmetric = window.findChild<QAction*>("sketchSymmetricAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -94,6 +95,7 @@ int verify_startup_contract(
                     sketch_mirror != nullptr &&
                     sketch_elliptical_arc != nullptr &&
                     sketch_midpoint != nullptr &&
+                    sketch_symmetric != nullptr &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr,
@@ -239,6 +241,7 @@ int verify_startup_contract(
                     sketch_mirror->isEnabled() &&
                     sketch_elliptical_arc->isEnabled() &&
                     sketch_midpoint->isEnabled() &&
+                    sketch_symmetric->isEnabled() &&
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
         !verify(tools_toolbar->actions().contains(finish_sketch) &&
@@ -246,7 +249,8 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_trim) &&
                     tools_toolbar->actions().contains(sketch_mirror) &&
                     tools_toolbar->actions().contains(sketch_elliptical_arc) &&
-                    tools_toolbar->actions().contains(sketch_midpoint),
+                    tools_toolbar->actions().contains(sketch_midpoint) &&
+                    tools_toolbar->actions().contains(sketch_symmetric),
                 "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;
     }

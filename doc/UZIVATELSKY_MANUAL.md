@@ -506,6 +506,13 @@ Po úspěchu vznikne jedna vratná Part revize a příkaz čeká na bod další 
 `Escape` zruší pouze rozpracovaný výběr. Pokud jsou všechny tři body pevné a
 jejich poloha si odporuje, vazba se odmítne bez částečné změny skici.
 
+Nativní vazba **Symetrická** používá tři výběry: referenční bod, řízený bod a
+konstrukční čáru jako osu. Oba body musí být různé a běžná profilová úsečka se
+jako osa nepřijme. Řízený bod se umístí do přesného zrcadlového obrazu
+referenčního bodu; pozdější přesun reference nebo osy jej znovu dopočítá jen z
+persistovaných dat Skicáře. První dva výběry jsou pouze rozpracovaný stav.
+Platná osa vytvoří jednu vratnou Part revizi, zatímco `Escape` neuloží nic.
+
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
 druhého bodu se dopočítá. Vodorovné a svislé vazby jsou uprostřed geometrie

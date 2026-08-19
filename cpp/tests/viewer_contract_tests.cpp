@@ -105,6 +105,23 @@ int main() {
                     trim_contract.front().owner_id == "sketch" &&
                     trim_contract.front().semantic_key == "trim_piece:7",
                 "Trim hover and click did not use one common viewer candidate");
+        const std::vector<zima::viewer::ViewerCandidate> sketch_segments{
+            {zima::viewer::CandidateKind::SketchSegment, 1.0, 0,
+             "sketch", "segment:profile"},
+            {zima::viewer::CandidateKind::SketchSegment, 2.0, 1,
+             "sketch", "segment:construction"},
+            {zima::viewer::CandidateKind::SketchPoint, 3.0, 2,
+             "sketch", "point:a"}};
+        const auto construction_contract = zima::viewer::filter_candidates(
+            sketch_segments, {zima::viewer::CandidateKind::SketchSegment},
+            [](const auto& candidate) {
+                return candidate.semantic_key == "segment:construction";
+            });
+        require(construction_contract.size() == 1 &&
+                    construction_contract.front().semantic_key ==
+                        "segment:construction" &&
+                    construction_contract.front().distance == 2.0,
+                "Command candidate filter changed order or offered an invalid segment");
         zima::kernel::ViewerMesh elliptical_arc_mesh;
         elliptical_arc_mesh.edges.push_back({
             {{-2.0, 0.0, 5.0}, {2.0, 0.0, 5.0}},

@@ -384,6 +384,59 @@ int main() {
         require(midpoint.constraints.empty() &&
                     midpoint.find_point(midpoint_point) != nullptr,
                 "Deleting a Midpoint segment retained its constraint or deleted its point");
+        auto symmetric = zima::sketcher::Sketch::create_default();
+        const auto symmetry_axis = symmetric.add_segment(
+            0.0, -5.0, 0.0, 5.0, 1.0e-6, true);
+        const auto symmetry_source = symmetric.add_point(-3.0, 2.0);
+        const auto symmetry_driven = symmetric.add_point(4.0, 1.0);
+        static_cast<void>(symmetric.add_symmetric_constraint(
+            symmetry_source, symmetry_driven, symmetry_axis));
+        const auto* symmetry_result = symmetric.find_point(symmetry_driven);
+        require(symmetric.constraints.size() == 1 &&
+                    symmetric.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::Symmetric &&
+                    std::abs(symmetry_result->x - 3.0) < 1.0e-8 &&
+                    std::abs(symmetry_result->y - 2.0) < 1.0e-8,
+                "Explicit Symmetric constraint did not reflect its driven point");
+        const auto loaded_symmetric = zima::sketcher::Sketch::from_serialized(
+            symmetric.serialized());
+        require(loaded_symmetric.constraints == symmetric.constraints &&
+                    loaded_symmetric.points == symmetric.points,
+                "Explicit Symmetric constraint did not survive serialization");
+        bool duplicate_symmetric_rejected = false;
+        try {
+            static_cast<void>(symmetric.add_symmetric_constraint(
+                symmetry_driven, symmetry_source, symmetry_axis));
+        } catch (const std::invalid_argument&) {
+            duplicate_symmetric_rejected = true;
+        }
+        require(duplicate_symmetric_rejected && symmetric.constraints.size() == 1,
+                "Duplicate explicit Symmetric constraint was accepted");
+        auto fixed_symmetric = zima::sketcher::Sketch::create_default();
+        const auto fixed_symmetry_axis = fixed_symmetric.add_segment(
+            0.0, -5.0, 0.0, 5.0, 1.0e-6, true);
+        const auto fixed_symmetry_source = fixed_symmetric.add_point(-3.0, 2.0);
+        const auto fixed_symmetry_driven = fixed_symmetric.add_point(4.0, 1.0);
+        fixed_symmetric.find_point(fixed_symmetry_source)->fixed = true;
+        fixed_symmetric.find_point(fixed_symmetry_driven)->fixed = true;
+        const auto fixed_symmetric_before = fixed_symmetric;
+        bool fixed_symmetric_rejected = false;
+        try {
+            static_cast<void>(fixed_symmetric.add_symmetric_constraint(
+                fixed_symmetry_source, fixed_symmetry_driven,
+                fixed_symmetry_axis));
+        } catch (const std::runtime_error&) {
+            fixed_symmetric_rejected = true;
+        }
+        require(fixed_symmetric_rejected &&
+                    fixed_symmetric.points == fixed_symmetric_before.points &&
+                    fixed_symmetric.constraints == fixed_symmetric_before.constraints,
+                "Conflicting explicit Symmetric relation partially changed the Sketch");
+        symmetric.remove_geometry(symmetry_axis);
+        require(symmetric.constraints.empty() &&
+                    symmetric.find_point(symmetry_source) != nullptr &&
+                    symmetric.find_point(symmetry_driven) != nullptr,
+                "Deleting a Symmetric axis retained its constraint or deleted its points");
         auto parallel = zima::sketcher::Sketch::create_default();
         const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
         const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);

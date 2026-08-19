@@ -795,6 +795,15 @@ původní skicu. Nativní GUI vybírá nejprve `SketchPoint` a potom
 výběru nic nepersistuje; platná dvojice vytvoří jedinou Part revizi a Escape
 rozpracovaný příkaz pouze zruší.
 
+Přímý nativní příkaz **Symetrická** znovu používá stejný persistovaný
+`ConstraintKind::Symmetric`, který vytváří příkaz Zrcadlit; nevzniká paralelní
+GUI reprezentace ani nový formát. První `SketchPoint` je autoritativní reference,
+druhý je řízený výstup a třetí kandidát musí být konstrukční `SketchSegment`.
+Po změně reference nebo osy solver z uložených bodů znovu vypočítá přesný odraz.
+První dva kliky jsou jen stav příkazu a teprve platná osa commitne jednu Part
+revizi. Duplicitní vazba, profilová úsečka použitá jako osa a neřešitelný pevný
+bod se odmítnou bez změny modelu; OCCT se v této cestě nevolá.
+
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
 kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,

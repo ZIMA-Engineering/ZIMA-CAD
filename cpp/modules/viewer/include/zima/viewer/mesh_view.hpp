@@ -54,6 +54,8 @@ public:
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
+    void set_candidate_filter(
+        std::function<bool(const ViewerCandidate&)> candidate_filter);
     void confirm_container(const std::string& owner_id);
     void confirm_occurrence(const std::string& instance_path);
     void clear_selection();

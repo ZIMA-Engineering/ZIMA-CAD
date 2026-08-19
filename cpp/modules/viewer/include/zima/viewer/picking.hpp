@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -98,6 +99,10 @@ struct ViewerCandidate {
 [[nodiscard]] std::vector<ViewerCandidate> filter_candidates(
     const std::vector<ViewerCandidate>& candidates,
     const std::vector<CandidateKind>& allowed_kinds);
+[[nodiscard]] std::vector<ViewerCandidate> filter_candidates(
+    const std::vector<ViewerCandidate>& candidates,
+    const std::vector<CandidateKind>& allowed_kinds,
+    const std::function<bool(const ViewerCandidate&)>& candidate_filter);
 
 [[nodiscard]] std::optional<ViewerCandidate> container_candidate(
     const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,

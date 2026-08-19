@@ -361,6 +361,19 @@ std::vector<ViewerCandidate> filter_candidates(
     return result;
 }
 
+std::vector<ViewerCandidate> filter_candidates(
+    const std::vector<ViewerCandidate>& candidates,
+    const std::vector<CandidateKind>& allowed_kinds,
+    const std::function<bool(const ViewerCandidate&)>& candidate_filter) {
+    auto result = filter_candidates(candidates, allowed_kinds);
+    if (candidate_filter) {
+        std::erase_if(result, [&](const auto& candidate) {
+            return !candidate_filter(candidate);
+        });
+    }
+    return result;
+}
+
 std::optional<ViewerCandidate> container_candidate(
     const zima::kernel::ViewerMesh& mesh, const std::string& owner_id,
     const std::string& instance_path) {

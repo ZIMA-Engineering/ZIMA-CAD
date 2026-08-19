@@ -1068,8 +1068,10 @@ std::string Sketch::add_symmetric_constraint(
     if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
             return !constraint.suppressed &&
                 constraint.kind == ConstraintKind::Symmetric &&
-                constraint.first_point_id == source_point_id &&
-                constraint.second_point_id == mirrored_point_id &&
+                ((constraint.first_point_id == source_point_id &&
+                  constraint.second_point_id == mirrored_point_id) ||
+                 (constraint.first_point_id == mirrored_point_id &&
+                  constraint.second_point_id == source_point_id)) &&
                 constraint.geometry_id == axis_id;
         })) {
         throw std::invalid_argument("Points already own this symmetric constraint");

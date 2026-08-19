@@ -29,6 +29,7 @@ struct MeshView::Impl {
     QOpenGLVertexArrayObject vertex_array;
     std::vector<std::pair<GLint, GLsizei>> line_ranges;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
+    std::function<bool(const ViewerCandidate&)> candidate_filter;
     std::vector<ViewerCandidate> candidates;
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
@@ -126,6 +127,16 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
 
 void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) {
     impl_->allowed_kinds = std::move(allowed_kinds);
+    impl_->candidate_filter = {};
+    impl_->candidates.clear();
+    impl_->active_candidate = 0;
+    impl_->confirmed_candidate.reset();
+    update();
+}
+
+void MeshView::set_candidate_filter(
+    std::function<bool(const ViewerCandidate&)> candidate_filter) {
+    impl_->candidate_filter = std::move(candidate_filter);
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
@@ -767,7 +778,8 @@ void MeshView::update_candidates(const QPointF& position) {
     const double world_tolerance =
         8.0 * impl_->view_scale / std::max(height(), 1);
     auto next = filter_candidates(ordered_viewer_candidates(
-        impl_->mesh, ray_origin, ray_direction, world_tolerance), impl_->allowed_kinds);
+        impl_->mesh, ray_origin, ray_direction, world_tolerance),
+        impl_->allowed_kinds, impl_->candidate_filter);
     const bool same_order = next.size() == impl_->candidates.size() &&
         std::equal(next.begin(), next.end(), impl_->candidates.begin(),
             [](const ViewerCandidate& left, const ViewerCandidate& right) {
