@@ -126,6 +126,7 @@ private:
     QAction* sketch_coincident_action_{};
     QAction* sketch_midpoint_action_{};
     QAction* sketch_symmetric_action_{};
+    QAction* sketch_concentric_action_{};
     QAction* sketch_parallel_action_{};
     QAction* sketch_perpendicular_action_{};
     QAction* sketch_equal_length_action_{};
@@ -210,6 +211,8 @@ private:
     std::string pending_midpoint_point_id_;
     bool sketch_symmetric_active_{};
     std::vector<std::string> pending_symmetric_point_ids_;
+    bool sketch_concentric_active_{};
+    std::string pending_concentric_geometry_id_;
     bool sketch_segment_pair_active_{};
     std::string pending_pair_segment_id_;
     zima::sketcher::ConstraintKind pending_pair_kind_{
@@ -361,6 +364,10 @@ private:
     void start_sketch_symmetric();
     void set_sketch_symmetric_axis_contract();
     void accept_sketch_symmetric_selection(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_concentric();
+    void set_sketch_concentric_contract();
+    void accept_sketch_concentric_selection(
         const zima::viewer::ViewerCandidate& candidate);
     void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
     void accept_sketch_segment_pair(

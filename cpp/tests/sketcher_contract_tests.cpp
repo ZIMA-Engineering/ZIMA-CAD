@@ -437,6 +437,100 @@ int main() {
                     symmetric.find_point(symmetry_source) != nullptr &&
                     symmetric.find_point(symmetry_driven) != nullptr,
                 "Deleting a Symmetric axis retained its constraint or deleted its points");
+        auto concentric = zima::sketcher::Sketch::create_default();
+        const auto concentric_reference = concentric.add_circle(0.0, 0.0, 3.0);
+        concentric.find_point(concentric.circles.front().center_point_id)->fixed = true;
+        const auto concentric_arc = concentric.add_arc(
+            10.0, 5.0, 14.0, 5.0, 10.0, 9.0);
+        const auto concentric_ellipse = concentric.add_ellipse(
+            -8.0, 6.0, -2.0, 6.0, -8.0, 8.0);
+        const auto concentric_elliptical_arc = concentric.add_elliptical_arc(
+            12.0, -10.0, 17.0, -10.0, 12.0, -7.0,
+            17.0, -10.0, 12.0, -7.0);
+        const auto arc_start_id = concentric.arcs.front().start_point_id;
+        const auto arc_end_id = concentric.arcs.front().end_point_id;
+        static_cast<void>(concentric.add_concentric_constraint(
+            concentric_reference, concentric_arc));
+        static_cast<void>(concentric.add_concentric_constraint(
+            concentric_reference, concentric_ellipse));
+        static_cast<void>(concentric.add_concentric_constraint(
+            concentric_reference, concentric_elliptical_arc));
+        const auto* concentric_center = concentric.find_point(
+            concentric.circles.front().center_point_id);
+        const auto* concentric_arc_center = concentric.find_point(
+            concentric.arcs.front().center_point_id);
+        const auto* concentric_ellipse_center = concentric.find_point(
+            concentric.ellipses.front().center_point_id);
+        const auto* concentric_elliptical_arc_center = concentric.find_point(
+            concentric.elliptical_arcs.front().center_point_id);
+        require(concentric.constraints.size() == 3 &&
+                    std::hypot(concentric_arc_center->x - concentric_center->x,
+                               concentric_arc_center->y - concentric_center->y) < 1.0e-8 &&
+                    std::hypot(concentric_ellipse_center->x - concentric_center->x,
+                               concentric_ellipse_center->y - concentric_center->y) < 1.0e-8 &&
+                    std::hypot(
+                        concentric_elliptical_arc_center->x - concentric_center->x,
+                        concentric_elliptical_arc_center->y - concentric_center->y) <
+                        1.0e-8 &&
+                    std::abs(concentric.find_point(arc_start_id)->x - 4.0) < 1.0e-8 &&
+                    std::abs(concentric.find_point(arc_start_id)->y) < 1.0e-8 &&
+                    std::abs(concentric.find_point(arc_end_id)->x) < 1.0e-8 &&
+                    std::abs(concentric.find_point(arc_end_id)->y - 4.0) < 1.0e-8,
+                "Concentric did not translate every supported driven curve rigidly");
+        const auto loaded_concentric = zima::sketcher::Sketch::from_serialized(
+            concentric.serialized());
+        require(loaded_concentric.constraints == concentric.constraints &&
+                    loaded_concentric.points == concentric.points,
+                "Concentric constraints did not survive Sketch serialization");
+        bool duplicate_concentric_rejected = false;
+        try {
+            static_cast<void>(concentric.add_concentric_constraint(
+                concentric_arc, concentric_reference));
+        } catch (const std::invalid_argument&) {
+            duplicate_concentric_rejected = true;
+        }
+        require(duplicate_concentric_rejected,
+                "Reversed duplicate Concentric constraint was accepted");
+        auto concentric_after_delete = loaded_concentric;
+        concentric_after_delete.remove_geometry(concentric_arc);
+        require(concentric_after_delete.constraints.size() == 2,
+                "Deleting a concentric curve retained its owned constraint");
+        auto fixed_concentric = zima::sketcher::Sketch::create_default();
+        const auto fixed_concentric_reference =
+            fixed_concentric.add_circle(0.0, 0.0, 2.0);
+        const auto fixed_concentric_arc = fixed_concentric.add_arc(
+            10.0, 0.0, 13.0, 0.0, 10.0, 3.0);
+        fixed_concentric.find_point(
+            fixed_concentric.arcs.front().start_point_id)->fixed = true;
+        const auto fixed_concentric_before = fixed_concentric;
+        bool fixed_concentric_rejected = false;
+        try {
+            static_cast<void>(fixed_concentric.add_concentric_constraint(
+                fixed_concentric_reference, fixed_concentric_arc));
+        } catch (const std::runtime_error&) {
+            fixed_concentric_rejected = true;
+        }
+        require(fixed_concentric_rejected &&
+                    fixed_concentric.points == fixed_concentric_before.points &&
+                    fixed_concentric.constraints == fixed_concentric_before.constraints,
+                "Blocked Concentric relation partially changed the Sketch");
+        auto concentric_polygon = zima::sketcher::Sketch::create_default();
+        const auto polygon_reference = concentric_polygon.add_circle(0.0, 0.0, 2.0);
+        const auto driven_polygon = concentric_polygon.add_regular_polygon(
+            10.0, 10.0, 14.0, 10.0, 6);
+        static_cast<void>(concentric_polygon.add_concentric_constraint(
+            polygon_reference, driven_polygon.support_circle_id));
+        const auto* translated_polygon_center = concentric_polygon.find_point(
+            concentric_polygon.circles[1].center_point_id);
+        const auto* translated_polygon_vertex = concentric_polygon.find_point(
+            driven_polygon.vertex_ids.front());
+        require(std::hypot(translated_polygon_center->x, translated_polygon_center->y) <
+                        1.0e-8 &&
+                    std::abs(translated_polygon_vertex->x - 4.0) < 1.0e-8 &&
+                    std::abs(translated_polygon_vertex->y) < 1.0e-8 &&
+                    concentric_polygon.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Concentric did not translate PointOnCircle dependency closure");
         auto parallel = zima::sketcher::Sketch::create_default();
         const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
         const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);

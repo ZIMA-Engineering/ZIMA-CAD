@@ -804,6 +804,18 @@ První dva kliky jsou jen stav příkazu a teprve platná osa commitne jednu Par
 revizi. Duplicitní vazba, profilová úsečka použitá jako osa a neřešitelný pevný
 bod se odmítnou bez změny modelu; OCCT se v této cestě nevolá.
 
+Sketch formát verze 11 a Part formát verze 14 přidávají **Soustřednou** vazbu
+mezi kružnicí, kruhovým obloukem, elipsou nebo eliptickým obloukem. Persistuje
+stabilní ID referenční a řízené geometrie; středy se vždy rozřeší z aktuálního
+Sketch modelu. Solver ponechá první křivku jako autoritativní vstup a druhou
+rigidně přeloží. Translační uzávěr zahrne její střed, konce oblouků, osové a
+koncové body elips i body `PointOnCircle`; rekurzivně zachová také křivku, jejíž
+střed je některým z těchto bodů. Pevný bod nebo zásah do referenčního středu
+vyvolá transakční konflikt. Viewerový příkazový filtr nad jediným společným
+pořadím kandidátů nabízí pouze čtyři platné druhy `SketchCurve`, nikoli B-spline.
+První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a žádná z
+těchto cest nevolá OCCT.
+
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
 kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,

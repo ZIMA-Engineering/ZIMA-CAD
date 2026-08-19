@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 13, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 14, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -512,6 +512,16 @@ jako osa nepřijme. Řízený bod se umístí do přesného zrcadlového obrazu
 referenčního bodu; pozdější přesun reference nebo osy jej znovu dopočítá jen z
 persistovaných dat Skicáře. První dva výběry jsou pouze rozpracovaný stav.
 Platná osa vytvoří jednu vratnou Part revizi, zatímco `Escape` neuloží nic.
+
+Nativní vazba **Soustředná** přijímá kružnici, kruhový oblouk, elipsu nebo
+eliptický oblouk. První vybraná křivka je reference a druhá je řízená; B-spline
+se v tomto příkazu nenabízí. Po potvrzení se střed druhé křivky přesune přesně
+na referenční střed a společně s ním se přeloží všechny její řídicí body.
+Platí to také pro vrcholy pravidelného mnohoúhelníku vázané na jeho konstrukční
+kružnici. Tvar, poloměry a úhlové rozsahy se tím nemění. Pevný závislý bod nebo
+jiný neřešitelný konflikt celou operaci odmítne bez částečné změny. První výběr
+je pouze rozpracovaný stav, platná druhá křivka vytvoří jednu Part revizi a
+`Escape` příkaz zruší.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice

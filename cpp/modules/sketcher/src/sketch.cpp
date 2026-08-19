@@ -54,6 +54,7 @@ const char* constraint_name(ConstraintKind kind) {
     case ConstraintKind::PointOnCircle: return "point_on_circle";
     case ConstraintKind::Symmetric: return "symmetric";
     case ConstraintKind::Midpoint: return "midpoint";
+    case ConstraintKind::Concentric: return "concentric";
     }
     throw std::invalid_argument("Unknown sketch constraint");
 }
@@ -68,6 +69,7 @@ ConstraintKind constraint_from_name(const std::string& name) {
     if (name == "point_on_circle") return ConstraintKind::PointOnCircle;
     if (name == "symmetric") return ConstraintKind::Symmetric;
     if (name == "midpoint") return ConstraintKind::Midpoint;
+    if (name == "concentric") return ConstraintKind::Concentric;
     throw std::runtime_error("Unknown sketch constraint");
 }
 
@@ -133,6 +135,69 @@ sketch_axis_line(const Sketch& sketch, const std::string& axis_id) {
     return std::pair{
         std::array{first->x, first->y},
         std::array{second->x - first->x, second->y - first->y}};
+}
+
+std::optional<std::string> center_curve_point_id(
+    const Sketch& sketch, const std::string& geometry_id) {
+    if (const auto circle = std::find_if(
+            sketch.circles.begin(), sketch.circles.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        circle != sketch.circles.end()) return circle->center_point_id;
+    if (const auto arc = std::find_if(
+            sketch.arcs.begin(), sketch.arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        arc != sketch.arcs.end()) return arc->center_point_id;
+    if (const auto ellipse = std::find_if(
+            sketch.ellipses.begin(), sketch.ellipses.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        ellipse != sketch.ellipses.end()) return ellipse->center_point_id;
+    if (const auto arc = std::find_if(
+            sketch.elliptical_arcs.begin(), sketch.elliptical_arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        arc != sketch.elliptical_arcs.end()) return arc->center_point_id;
+    return std::nullopt;
+}
+
+std::set<std::string> center_curve_translation_points(
+    const Sketch& sketch, const std::string& geometry_id) {
+    const auto center_id = center_curve_point_id(sketch, geometry_id);
+    if (!center_id) return {};
+    std::set<std::string> result{*center_id};
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        const auto insert = [&](const std::string& point_id) {
+            if (result.insert(point_id).second) changed = true;
+        };
+        for (const auto& circle : sketch.circles) {
+            if (!result.contains(circle.center_point_id)) continue;
+            for (const auto& constraint : sketch.constraints) {
+                if (!constraint.suppressed &&
+                    constraint.kind == ConstraintKind::PointOnCircle &&
+                    constraint.geometry_id == circle.id) {
+                    insert(constraint.first_point_id);
+                }
+            }
+        }
+        for (const auto& arc : sketch.arcs) {
+            if (!result.contains(arc.center_point_id)) continue;
+            insert(arc.start_point_id);
+            insert(arc.end_point_id);
+        }
+        for (const auto& ellipse : sketch.ellipses) {
+            if (!result.contains(ellipse.center_point_id)) continue;
+            insert(ellipse.major_point_id);
+            insert(ellipse.minor_point_id);
+        }
+        for (const auto& arc : sketch.elliptical_arcs) {
+            if (!result.contains(arc.center_point_id)) continue;
+            insert(arc.major_point_id);
+            insert(arc.minor_point_id);
+            insert(arc.start_point_id);
+            insert(arc.end_point_id);
+        }
+    }
+    return result;
 }
 
 std::array<double, 2> reflected_position(
@@ -391,11 +456,16 @@ void Sketch::validate() const {
             constraint.kind == ConstraintKind::PointOnCircle;
         const bool symmetric = constraint.kind == ConstraintKind::Symmetric;
         const bool midpoint = constraint.kind == ConstraintKind::Midpoint;
+        const bool concentric = constraint.kind == ConstraintKind::Concentric;
+        const auto first_curve_center = concentric
+            ? center_curve_point_id(*this, constraint.geometry_id) : std::nullopt;
+        const auto second_curve_center = concentric
+            ? center_curve_point_id(*this, constraint.second_geometry_id) : std::nullopt;
         const auto symmetry_axis = symmetric
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
             std::hypot(symmetry_axis->second[0], symmetry_axis->second[1]) > 1.0e-12;
-        const bool points_valid = pair_constraint
+        const bool points_valid = pair_constraint || concentric
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
             : point_on_circle || midpoint
                 ? find_point(constraint.first_point_id) != nullptr &&
@@ -417,6 +487,9 @@ void Sketch::validate() const {
              owned_segment->first_point_id == constraint.first_point_id ||
              owned_segment->second_point_id == constraint.first_point_id ||
              !constraint.second_geometry_id.empty())) ||
+            (concentric && (!first_curve_center || !second_curve_center ||
+             constraint.geometry_id == constraint.second_geometry_id ||
+             *first_curve_center == *second_curve_center)) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -1121,6 +1194,42 @@ std::string Sketch::add_midpoint_constraint(
     const auto result = next.solve();
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Midpoint constraint conflicts with existing geometry");
+    }
+    *this = std::move(next);
+    return id;
+}
+
+std::string Sketch::add_concentric_constraint(
+    const std::string& reference_geometry_id,
+    const std::string& driven_geometry_id) {
+    const auto reference_center = center_curve_point_id(*this, reference_geometry_id);
+    const auto driven_center = center_curve_point_id(*this, driven_geometry_id);
+    if (!reference_center || !driven_center ||
+        reference_geometry_id == driven_geometry_id ||
+        *reference_center == *driven_center) {
+        throw std::invalid_argument("Concentric constraint input is invalid");
+    }
+    if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
+            return !constraint.suppressed &&
+                constraint.kind == ConstraintKind::Concentric &&
+                ((constraint.geometry_id == reference_geometry_id &&
+                  constraint.second_geometry_id == driven_geometry_id) ||
+                 (constraint.geometry_id == driven_geometry_id &&
+                  constraint.second_geometry_id == reference_geometry_id));
+        })) {
+        throw std::invalid_argument("Curves already own this concentric constraint");
+    }
+    auto next = *this;
+    SketchConstraint constraint;
+    constraint.id = make_id();
+    constraint.kind = ConstraintKind::Concentric;
+    constraint.geometry_id = reference_geometry_id;
+    constraint.second_geometry_id = driven_geometry_id;
+    const auto id = constraint.id;
+    next.constraints.push_back(std::move(constraint));
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Concentric constraint conflicts with existing geometry");
     }
     *this = std::move(next);
     return id;
@@ -2315,6 +2424,38 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         bool immovable_conflict = false;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Concentric) {
+                const auto reference_center_id = center_curve_point_id(
+                    *this, constraint.geometry_id);
+                const auto driven_center_id = center_curve_point_id(
+                    *this, constraint.second_geometry_id);
+                const auto* reference = find_point(*reference_center_id);
+                const auto* driven = find_point(*driven_center_id);
+                const double dx = reference->x - driven->x;
+                const double dy = reference->y - driven->y;
+                const double residual = std::hypot(dx, dy);
+                maximum_residual = std::max(maximum_residual, residual);
+                if (residual > tolerance) {
+                    const auto translated = center_curve_translation_points(
+                        *this, constraint.second_geometry_id);
+                    const bool blocked = std::any_of(
+                        translated.begin(), translated.end(), [&](const auto& point_id) {
+                            const auto* point = find_point(point_id);
+                            return point_id == *reference_center_id ||
+                                point == nullptr || point->fixed;
+                        });
+                    if (blocked) {
+                        immovable_conflict = true;
+                    } else {
+                        for (const auto& point_id : translated) {
+                            auto* point = find_point(point_id);
+                            point->x += dx;
+                            point->y += dy;
+                        }
+                    }
+                }
+                continue;
+            }
             if (constraint.kind == ConstraintKind::Midpoint) {
                 const auto segment = std::find_if(segments.begin(), segments.end(),
                     [&](const auto& value) {
@@ -2608,6 +2749,17 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         std::vector<double> result;
         for (const auto& constraint : constraints) {
             if (constraint.suppressed) continue;
+            if (constraint.kind == ConstraintKind::Concentric) {
+                const auto reference_center_id = center_curve_point_id(
+                    *this, constraint.geometry_id);
+                const auto driven_center_id = center_curve_point_id(
+                    *this, constraint.second_geometry_id);
+                const auto* reference = find_point(*reference_center_id);
+                const auto* driven = find_point(*driven_center_id);
+                result.push_back(reference->x - driven->x);
+                result.push_back(reference->y - driven->y);
+                continue;
+            }
             if (constraint.kind == ConstraintKind::Midpoint) {
                 const auto segment = std::find_if(segments.begin(), segments.end(),
                     [&](const auto& value) {
@@ -3190,7 +3342,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 10},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 11},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -3207,7 +3359,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 10) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 11) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
