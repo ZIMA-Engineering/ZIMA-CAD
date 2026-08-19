@@ -731,6 +731,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_polyline_action_->setObjectName("sketchPolylineAction");
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_ = make_action(tr("Obdélník"), "sketch-rectangle");
+    sketch_rectangle_action_->setObjectName("sketchRectangleAction");
     sketch_polygon_menu_ = new QMenu(tr("Mnohoúhelník"), this);
     sketch_polygon_action_ = sketch_polygon_menu_->menuAction();
     sketch_polygon_action_->setIcon(resource_icon("sketch-hexagon"));

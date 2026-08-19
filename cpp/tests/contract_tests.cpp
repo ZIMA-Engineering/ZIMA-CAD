@@ -685,6 +685,72 @@ int main() {
                         zima::document::ExtrusionDirection::Symmetric &&
                     loaded_extrusion_results.size() == 1,
                 "Extrusion document did not survive save/load");
+
+        // One uninterrupted parity slice: Sketch -> Extrusion -> Fillet ->
+        // source-Sketch edit -> regeneration -> save/reload.  The Fillet must
+        // continue to resolve the generated edge through its Sketch-point
+        // ancestry instead of an OCCT edge position.
+        auto parity_document = zima::document::PartDocument::create_default();
+        auto parity_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(parity_sketch.add_rectangle(0.0, 0.0, 24.0, 16.0));
+        const auto parity_sketch_id = parity_sketch.id;
+        const auto parity_point_id = parity_sketch.points.front().id;
+        parity_document.sketches.push_back(std::move(parity_sketch));
+        auto parity_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                parity_sketch_id);
+        parity_extrusion.extrusion.height = 12.0;
+        parity_document.history.push_back(parity_extrusion);
+        const auto parity_extruded = kernel.evaluate_history(
+            parity_document.kernel_operations());
+        const auto parity_edge = std::ranges::find_if(
+            parity_extruded.back().mesh.original_references.edges,
+            [&](const auto& edge) {
+                return edge.reference.owner_id == parity_extrusion.id &&
+                    edge.reference.semantic_key ==
+                        "generated:" + parity_point_id;
+            });
+        require(parity_edge !=
+                    parity_extruded.back().mesh.original_references.edges.end(),
+                "Parity workflow could not resolve the point-generated edge");
+        auto parity_fillet =
+            zima::document::PartDocument::create_fillet_container(
+                {parity_edge->reference});
+        parity_fillet.edge_treatment.size = 1.5;
+        parity_document.history.push_back(parity_fillet);
+        const auto parity_filleted = kernel.evaluate_history(
+            parity_document.kernel_operations());
+        require(parity_filleted.size() == 2 &&
+                    parity_filleted.back().volume < parity_extruded.back().volume,
+                "Parity workflow Fillet did not consume inherited edge identity");
+        for (auto& point : parity_document.sketches.front().points) {
+            if (point.x > 12.0) point.x += 6.0;
+        }
+        const auto parity_regenerated = kernel.evaluate_history(
+            parity_document.kernel_operations());
+        require(parity_regenerated.size() == 2 &&
+                    parity_regenerated.back().volume >
+                        parity_filleted.back().volume &&
+                    std::ranges::any_of(
+                        parity_regenerated.back().mesh.original_references.edges,
+                        [&](const auto& edge) {
+                            return edge.reference.owner_id == parity_extrusion.id &&
+                                edge.reference.semantic_key ==
+                                    "generated:" + parity_point_id;
+                        }),
+                "Sketch edit broke downstream inherited Fillet ancestry");
+        const auto parity_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-part-parity-slice.prtz";
+        parity_document.save(parity_path, parity_regenerated);
+        std::vector<zima::kernel::BodyResult> loaded_parity_results;
+        const auto loaded_parity = zima::document::PartDocument::load(
+            parity_path, &loaded_parity_results);
+        std::filesystem::remove(parity_path);
+        require(loaded_parity.history.size() == 2 &&
+                    loaded_parity_results.size() == 2 &&
+                    loaded_parity.history.back().feature_kind ==
+                        zima::document::FeatureKind::Fillet,
+                "Complete Part parity workflow did not survive save/reload");
         auto up_to_document = zima::document::PartDocument::create_default();
         auto up_to_base = zima::document::PartDocument::create_box_container();
         up_to_base.box = {20.0, 20.0, 10.0};

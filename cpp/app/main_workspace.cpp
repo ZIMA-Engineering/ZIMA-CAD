@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QOpenGLWidget>
 #include <QPushButton>
@@ -70,6 +71,7 @@ int verify_startup_contract(
     auto* sketch_construction = window.findChild<QAction*>("sketchConstructionAction");
     auto* sketch_segment = window.findChild<QAction*>("sketchSegmentAction");
     auto* sketch_polyline = window.findChild<QAction*>("sketchPolylineAction");
+    auto* sketch_rectangle = window.findChild<QAction*>("sketchRectangleAction");
     auto* sketch_polygon = window.findChild<QAction*>("sketchPolygonAction");
     auto* sketch_trim = window.findChild<QAction*>("sketchTrimAction");
     auto* sketch_mirror = window.findChild<QAction*>("sketchMirrorAction");
@@ -100,6 +102,7 @@ int verify_startup_contract(
         !verify(box != nullptr && sketch != nullptr && sketch_normal != nullptr &&
                     sketch_point != nullptr && sketch_construction != nullptr &&
                     sketch_segment != nullptr && sketch_polyline != nullptr &&
+                    sketch_rectangle != nullptr &&
                     sketch_polygon != nullptr && sketch_polygon->menu() != nullptr &&
                     sketch_polygon->menu()->actions().size() == 3 &&
                     sketch_trim != nullptr &&
@@ -259,7 +262,8 @@ int verify_startup_contract(
                 "confirming Sketch must add it to the Part tree") ||
         !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
                     sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
-                    sketch_polyline->isEnabled() && sketch_polygon->isEnabled() &&
+                    sketch_polyline->isEnabled() && sketch_rectangle->isEnabled() &&
+                    sketch_polygon->isEnabled() &&
                     sketch_trim->isEnabled() &&
                     sketch_mirror->isEnabled() &&
                     sketch_elliptical_arc->isEnabled() &&
@@ -274,6 +278,7 @@ int verify_startup_contract(
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
         !verify(tools_toolbar->actions().contains(finish_sketch) &&
+                    tools_toolbar->actions().contains(sketch_rectangle) &&
                     tools_toolbar->actions().contains(sketch_polygon) &&
                     tools_toolbar->actions().contains(sketch_trim) &&
                     tools_toolbar->actions().contains(sketch_mirror) &&
@@ -319,11 +324,47 @@ int verify_startup_contract(
     text_buttons->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    auto* model_viewer = window.findChild<QOpenGLWidget*>("modelWorkspace");
+    if (!verify(model_viewer != nullptr,
+                "Sketch parity workflow is missing the model viewer")) {
+        return 1;
+    }
+    const auto sketch_click = [&](double x_ratio, double y_ratio) {
+        const QPointF local{
+            model_viewer->width() * x_ratio,
+            model_viewer->height() * y_ratio};
+        QMouseEvent press(QEvent::MouseButtonPress, local,
+            model_viewer->mapToGlobal(local.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(model_viewer, &press);
+        application.processEvents();
+    };
+    sketch_rectangle->trigger();
+    application.processEvents();
+    sketch_click(0.42, 0.42);
+    sketch_click(0.62, 0.62);
     finish_sketch->trigger();
     application.processEvents();
     if (!verify(!tools_toolbar->actions().contains(finish_sketch) &&
                     !sketch_segment->isEnabled() && extrusion->isEnabled(),
                 "finishing Sketch must leave editing while retaining its model source")) {
+        return 1;
+    }
+    extrusion->trigger();
+    application.processEvents();
+    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    buttons = properties == nullptr
+        ? nullptr : properties->findChild<QDialogButtonBox*>();
+    if (!verify(buttons != nullptr,
+                "profile Sketch must open Extrusion Properties")) {
+        return 1;
+    }
+    buttons->button(QDialogButtonBox::Ok)->click();
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    if (!verify(tree->topLevelItem(0)->childCount() == 3,
+                "Sketch rectangle must produce a committed Extrusion history item")) {
         return 1;
     }
 
