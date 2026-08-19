@@ -615,30 +615,6 @@ void MeshView::paintGL() {
         highlighted = impl_->candidates[impl_->active_candidate];
         highlight_color = QVector4D(1.0F, 0.55F, 0.05F, 1.0F);
     }
-    if (highlighted && highlighted->geometry == CandidateGeometry::Display &&
-        (highlighted->kind == CandidateKind::Occurrence ||
-                        highlighted->kind == CandidateKind::Container ||
-                        highlighted->kind == CandidateKind::Face)) {
-        glDisable(GL_DEPTH_TEST);
-        impl_->program.setUniformValue("color", highlight_color);
-        bind_attributes(impl_->vertices);
-        impl_->triangles.bind();
-        for (std::size_t triangle = 0;
-             triangle < impl_->mesh.triangle_references.size(); ++triangle) {
-            const auto& reference = impl_->mesh.triangle_references[triangle];
-            const bool matches = highlighted->kind == CandidateKind::Occurrence
-                ? reference.instance_path == highlighted->instance_path
-                : highlighted->kind == CandidateKind::Container
-                ? reference.owner_id == highlighted->owner_id
-                : reference.owner_id == highlighted->owner_id &&
-                    reference.semantic_key == highlighted->semantic_key;
-            if (!matches || reference.instance_path != highlighted->instance_path) continue;
-            const auto byte_offset = triangle * 3 * sizeof(std::uint32_t);
-            glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT,
-                           reinterpret_cast<const void*>(byte_offset));
-        }
-        glEnable(GL_DEPTH_TEST);
-    }
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
@@ -823,16 +799,23 @@ void MeshView::paintGL() {
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
-            if (highlighted->geometry == CandidateGeometry::OriginalReference &&
-                (highlighted->kind == CandidateKind::Occurrence ||
+            if ((highlighted->kind == CandidateKind::Occurrence ||
                  highlighted->kind == CandidateKind::Container ||
                  highlighted->kind == CandidateKind::Face)) {
                 painter.setPen(QPen(color, 1.5));
-                painter.setBrush(QColor(color.red(), color.green(), color.blue(), 70));
-                const auto& references = impl_->mesh.original_references;
+                painter.setBrush(Qt::NoBrush);
+                const bool original = highlighted->geometry ==
+                    CandidateGeometry::OriginalReference;
+                const auto& vertices = original
+                    ? impl_->mesh.original_references.vertices : impl_->mesh.vertices;
+                const auto& triangles = original
+                    ? impl_->mesh.original_references.triangles : impl_->mesh.triangles;
+                const auto& triangle_references = original
+                    ? impl_->mesh.original_references.triangle_references
+                    : impl_->mesh.triangle_references;
                 for (std::size_t triangle = 0;
-                     triangle < references.triangle_references.size(); ++triangle) {
-                    const auto& reference = references.triangle_references[triangle];
+                     triangle < triangle_references.size(); ++triangle) {
+                    const auto& reference = triangle_references[triangle];
                     const bool matches = highlighted->kind == CandidateKind::Occurrence
                         ? reference.instance_path == highlighted->instance_path
                         : highlighted->kind == CandidateKind::Container
@@ -840,17 +823,15 @@ void MeshView::paintGL() {
                             : reference.owner_id == highlighted->owner_id &&
                               reference.semantic_key == highlighted->semantic_key;
                     if (!matches || reference.instance_path != highlighted->instance_path ||
-                        triangle * 3 + 2 >= references.triangles.size()) continue;
-                    const auto first = references.triangles[triangle * 3];
-                    const auto second = references.triangles[triangle * 3 + 1];
-                    const auto third = references.triangles[triangle * 3 + 2];
-                    if (first >= references.vertices.size() ||
-                        second >= references.vertices.size() ||
-                        third >= references.vertices.size()) continue;
+                        triangle * 3 + 2 >= triangles.size()) continue;
+                    const auto first = triangles[triangle * 3];
+                    const auto second = triangles[triangle * 3 + 1];
+                    const auto third = triangles[triangle * 3 + 2];
+                    if (first >= vertices.size() || second >= vertices.size() ||
+                        third >= vertices.size()) continue;
                     painter.drawPolygon(QPolygonF{
-                        project(references.vertices[first]),
-                        project(references.vertices[second]),
-                        project(references.vertices[third])});
+                        project(vertices[first]), project(vertices[second]),
+                        project(vertices[third])});
                 }
             }
             const auto& selectable_edges =

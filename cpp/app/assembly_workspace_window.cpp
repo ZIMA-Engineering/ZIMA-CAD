@@ -1355,6 +1355,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if (mate_selection_active_ || edge_treatment_selection_ ||
+                extrusion_target_dialog_ != nullptr ||
+                sketch_external_reference_active_ || sketch_trim_active_ ||
+                sketch_mirror_active_ || sketch_coincident_active_ ||
+                sketch_midpoint_active_ || sketch_symmetric_active_ ||
+                sketch_concentric_active_ || sketch_tangent_active_ ||
+                sketch_segment_pair_active_) return;
             if (candidate.kind ==
                     zima::viewer::CandidateKind::SketchExternalReference &&
                 candidate.owner_id == active_sketch_id_) {
@@ -2602,6 +2609,7 @@ void AssemblyWorkspaceWindow::accept_mate_reference(
     }
     if (!pending_mate_reference_) {
         pending_mate_reference_ = std::move(reference);
+        viewer_->clear_selection();
         state_->setText((pending_mate_kind_ == zima::assembly::MateKind::PlaneCoincident ||
                          pending_mate_kind_ == zima::assembly::MateKind::PlaneAngle)
             ? tr("Vyberte pevnou referenční rovinnou plochu.")
@@ -7300,6 +7308,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         address->occurrence_id);
     if (occurrence == nullptr) return;
     QMenu menu(this);
+    const auto parent_path =
+        zima::assembly::InstancePath::decode(instance_path).parent();
+    auto* select_parent = parent_path
+        ? menu.addAction(tr("Vybrat rodiče")) : nullptr;
     auto* properties = menu.addAction(tr("Vlastnosti"));
     auto* visibility = menu.addAction(
         occurrence->visible ? tr("Skrýt") : tr("Zobrazit"));
@@ -7308,6 +7320,12 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     auto* grounding = menu.addAction(
         occurrence->grounded ? tr("Uvolnit") : tr("Uzemnit"));
     const QAction* selected = menu.exec(global_position);
+    if (selected == select_parent && parent_path) {
+        const std::string encoded = parent_path->encoded();
+        viewer_->confirm_occurrence(encoded);
+        select_occurrence(encoded);
+        return;
+    }
     if (selected == properties) {
         show_component_properties(instance_path);
         return;

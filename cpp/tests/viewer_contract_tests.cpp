@@ -156,7 +156,9 @@ int main() {
         separated.original_references.vertices = separated.vertices;
         separated.original_references.triangles = separated.triangles;
         separated.original_references.triangle_references = {
-            {"original-box", "z_max"}};
+            {"original-box", "z_max", "8:assembly4:part"}};
+        separated.triangle_references = {
+            {"result-body", "result-face", "8:assembly4:part"}};
         const auto separated_candidates = zima::viewer::ordered_viewer_candidates(
             separated, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         const auto separated_faces = zima::viewer::filter_candidates(
@@ -166,6 +168,18 @@ int main() {
                     separated_faces.front().geometry ==
                         zima::viewer::CandidateGeometry::OriginalReference,
                 "Hidden original geometry did not replace result-face picking");
+        const auto separated_occurrences = zima::viewer::filter_candidates(
+            separated_candidates, {zima::viewer::CandidateKind::Occurrence});
+        const auto separated_containers = zima::viewer::filter_candidates(
+            separated_candidates, {zima::viewer::CandidateKind::Container});
+        require(separated_occurrences.size() == 1 &&
+                    separated_occurrences.front().geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference &&
+                    separated_containers.size() == 1 &&
+                    separated_containers.front().owner_id == "original-box" &&
+                    separated_containers.front().geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference,
+                "Leaf selection preferred transient result-body topology");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

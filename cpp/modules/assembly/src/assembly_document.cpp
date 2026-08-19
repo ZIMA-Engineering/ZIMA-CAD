@@ -385,6 +385,13 @@ InstancePath InstancePath::child(const std::string& occurrence_id) const {
     return result;
 }
 
+std::optional<InstancePath> InstancePath::parent() const {
+    if (occurrence_ids.size() < 2) return std::nullopt;
+    InstancePath result = *this;
+    result.occurrence_ids.pop_back();
+    return result;
+}
+
 std::string InstancePath::encoded() const {
     std::string result;
     for (const auto& id : occurrence_ids) {

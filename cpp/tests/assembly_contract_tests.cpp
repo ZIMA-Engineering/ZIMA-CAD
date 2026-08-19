@@ -18,6 +18,16 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        const zima::assembly::InstancePath nested_path{{"top", "sub", "part"}};
+        const auto parent_path = nested_path.parent();
+        require(parent_path &&
+                    parent_path->occurrence_ids ==
+                        std::vector<std::string>{"top", "sub"} &&
+                    parent_path->parent() &&
+                    parent_path->parent()->occurrence_ids ==
+                        std::vector<std::string>{"top"} &&
+                    !parent_path->parent()->parent(),
+                "Select Parent did not move exactly one instance-path level");
         zima::kernel::OcctKernel kernel;
         const auto source = kernel.evaluate_history({
             {"same-source-container", zima::kernel::BoxRequest{10.0, 10.0, 10.0},

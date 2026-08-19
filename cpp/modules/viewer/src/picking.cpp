@@ -227,11 +227,26 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_direction,
     double world_tolerance) {
     std::vector<ViewerCandidate> result;
+    zima::kernel::ViewerMesh references;
+    references.vertices = mesh.original_references.vertices;
+    references.triangles = mesh.original_references.triangles;
+    references.triangle_references = mesh.original_references.triangle_references;
+    references.edges = mesh.original_references.edges;
+    references.points = mesh.original_references.points;
+    references.axes = mesh.original_references.axes;
+    const auto persisted_face_hits = ordered_ray_candidates(
+        references, ray_origin, ray_direction);
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
                                      CandidateGeometry geometry) {
         const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
         for (const auto& face : faces) {
-            if (!face.reference.instance_path.empty() &&
+            const bool persisted_occurrence = geometry == CandidateGeometry::Display &&
+                std::any_of(persisted_face_hits.begin(), persisted_face_hits.end(),
+                    [&](const auto& persisted) {
+                        return persisted.reference.instance_path ==
+                            face.reference.instance_path;
+                    });
+            if (!face.reference.instance_path.empty() && !persisted_occurrence &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Occurrence &&
                         item.instance_path == face.reference.instance_path;
@@ -239,10 +254,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
                                   {}, {}, face.reference.instance_path, geometry});
             }
-            result.push_back({CandidateKind::Face, face.distance, face.triangle,
-                              face.reference.owner_id, face.reference.semantic_key,
-                              face.reference.instance_path, geometry});
-            if (std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
+            if (!persisted_occurrence) {
+                result.push_back({CandidateKind::Face, face.distance, face.triangle,
+                                  face.reference.owner_id, face.reference.semantic_key,
+                                  face.reference.instance_path, geometry});
+            }
+            const bool persisted_container = persisted_occurrence;
+            if (!persisted_container &&
+                std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Container &&
                         item.owner_id == face.reference.owner_id &&
                         item.instance_path == face.reference.instance_path;
@@ -304,13 +323,6 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
     };
     append_geometry(mesh, CandidateGeometry::Display);
-    zima::kernel::ViewerMesh references;
-    references.vertices = mesh.original_references.vertices;
-    references.triangles = mesh.original_references.triangles;
-    references.triangle_references = mesh.original_references.triangle_references;
-    references.edges = mesh.original_references.edges;
-    references.points = mesh.original_references.points;
-    references.axes = mesh.original_references.axes;
     append_geometry(references, CandidateGeometry::OriginalReference);
     for (const auto& dimension : ordered_dimension_candidates(
             mesh, ray_origin, ray_direction, world_tolerance)) {
