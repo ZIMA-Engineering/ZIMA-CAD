@@ -217,6 +217,7 @@ private:
     bool sketch_tangent_active_{};
     std::string pending_tangent_geometry_id_;
     bool pending_tangent_reference_is_segment_{};
+    bool pending_tangent_reference_supports_curve_pair_{};
     bool sketch_segment_pair_active_{};
     std::string pending_pair_segment_id_;
     zima::sketcher::ConstraintKind pending_pair_kind_{

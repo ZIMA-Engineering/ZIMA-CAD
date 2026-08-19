@@ -830,6 +830,18 @@ typ geometrie; B-spline nenabízí. První klik je transientní, druhý platný 
 vytvoří jednu Part revizi a cesta nevolá OCCT. Tečnost dvojice křivek zůstává
 samostatným navazujícím řezem parity.
 
+Sketch formát verze 13 a Part formát verze 16 rozšiřují tutéž vazbu **Tečná**
+o dvojici kružnic nebo kruhových oblouků. Vedle obou stabilních ID se persistuje
+zvolený vnější či vnitřní režim; při vytvoření se vybere větev s nejmenším
+nutným posunem, která má bod dotyku v parametrických doménách obou křivek.
+První křivka zůstává referenční a druhá se překládá včetně celého svého
+závislostního uzávěru. Pevný nebo s referencí sdílený bod operaci transakčně
+odmítne. Viewer po kružnici či kruhovém oblouku nabídne řízenou úsečku,
+kružnici nebo kruhový oblouk; po eliptické křivce nadále pouze úsečku. Eliptické
+dvojice zůstávají záměrně mimo tento řez, protože jejich stabilní tečnost
+vyžaduje persistované kontaktní parametry. Výběr ani solve této vazby nevolá
+OCCT a starší formát se bez migrační větve odmítá.
+
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
 kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,

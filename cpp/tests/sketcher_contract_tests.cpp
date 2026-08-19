@@ -719,6 +719,107 @@ int main() {
         require(outside_elliptical_arc_rejected &&
                     outside_tangent_elliptical_arc.constraints.empty(),
                 "Tangent accepted contact outside an elliptical arc");
+        auto external_circle_tangent = zima::sketcher::Sketch::create_default();
+        const auto external_reference_circle =
+            external_circle_tangent.add_circle(0.0, 0.0, 2.0);
+        const auto external_driven_circle =
+            external_circle_tangent.add_circle(8.0, 0.0, 3.0);
+        static_cast<void>(external_circle_tangent.add_tangent_constraint(
+            external_reference_circle, external_driven_circle));
+        require(!external_circle_tangent.constraints.front().tangent_internal &&
+                    std::abs(external_circle_tangent.find_point(
+                        external_circle_tangent.circles[1].center_point_id)->x -
+                        5.0) < 1.0e-8 &&
+                    external_circle_tangent.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "External circle Tangent did not translate the driven circle");
+        auto internal_circle_tangent = zima::sketcher::Sketch::create_default();
+        const auto internal_reference_circle =
+            internal_circle_tangent.add_circle(0.0, 0.0, 5.0);
+        const auto internal_driven_circle =
+            internal_circle_tangent.add_circle(2.0, 0.0, 2.0);
+        static_cast<void>(internal_circle_tangent.add_tangent_constraint(
+            internal_reference_circle, internal_driven_circle));
+        require(internal_circle_tangent.constraints.front().tangent_internal &&
+                    std::abs(internal_circle_tangent.find_point(
+                        internal_circle_tangent.circles[1].center_point_id)->x -
+                        3.0) < 1.0e-8,
+                "Internal circle Tangent did not select the nearest valid branch");
+        const auto loaded_internal_circle_tangent =
+            zima::sketcher::Sketch::from_serialized(
+                internal_circle_tangent.serialized());
+        require(loaded_internal_circle_tangent.constraints ==
+                    internal_circle_tangent.constraints &&
+                    loaded_internal_circle_tangent.constraints.front().tangent_internal,
+                "Internal Tangent mode did not survive Sketch serialization");
+        auto external_arc_tangent = zima::sketcher::Sketch::create_default();
+        const auto external_reference_arc = external_arc_tangent.add_arc(
+            0.0, 0.0, 0.0, -2.0, 0.0, 2.0);
+        const auto external_driven_arc = external_arc_tangent.add_arc(
+            8.0, 0.0, 8.0, 3.0, 8.0, -3.0);
+        static_cast<void>(external_arc_tangent.add_tangent_constraint(
+            external_reference_arc, external_driven_arc));
+        require(std::abs(external_arc_tangent.find_point(
+                    external_arc_tangent.arcs[1].center_point_id)->x - 5.0) <
+                        1.0e-8 &&
+                    std::abs(external_arc_tangent.find_point(
+                        external_arc_tangent.arcs[1].start_point_id)->x - 5.0) <
+                        1.0e-8 &&
+                    std::abs(external_arc_tangent.find_point(
+                        external_arc_tangent.arcs[1].end_point_id)->x - 5.0) <
+                        1.0e-8,
+                "Arc-pair Tangent did not preserve the driven arc closure");
+        auto outside_curve_pair = zima::sketcher::Sketch::create_default();
+        const auto outside_reference_arc = outside_curve_pair.add_arc(
+            0.0, 0.0, 0.0, -2.0, 0.0, 2.0);
+        const auto outside_driven_arc = outside_curve_pair.add_arc(
+            8.0, 0.0, 8.0, -3.0, 8.0, 3.0);
+        const auto outside_curve_pair_before = outside_curve_pair;
+        bool outside_curve_pair_rejected = false;
+        try {
+            static_cast<void>(outside_curve_pair.add_tangent_constraint(
+                outside_reference_arc, outside_driven_arc));
+        } catch (const std::invalid_argument&) {
+            outside_curve_pair_rejected = true;
+        }
+        require(outside_curve_pair_rejected &&
+                    outside_curve_pair.points == outside_curve_pair_before.points &&
+                    outside_curve_pair.constraints.empty(),
+                "Curve-pair Tangent accepted contact outside an arc domain");
+        auto fixed_curve_pair = zima::sketcher::Sketch::create_default();
+        const auto fixed_reference_circle =
+            fixed_curve_pair.add_circle(0.0, 0.0, 2.0);
+        const auto fixed_driven_circle =
+            fixed_curve_pair.add_circle(8.0, 0.0, 3.0);
+        fixed_curve_pair.find_point(
+            fixed_curve_pair.circles[1].center_point_id)->fixed = true;
+        const auto fixed_curve_pair_before = fixed_curve_pair;
+        bool fixed_curve_pair_rejected = false;
+        try {
+            static_cast<void>(fixed_curve_pair.add_tangent_constraint(
+                fixed_reference_circle, fixed_driven_circle));
+        } catch (const std::runtime_error&) {
+            fixed_curve_pair_rejected = true;
+        }
+        require(fixed_curve_pair_rejected &&
+                    fixed_curve_pair.points == fixed_curve_pair_before.points &&
+                    fixed_curve_pair.constraints ==
+                        fixed_curve_pair_before.constraints,
+                "Blocked curve-pair Tangent partially changed the Sketch");
+        auto unsupported_curve_pair = zima::sketcher::Sketch::create_default();
+        const auto unsupported_curve_circle =
+            unsupported_curve_pair.add_circle(0.0, 0.0, 2.0);
+        const auto unsupported_curve_ellipse = unsupported_curve_pair.add_ellipse(
+            8.0, 0.0, 12.0, 0.0, 8.0, 2.0);
+        bool unsupported_curve_pair_rejected = false;
+        try {
+            static_cast<void>(unsupported_curve_pair.add_tangent_constraint(
+                unsupported_curve_circle, unsupported_curve_ellipse));
+        } catch (const std::invalid_argument&) {
+            unsupported_curve_pair_rejected = true;
+        }
+        require(unsupported_curve_pair_rejected,
+                "Tangent accepted an unsupported elliptical curve pair");
         auto unsupported_tangent = zima::sketcher::Sketch::create_default();
         const auto unsupported_line = unsupported_tangent.add_segment(
             -5.0, 0.0, 5.0, 0.0);

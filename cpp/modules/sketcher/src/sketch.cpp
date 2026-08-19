@@ -209,6 +209,7 @@ struct TangentCurveData {
     double minor_x{};
     double minor_y{};
     std::optional<std::pair<double, double>> parameter_domain;
+    std::optional<double> circular_radius;
 };
 
 std::optional<TangentCurveData> tangent_curve_data(
@@ -217,16 +218,20 @@ std::optional<TangentCurveData> tangent_curve_data(
             sketch.circles.begin(), sketch.circles.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         circle != sketch.circles.end()) {
-        return TangentCurveData{
+        TangentCurveData result{
             circle->center_point_id, circle->radius, 0.0, 0.0, circle->radius};
+        result.circular_radius = circle->radius;
+        return result;
     }
     if (const auto arc = std::find_if(
             sketch.arcs.begin(), sketch.arcs.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         arc != sketch.arcs.end()) {
-        return TangentCurveData{
+        TangentCurveData result{
             arc->center_point_id, arc->radius, 0.0, 0.0, arc->radius,
             std::pair{arc->start_angle, arc->end_angle}};
+        result.circular_radius = arc->radius;
+        return result;
     }
     if (const auto ellipse = std::find_if(
             sketch.ellipses.begin(), sketch.ellipses.end(),
@@ -341,6 +346,72 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         curve->center_point_id, normal_x, normal_y,
         signed_distance, target_distance,
         contact_on_segment, contact_on_curve};
+}
+
+bool parameter_in_curve_domain(
+    const TangentCurveData& curve, double parameter) {
+    if (!curve.parameter_domain) return true;
+    constexpr double circle_turn = 2.0 * 3.14159265358979323846;
+    double relative = std::fmod(
+        parameter - curve.parameter_domain->first, circle_turn);
+    if (relative < 0.0) relative += circle_turn;
+    return relative <=
+        curve.parameter_domain->second - curve.parameter_domain->first + 1.0e-8;
+}
+
+struct CurvePairTangentState {
+    std::string reference_center_point_id;
+    std::string driven_center_point_id;
+    double direction_x{};
+    double direction_y{};
+    double center_distance{};
+    double target_distance{};
+    bool contact_on_reference{};
+    bool contact_on_driven{};
+};
+
+std::optional<CurvePairTangentState> curve_pair_tangent_state(
+    const Sketch& sketch, const std::string& reference_geometry_id,
+    const std::string& driven_geometry_id, bool internal) {
+    const auto reference = tangent_curve_data(sketch, reference_geometry_id);
+    const auto driven = tangent_curve_data(sketch, driven_geometry_id);
+    if (!reference || !driven || !reference->circular_radius ||
+        !driven->circular_radius) {
+        return std::nullopt;
+    }
+    const auto* reference_center = sketch.find_point(reference->center_point_id);
+    const auto* driven_center = sketch.find_point(driven->center_point_id);
+    if (reference_center == nullptr || driven_center == nullptr) return std::nullopt;
+    const double dx = driven_center->x - reference_center->x;
+    const double dy = driven_center->y - reference_center->y;
+    const double distance = std::hypot(dx, dy);
+    if (distance <= 1.0e-12) return std::nullopt;
+    const double reference_radius = *reference->circular_radius;
+    const double driven_radius = *driven->circular_radius;
+    const double target_distance = internal
+        ? std::abs(reference_radius - driven_radius)
+        : reference_radius + driven_radius;
+    if (target_distance <= 1.0e-12) return std::nullopt;
+    const double direction_x = dx / distance;
+    const double direction_y = dy / distance;
+    double reference_contact_sign = 1.0;
+    double driven_contact_sign = -1.0;
+    if (internal) {
+        reference_contact_sign = reference_radius > driven_radius ? 1.0 : -1.0;
+        driven_contact_sign = reference_contact_sign;
+    }
+    const bool contact_on_reference = parameter_in_curve_domain(
+        *reference, std::atan2(
+            reference_contact_sign * direction_y,
+            reference_contact_sign * direction_x));
+    const bool contact_on_driven = parameter_in_curve_domain(
+        *driven, std::atan2(
+            driven_contact_sign * direction_y,
+            driven_contact_sign * direction_x));
+    return CurvePairTangentState{
+        reference->center_point_id, driven->center_point_id,
+        direction_x, direction_y, distance, target_distance,
+        contact_on_reference, contact_on_driven};
 }
 
 std::array<double, 2> reflected_position(
@@ -609,6 +680,17 @@ void Sketch::validate() const {
             ? tangent_curve_data(*this, constraint.geometry_id) : std::nullopt;
         const auto second_tangent_curve = tangent
             ? tangent_curve_data(*this, constraint.second_geometry_id) : std::nullopt;
+        const bool first_is_segment = owned_segment != segments.end();
+        const bool second_is_segment = second_owned_segment != segments.end();
+        const bool tangent_line_curve_valid =
+            first_is_segment != second_is_segment &&
+            (first_is_segment ? static_cast<bool>(second_tangent_curve)
+                              : static_cast<bool>(first_tangent_curve));
+        const bool tangent_curve_pair_valid =
+            !first_is_segment && !second_is_segment &&
+            first_tangent_curve && second_tangent_curve &&
+            first_tangent_curve->circular_radius &&
+            second_tangent_curve->circular_radius;
         const auto symmetry_axis = symmetric
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
@@ -640,10 +722,9 @@ void Sketch::validate() const {
              *first_curve_center == *second_curve_center)) ||
             (tangent && (
              constraint.geometry_id == constraint.second_geometry_id ||
-             (owned_segment != segments.end()) ==
-                 (second_owned_segment != segments.end()) ||
-             (owned_segment != segments.end()
-                 ? !second_tangent_curve : !first_tangent_curve))) ||
+             (!tangent_line_curve_valid && !tangent_curve_pair_valid) ||
+             (tangent_line_curve_valid && constraint.tangent_internal))) ||
+            (!tangent && constraint.tangent_internal) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && (owned_segment == segments.end() ||
              second_owned_segment == segments.end() ||
@@ -1402,20 +1483,45 @@ std::string Sketch::add_tangent_constraint(
         });
     const auto reference_curve = tangent_curve_data(*this, reference_geometry_id);
     const auto driven_curve = tangent_curve_data(*this, driven_geometry_id);
+    const bool line_curve = reference_is_segment != driven_is_segment &&
+        (reference_is_segment ? static_cast<bool>(driven_curve)
+                              : static_cast<bool>(reference_curve));
+    const bool circular_curve_pair =
+        !reference_is_segment && !driven_is_segment &&
+        reference_curve && driven_curve &&
+        reference_curve->circular_radius && driven_curve->circular_radius;
     if (reference_geometry_id.empty() || driven_geometry_id.empty() ||
         reference_geometry_id == driven_geometry_id ||
-        reference_is_segment == driven_is_segment ||
-        (reference_is_segment ? !driven_curve : !reference_curve)) {
+        (!line_curve && !circular_curve_pair)) {
         throw std::invalid_argument("Tangent constraint input is invalid");
     }
-    const std::string& segment_id = reference_is_segment
-        ? reference_geometry_id : driven_geometry_id;
-    const std::string& curve_id = reference_is_segment
-        ? driven_geometry_id : reference_geometry_id;
-    const auto state = segment_curve_tangent_state(*this, segment_id, curve_id);
-    if (!state || !state->contact_on_segment || !state->contact_on_curve) {
-        throw std::invalid_argument(
-            "Tangent contact lies outside the selected segment or curve domain");
+    bool tangent_internal = false;
+    if (line_curve) {
+        const std::string& segment_id = reference_is_segment
+            ? reference_geometry_id : driven_geometry_id;
+        const std::string& curve_id = reference_is_segment
+            ? driven_geometry_id : reference_geometry_id;
+        const auto state = segment_curve_tangent_state(*this, segment_id, curve_id);
+        if (!state || !state->contact_on_segment || !state->contact_on_curve) {
+            throw std::invalid_argument(
+                "Tangent contact lies outside the selected segment or curve domain");
+        }
+    } else {
+        const auto external = curve_pair_tangent_state(
+            *this, reference_geometry_id, driven_geometry_id, false);
+        const auto internal = curve_pair_tangent_state(
+            *this, reference_geometry_id, driven_geometry_id, true);
+        const bool external_valid = external && external->contact_on_reference &&
+            external->contact_on_driven;
+        const bool internal_valid = internal && internal->contact_on_reference &&
+            internal->contact_on_driven;
+        if (!external_valid && !internal_valid) {
+            throw std::invalid_argument(
+                "Tangent contact lies outside one of the selected curve domains");
+        }
+        tangent_internal = internal_valid && (!external_valid ||
+            std::abs(internal->target_distance - internal->center_distance) <
+                std::abs(external->target_distance - external->center_distance));
     }
     if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
             return !constraint.suppressed &&
@@ -1433,6 +1539,7 @@ std::string Sketch::add_tangent_constraint(
     constraint.kind = ConstraintKind::Tangent;
     constraint.geometry_id = reference_geometry_id;
     constraint.second_geometry_id = driven_geometry_id;
+    constraint.tangent_internal = tangent_internal;
     const auto id = constraint.id;
     next.constraints.push_back(std::move(constraint));
     const auto result = next.solve();
@@ -2637,6 +2744,48 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.geometry_id;
                     });
+                const bool driven_is_segment = std::any_of(
+                    segments.begin(), segments.end(), [&](const auto& value) {
+                        return value.id == constraint.second_geometry_id;
+                    });
+                if (!reference_is_segment && !driven_is_segment) {
+                    const auto state = curve_pair_tangent_state(
+                        *this, constraint.geometry_id,
+                        constraint.second_geometry_id,
+                        constraint.tangent_internal);
+                    if (!state || !state->contact_on_reference ||
+                        !state->contact_on_driven) {
+                        maximum_residual = std::max(maximum_residual, 1.0);
+                        immovable_conflict = true;
+                        continue;
+                    }
+                    const double correction =
+                        state->target_distance - state->center_distance;
+                    maximum_residual = std::max(
+                        maximum_residual, std::abs(correction));
+                    if (std::abs(correction) <= tolerance) continue;
+                    const auto translated = center_curve_translation_points(
+                        *this, constraint.second_geometry_id);
+                    const auto reference_points = center_curve_translation_points(
+                        *this, constraint.geometry_id);
+                    const bool blocked = translated.empty() || std::any_of(
+                        translated.begin(), translated.end(),
+                        [&](const auto& point_id) {
+                            const auto* point = find_point(point_id);
+                            return point == nullptr || point->fixed ||
+                                reference_points.contains(point_id);
+                        });
+                    if (blocked) {
+                        immovable_conflict = true;
+                    } else {
+                        for (const auto& point_id : translated) {
+                            auto* point = find_point(point_id);
+                            point->x += correction * state->direction_x;
+                            point->y += correction * state->direction_y;
+                        }
+                    }
+                    continue;
+                }
                 const std::string& segment_id = reference_is_segment
                     ? constraint.geometry_id : constraint.second_geometry_id;
                 const std::string& curve_id = reference_is_segment
@@ -3017,15 +3166,30 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.geometry_id;
                     });
-                const auto state = segment_curve_tangent_state(
-                    *this,
-                    reference_is_segment
-                        ? constraint.geometry_id : constraint.second_geometry_id,
-                    reference_is_segment
-                        ? constraint.second_geometry_id : constraint.geometry_id);
-                result.push_back(
-                    std::abs(state->signed_distance) -
-                    std::abs(state->target_distance));
+                const bool driven_is_segment = std::any_of(
+                    segments.begin(), segments.end(), [&](const auto& value) {
+                        return value.id == constraint.second_geometry_id;
+                    });
+                if (!reference_is_segment && !driven_is_segment) {
+                    const auto state = curve_pair_tangent_state(
+                        *this, constraint.geometry_id,
+                        constraint.second_geometry_id,
+                        constraint.tangent_internal);
+                    result.push_back(state
+                        ? state->center_distance - state->target_distance
+                        : 1.0e12);
+                } else {
+                    const auto state = segment_curve_tangent_state(
+                        *this,
+                        reference_is_segment
+                            ? constraint.geometry_id : constraint.second_geometry_id,
+                        reference_is_segment
+                            ? constraint.second_geometry_id : constraint.geometry_id);
+                    result.push_back(state
+                        ? std::abs(state->signed_distance) -
+                            std::abs(state->target_distance)
+                        : 1.0e12);
+                }
                 continue;
             }
             if (constraint.kind == ConstraintKind::Concentric) {
@@ -3610,7 +3774,8 @@ std::string Sketch::serialized() const {
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
         {"first", constraint.first_point_id}, {"second", constraint.second_point_id},
         {"suppressed", constraint.suppressed}, {"geometry", constraint.geometry_id},
-        {"second_geometry", constraint.second_geometry_id}});
+        {"second_geometry", constraint.second_geometry_id},
+        {"tangent_internal", constraint.tangent_internal}});
     nlohmann::json dimension_values = nlohmann::json::array();
     for (const auto& dimension : dimensions) {
         nlohmann::json value{{"id", dimension.id}, {"kind", dimension_name(dimension.kind)},
@@ -3621,7 +3786,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 12},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 13},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -3638,7 +3803,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 12) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 13) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -3700,7 +3865,8 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),
         value.at("suppressed").get<bool>(), value.at("geometry").get<std::string>(),
-        value.at("second_geometry").get<std::string>()});
+        value.at("second_geometry").get<std::string>(),
+        value.at("tangent_internal").get<bool>()});
     for (const auto& value : root.at("dimensions")) {
         SketchDimension dimension{value.at("id").get<std::string>(),
             dimension_from_name(value.at("kind")), value.at("first").get<std::string>(),

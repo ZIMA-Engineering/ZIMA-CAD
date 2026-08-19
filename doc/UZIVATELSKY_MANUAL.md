@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 15, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 16, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -523,17 +523,19 @@ jiný neřešitelný konflikt celou operaci odmítne bez částečné změny. Pr
 je pouze rozpracovaný stav, platná druhá křivka vytvoří jednu Part revizi a
 `Escape` příkaz zruší.
 
-Nativní vazba **Tečná** v této fázi pracuje s jednou konečnou úsečkou
-(profilovou i konstrukční) a jednou kružnicí, kruhovým obloukem, elipsou nebo
-eliptickým obloukem. První výběr je reference a druhá geometrie je řízená:
-solver ji pouze přeloží, zachová délku úsečky, poloměry, natočení i skutečný
-rozsah oblouku. Pro elipsu počítá přesný opěrný bod v jejích natočených osách,
-nikoli kruhovou nebo osově zarovnanou aproximaci. Bod dotyku musí ležet uvnitř
-konečné úsečky a u oblouku také uvnitř jeho parametrického rozsahu; jinak se
-vazba odmítne bez změny skici. Pevný nebo s referencí sdílený bod, který brání
-tuhému překladu, je rovněž transakční konflikt. Tečnost dvou křivek se zatím
-v tomto nativním příkazu nenabízí. První klik nic neukládá, druhý platný klik
-vytvoří jednu Part revizi a `Escape` příkaz zruší.
+Nativní vazba **Tečná** pracuje buď s jednou konečnou úsečkou (profilovou i
+konstrukční) a kružnicí, kruhovým obloukem, elipsou či eliptickým obloukem,
+nebo se dvěma kružnicemi či kruhovými oblouky. První výběr je reference a druhá
+geometrie je řízená: solver ji pouze přeloží, zachová délku úsečky, poloměry,
+natočení i skutečný rozsah oblouku. U dvojice kruhových křivek při vytvoření
+zvolí nejbližší geometricky platnou vnější nebo vnitřní tečnost a tento režim
+asociativně uloží. Pro elipsu a úsečku počítá přesný opěrný bod v natočených
+osách, nikoli kruhovou nebo osově zarovnanou aproximaci. Bod dotyku musí ležet
+uvnitř konečné úsečky a u každého oblouku také uvnitř jeho parametrického
+rozsahu; jinak se vazba odmítne bez změny skici. Pevný nebo s referencí sdílený
+bod, který brání tuhému překladu, je rovněž transakční konflikt. Tečnost dvou
+křivek, z nichž je některá eliptická, zatím příkaz nepodporuje. První klik nic
+neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape` příkaz zruší.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice

@@ -1111,7 +1111,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 15) {
+        root.at("format_version").get<int>() != 16) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -1742,7 +1742,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 15},
+        {"format_version", 16},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

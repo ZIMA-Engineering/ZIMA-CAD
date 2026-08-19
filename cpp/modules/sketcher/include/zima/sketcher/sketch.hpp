@@ -117,6 +117,7 @@ struct SketchConstraint {
     bool suppressed{};
     std::string geometry_id;
     std::string second_geometry_id;
+    bool tangent_internal{};
     bool operator==(const SketchConstraint&) const = default;
 };
 

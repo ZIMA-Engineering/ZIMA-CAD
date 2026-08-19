@@ -3027,6 +3027,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_concentric_geometry_id_.clear();
     pending_tangent_geometry_id_.clear();
     pending_tangent_reference_is_segment_ = false;
+    pending_tangent_reference_supports_curve_pair_ = false;
     pending_pair_segment_id_.clear();
     viewer_->set_transient_edges({});
 }
@@ -4102,27 +4103,48 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
         return candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
             candidate.semantic_key.starts_with("segment:");
     };
+    const auto circular_curve_candidate = [](const auto& candidate) {
+        return candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+            (candidate.semantic_key.starts_with("circle:") ||
+             candidate.semantic_key.starts_with("arc:"));
+    };
     if (pending_tangent_geometry_id_.empty()) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
             zima::viewer::CandidateKind::SketchCurve});
     } else if (pending_tangent_reference_is_segment_) {
         viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchCurve});
+    } else if (pending_tangent_reference_supports_curve_pair_) {
+        viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment,
+            zima::viewer::CandidateKind::SketchCurve});
     } else {
         viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
     }
     const auto owner_id = active_sketch_id_;
     const bool first_pending = !pending_tangent_geometry_id_.empty();
     const bool reference_is_segment = pending_tangent_reference_is_segment_;
+    const bool reference_supports_curve_pair =
+        pending_tangent_reference_supports_curve_pair_;
+    const auto pending_geometry_id = pending_tangent_geometry_id_;
     viewer_->set_candidate_filter(
         [owner_id, first_pending, reference_is_segment,
-         curve_candidate, segment_candidate](const auto& candidate) {
+         reference_supports_curve_pair, pending_geometry_id,
+         curve_candidate, segment_candidate,
+         circular_curve_candidate](const auto& candidate) {
             if (candidate.owner_id != owner_id) return false;
             if (!first_pending) {
                 return segment_candidate(candidate) || curve_candidate(candidate);
             }
-            return reference_is_segment
-                ? curve_candidate(candidate) : segment_candidate(candidate);
+            const auto separator = candidate.semantic_key.find(':');
+            if (separator != std::string::npos &&
+                candidate.semantic_key.substr(separator + 1) == pending_geometry_id) {
+                return false;
+            }
+            if (reference_is_segment) return curve_candidate(candidate);
+            return segment_candidate(candidate) ||
+                (reference_supports_curve_pair &&
+                 circular_curve_candidate(candidate));
         });
 }
 
@@ -4147,7 +4169,8 @@ void AssemblyWorkspaceWindow::start_sketch_tangent() {
     selected_sketch_point_id_.clear();
     set_sketch_tangent_contract();
     state_->setText(tr(
-        "Tečná vazba: vyberte referenční úsečku, kružnici, oblouk nebo elipsu."));
+        "Tečná vazba: vyberte referenční úsečku, kružnici, oblouk, elipsu "
+        "nebo eliptický oblouk."));
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
@@ -4155,6 +4178,7 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
     if (!sketch_tangent_active_ || candidate.owner_id != active_sketch_id_) return;
     std::string geometry_id;
     bool is_segment = false;
+    bool is_circular_curve = false;
     if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
         candidate.semantic_key.starts_with("segment:")) {
         geometry_id = candidate.semantic_key.substr(8);
@@ -4166,6 +4190,7 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
                 std::string_view{"elliptical_arc:"}}) {
             if (candidate.semantic_key.starts_with(prefix)) {
                 geometry_id = candidate.semantic_key.substr(prefix.size());
+                is_circular_curve = prefix == "circle:" || prefix == "arc:";
                 break;
             }
         }
@@ -4174,15 +4199,28 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
     if (pending_tangent_geometry_id_.empty()) {
         pending_tangent_geometry_id_ = geometry_id;
         pending_tangent_reference_is_segment_ = is_segment;
+        pending_tangent_reference_supports_curve_pair_ = is_circular_curve;
         set_sketch_tangent_contract();
         state_->setText(is_segment
-            ? tr("Tečná vazba: vyberte řízenou kružnici, oblouk nebo elipsu.")
-            : tr("Tečná vazba: vyberte řízenou úsečku."));
+            ? tr("Tečná vazba: vyberte řízenou kružnici, oblouk, elipsu "
+                 "nebo eliptický oblouk.")
+            : is_circular_curve
+                ? tr("Tečná vazba: vyberte řízenou úsečku, kružnici nebo oblouk.")
+                : tr("Tečná vazba: vyberte řízenou úsečku."));
         return;
     }
-    if (is_segment == pending_tangent_reference_is_segment_) {
+    if (geometry_id == pending_tangent_geometry_id_) {
+        state_->setText(tr("Tečná vazba: vyberte jinou druhou geometrii."));
+        return;
+    }
+    const bool line_curve_pair =
+        is_segment != pending_tangent_reference_is_segment_;
+    const bool circular_curve_pair =
+        !is_segment && !pending_tangent_reference_is_segment_ &&
+        pending_tangent_reference_supports_curve_pair_ && is_circular_curve;
+    if (!line_curve_pair && !circular_curve_pair) {
         state_->setText(tr(
-            "Tečná vazba vyžaduje jednu úsečku a jednu podporovanou křivku."));
+            "Tuto dvojici geometrií tečná vazba zatím nepodporuje."));
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -4197,6 +4235,7 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
         part->session.commit(std::move(next), part->session.calculated_boundaries());
         pending_tangent_geometry_id_.clear();
         pending_tangent_reference_is_segment_ = false;
+        pending_tangent_reference_supports_curve_pair_ = false;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -5623,6 +5662,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                   zima::viewer::CandidateKind::SketchCurve}
                     : pending_tangent_reference_is_segment_
                         ? std::vector{zima::viewer::CandidateKind::SketchCurve}
+                        : pending_tangent_reference_supports_curve_pair_
+                            ? std::vector{
+                                  zima::viewer::CandidateKind::SketchSegment,
+                                  zima::viewer::CandidateKind::SketchCurve}
                         : std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_segment_pair_active_
                 ? std::vector{zima::viewer::CandidateKind::SketchSegment}
