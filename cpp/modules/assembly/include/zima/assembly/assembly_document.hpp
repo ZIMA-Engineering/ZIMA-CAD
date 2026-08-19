@@ -162,6 +162,7 @@ public:
     [[nodiscard]] const zima::document::ConstructionObject* find_construction(
         const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
+    void resolve_constructions();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(

@@ -1427,6 +1427,138 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     return object;
 }
 
+bool resolve_construction(ConstructionObject& object,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    const auto matches = [](const auto& reference,
+                            const ConstructionReference& expected) {
+        return reference.instance_path == expected.instance_path &&
+            reference.owner_id == expected.owner_id &&
+            reference.semantic_key == expected.semantic_key;
+    };
+    const auto point = [&](const ConstructionReference& reference)
+        -> std::optional<zima::kernel::Vec3> {
+        const auto found = std::find_if(geometry.points.begin(), geometry.points.end(),
+            [&](const auto& candidate) { return matches(candidate.reference, reference); });
+        if (found != geometry.points.end()) return found->position;
+        return std::nullopt;
+    };
+    const auto axis = [&](const ConstructionReference& reference)
+        -> std::optional<zima::kernel::ViewerAxis> {
+        const auto found = std::find_if(geometry.axes.begin(), geometry.axes.end(),
+            [&](const auto& candidate) { return matches(candidate.reference, reference); });
+        if (found != geometry.axes.end()) return *found;
+        const auto edge = std::find_if(geometry.edges.begin(), geometry.edges.end(),
+            [&](const auto& candidate) { return matches(candidate.reference, reference); });
+        if (edge == geometry.edges.end() || edge->points.size() < 2) return std::nullopt;
+        const auto& first = edge->points.front();
+        const auto& last = edge->points.back();
+        zima::kernel::Vec3 direction{last.x - first.x, last.y - first.y,
+            last.z - first.z};
+        const double magnitude = std::sqrt(direction.x * direction.x +
+            direction.y * direction.y + direction.z * direction.z);
+        if (magnitude <= 1.0e-12) return std::nullopt;
+        direction = {direction.x / magnitude, direction.y / magnitude,
+            direction.z / magnitude};
+        for (const auto& candidate : edge->points) {
+            const zima::kernel::Vec3 delta{candidate.x - first.x,
+                candidate.y - first.y, candidate.z - first.z};
+            const zima::kernel::Vec3 deviation{
+                delta.y * direction.z - delta.z * direction.y,
+                delta.z * direction.x - delta.x * direction.z,
+                delta.x * direction.y - delta.y * direction.x};
+            if (std::sqrt(deviation.x * deviation.x + deviation.y * deviation.y +
+                    deviation.z * deviation.z) > 1.0e-7) return std::nullopt;
+        }
+        return zima::kernel::ViewerAxis{first, direction, object.display_size,
+            {reference.owner_id, reference.semantic_key, reference.instance_path}};
+    };
+    const auto plane = [&](const ConstructionReference& reference)
+        -> std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>> {
+        for (std::size_t index = 0;
+             index < geometry.triangle_references.size(); ++index) {
+            if (!matches(geometry.triangle_references[index], reference)) continue;
+            const auto& a = geometry.vertices[geometry.triangles[index * 3]];
+            const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
+            const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
+            zima::kernel::Vec3 normal{
+                (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y),
+                (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z),
+                (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)};
+            const double magnitude = std::sqrt(normal.x * normal.x +
+                normal.y * normal.y + normal.z * normal.z);
+            if (magnitude <= 1.0e-12) return std::nullopt;
+            normal = {normal.x / magnitude, normal.y / magnitude,
+                      normal.z / magnitude};
+            return std::pair{a, normal};
+        }
+        return std::nullopt;
+    };
+    object.reference_valid = false;
+    if (object.definition == ConstructionDefinition::Absolute) {
+        object.reference_valid = true;
+        return true;
+    }
+    if (object.definition == ConstructionDefinition::PointReference &&
+        object.references.size() == 1) {
+        if (const auto resolved = point(object.references[0])) {
+            object.origin = *resolved;
+            object.reference_valid = true;
+        }
+    } else if (object.definition == ConstructionDefinition::TwoPointAxis &&
+               object.references.size() == 2) {
+        const auto first = point(object.references[0]);
+        const auto second = point(object.references[1]);
+        if (first && second) {
+            const zima::kernel::Vec3 direction{second->x - first->x,
+                second->y - first->y, second->z - first->z};
+            const double magnitude = std::sqrt(direction.x * direction.x +
+                direction.y * direction.y + direction.z * direction.z);
+            if (magnitude > 1.0e-12) {
+                object.origin = *first;
+                object.direction = {direction.x / magnitude,
+                    direction.y / magnitude, direction.z / magnitude};
+                object.reference_valid = true;
+            }
+        }
+    } else if (object.definition == ConstructionDefinition::AxisReference &&
+               object.references.size() == 1) {
+        if (const auto resolved = axis(object.references[0])) {
+            object.origin = resolved->point;
+            object.direction = resolved->direction;
+            object.reference_valid = true;
+        }
+    } else if (object.definition == ConstructionDefinition::PlaneReference &&
+               object.references.size() == 1) {
+        if (const auto resolved = plane(object.references[0])) {
+            object.direction = resolved->second;
+            object.origin = {resolved->first.x + object.offset * object.direction.x,
+                resolved->first.y + object.offset * object.direction.y,
+                resolved->first.z + object.offset * object.direction.z};
+            object.reference_valid = true;
+        }
+    } else if (object.definition == ConstructionDefinition::ThreePointPlane &&
+               object.references.size() == 3) {
+        const auto a = point(object.references[0]);
+        const auto b = point(object.references[1]);
+        const auto c = point(object.references[2]);
+        if (a && b && c) {
+            const zima::kernel::Vec3 ab{b->x - a->x, b->y - a->y, b->z - a->z};
+            const zima::kernel::Vec3 ac{c->x - a->x, c->y - a->y, c->z - a->z};
+            zima::kernel::Vec3 normal{ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z, ab.x * ac.y - ab.y * ac.x};
+            const double magnitude = std::sqrt(normal.x * normal.x +
+                normal.y * normal.y + normal.z * normal.z);
+            if (magnitude > 1.0e-12) {
+                object.origin = *a;
+                object.direction = {normal.x / magnitude, normal.y / magnitude,
+                    normal.z / magnitude};
+                object.reference_valid = true;
+            }
+        }
+    }
+    return object.reference_valid;
+}
+
 ConstructionObject* PartDocument::find_construction(const std::string& id) {
     const auto found = std::find_if(constructions.begin(), constructions.end(),
         [&](const auto& object) { return object.id == id; });
@@ -1454,6 +1586,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
                                   a.x * b.y - a.y * b.x};
     };
     for (const auto& object : constructions) {
+        if (!object.reference_valid) continue;
         if (object.kind == ConstructionKind::Point) {
             mesh.points.push_back({object.origin, {object.id, "point", {}}});
             mesh.original_references.points.push_back(
@@ -1494,6 +1627,31 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
             2, {object.id, "plane", {}});
     }
     return mesh;
+}
+
+void PartDocument::resolve_constructions(
+    zima::kernel::ViewerReferenceGeometry source_geometry) {
+    const auto append = [](auto& target, const auto& source) {
+        const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
+        target.vertices.insert(target.vertices.end(),
+            source.vertices.begin(), source.vertices.end());
+        for (const auto index : source.triangles) {
+            target.triangles.push_back(vertex_offset + index);
+        }
+        target.triangle_references.insert(target.triangle_references.end(),
+            source.triangle_references.begin(), source.triangle_references.end());
+        target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+        target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+        target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    };
+    for (auto& object : constructions) {
+        static_cast<void>(resolve_construction(object, source_geometry));
+        if (!object.reference_valid) continue;
+        PartDocument carrier;
+        carrier.constructions.push_back(object);
+        append(source_geometry,
+            carrier.construction_viewer_mesh().original_references);
+    }
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
@@ -1842,7 +2000,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 22) {
+        root.at("format_version").get<int>() != 23) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2097,6 +2255,22 @@ PartDocument PartDocument::load(
                             source.at("direction_y").get<double>(),
                             source.at("direction_z").get<double>()};
         object.display_size = source.at("display_size").get<double>();
+        const auto definition = source.at("definition").get<std::string>();
+        object.definition = definition == "absolute" ? ConstructionDefinition::Absolute
+            : definition == "point_reference" ? ConstructionDefinition::PointReference
+            : definition == "two_point_axis" ? ConstructionDefinition::TwoPointAxis
+            : definition == "axis_reference" ? ConstructionDefinition::AxisReference
+            : definition == "three_point_plane" ? ConstructionDefinition::ThreePointPlane
+            : definition == "plane_reference" ? ConstructionDefinition::PlaneReference
+            : throw std::runtime_error("Invalid construction definition");
+        object.offset = source.at("offset").get<double>();
+        object.reference_valid = source.at("reference_valid").get<bool>();
+        for (const auto& serialized : source.at("references")) {
+            object.references.push_back({
+                serialized.at("instance_path").get<std::string>(),
+                serialized.at("owner_id").get<std::string>(),
+                serialized.at("semantic_key").get<std::string>()});
+        }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
             object.direction.y * object.direction.y +
@@ -2462,6 +2636,25 @@ void PartDocument::save(
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
         }
+        nlohmann::json references = nlohmann::json::array();
+        for (const auto& reference : object.references) {
+            if (reference.owner_id.empty() || reference.semantic_key.empty()) {
+                throw std::runtime_error("Invalid construction reference");
+            }
+            references.push_back({{"instance_path", reference.instance_path},
+                {"owner_id", reference.owner_id},
+                {"semantic_key", reference.semantic_key}});
+        }
+        const auto definition = object.definition == ConstructionDefinition::Absolute
+            ? "absolute"
+            : object.definition == ConstructionDefinition::PointReference
+                ? "point_reference"
+            : object.definition == ConstructionDefinition::TwoPointAxis
+                ? "two_point_axis"
+            : object.definition == ConstructionDefinition::AxisReference
+                ? "axis_reference"
+            : object.definition == ConstructionDefinition::ThreePointPlane
+                ? "three_point_plane" : "plane_reference";
         serialized_constructions.push_back({
             {"id", object.id}, {"name", object.name},
             {"type", object.kind == ConstructionKind::Point ? "point"
@@ -2470,11 +2663,13 @@ void PartDocument::save(
             {"direction_x", object.direction.x},
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
-            {"display_size", object.display_size}});
+            {"display_size", object.display_size}, {"definition", definition},
+            {"references", std::move(references)}, {"offset", object.offset},
+            {"reference_valid", object.reference_valid}});
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 22},
+        {"format_version", 23},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

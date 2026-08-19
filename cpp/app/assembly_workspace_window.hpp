@@ -33,6 +33,7 @@ namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 namespace zima::app {
 
 class PrimitivePropertiesDialog;
+class ConstructionPropertiesDialog;
 class DrawingWindow;
 class SketchTextPropertiesDialog;
 
@@ -171,6 +172,8 @@ private:
     std::optional<zima::document::FeatureKind> edge_treatment_selection_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
+    ConstructionPropertiesDialog* construction_reference_dialog_{};
+    std::optional<std::size_t> pending_construction_reference_index_;
     std::string active_sketch_id_;
     std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
@@ -302,6 +305,9 @@ private:
         const std::string& container_id = {});
     void show_construction_properties(
         zima::document::ConstructionKind kind, const std::string& object_id = {});
+    void start_construction_reference_selection(std::size_t index);
+    void accept_construction_reference(
+        const zima::viewer::ViewerCandidate& candidate);
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);

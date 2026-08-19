@@ -479,6 +479,35 @@ int main() {
                         axis.id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
+        auto second_point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        second_point.origin = {11.0, 2.0, 3.0};
+        auto referenced_axis = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Axis);
+        referenced_axis.definition =
+            zima::document::ConstructionDefinition::TwoPointAxis;
+        referenced_axis.references = {
+            {{}, point.id, "point"}, {{}, second_point.id, "point"}};
+        constructions.constructions.push_back(second_point);
+        constructions.constructions.push_back(referenced_axis);
+        constructions.resolve_constructions();
+        require(constructions.constructions.back().reference_valid &&
+                    constructions.constructions.back().origin.x == point.origin.x &&
+                    constructions.constructions.back().origin.y == point.origin.y &&
+                    constructions.constructions.back().origin.z == point.origin.z &&
+                    constructions.constructions.back().direction.x == 1.0 &&
+                    constructions.constructions.back().direction.y == 0.0,
+                "Two-point datum axis did not resolve from stable point identities");
+        auto cyclic_point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        cyclic_point.definition =
+            zima::document::ConstructionDefinition::PointReference;
+        cyclic_point.references = {{{}, cyclic_point.id, "point"}};
+        constructions.constructions.push_back(cyclic_point);
+        constructions.resolve_constructions();
+        require(!constructions.constructions.back().reference_valid,
+                "Construction dependency accepted a self-cycle");
+        constructions.constructions.pop_back();
         auto construction_reference_sketch = zima::sketcher::Sketch::create_default();
         auto point_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Point);
@@ -517,9 +546,13 @@ int main() {
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
         std::filesystem::remove(construction_path);
-        require(loaded_constructions.constructions.size() == 3 &&
+        require(loaded_constructions.constructions.size() == 5 &&
                     loaded_constructions.constructions[0].origin.z == 3.0 &&
-                    loaded_constructions.constructions[2].display_size == 75.0,
+                    loaded_constructions.constructions[2].display_size == 75.0 &&
+                    loaded_constructions.constructions.back().definition ==
+                        zima::document::ConstructionDefinition::TwoPointAxis &&
+                    loaded_constructions.constructions.back().references[0].owner_id ==
+                        point.id,
                 "Construction objects did not survive save/load");
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();

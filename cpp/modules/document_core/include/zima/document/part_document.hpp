@@ -16,6 +16,21 @@ enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class RevolutionAxis { SketchX, SketchY };
 enum class ConstructionKind { Point, Axis, Plane };
+enum class ConstructionDefinition {
+    Absolute,
+    PointReference,
+    TwoPointAxis,
+    AxisReference,
+    ThreePointPlane,
+    PlaneReference,
+};
+
+struct ConstructionReference {
+    std::string instance_path;
+    std::string owner_id;
+    std::string semantic_key;
+    bool operator==(const ConstructionReference&) const = default;
+};
 
 struct ConstructionObject {
     std::string id;
@@ -24,7 +39,16 @@ struct ConstructionObject {
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
     double display_size{100.0};
+    ConstructionDefinition definition{ConstructionDefinition::Absolute};
+    std::vector<ConstructionReference> references;
+    double offset{};
+    bool reference_valid{true};
+    bool operator==(const ConstructionObject&) const = default;
 };
+
+[[nodiscard]] bool resolve_construction(
+    ConstructionObject& object,
+    const zima::kernel::ViewerReferenceGeometry& references);
 
 struct BoxParameters {
     double length{100.0};
@@ -141,6 +165,8 @@ public:
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
+    void resolve_constructions(
+        zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container, double through_all_span = 1000.0) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(

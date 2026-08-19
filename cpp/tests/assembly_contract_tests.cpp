@@ -846,6 +846,43 @@ int main() {
                 return reference.instance_path ==
                     zima::assembly::InstancePath{}.child(first_id).encoded();
             });
+        auto associative_assembly = assembly;
+        auto referenced_plane =
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Plane);
+        referenced_plane.definition =
+            zima::document::ConstructionDefinition::PlaneReference;
+        referenced_plane.references = {{
+            zima::assembly::InstancePath{{first_id}}.encoded(),
+            dependent_face.owner_id, dependent_face.semantic_key}};
+        referenced_plane.offset = 7.0;
+        associative_assembly.constructions.push_back(referenced_plane);
+        auto second_referenced_plane = referenced_plane;
+        second_referenced_plane.id += "-second-occurrence";
+        second_referenced_plane.references.front().instance_path =
+            zima::assembly::InstancePath{{second_id}}.encoded();
+        associative_assembly.constructions.push_back(second_referenced_plane);
+        associative_assembly.resolve_constructions();
+        require(associative_assembly.constructions.front().reference_valid &&
+                    associative_assembly.constructions.back().reference_valid &&
+                    associative_assembly.constructions.front().origin.z !=
+                        associative_assembly.constructions.back().origin.z &&
+                    associative_assembly.construction_viewer_mesh()
+                        .original_references.triangle_references.size() == 4,
+                "Assembly datum plane did not distinguish repeated occurrence paths");
+        const auto associative_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-associative-assembly-datum.asmz";
+        associative_assembly.save(associative_path);
+        auto loaded_associative =
+            zima::assembly::AssemblyDocument::load(associative_path);
+        std::filesystem::remove(associative_path);
+        loaded_associative.resolve_constructions();
+        require(loaded_associative.constructions.size() == 2 &&
+                    loaded_associative.constructions.front().references.front()
+                        .instance_path ==
+                        zima::assembly::InstancePath{{first_id}}.encoded() &&
+                    loaded_associative.constructions.back().reference_valid,
+                "Associative Assembly datum references changed on save/load");
         auto datum_mate = zima::assembly::AssemblyDocument::create_mate(
             "Komponenta na montážní rovinu",
             zima::assembly::MateKind::PlaneCoincident,

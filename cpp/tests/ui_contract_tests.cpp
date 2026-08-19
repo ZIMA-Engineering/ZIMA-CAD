@@ -262,6 +262,42 @@ int main(int argc, char* argv[]) {
                     committed_axis.direction.x == 1.0 &&
                     committed_axis.display_size == 80.0,
                 "Construction Properties did not commit exact parameters");
+        auto referenced_axis_initial =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Axis);
+        zima::document::ConstructionObject committed_referenced_axis;
+        std::optional<std::size_t> requested_reference;
+        int construction_previews = 0;
+        auto* referenced_axis_dialog = new zima::app::ConstructionPropertiesDialog(
+            referenced_axis_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_referenced_axis = std::move(value);
+            }, &parent);
+        referenced_axis_dialog->set_reference_request_callback(
+            [&](std::size_t index) { requested_reference = index; });
+        referenced_axis_dialog->set_preview_callback(
+            [&](zima::document::ConstructionObject) { ++construction_previews; });
+        referenced_axis_dialog->show();
+        application.processEvents();
+        auto* definition = referenced_axis_dialog->findChild<QComboBox*>(
+            "constructionDefinition");
+        definition->setCurrentIndex(definition->findData(static_cast<int>(
+            zima::document::ConstructionDefinition::TwoPointAxis)));
+        referenced_axis_dialog->findChild<QPushButton*>(
+            "constructionReference1")->click();
+        require(requested_reference == 0,
+                "Construction Properties did not request viewer reference selection");
+        referenced_axis_dialog->set_reference(
+            0, {{}, "point-a", "point"}, "Bod A");
+        referenced_axis_dialog->set_reference(
+            1, {{}, "point-b", "point"}, "Bod B");
+        referenced_axis_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_referenced_axis.definition ==
+                    zima::document::ConstructionDefinition::TwoPointAxis &&
+                    committed_referenced_axis.references.size() == 2 &&
+                    committed_referenced_axis.references[1].owner_id == "point-b" &&
+                    construction_previews >= 3,
+                "Construction Properties lost associative datum references");
 
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");

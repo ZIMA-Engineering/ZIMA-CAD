@@ -1126,6 +1126,11 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if (construction_reference_dialog_ != nullptr &&
+            pending_construction_reference_index_) {
+            accept_construction_reference(candidate);
+            return;
+        }
         if (extrusion_target_dialog_ != nullptr) {
             accept_extrusion_target(candidate);
             return;
@@ -2362,11 +2367,16 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
                     });
                 if (has_context) {
                     auto calculated = calculate_part(next);
+                    const auto previous_constructions = next.constructions;
+                    next.resolve_constructions(calculated.empty()
+                        ? zima::kernel::ViewerReferenceGeometry{}
+                        : calculated.back().mesh.original_references);
                     const bool references_changed =
                         refresh_sketch_external_references(next, calculated) |
                         workspace_.refresh_context_external_references(next);
                     if (references_changed) calculated = calculate_part(next);
-                    if (references_changed) {
+                    if (references_changed ||
+                        next.constructions != previous_constructions) {
                         part->session.commit(std::move(next), std::move(calculated));
                     } else {
                         part->session.update_calculated_boundaries(
@@ -3358,6 +3368,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     auto* dialog = new ConstructionPropertiesDialog(
         initial, edit_mode,
         [this, document_id, edit_mode](zima::document::ConstructionObject committed) {
+            const auto committed_id = committed.id;
             if (auto* target_part = workspace_.open_part(document_id)) {
                 auto next = target_part->session.document();
                 if (edit_mode) {
@@ -3370,6 +3381,14 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     next.constructions.push_back(std::move(committed));
                 }
                 auto calculated = target_part->session.calculated_boundaries();
+                next.resolve_constructions(calculated.empty()
+                    ? zima::kernel::ViewerReferenceGeometry{}
+                    : calculated.back().mesh.original_references);
+                if (const auto* resolved = next.find_construction(committed_id);
+                    resolved == nullptr || !resolved->reference_valid) {
+                    throw std::runtime_error(
+                        "Construction definition has a missing or cyclic reference");
+                }
                 static_cast<void>(refresh_sketch_external_references(next, calculated));
                 target_part->session.commit(std::move(next), std::move(calculated));
                 return;
@@ -3388,15 +3407,159 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             } else {
                 next.constructions.push_back(std::move(committed));
             }
+            next.resolve_constructions();
+            if (const auto* resolved = next.find_construction(committed_id);
+                resolved == nullptr || !resolved->reference_valid) {
+                throw std::runtime_error(
+                    "Construction definition has a missing or cyclic reference");
+            }
             target_assembly->session.commit(std::move(next));
         }, this);
+    dialog->set_reference_request_callback(
+        [this](std::size_t index) { start_construction_reference_selection(index); });
+    dialog->set_preview_callback(
+        [this, document_id, edit_mode](zima::document::ConstructionObject preview) {
+            zima::kernel::ViewerMesh mesh;
+            if (const auto* source = workspace_.open_part(document_id)) {
+                auto next = source->session.document();
+                if (edit_mode) {
+                    if (auto* target = next.find_construction(preview.id)) {
+                        *target = preview;
+                    }
+                } else {
+                    next.constructions.push_back(preview);
+                }
+                const auto& calculated = source->session.calculated_boundaries();
+                next.resolve_constructions(calculated.empty()
+                    ? zima::kernel::ViewerReferenceGeometry{}
+                    : calculated.back().mesh.original_references);
+                mesh = next.construction_viewer_mesh();
+            } else if (const auto* source = workspace_.open_assembly(document_id)) {
+                auto next = source->session.document();
+                if (edit_mode) {
+                    if (auto* target = next.find_construction(preview.id)) {
+                        *target = preview;
+                    }
+                } else {
+                    next.constructions.push_back(preview);
+                }
+                next.resolve_constructions();
+                mesh = next.construction_viewer_mesh();
+            }
+            std::vector<zima::kernel::ViewerEdge> edges;
+            for (auto edge : mesh.edges) {
+                if (edge.reference.owner_id == preview.id) edges.push_back(std::move(edge));
+            }
+            for (const auto& axis : mesh.axes) {
+                if (axis.reference.owner_id != preview.id) continue;
+                const double half = axis.display_length * 0.5;
+                edges.push_back({{{axis.point.x - axis.direction.x * half,
+                                    axis.point.y - axis.direction.y * half,
+                                    axis.point.z - axis.direction.z * half},
+                                   {axis.point.x + axis.direction.x * half,
+                                    axis.point.y + axis.direction.y * half,
+                                    axis.point.z + axis.direction.z * half}},
+                    {preview.id, "preview", {}}, true, true});
+            }
+            for (const auto& point : mesh.points) {
+                if (point.reference.owner_id != preview.id) continue;
+                constexpr double half = 4.0;
+                edges.push_back({{{point.position.x - half, point.position.y,
+                                    point.position.z},
+                                   {point.position.x + half, point.position.y,
+                                    point.position.z}},
+                    {preview.id, "preview", {}}, true, true});
+                edges.push_back({{{point.position.x, point.position.y - half,
+                                    point.position.z},
+                                   {point.position.x, point.position.y + half,
+                                    point.position.z}},
+                    {preview.id, "preview", {}}, true, true});
+            }
+            viewer_->set_transient_edges(std::move(edges));
+        });
+    construction_reference_dialog_ = dialog;
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
+        construction_reference_dialog_ = nullptr;
+        pending_construction_reference_index_.reset();
+        viewer_->set_transient_edges({});
         refresh_tabs();
         refresh_scene();
     });
     dialog->show();
+}
+
+void AssemblyWorkspaceWindow::start_construction_reference_selection(
+    std::size_t index) {
+    if (construction_reference_dialog_ == nullptr) return;
+    pending_construction_reference_index_ = index;
+    const auto definition = construction_reference_dialog_->current_definition();
+    if (definition == zima::document::ConstructionDefinition::PointReference ||
+        definition == zima::document::ConstructionDefinition::TwoPointAxis ||
+        definition == zima::document::ConstructionDefinition::ThreePointPlane) {
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex});
+    } else if (definition ==
+            zima::document::ConstructionDefinition::AxisReference) {
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Axis,
+            zima::viewer::CandidateKind::Edge});
+    } else if (definition ==
+            zima::document::ConstructionDefinition::PlaneReference) {
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    } else {
+        pending_construction_reference_index_.reset();
+        return;
+    }
+    const auto prefix = active_occurrence_path_.empty()
+        ? zima::assembly::InstancePath{}
+        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+    const bool active_part =
+        workspace_.open_part(workspace_.active_document_id()) != nullptr;
+    viewer_->set_candidate_filter([prefix, active_part](const auto& candidate) {
+        if (candidate.geometry !=
+                zima::viewer::CandidateGeometry::OriginalReference) return false;
+        try {
+            const auto path = zima::assembly::InstancePath::decode(
+                candidate.instance_path);
+            if (active_part) return path == prefix;
+            return path == prefix ||
+                (path.occurrence_ids.size() == prefix.occurrence_ids.size() + 1 &&
+                 std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                     path.occurrence_ids.begin()));
+        } catch (const std::invalid_argument&) {
+            return false;
+        }
+    });
+    state_->setText(tr("Vyberte stabilní geometrii pro definici konstrukčního objektu."));
+}
+
+void AssemblyWorkspaceWindow::accept_construction_reference(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (construction_reference_dialog_ == nullptr ||
+        !pending_construction_reference_index_ || candidate.owner_id.empty() ||
+        candidate.semantic_key.empty() || candidate.geometry !=
+            zima::viewer::CandidateGeometry::OriginalReference) return;
+    auto local_path = candidate.instance_path;
+    if (!active_occurrence_path_.empty()) {
+        auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+        const auto prefix =
+            zima::assembly::InstancePath::decode(active_occurrence_path_);
+        if (path.occurrence_ids.size() < prefix.occurrence_ids.size() ||
+            !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                path.occurrence_ids.begin())) return;
+        path.occurrence_ids.erase(path.occurrence_ids.begin(),
+            path.occurrence_ids.begin() +
+                static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+        local_path = path.encoded();
+    }
+    construction_reference_dialog_->set_reference(
+        *pending_construction_reference_index_,
+        {std::move(local_path), candidate.owner_id, candidate.semantic_key},
+        QString::fromStdString(candidate.owner_id + " / " +
+            candidate.semantic_key));
+    pending_construction_reference_index_.reset();
+    viewer_->clear_selection();
+    refresh_scene();
 }
 
 void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id) {
@@ -6695,11 +6858,15 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
     try {
         auto next = part->session.document();
         auto calculated = calculate_part(next);
+        const auto previous_constructions = next.constructions;
+        next.resolve_constructions(calculated.empty()
+            ? zima::kernel::ViewerReferenceGeometry{}
+            : calculated.back().mesh.original_references);
         const bool references_changed =
             refresh_sketch_external_references(next, calculated) |
             workspace_.refresh_context_external_references(next);
         if (references_changed) calculated = calculate_part(next);
-        if (references_changed) {
+        if (references_changed || next.constructions != previous_constructions) {
             part->session.commit(std::move(next), std::move(calculated));
         } else {
             part->session.update_calculated_boundaries(std::move(calculated));

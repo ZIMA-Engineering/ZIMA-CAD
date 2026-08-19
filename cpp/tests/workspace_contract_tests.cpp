@@ -118,6 +118,12 @@ int main() {
             subassembly_id, part_id, "Vnitřní díl");
         auto placed_subassembly = workspace.open_assembly(subassembly_id)
             ->session.document();
+        auto subassembly_datum =
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        subassembly_datum.origin = {4.0, 5.0, 6.0};
+        const auto subassembly_datum_id = subassembly_datum.id;
+        placed_subassembly.constructions.push_back(subassembly_datum);
         placed_subassembly.find_occurrence(nested_part_occurrence)->placement = {
             10.0, 0.0, 0.0, 0.0, 0.0, 90.0};
         workspace.open_assembly(subassembly_id)->session.commit(
@@ -158,9 +164,18 @@ int main() {
         const std::string expected_nested_path =
             zima::assembly::InstancePath{}.child(subassembly_occurrence)
                 .child(nested_part_occurrence).encoded();
+        const std::string expected_subassembly_datum_path =
+            zima::assembly::InstancePath{}.child(subassembly_occurrence).encoded();
         require(!nested_scene.original_references.triangle_references.empty() &&
                     nested_scene.original_references.triangle_references.front().instance_path ==
-                        expected_nested_path,
+                        expected_nested_path &&
+                    std::any_of(nested_scene.original_references.points.begin(),
+                        nested_scene.original_references.points.end(),
+                        [&](const auto& point) {
+                            return point.reference.owner_id == subassembly_datum_id &&
+                                point.reference.instance_path ==
+                                    expected_subassembly_datum_path;
+                        }),
                 "Nested Assembly flattened or lost its stable leaf instance path");
         const auto resolved_nested = workspace.resolve_occurrence(
             topassembly_id,

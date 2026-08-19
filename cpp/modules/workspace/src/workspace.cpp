@@ -923,6 +923,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
         occurrence.source_path = part->path;
     }
     recursion_stack.pop_back();
+    refreshed.resolve_constructions();
     refreshed.calculate_mates();
     static_cast<void>(refreshed.build_scene());
     return refreshed;

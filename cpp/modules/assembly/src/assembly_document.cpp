@@ -514,6 +514,16 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh() const {
     return carrier.construction_viewer_mesh();
 }
 
+void AssemblyDocument::resolve_constructions() {
+    auto source_document = *this;
+    source_document.constructions.clear();
+    auto carrier = zima::document::PartDocument::create_default();
+    carrier.constructions = constructions;
+    carrier.resolve_constructions(
+        source_document.build_scene().original_references);
+    constructions = std::move(carrier.constructions);
+}
+
 ComponentDependency AssemblyDocument::create_dependency(
     std::string dependent_occurrence_id,
     std::string prerequisite_occurrence_id,
@@ -1620,7 +1630,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 7 ||
+        root.at("format_version").get<int>() != 8 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1645,6 +1655,28 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                             direction.at("y").get<double>(),
                             direction.at("z").get<double>()};
         object.display_size = source.at("display_size").get<double>();
+        const auto definition = source.at("definition").get<std::string>();
+        object.definition = definition == "absolute"
+            ? zima::document::ConstructionDefinition::Absolute
+            : definition == "point_reference"
+                ? zima::document::ConstructionDefinition::PointReference
+            : definition == "two_point_axis"
+                ? zima::document::ConstructionDefinition::TwoPointAxis
+            : definition == "axis_reference"
+                ? zima::document::ConstructionDefinition::AxisReference
+            : definition == "three_point_plane"
+                ? zima::document::ConstructionDefinition::ThreePointPlane
+            : definition == "plane_reference"
+                ? zima::document::ConstructionDefinition::PlaneReference
+            : throw std::runtime_error("Assembly construction definition is invalid");
+        object.offset = source.at("offset").get<double>();
+        object.reference_valid = source.at("reference_valid").get<bool>();
+        for (const auto& serialized : source.at("references")) {
+            object.references.push_back({
+                serialized.at("instance_path").get<std::string>(),
+                serialized.at("owner_id").get<std::string>(),
+                serialized.at("semantic_key").get<std::string>()});
+        }
         const double direction_length = length(object.direction);
         if (object.id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
@@ -1774,6 +1806,25 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
              direction_length <= 1.0e-12)) {
             throw std::runtime_error("Assembly construction object is invalid");
         }
+        nlohmann::json references = nlohmann::json::array();
+        for (const auto& reference : object.references) {
+            if (reference.owner_id.empty() || reference.semantic_key.empty()) {
+                throw std::runtime_error("Assembly construction reference is invalid");
+            }
+            references.push_back({{"instance_path", reference.instance_path},
+                {"owner_id", reference.owner_id},
+                {"semantic_key", reference.semantic_key}});
+        }
+        const auto definition = object.definition ==
+                zima::document::ConstructionDefinition::Absolute ? "absolute"
+            : object.definition == zima::document::ConstructionDefinition::PointReference
+                ? "point_reference"
+            : object.definition == zima::document::ConstructionDefinition::TwoPointAxis
+                ? "two_point_axis"
+            : object.definition == zima::document::ConstructionDefinition::AxisReference
+                ? "axis_reference"
+            : object.definition == zima::document::ConstructionDefinition::ThreePointPlane
+                ? "three_point_plane" : "plane_reference";
         constructions_json.push_back({
             {"id", object.id}, {"name", object.name},
             {"type", object.kind == zima::document::ConstructionKind::Point
@@ -1783,7 +1834,9 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                         {"z", object.origin.z}}},
             {"direction", {{"x", object.direction.x}, {"y", object.direction.y},
                            {"z", object.direction.z}}},
-            {"display_size", object.display_size},
+            {"display_size", object.display_size}, {"definition", definition},
+            {"references", std::move(references)}, {"offset", object.offset},
+            {"reference_valid", object.reference_valid},
         });
     }
     nlohmann::json components_json = nlohmann::json::array();
@@ -1847,7 +1900,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         mates_json.push_back(std::move(serialized));
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 7},
+        {"format", "zima-cad-cpp"}, {"format_version", 8},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
