@@ -585,6 +585,22 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_equal_length_action_ = make_action(tr("Stejné"));
     sketch_equal_length_action_->setObjectName("sketchEqualAction");
     sketch_fix_point_action_ = make_action(tr("Fixovat/uvolnit bod"));
+    sketch_constraints_menu_ = new QMenu(tr("Vazby"), this);
+    sketch_constraints_menu_->setObjectName("sketchConstraintsMenu");
+    for (auto* action : {sketch_horizontal_action_, sketch_vertical_action_,
+                         sketch_parallel_action_, sketch_equal_length_action_,
+                         sketch_perpendicular_action_, sketch_coincident_action_,
+                         sketch_midpoint_action_, sketch_symmetric_action_,
+                         sketch_tangent_action_, sketch_concentric_action_}) {
+        sketch_constraints_menu_->addAction(action);
+    }
+    sketch_constraints_menu_->addSeparator();
+    sketch_constraints_menu_->addAction(sketch_fix_point_action_);
+    sketch_constraints_action_ = sketch_constraints_menu_->menuAction();
+    sketch_constraints_action_->setText(tr("Vazby"));
+    sketch_constraints_action_->setIcon(resource_icon("sketch-constraints"));
+    sketch_constraints_action_->setObjectName("sketchConstraintsAction");
+    sketch_constraints_action_->setEnabled(false);
     sketch_dimension_action_ = make_action(tr("Kóta délky úsečky…"), "sketch-dimensions");
     sketch_dimension_x_action_ = make_action(tr("Vodorovná kóta úsečky…"));
     sketch_dimension_y_action_ = make_action(tr("Svislá kóta úsečky…"));
@@ -594,6 +610,22 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_ellipse_major_dimension_action_ = make_action(tr("Kóta hlavní poloosy elipsy…"));
     sketch_ellipse_minor_dimension_action_ = make_action(tr("Kóta vedlejší poloosy elipsy…"));
     sketch_ellipse_rotation_dimension_action_ = make_action(tr("Kóta natočení elipsy…"));
+    sketch_dimensions_menu_ = new QMenu(tr("Kóty"), this);
+    sketch_dimensions_menu_->setObjectName("sketchDimensionsMenu");
+    for (auto* action : {sketch_dimension_action_, sketch_dimension_x_action_,
+                         sketch_dimension_y_action_, sketch_angle_dimension_action_,
+                         sketch_radius_dimension_action_,
+                         sketch_diameter_dimension_action_,
+                         sketch_ellipse_major_dimension_action_,
+                         sketch_ellipse_minor_dimension_action_,
+                         sketch_ellipse_rotation_dimension_action_}) {
+        sketch_dimensions_menu_->addAction(action);
+    }
+    sketch_dimensions_action_ = sketch_dimensions_menu_->menuAction();
+    sketch_dimensions_action_->setText(tr("Kóty"));
+    sketch_dimensions_action_->setIcon(resource_icon("sketch-dimensions"));
+    sketch_dimensions_action_->setObjectName("sketchDimensionsAction");
+    sketch_dimensions_action_->setEnabled(false);
     finish_sketch_action_ = make_action(tr("Dokončit skicu"), "sketch");
     finish_sketch_action_->setObjectName("finishSketchAction");
     finish_sketch_action_->setEnabled(false);
@@ -1239,6 +1271,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_ellipse_action_->setEnabled(true);
                 sketch_elliptical_arc_action_->setEnabled(true);
                 sketch_bspline_action_->setEnabled(true);
+                sketch_constraints_action_->setEnabled(true);
+                sketch_dimensions_action_->setEnabled(true);
                 sketch_coincident_action_->setEnabled(true);
                 sketch_midpoint_action_->setEnabled(true);
                 sketch_symmetric_action_->setEnabled(true);
@@ -1591,6 +1625,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button = qobject_cast<QToolButton*>(
                 tools_toolbar_->widgetForAction(action))) {
             button->setObjectName("applicationCommandButton");
+            if (action->menu() != nullptr) {
+                button->setPopupMode(QToolButton::InstantPopup);
+            }
             button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
             button->setMinimumWidth(std::max(0, tools_toolbar_->minimumWidth() - 12));
         }
@@ -1657,24 +1694,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             add_command(action);
         }
         add_green_separator();
-        for (auto* action : {sketch_horizontal_action_, sketch_vertical_action_,
-                             sketch_coincident_action_, sketch_midpoint_action_,
-                             sketch_symmetric_action_, sketch_concentric_action_,
-                             sketch_tangent_action_,
-                             sketch_parallel_action_,
-                             sketch_perpendicular_action_, sketch_equal_length_action_,
-                             sketch_fix_point_action_}) {
-            add_command(action);
-        }
+        add_command(sketch_constraints_action_);
         add_green_separator();
-        for (auto* action : {sketch_dimension_action_, sketch_dimension_x_action_,
-                             sketch_dimension_y_action_, sketch_angle_dimension_action_,
-                             sketch_radius_dimension_action_, sketch_diameter_dimension_action_,
-                             sketch_ellipse_major_dimension_action_,
-                             sketch_ellipse_minor_dimension_action_,
-                             sketch_ellipse_rotation_dimension_action_}) {
-            add_command(action);
-        }
+        add_command(sketch_dimensions_action_);
         add_green_separator();
         add_command(finish_sketch_action_);
         if (auto* button = qobject_cast<QToolButton*>(
@@ -5576,6 +5598,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_document_action_->setEnabled(false);
         undo_action_->setEnabled(false);
         redo_action_->setEnabled(false);
+        sketch_constraints_action_->setEnabled(false);
+        sketch_dimensions_action_->setEnabled(false);
         rebuild_application_toolbar();
         return;
     }
@@ -5614,7 +5638,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
                              sketch_elliptical_arc_action_,
-                             sketch_bspline_action_, finish_sketch_action_,
+                             sketch_bspline_action_, sketch_constraints_action_,
+                             sketch_dimensions_action_, finish_sketch_action_,
                              plane_mate_action_, axis_mate_action_, point_mate_action_,
                              angle_mate_action_, plane_angle_mate_action_}) {
             action->setEnabled(false);
@@ -5878,6 +5903,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
         sketch_elliptical_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_constraints_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_dimensions_action_->setEnabled(!active_sketch_id_.empty());
         sketch_horizontal_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_vertical_action_->setEnabled(!selected_sketch_segment_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
@@ -5919,7 +5946,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     sketch_polygon_action_, sketch_trim_action_, sketch_mirror_action_,
                     sketch_circle_action_, sketch_arc_action_, sketch_ellipse_action_,
                     sketch_elliptical_arc_action_,
-                    sketch_bspline_action_, sketch_horizontal_action_,
+                    sketch_bspline_action_, sketch_constraints_action_,
+                    sketch_dimensions_action_, sketch_horizontal_action_,
                     sketch_vertical_action_, sketch_coincident_action_,
                     sketch_midpoint_action_,
                     sketch_symmetric_action_,
@@ -6045,6 +6073,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_ellipse_action_->setEnabled(false);
     sketch_elliptical_arc_action_->setEnabled(false);
     sketch_bspline_action_->setEnabled(false);
+    sketch_constraints_action_->setEnabled(false);
+    sketch_dimensions_action_->setEnabled(false);
     sketch_horizontal_action_->setEnabled(false);
     sketch_vertical_action_->setEnabled(false);
     sketch_coincident_action_->setEnabled(false);

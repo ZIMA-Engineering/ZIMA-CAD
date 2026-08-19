@@ -433,6 +433,10 @@ prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze u
 poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
 rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
 
+V nativní pravé liště jsou existující příkazy skici seskupené pod tlačítky
+**Vazby** a **Kóty**. Položky uvnitř nabídek se povolují podle právě vybrané
+geometrie; seskupení nemění jejich výběr, výpočet ani způsob potvrzení.
+
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
 řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.
 Dvojklikem na hotovou křivku se otevřou interní **Vlastnosti B-spline**, kde

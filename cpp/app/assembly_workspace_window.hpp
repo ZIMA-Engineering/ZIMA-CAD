@@ -121,6 +121,8 @@ private:
     QAction* sketch_ellipse_action_{};
     QAction* sketch_elliptical_arc_action_{};
     QAction* sketch_bspline_action_{};
+    QAction* sketch_constraints_action_{};
+    QMenu* sketch_constraints_menu_{};
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
     QAction* sketch_coincident_action_{};
@@ -131,6 +133,8 @@ private:
     QAction* sketch_parallel_action_{};
     QAction* sketch_perpendicular_action_{};
     QAction* sketch_equal_length_action_{};
+    QAction* sketch_dimensions_action_{};
+    QMenu* sketch_dimensions_menu_{};
     QAction* sketch_dimension_action_{};
     QAction* sketch_dimension_x_action_{};
     QAction* sketch_dimension_y_action_{};

@@ -79,6 +79,10 @@ int verify_startup_contract(
     auto* sketch_concentric = window.findChild<QAction*>("sketchConcentricAction");
     auto* sketch_tangent = window.findChild<QAction*>("sketchTangentAction");
     auto* sketch_equal = window.findChild<QAction*>("sketchEqualAction");
+    auto* sketch_constraints =
+        window.findChild<QAction*>("sketchConstraintsAction");
+    auto* sketch_dimensions =
+        window.findChild<QAction*>("sketchDimensionsAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -102,6 +106,13 @@ int verify_startup_contract(
                     sketch_concentric != nullptr &&
                     sketch_tangent != nullptr &&
                     sketch_equal != nullptr &&
+                    sketch_constraints != nullptr &&
+                    sketch_constraints->menu() != nullptr &&
+                    sketch_constraints->menu()->actions().size() == 12 &&
+                    sketch_constraints->menu()->actions().contains(sketch_equal) &&
+                    sketch_dimensions != nullptr &&
+                    sketch_dimensions->menu() != nullptr &&
+                    sketch_dimensions->menu()->actions().size() == 9 &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr,
@@ -250,6 +261,8 @@ int verify_startup_contract(
                     sketch_symmetric->isEnabled() &&
                     sketch_concentric->isEnabled() &&
                     sketch_tangent->isEnabled() &&
+                    sketch_constraints->isEnabled() &&
+                    sketch_dimensions->isEnabled() &&
                     finish_sketch->isEnabled(),
                 "active Sketch is missing its basic editing command set") ||
         !verify(tools_toolbar->actions().contains(finish_sketch) &&
@@ -257,10 +270,12 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_trim) &&
                     tools_toolbar->actions().contains(sketch_mirror) &&
                     tools_toolbar->actions().contains(sketch_elliptical_arc) &&
-                    tools_toolbar->actions().contains(sketch_midpoint) &&
-                    tools_toolbar->actions().contains(sketch_symmetric) &&
-                    tools_toolbar->actions().contains(sketch_concentric) &&
-                    tools_toolbar->actions().contains(sketch_tangent),
+                    tools_toolbar->actions().contains(sketch_constraints) &&
+                    tools_toolbar->actions().contains(sketch_dimensions) &&
+                    sketch_constraints->menu()->actions().contains(sketch_midpoint) &&
+                    sketch_constraints->menu()->actions().contains(sketch_symmetric) &&
+                    sketch_constraints->menu()->actions().contains(sketch_concentric) &&
+                    sketch_constraints->menu()->actions().contains(sketch_tangent),
                 "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;
     }

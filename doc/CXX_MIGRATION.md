@@ -963,3 +963,9 @@ ikonovou lištu s logem, zelené dokumentové záložky, strom dokumentu o minim
 šířce 280 px, společnou lištu pohledu a jedinou pravou lištu přestavovanou podle
 aktivní aplikace. Qt platforma se v programu nevynucuje; v prostředí Wayland se
 proto používá nativní Wayland backend. X11/XWayland není runtime požadavek.
+
+Pravá lišta nativního Sketcheru nyní skládá již existující akce do rozbalovacích
+skupin **Vazby** a **Kóty**. Menu nepřidává druhou příkazovou cestu: používá
+stejné `QAction`, jejich stav podle společného viewerového výběru i stejné
+transakční operace. Jde pouze o kompozici GUI bez změny Sketch/Part formátu a
+bez volání OCCT.
