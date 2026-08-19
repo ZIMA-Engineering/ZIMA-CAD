@@ -11,7 +11,9 @@ namespace {
 
 using Point2 = std::array<double, 2>;
 
-enum class SampledKind { Segment, Circle, Arc, Ellipse, BSpline, Auxiliary };
+enum class SampledKind {
+    Segment, Circle, Arc, Ellipse, EllipticalArc, BSpline, Auxiliary
+};
 
 struct SampledCurve {
     std::string geometry_id;
@@ -22,6 +24,10 @@ struct SampledCurve {
     bool trimmable{};
     bool creates_trim_points{true};
 };
+
+Point2 exact_geometry_point(
+    const Sketch& sketch, const SampledCurve& sampled,
+    double parameter);
 
 Point2 local_point(const Sketch& sketch, const zima::kernel::Vec3& point) {
     if (sketch.plane == SketchPlane::XY) return {point.x, point.y};
@@ -44,7 +50,8 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
     }
     std::vector<SampledCurve> result;
     result.reserve(sketch.segments.size() + sketch.circles.size() +
-        sketch.arcs.size() + sketch.ellipses.size() + sketch.bsplines.size());
+        sketch.arcs.size() + sketch.ellipses.size() +
+        sketch.elliptical_arcs.size() + sketch.bsplines.size());
     for (const auto& segment : sketch.segments) {
         const auto* first = sketch.find_point(segment.first_point_id);
         const auto* second = sketch.find_point(segment.second_point_id);
@@ -108,9 +115,7 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
         const double orientation = ellipse.reversed ? -1.0 : 1.0;
         SampledCurve curve{ellipse.id, SampledKind::Ellipse};
         curve.closed = true;
-        // A partial ellipse needs a persisted elliptical-arc entity.  Until that
-        // exact type exists, an ellipse may split other geometry but is not offered.
-        curve.trimmable = false;
+        curve.trimmable = !ellipse.construction && !is_imported(ellipse.id);
         constexpr std::size_t samples = 192;
         curve.points.reserve(samples + 1);
         curve.parameters.reserve(samples + 1);
@@ -124,6 +129,31 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
                     orientation * local_y * std::sin(ellipse.rotation),
                 center->y + local_x * std::sin(ellipse.rotation) +
                     orientation * local_y * std::cos(ellipse.rotation)});
+            curve.parameters.push_back(parameter);
+        }
+        result.push_back(std::move(curve));
+    }
+    for (const auto& arc : sketch.elliptical_arcs) {
+        const auto* center = sketch.find_point(arc.center_point_id);
+        const double orientation = arc.reversed ? -1.0 : 1.0;
+        SampledCurve curve{arc.id, SampledKind::EllipticalArc};
+        curve.trimmable = !arc.construction && !is_imported(arc.id);
+        const double sweep = arc.end_parameter - arc.start_parameter;
+        const auto samples = std::max<std::size_t>(8,
+            static_cast<std::size_t>(std::ceil(
+                192.0 * sweep / (2.0 * 3.14159265358979323846))));
+        curve.points.reserve(samples + 1);
+        curve.parameters.reserve(samples + 1);
+        for (std::size_t index = 0; index <= samples; ++index) {
+            const double parameter = static_cast<double>(index) / samples;
+            const double angle = arc.start_parameter + sweep * parameter;
+            const double local_x = arc.major_radius * std::cos(angle);
+            const double local_y = arc.minor_radius * std::sin(angle);
+            curve.points.push_back({
+                center->x + local_x * std::cos(arc.rotation) -
+                    orientation * local_y * std::sin(arc.rotation),
+                center->y + local_x * std::sin(arc.rotation) +
+                    orientation * local_y * std::cos(arc.rotation)});
             curve.parameters.push_back(parameter);
         }
         result.push_back(std::move(curve));
@@ -168,7 +198,8 @@ std::optional<std::array<double, 2>> segment_intersection(
 }
 
 std::vector<std::array<double, 2>> curve_intersections(
-    const SampledCurve& first, const SampledCurve& second) {
+    const Sketch& sketch, const SampledCurve& first,
+    const SampledCurve& second) {
     std::vector<std::array<double, 2>> result;
     for (std::size_t first_index = 0;
          first_index + 1 < first.points.size(); ++first_index) {
@@ -178,10 +209,75 @@ std::vector<std::array<double, 2>> curve_intersections(
                 first.points[first_index], first.points[first_index + 1],
                 second.points[second_index], second.points[second_index + 1]);
             if (!hit) continue;
-            const double first_parameter = first.parameters[first_index] + (*hit)[0] *
+            double first_parameter = first.parameters[first_index] + (*hit)[0] *
                 (first.parameters[first_index + 1] - first.parameters[first_index]);
-            const double second_parameter = second.parameters[second_index] + (*hit)[1] *
+            double second_parameter = second.parameters[second_index] + (*hit)[1] *
                 (second.parameters[second_index + 1] - second.parameters[second_index]);
+            const auto normalize_parameter = [](double value, bool closed) {
+                if (closed) {
+                    value -= std::floor(value);
+                    return value;
+                }
+                return std::clamp(value, 0.0, 1.0);
+            };
+            first_parameter = normalize_parameter(first_parameter, first.closed);
+            second_parameter = normalize_parameter(second_parameter, second.closed);
+            const auto derivative = [&](const SampledCurve& curve, double parameter) {
+                constexpr double step = 1.0e-6;
+                const double before_parameter = curve.closed
+                    ? parameter - step : std::max(0.0, parameter - step);
+                const double after_parameter = curve.closed
+                    ? parameter + step : std::min(1.0, parameter + step);
+                const auto before = exact_geometry_point(
+                    sketch, curve, before_parameter);
+                const auto after = exact_geometry_point(
+                    sketch, curve, after_parameter);
+                const double span = after_parameter - before_parameter;
+                return Point2{
+                    (after[0] - before[0]) / span,
+                    (after[1] - before[1]) / span};
+            };
+            for (unsigned iteration = 0; iteration < 12; ++iteration) {
+                const auto first_point = exact_geometry_point(
+                    sketch, first, first_parameter);
+                const auto second_point = exact_geometry_point(
+                    sketch, second, second_parameter);
+                const Point2 residual{
+                    first_point[0] - second_point[0],
+                    first_point[1] - second_point[1]};
+                if (std::hypot(residual[0], residual[1]) <= 1.0e-10) break;
+                const auto first_derivative = derivative(first, first_parameter);
+                const auto second_derivative = derivative(second, second_parameter);
+                const double a = first_derivative[0];
+                const double b = -second_derivative[0];
+                const double c = first_derivative[1];
+                const double d = -second_derivative[1];
+                const double determinant = a * d - b * c;
+                if (std::abs(determinant) <= 1.0e-14) break;
+                const double first_step = std::clamp(
+                    ((-residual[0]) * d - b * (-residual[1])) / determinant,
+                    -0.05, 0.05);
+                const double second_step = std::clamp(
+                    (a * (-residual[1]) - (-residual[0]) * c) / determinant,
+                    -0.05, 0.05);
+                first_parameter = normalize_parameter(
+                    first_parameter + first_step, first.closed);
+                second_parameter = normalize_parameter(
+                    second_parameter + second_step, second.closed);
+            }
+            const auto refined_first = exact_geometry_point(
+                sketch, first, first_parameter);
+            const auto refined_second = exact_geometry_point(
+                sketch, second, second_parameter);
+            const double coordinate_scale = std::max({
+                1.0, std::abs(refined_first[0]), std::abs(refined_first[1]),
+                std::abs(refined_second[0]), std::abs(refined_second[1])});
+            if (std::hypot(
+                    refined_first[0] - refined_second[0],
+                    refined_first[1] - refined_second[1]) >
+                1.0e-8 * coordinate_scale) {
+                continue;
+            }
             if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
                     return std::abs(old[0] - first_parameter) < 1.0e-5 &&
                         std::abs(old[1] - second_parameter) < 1.0e-5;
@@ -194,7 +290,9 @@ std::vector<std::array<double, 2>> curve_intersections(
 }
 
 Point2 curve_point(const SampledCurve& curve, double parameter) {
-    if (curve.closed && parameter > 1.0) parameter -= std::floor(parameter);
+    if (curve.closed && (parameter < 0.0 || parameter > 1.0)) {
+        parameter -= std::floor(parameter);
+    }
     parameter = std::clamp(parameter, 0.0, 1.0);
     const auto upper = std::upper_bound(
         curve.parameters.begin(), curve.parameters.end(), parameter);
@@ -246,16 +344,12 @@ double point_segment_distance(
 Point2 exact_geometry_point(
     const Sketch& sketch, const SampledCurve& sampled,
     double parameter) {
-    if (sampled.closed && parameter > 1.0) parameter -= std::floor(parameter);
+    if (sampled.closed && (parameter < 0.0 || parameter > 1.0)) {
+        parameter -= std::floor(parameter);
+    }
     parameter = std::clamp(parameter, 0.0, 1.0);
     if (sampled.kind == SampledKind::Segment) {
-        const auto segment = std::find_if(
-            sketch.segments.begin(), sketch.segments.end(),
-            [&](const auto& value) { return value.id == sampled.geometry_id; });
-        const auto* first = sketch.find_point(segment->first_point_id);
-        const auto* second = sketch.find_point(segment->second_point_id);
-        return {first->x + parameter * (second->x - first->x),
-                first->y + parameter * (second->y - first->y)};
+        return curve_point(sampled, parameter);
     }
     if (sampled.kind == SampledKind::Circle) {
         const auto circle = std::find_if(
@@ -275,6 +369,37 @@ Point2 exact_geometry_point(
             parameter * (arc->end_angle - arc->start_angle);
         return {center->x + arc->radius * std::cos(angle),
                 center->y + arc->radius * std::sin(angle)};
+    }
+    if (sampled.kind == SampledKind::Ellipse) {
+        const auto ellipse = std::find_if(
+            sketch.ellipses.begin(), sketch.ellipses.end(),
+            [&](const auto& value) { return value.id == sampled.geometry_id; });
+        const auto* center = sketch.find_point(ellipse->center_point_id);
+        const double angle = 2.0 * 3.14159265358979323846 * parameter;
+        const double orientation = ellipse->reversed ? -1.0 : 1.0;
+        const double local_x = ellipse->major_radius * std::cos(angle);
+        const double local_y = ellipse->minor_radius * std::sin(angle);
+        return {
+            center->x + local_x * std::cos(ellipse->rotation) -
+                orientation * local_y * std::sin(ellipse->rotation),
+            center->y + local_x * std::sin(ellipse->rotation) +
+                orientation * local_y * std::cos(ellipse->rotation)};
+    }
+    if (sampled.kind == SampledKind::EllipticalArc) {
+        const auto arc = std::find_if(
+            sketch.elliptical_arcs.begin(), sketch.elliptical_arcs.end(),
+            [&](const auto& value) { return value.id == sampled.geometry_id; });
+        const auto* center = sketch.find_point(arc->center_point_id);
+        const double angle = arc->start_parameter +
+            parameter * (arc->end_parameter - arc->start_parameter);
+        const double orientation = arc->reversed ? -1.0 : 1.0;
+        const double local_x = arc->major_radius * std::cos(angle);
+        const double local_y = arc->minor_radius * std::sin(angle);
+        return {
+            center->x + local_x * std::cos(arc->rotation) -
+                orientation * local_y * std::sin(arc->rotation),
+            center->y + local_x * std::sin(arc->rotation) +
+                orientation * local_y * std::cos(arc->rotation)};
     }
     return curve_point(sampled, parameter);
 }
@@ -314,7 +439,7 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
             const auto& first = curves[first_index];
             const auto& second = curves[second_index];
             if (!first.creates_trim_points || !second.creates_trim_points) continue;
-            for (const auto& hit : curve_intersections(first, second)) {
+            for (const auto& hit : curve_intersections(sketch, first, second)) {
                 cuts[first.geometry_id].push_back(hit[0]);
                 cuts[second.geometry_id].push_back(hit[1]);
             }
@@ -325,7 +450,7 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
         if (!curve.trimmable) continue;
         std::vector<double> parameters;
         for (const double value : cuts[curve.geometry_id]) {
-            const double normalized = std::round(value * 1.0e8) / 1.0e8;
+            const double normalized = value;
             if (std::none_of(parameters.begin(), parameters.end(), [&](double old) {
                     return std::abs(old - normalized) <= 1.0e-10;
                 })) {
@@ -509,7 +634,13 @@ SketchTrimResult apply_sketch_trim(
             }
         }
         Point2 center{};
+        Point2 major_point{};
+        Point2 minor_point{};
         double radius{};
+        double major_radius{};
+        double minor_radius{};
+        double rotation{};
+        bool reversed{};
         bool construction{};
         unsigned spline_degree{3};
         bool spline_closed{};
@@ -536,6 +667,41 @@ SketchTrimResult apply_sketch_trim(
                 [&](const auto& value) { return value.id == geometry_id; });
             construction = source->construction;
             source_point_ids = {source->first_point_id, source->second_point_id};
+        } else if (curve.kind == SampledKind::Ellipse) {
+            const auto source = std::find_if(next.ellipses.begin(), next.ellipses.end(),
+                [&](const auto& value) { return value.id == geometry_id; });
+            const auto* source_center = next.find_point(source->center_point_id);
+            const auto* source_major = next.find_point(source->major_point_id);
+            const auto* source_minor = next.find_point(source->minor_point_id);
+            center = {source_center->x, source_center->y};
+            major_point = {source_major->x, source_major->y};
+            minor_point = {source_minor->x, source_minor->y};
+            major_radius = source->major_radius;
+            minor_radius = source->minor_radius;
+            rotation = source->rotation;
+            reversed = source->reversed;
+            construction = source->construction;
+            source_point_ids = {source->center_point_id, source->major_point_id,
+                                source->minor_point_id};
+        } else if (curve.kind == SampledKind::EllipticalArc) {
+            const auto source = std::find_if(
+                next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+                [&](const auto& value) { return value.id == geometry_id; });
+            const auto* source_center = next.find_point(source->center_point_id);
+            const auto* source_major = next.find_point(source->major_point_id);
+            const auto* source_minor = next.find_point(source->minor_point_id);
+            center = {source_center->x, source_center->y};
+            major_point = {source_major->x, source_major->y};
+            minor_point = {source_minor->x, source_minor->y};
+            major_radius = source->major_radius;
+            minor_radius = source->minor_radius;
+            rotation = source->rotation;
+            reversed = source->reversed;
+            construction = source->construction;
+            source_point_ids = {
+                source->center_point_id, source->major_point_id,
+                source->minor_point_id, source->start_point_id,
+                source->end_point_id};
         } else if (curve.kind == SampledKind::BSpline) {
             const auto source = std::find_if(next.bsplines.begin(), next.bsplines.end(),
                 [&](const auto& value) { return value.id == geometry_id; });
@@ -554,8 +720,15 @@ SketchTrimResult apply_sketch_trim(
             next.points.push_back(*source_point);
         };
         if (!domains.empty()) {
-            if (curve.kind == SampledKind::Circle || curve.kind == SampledKind::Arc) {
+            if (curve.kind == SampledKind::Circle || curve.kind == SampledKind::Arc ||
+                curve.kind == SampledKind::Ellipse ||
+                curve.kind == SampledKind::EllipticalArc) {
                 restore_source_point(source_point_ids.front());
+            }
+            if (curve.kind == SampledKind::Ellipse ||
+                curve.kind == SampledKind::EllipticalArc) {
+                restore_source_point(source_point_ids[1]);
+                restore_source_point(source_point_ids[2]);
             }
             const bool keeps_start = std::any_of(domains.begin(), domains.end(),
                 [](const auto& domain) { return domain[0] <= 1.0e-8; });
@@ -568,6 +741,9 @@ SketchTrimResult apply_sketch_trim(
             } else if (curve.kind == SampledKind::Arc) {
                 if (keeps_start) restore_source_point(source_point_ids[1]);
                 if (keeps_end) restore_source_point(source_point_ids[2]);
+            } else if (curve.kind == SampledKind::EllipticalArc) {
+                if (keeps_start) restore_source_point(source_point_ids[3]);
+                if (keeps_end) restore_source_point(source_point_ids[4]);
             } else if (curve.kind == SampledKind::BSpline && !spline_closed) {
                 if (keeps_start) restore_source_point(source_point_ids.front());
                 if (keeps_end) restore_source_point(source_point_ids.back());
@@ -594,6 +770,20 @@ SketchTrimResult apply_sketch_trim(
                 const auto created = std::find_if(next.arcs.begin(), next.arcs.end(),
                     [&](const auto& value) { return value.id == new_id; });
                 created->radius = radius;
+            } else if (curve.kind == SampledKind::Ellipse ||
+                       curve.kind == SampledKind::EllipticalArc) {
+                const auto first = exact_geometry_point(sketch, curve, domain[0]);
+                const auto second = exact_geometry_point(sketch, curve, domain[1]);
+                new_id = next.add_elliptical_arc(
+                    center[0], center[1], major_point[0], major_point[1],
+                    minor_point[0], minor_point[1], first[0], first[1],
+                    second[0], second[1], reversed, construction, snap_tolerance);
+                const auto created = std::find_if(
+                    next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+                    [&](const auto& value) { return value.id == new_id; });
+                created->major_radius = major_radius;
+                created->minor_radius = minor_radius;
+                created->rotation = rotation;
             } else if (curve.kind == SampledKind::BSpline) {
                 const std::size_t minimum = static_cast<std::size_t>(spline_degree) + 1;
                 auto controls = sample_interval(curve, domain[0], domain[1], minimum);
@@ -611,6 +801,9 @@ SketchTrimResult apply_sketch_trim(
                 } else if (curve.kind == SampledKind::Circle ||
                            curve.kind == SampledKind::Arc) {
                     rename_geometry(next.arcs, new_id, stable_id);
+                } else if (curve.kind == SampledKind::Ellipse ||
+                           curve.kind == SampledKind::EllipticalArc) {
+                    rename_geometry(next.elliptical_arcs, new_id, stable_id);
                 } else {
                     rename_geometry(next.bsplines, new_id, stable_id);
                 }

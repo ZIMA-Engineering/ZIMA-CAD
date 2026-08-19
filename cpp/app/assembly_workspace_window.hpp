@@ -162,6 +162,7 @@ private:
     std::string selected_sketch_circle_id_;
     std::string selected_sketch_arc_id_;
     std::string selected_sketch_ellipse_id_;
+    std::string selected_sketch_elliptical_arc_id_;
     std::string selected_sketch_bspline_id_;
     std::string selected_sketch_point_id_;
     bool sketch_point_active_{};

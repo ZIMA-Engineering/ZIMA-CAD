@@ -6,6 +6,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -544,12 +545,16 @@ int main() {
             3.0, 0.0, 5.0, 0.0, 3.0, 2.0);
         const auto source_ellipse = mirrored.add_ellipse(
             4.0, 0.0, 7.0, 0.0, 4.0, 2.0);
+        const auto source_elliptical_arc = mirrored.add_elliptical_arc(
+            6.0, -5.0, 9.0, -5.0, 6.0, -3.0,
+            9.0, -5.0, 6.0, -3.0);
         const auto source_spline = mirrored.add_bspline(
             {{{2.0, 5.0}, {3.0, 6.0}, {4.0, 6.0}, {5.0, 5.0}}});
         const auto mirrored_curves = mirrored.mirror_geometry(
-            {source_circle, source_arc, source_ellipse, source_spline}, mirror_axis);
-        require(mirrored_curves.geometry_ids.size() == 4,
-                "Sketch mirror did not return four new curve identities");
+            {source_circle, source_arc, source_ellipse,
+             source_elliptical_arc, source_spline}, mirror_axis);
+        require(mirrored_curves.geometry_ids.size() == 5,
+                "Sketch mirror did not return five new curve identities");
         const auto reflected_circle = std::find_if(
             mirrored.circles.begin(), mirrored.circles.end(), [&](const auto& value) {
                 return value.id == mirrored_curves.geometry_ids[0];
@@ -564,11 +569,17 @@ int main() {
             });
         const auto reflected_spline = std::find_if(
             mirrored.bsplines.begin(), mirrored.bsplines.end(), [&](const auto& value) {
+                return value.id == mirrored_curves.geometry_ids[4];
+            });
+        const auto reflected_elliptical_arc = std::find_if(
+            mirrored.elliptical_arcs.begin(), mirrored.elliptical_arcs.end(),
+            [&](const auto& value) {
                 return value.id == mirrored_curves.geometry_ids[3];
             });
         require(reflected_circle != mirrored.circles.end() &&
                     reflected_arc != mirrored.arcs.end() &&
                     reflected_ellipse != mirrored.ellipses.end() &&
+                    reflected_elliptical_arc != mirrored.elliptical_arcs.end() &&
                     reflected_spline != mirrored.bsplines.end(),
                 "Sketch mirror did not preserve the selected curve kinds");
         const auto* reflected_circle_center = mirrored.find_point(
@@ -577,6 +588,8 @@ int main() {
             reflected_arc->start_point_id);
         const auto* reflected_ellipse_center = mirrored.find_point(
             reflected_ellipse->center_point_id);
+        const auto* reflected_elliptical_arc_start = mirrored.find_point(
+            reflected_elliptical_arc->start_point_id);
         const auto* reflected_spline_first = mirrored.find_point(
             reflected_spline->control_point_ids.front());
         const auto source_ellipse_value = std::find_if(
@@ -588,6 +601,8 @@ int main() {
                     std::abs(reflected_arc_start->x + 3.0) < 1.0e-9 &&
                     std::abs(reflected_arc_start->y - 2.0) < 1.0e-9 &&
                     std::abs(reflected_ellipse_center->x + 4.0) < 1.0e-9 &&
+                    std::abs(reflected_elliptical_arc_start->x + 9.0) < 1.0e-9 &&
+                    std::abs(reflected_elliptical_arc_start->y + 5.0) < 1.0e-9 &&
                     std::abs(reflected_spline_first->x + 2.0) < 1.0e-9 &&
                     source_ellipse_value != mirrored.ellipses.end() &&
                     reflected_ellipse->reversed != source_ellipse_value->reversed,
@@ -636,6 +651,7 @@ int main() {
             mirrored.serialized());
         require(loaded_mirror.constraints == mirrored.constraints &&
                     loaded_mirror.ellipses == mirrored.ellipses &&
+                    loaded_mirror.elliptical_arcs == mirrored.elliptical_arcs &&
                     loaded_mirror.viewer_mesh().axes.size() == 2,
                 "Mirror symmetry or reflected ellipse orientation did not round-trip");
         const auto mirror_before_invalid = mirrored;
@@ -915,6 +931,47 @@ int main() {
         require(ellipse_sketch.ellipses.empty() && ellipse_sketch.points.empty() &&
                     ellipse_sketch.dimensions.empty(),
                 "Ellipse deletion retained dimensions or orphan axis points");
+        auto elliptical_arc_sketch = zima::sketcher::Sketch::create_default();
+        const double elliptical_start = 0.3;
+        const double elliptical_end = 2.2;
+        const auto elliptical_arc_id = elliptical_arc_sketch.add_elliptical_arc(
+            0.0, 0.0, 8.0, 0.0, 0.0, 4.0,
+            8.0 * std::cos(elliptical_start),
+            4.0 * std::sin(elliptical_start),
+            8.0 * std::cos(elliptical_end),
+            4.0 * std::sin(elliptical_end));
+        const auto elliptical_center =
+            elliptical_arc_sketch.elliptical_arcs.front().center_point_id;
+        const auto elliptical_major =
+            elliptical_arc_sketch.elliptical_arcs.front().major_point_id;
+        const auto elliptical_minor =
+            elliptical_arc_sketch.elliptical_arcs.front().minor_point_id;
+        const auto elliptical_start_point =
+            elliptical_arc_sketch.elliptical_arcs.front().start_point_id;
+        require(elliptical_arc_sketch.move_point(elliptical_center, 2.0, 3.0) &&
+                    std::abs(elliptical_arc_sketch.find_point(
+                        elliptical_major)->x - 10.0) < 1.0e-9,
+                "Moving an elliptical Arc center did not translate its exact controls");
+        require(elliptical_arc_sketch.move_point(elliptical_major, 2.0, 13.0) &&
+                    std::abs(elliptical_arc_sketch.find_point(
+                        elliptical_minor)->x + 2.0) < 1.0e-9,
+                "Moving an elliptical Arc major axis did not rotate its exact controls");
+        constexpr double moved_parameter = 0.6;
+        require(elliptical_arc_sketch.move_point(
+                    elliptical_start_point,
+                    2.0 - 4.0 * std::sin(moved_parameter),
+                    3.0 + 10.0 * std::cos(moved_parameter)) &&
+                    std::abs(
+                        elliptical_arc_sketch.elliptical_arcs.front().start_parameter -
+                        moved_parameter) < 1.0e-8,
+                "Moving an elliptical Arc endpoint did not update its exact parameter");
+        require(elliptical_arc_sketch.viewer_mesh().edges.front().reference.semantic_key ==
+                    "elliptical_arc:" + elliptical_arc_id,
+                "Elliptical Arc did not preserve its viewer identity after editing");
+        elliptical_arc_sketch.remove_geometry(elliptical_arc_id);
+        require(elliptical_arc_sketch.elliptical_arcs.empty() &&
+                    elliptical_arc_sketch.points.empty(),
+                "Elliptical Arc deletion retained orphan control points");
         auto spline_sketch = zima::sketcher::Sketch::create_default();
         const auto spline_id = spline_sketch.add_bspline({
             {0.0, 0.0}, {10.0, 20.0}, {20.0, -10.0}, {30.0, 0.0}});
@@ -1113,15 +1170,87 @@ int main() {
             -12.0, 0.0, 12.0, 0.0);
         const auto ellipse_cut_topology = zima::sketcher::sketch_trim_topology(
             ellipse_cutter, false);
-        require(std::none_of(ellipse_cut_topology.begin(), ellipse_cut_topology.end(),
+        const auto upper_ellipse_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                ellipse_cut_topology, {0.0, 4.0}, 0.25);
+        require(upper_ellipse_piece &&
+                    upper_ellipse_piece->geometry_id == trim_ellipse_id &&
+                std::count_if(ellipse_cut_topology.begin(), ellipse_cut_topology.end(),
                     [&](const auto& piece) {
                         return piece.geometry_id == trim_ellipse_id;
-                    }) &&
+                    }) == 2 &&
                 std::count_if(ellipse_cut_topology.begin(), ellipse_cut_topology.end(),
                     [&](const auto& piece) {
                         return piece.geometry_id == ellipse_cut_target;
                     }) == 3,
-                "Ellipse did not create trim boundaries while exact elliptical arcs are pending");
+                "Ellipse did not expose exact trimmable pieces at its crossings");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            ellipse_cutter, {*upper_ellipse_piece}));
+        require(ellipse_cutter.ellipses.empty() &&
+                    ellipse_cutter.elliptical_arcs.size() == 1 &&
+                    ellipse_cutter.elliptical_arcs.front().id == trim_ellipse_id &&
+                    std::abs(ellipse_cutter.elliptical_arcs.front().major_radius - 8.0) <
+                        1.0e-9 &&
+                    std::abs(ellipse_cutter.elliptical_arcs.front().minor_radius - 4.0) <
+                        1.0e-9 &&
+                    ellipse_cutter.viewer_mesh().edges.back().reference.semantic_key ==
+                        "elliptical_arc:" + trim_ellipse_id,
+                "Ellipse trim did not preserve exact parameters and stable identity");
+        const auto loaded_trimmed_ellipse = zima::sketcher::Sketch::from_serialized(
+            ellipse_cutter.serialized());
+        require(loaded_trimmed_ellipse.elliptical_arcs ==
+                    ellipse_cutter.elliptical_arcs,
+                "Trimmed elliptical arc did not survive Sketch serialization");
+        static_cast<void>(ellipse_cutter.add_segment(
+            0.0, -6.0, 0.0, 6.0, 1.0e-6, true));
+        const auto retrim_topology = zima::sketcher::sketch_trim_topology(
+            ellipse_cutter, false);
+        const auto right_elliptical_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                retrim_topology, {5.5, -2.8}, 0.5);
+        require(right_elliptical_piece &&
+                    right_elliptical_piece->geometry_id == trim_ellipse_id,
+                "Persisted elliptical arc was not offered for a later trim");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            ellipse_cutter, {*right_elliptical_piece}));
+        require(ellipse_cutter.elliptical_arcs.size() == 1 &&
+                    ellipse_cutter.elliptical_arcs.front().id == trim_ellipse_id,
+                "Repeated elliptical-arc trim lost stable geometry identity");
+        ellipse_cutter.validate();
+
+        auto oblique_ellipse_trim = zima::sketcher::Sketch::create_default();
+        const auto oblique_ellipse_id = oblique_ellipse_trim.add_ellipse(
+            0.0, 0.0, 8.0, 0.0, 0.0, 4.0);
+        constexpr double first_parameter = 0.37;
+        constexpr double second_parameter = 2.41;
+        const std::array<double, 2> first_ellipse_point{
+            8.0 * std::cos(first_parameter), 4.0 * std::sin(first_parameter)};
+        const std::array<double, 2> second_ellipse_point{
+            8.0 * std::cos(second_parameter), 4.0 * std::sin(second_parameter)};
+        const auto oblique_chord = oblique_ellipse_trim.add_segment(
+            first_ellipse_point[0], first_ellipse_point[1],
+            second_ellipse_point[0], second_ellipse_point[1]);
+        const auto oblique_topology = zima::sketcher::sketch_trim_topology(
+            oblique_ellipse_trim, false);
+        const auto removed_oblique_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                oblique_topology, {-7.5, -1.0}, 2.0);
+        require(removed_oblique_piece &&
+                    removed_oblique_piece->geometry_id == oblique_ellipse_id,
+                "Oblique analytical Ellipse crossing was not refined for Trim");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            oblique_ellipse_trim, {*removed_oblique_piece}));
+        const auto chord_value = std::find_if(
+            oblique_ellipse_trim.segments.begin(),
+            oblique_ellipse_trim.segments.end(),
+            [&](const auto& value) { return value.id == oblique_chord; });
+        const auto& oblique_arc = oblique_ellipse_trim.elliptical_arcs.front();
+        const std::set<std::string> chord_points{
+            chord_value->first_point_id, chord_value->second_point_id};
+        const std::set<std::string> arc_points{
+            oblique_arc.start_point_id, oblique_arc.end_point_id};
+        require(chord_points == arc_points,
+                "Refined Ellipse trim did not preserve shared exact chord endpoints");
 
         auto stale_trim = zima::sketcher::Sketch::create_default();
         static_cast<void>(stale_trim.add_segment(-5.0, 2.0, 5.0, 2.0));

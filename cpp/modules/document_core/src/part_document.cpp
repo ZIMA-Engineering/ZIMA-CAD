@@ -128,6 +128,11 @@ zima::kernel::ExtrusionRequest extrusion_request(
                             }
                             if constexpr (std::is_same_v<
                                               std::decay_t<decltype(exact_curve)>,
+                                              zima::kernel::ExtrusionRequest::EllipticalArcCurve>) {
+                                shift_point(exact_curve.center);
+                            }
+                            if constexpr (std::is_same_v<
+                                              std::decay_t<decltype(exact_curve)>,
                                               zima::kernel::ExtrusionRequest::BSplineCurve>) {
                                 for (auto& point : exact_curve.control_points) {
                                     shift_point(point);
@@ -159,6 +164,11 @@ zima::kernel::ExtrusionRequest extrusion_request(
     for (const auto& ellipse : sketch.ellipses) {
         if (!ellipse.construction) profile_ellipses.push_back(&ellipse);
     }
+    std::vector<const zima::sketcher::SketchEllipticalArc*>
+        profile_elliptical_arcs;
+    for (const auto& arc : sketch.elliptical_arcs) {
+        if (!arc.construction) profile_elliptical_arcs.push_back(&arc);
+    }
     std::vector<const zima::sketcher::SketchBSpline*> profile_splines;
     for (const auto& spline : sketch.bsplines) {
         if (!spline.construction) profile_splines.push_back(&spline);
@@ -175,13 +185,44 @@ zima::kernel::ExtrusionRequest extrusion_request(
         curve.end = spline.closed ? curve.start : curve.control_points.back();
         return curve;
     };
+    const auto exact_elliptical_arc = [&](const auto& arc) {
+        const auto* center = sketch.find_point(arc.center_point_id);
+        const auto* major = sketch.find_point(arc.major_point_id);
+        const auto* minor = sketch.find_point(arc.minor_point_id);
+        const auto* start = sketch.find_point(arc.start_point_id);
+        const auto* end = sketch.find_point(arc.end_point_id);
+        const auto center_world = sketch.world_point(center->x, center->y);
+        const bool swap_axes = arc.major_radius < arc.minor_radius;
+        const auto axis_world = swap_axes
+            ? sketch.world_point(minor->x, minor->y)
+            : sketch.world_point(major->x, major->y);
+        const double major_radius = swap_axes ? arc.minor_radius : arc.major_radius;
+        zima::kernel::ExtrusionRequest::EllipticalArcCurve curve;
+        curve.start = sketch.world_point(start->x, start->y);
+        curve.end = sketch.world_point(end->x, end->y);
+        curve.center = center_world;
+        curve.major_axis_direction = {
+            (axis_world.x - center_world.x) / major_radius,
+            (axis_world.y - center_world.y) / major_radius,
+            (axis_world.z - center_world.z) / major_radius};
+        curve.major_radius = major_radius;
+        curve.minor_radius = swap_axes ? arc.major_radius : arc.minor_radius;
+        curve.start_parameter = arc.start_parameter -
+            (swap_axes ? 3.14159265358979323846 / 2.0 : 0.0);
+        curve.end_parameter = arc.end_parameter -
+            (swap_axes ? 3.14159265358979323846 / 2.0 : 0.0);
+        curve.reversed = arc.reversed !=
+            (direction_mode == ExtrusionDirection::Reverse);
+        return curve;
+    };
     const auto closed_spline = std::find_if(profile_splines.begin(), profile_splines.end(),
         [](const auto* spline) { return spline->closed; });
     if (closed_spline != profile_splines.end()) {
         if (std::count_if(profile_splines.begin(), profile_splines.end(),
                 [](const auto* spline) { return spline->closed; }) != 1 ||
             profile_splines.size() != 1 || !profile_segments.empty() ||
-            !profile_arcs.empty() || !profile_ellipses.empty()) {
+            !profile_arcs.empty() || !profile_ellipses.empty() ||
+            !profile_elliptical_arcs.empty()) {
             throw std::runtime_error(
                 "Closed B-spline profile must be one standalone outer loop");
         }
@@ -198,7 +239,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
     }
     if (!profile_ellipses.empty()) {
         if (profile_ellipses.size() != 1 || !profile_segments.empty() ||
-            !profile_circles.empty() || !profile_arcs.empty()) {
+            !profile_circles.empty() || !profile_arcs.empty() ||
+            !profile_elliptical_arcs.empty()) {
             throw std::runtime_error(
                 "Ellipse profile must currently be one standalone closed loop");
         }
@@ -222,7 +264,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
             major_radius, minor_radius};
         return finalize(std::move(request));
     }
-    if (!profile_arcs.empty() || !profile_splines.empty()) {
+    if (!profile_arcs.empty() || !profile_elliptical_arcs.empty() ||
+        !profile_splines.empty()) {
         struct CurveRecord {
             std::string id;
             std::string start_point_id;
@@ -231,6 +274,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
             std::array<double, 2> end;
             std::variant<zima::kernel::ExtrusionRequest::LineCurve,
                          zima::kernel::ExtrusionRequest::ArcCurve,
+                         zima::kernel::ExtrusionRequest::EllipticalArcCurve,
                          zima::kernel::ExtrusionRequest::BSplineCurve> curve;
             std::size_t start_node{};
             std::size_t end_node{};
@@ -264,6 +308,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
                     sketch.world_point(start[0], start[1]),
                     sketch.world_point(middle[0], middle[1]),
                     sketch.world_point(end[0], end[1])}});
+        }
+        for (const auto* arc : profile_elliptical_arcs) {
+            const auto* start = sketch.find_point(arc->start_point_id);
+            const auto* end = sketch.find_point(arc->end_point_id);
+            curves.push_back({arc->id, arc->start_point_id, arc->end_point_id,
+                {start->x, start->y}, {end->x, end->y},
+                exact_elliptical_arc(*arc)});
         }
         for (const auto* spline : profile_splines) {
             const auto* first = sketch.find_point(spline->control_point_ids.front());
@@ -320,6 +371,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
             if (!forward) {
                 std::visit([](auto& curve) {
                     std::swap(curve.start, curve.end);
+                    if constexpr (std::is_same_v<std::decay_t<decltype(curve)>,
+                                      zima::kernel::ExtrusionRequest::EllipticalArcCurve>) {
+                        const double old_start = curve.start_parameter;
+                        const double old_end = curve.end_parameter;
+                        curve.reversed = !curve.reversed;
+                        curve.start_parameter = -old_end;
+                        curve.end_parameter = -old_start;
+                    }
                     if constexpr (std::is_same_v<std::decay_t<decltype(curve)>,
                                       zima::kernel::ExtrusionRequest::BSplineCurve>) {
                         std::reverse(curve.control_points.begin(),
@@ -1052,7 +1111,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 11) {
+        root.at("format_version").get<int>() != 12) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -1683,7 +1742,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 11},
+        {"format_version", 12},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

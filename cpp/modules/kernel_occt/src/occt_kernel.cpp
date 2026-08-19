@@ -655,6 +655,85 @@ void validate_extrusion(const ExtrusionRequest& request) {
                         }
                         if constexpr (std::is_same_v<
                                           std::decay_t<decltype(exact_curve)>,
+                                          ExtrusionRequest::EllipticalArcCurve>) {
+                            const double axis_length = std::sqrt(
+                                exact_curve.major_axis_direction.x *
+                                    exact_curve.major_axis_direction.x +
+                                exact_curve.major_axis_direction.y *
+                                    exact_curve.major_axis_direction.y +
+                                exact_curve.major_axis_direction.z *
+                                    exact_curve.major_axis_direction.z);
+                            const double normal_length = std::sqrt(
+                                request.direction.x * request.direction.x +
+                                request.direction.y * request.direction.y +
+                                request.direction.z * request.direction.z);
+                            const double orthogonality = std::abs(
+                                exact_curve.major_axis_direction.x * request.direction.x +
+                                exact_curve.major_axis_direction.y * request.direction.y +
+                                exact_curve.major_axis_direction.z * request.direction.z);
+                            if (!finite(exact_curve.center) ||
+                                !finite(exact_curve.major_axis_direction) ||
+                                !std::isfinite(axis_length) || axis_length <= 1.0e-12 ||
+                                !std::isfinite(normal_length) || normal_length <= 1.0e-12 ||
+                                orthogonality > 1.0e-9 * axis_length * normal_length ||
+                                !std::isfinite(exact_curve.major_radius) ||
+                                !std::isfinite(exact_curve.minor_radius) ||
+                                !std::isfinite(exact_curve.start_parameter) ||
+                                !std::isfinite(exact_curve.end_parameter) ||
+                                exact_curve.major_radius <= 0.0 ||
+                                exact_curve.minor_radius <= 0.0 ||
+                                exact_curve.major_radius < exact_curve.minor_radius ||
+                                exact_curve.end_parameter <= exact_curve.start_parameter ||
+                                exact_curve.end_parameter - exact_curve.start_parameter >=
+                                    2.0 * std::numbers::pi) {
+                                throw std::invalid_argument(
+                                    "Extrusion elliptical Arc definition is invalid");
+                            }
+                            const double orientation = exact_curve.reversed ? -1.0 : 1.0;
+                            const Vec3 axis{
+                                exact_curve.major_axis_direction.x / axis_length,
+                                exact_curve.major_axis_direction.y / axis_length,
+                                exact_curve.major_axis_direction.z / axis_length};
+                            const Vec3 normal{
+                                orientation * request.direction.x / normal_length,
+                                orientation * request.direction.y / normal_length,
+                                orientation * request.direction.z / normal_length};
+                            const Vec3 side{
+                                normal.y * axis.z - normal.z * axis.y,
+                                normal.z * axis.x - normal.x * axis.z,
+                                normal.x * axis.y - normal.y * axis.x};
+                            const auto point_at = [&](double parameter) {
+                                return Vec3{
+                                    exact_curve.center.x + exact_curve.major_radius *
+                                        std::cos(parameter) * axis.x +
+                                        exact_curve.minor_radius * std::sin(parameter) *
+                                            side.x,
+                                    exact_curve.center.y + exact_curve.major_radius *
+                                        std::cos(parameter) * axis.y +
+                                        exact_curve.minor_radius * std::sin(parameter) *
+                                            side.y,
+                                    exact_curve.center.z + exact_curve.major_radius *
+                                        std::cos(parameter) * axis.z +
+                                        exact_curve.minor_radius * std::sin(parameter) *
+                                            side.z};
+                            };
+                            const auto expected_start = point_at(
+                                exact_curve.start_parameter);
+                            const auto expected_end = point_at(
+                                exact_curve.end_parameter);
+                            const double coordinate_tolerance = 1.0e-7 * std::max(
+                                {1.0, exact_curve.major_radius,
+                                 exact_curve.minor_radius});
+                            if (distance(expected_start, exact_curve.start) >
+                                    coordinate_tolerance ||
+                                distance(expected_end, exact_curve.end) >
+                                    coordinate_tolerance) {
+                                throw std::invalid_argument(
+                                    "Extrusion elliptical Arc endpoints are inconsistent");
+                            }
+                        }
+                        if constexpr (std::is_same_v<
+                                          std::decay_t<decltype(exact_curve)>,
                                           ExtrusionRequest::BSplineCurve>) {
                             if (exact_curve.degree < 1 ||
                                 exact_curve.control_points.size() <
@@ -783,7 +862,7 @@ TopoDS_Wire make_profile_wire(
         } else {
             BRepBuilderAPI_MakeWire curved_wire;
             for (const auto& curve : profile.curves) {
-                const TopoDS_Edge edge = std::visit([](const auto& exact_curve) {
+                const TopoDS_Edge edge = std::visit([&](const auto& exact_curve) {
                     using Curve = std::decay_t<decltype(exact_curve)>;
                     if constexpr (std::is_same_v<Curve,
                                       ExtrusionRequest::LineCurve>) {
@@ -805,6 +884,28 @@ TopoDS_Wire make_profile_wire(
                             throw std::runtime_error("OCCT profile Arc failed");
                         }
                         return BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+                    } else if constexpr (std::is_same_v<Curve,
+                                             ExtrusionRequest::EllipticalArcCurve>) {
+                        gp_Dir normal(
+                            profile_normal.x, profile_normal.y, profile_normal.z);
+                        if (exact_curve.reversed) normal.Reverse();
+                        const gp_Dir major_direction(
+                            exact_curve.major_axis_direction.x,
+                            exact_curve.major_axis_direction.y,
+                            exact_curve.major_axis_direction.z);
+                        const gp_Elips ellipse(
+                            gp_Ax2(gp_Pnt(
+                                exact_curve.center.x, exact_curve.center.y,
+                                exact_curve.center.z), normal, major_direction),
+                            exact_curve.major_radius, exact_curve.minor_radius);
+                        BRepBuilderAPI_MakeEdge edge(
+                            ellipse, exact_curve.start_parameter,
+                            exact_curve.end_parameter);
+                        if (!edge.IsDone()) {
+                            throw std::runtime_error(
+                                "OCCT profile elliptical Arc failed");
+                        }
+                        return edge.Edge();
                     } else {
                         const Standard_Integer pole_count =
                             static_cast<Standard_Integer>(exact_curve.control_points.size());

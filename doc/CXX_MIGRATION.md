@@ -767,7 +767,7 @@ spline s kruhovými otvory. Viewerová polyline není tělesová geometrie.
 
 Pravidelný mnohoúhelník nabízí 4, 6 nebo 8 stran a vzniká dvěma body: středem a
 prvním vrcholem na opsané kružnici. Nejde pouze o jednorázově vypočtenou sadu
-čar. Sketch formát verze 8 ukládá konstrukční kružnici, vazbu každého vrcholu
+čar. Sketch formát verze 9 ukládá konstrukční kružnici, vazbu každého vrcholu
 na tuto kružnici a vazby stejných délek stran. Přesun středu přeloží kružnici i
 všechny její vázané vrcholy; řídicí změna poloměru regeneruje celý profil bez
 OCCT. Toolbar používá jedno menu Mnohoúhelník pro všechny tři podporované počty
@@ -795,10 +795,13 @@ jen tento seznam a zvýrazní přesně jednu část. Každé gesto mění jen ko
 Krátké MMB uloží všechny změny jako jedinou Part revizi, zatímco Escape obnoví
 beze změny vstupní skicu. První přeživší část zachová ID zdrojové geometrie a
 původní krajní body, další části dostanou nová stabilní ID; vodorovná a svislá
-vazba úsečky se bezpečně přenese na všechny přeživší části. Elipsa zatím slouží
-jen jako přesná mez pro jiné křivky. Její vlastní ořez bude povolen až po zavedení
-persistovaného eliptického oblouku; importovaný blok se ze stejného důvodu
-nenabízí k částečnému ořezu.
+vazba úsečky se bezpečně přenese na všechny přeživší části. Elipsa se při ořezu
+změní na přesný persistovaný eliptický oblouk se stabilním středem, osami,
+koncovými body, parametry a orientací. Tento oblouk lze znovu ořezat, zrcadlit,
+uložit a použít ve smíšeném uzavřeném profilu pro přesné Vytažení i Rotaci;
+viewerová polyline zůstává jen zobrazením. Půlelipsa 10 × 4 mm uzavřená
+průměrovou úsečkou a vytažená o 10 mm musí mít objem `200π mm³`. Importovaný
+blok se nadále nenabízí k částečnému ořezu.
 
 Třetí kóta řídí natočení elipsy ve stupních. Změna úhlu otočí oba persistované
 osové body kolem středu beze změny poloos; aktivní řídicí úhel omezuje také
@@ -815,7 +818,8 @@ zabraňují tomu, aby se oblouk při přechodu do OCCT potají změnil na polygo
 
 Příkaz **Rotace** používá stejný interní Properties a rollback kontrakt jako
 Vytažení. Rotace a Vytažení sdílejí jediný přesný profilový kontrakt: polygony,
-kružnice, vnější smyčky kombinující úsečky a oblouky a vnitřní kruhové smyčky.
+kružnice, elipsy, vnější smyčky kombinující úsečky, kruhové a eliptické oblouky
+či B-spline a vnitřní kruhové smyčky.
 Oblouk má vlastní stabilní ID geometrie a persistované reference na stabilní
 středový, počáteční a koncový bod. Navazující geometrie tak sdílí ID bodu a
 nespoléhá jen na shodu souřadnic; změna poloměru současně aktualizuje oba

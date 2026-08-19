@@ -71,6 +71,23 @@ struct SketchEllipse {
     bool operator==(const SketchEllipse&) const = default;
 };
 
+struct SketchEllipticalArc {
+    std::string id;
+    std::string center_point_id;
+    std::string major_point_id;
+    std::string minor_point_id;
+    std::string start_point_id;
+    std::string end_point_id;
+    double major_radius{};
+    double minor_radius{};
+    double rotation{};
+    double start_parameter{};
+    double end_parameter{};
+    bool construction{};
+    bool reversed{};
+    bool operator==(const SketchEllipticalArc&) const = default;
+};
+
 struct SketchBSpline {
     std::string id;
     std::vector<std::string> control_point_ids;
@@ -145,6 +162,7 @@ public:
     std::vector<SketchCircle> circles;
     std::vector<SketchArc> arcs;
     std::vector<SketchEllipse> ellipses;
+    std::vector<SketchEllipticalArc> elliptical_arcs;
     std::vector<SketchBSpline> bsplines;
     std::vector<SketchImportBlock> import_blocks;
     std::vector<SketchConstraint> constraints;
@@ -206,6 +224,11 @@ public:
         double center_x, double center_y, double major_x, double major_y,
         double minor_x, double minor_y, bool construction = false,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::string add_elliptical_arc(
+        double center_x, double center_y, double major_x, double major_y,
+        double minor_x, double minor_y, double start_x, double start_y,
+        double end_x, double end_y, bool reversed = false,
+        bool construction = false, double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_bspline(
         const std::vector<std::array<double, 2>>& control_points,
         unsigned degree = 3, bool closed = false, bool construction = false,

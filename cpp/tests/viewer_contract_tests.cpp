@@ -105,6 +105,19 @@ int main() {
                     trim_contract.front().owner_id == "sketch" &&
                     trim_contract.front().semantic_key == "trim_piece:7",
                 "Trim hover and click did not use one common viewer candidate");
+        zima::kernel::ViewerMesh elliptical_arc_mesh;
+        elliptical_arc_mesh.edges.push_back({
+            {{-2.0, 0.0, 5.0}, {2.0, 0.0, 5.0}},
+            {"sketch", "elliptical_arc:arc-a"}, false, true});
+        const auto elliptical_arc_contract = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                elliptical_arc_mesh, {0.0, 0.0, 0.0},
+                {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchCurve});
+        require(elliptical_arc_contract.size() == 1 &&
+                    elliptical_arc_contract.front().semantic_key ==
+                        "elliptical_arc:arc-a",
+                "Persisted elliptical Arc was not exposed by the SketchCurve contract");
         const auto container_contract = zima::viewer::filter_candidates(
             all_candidates, {zima::viewer::CandidateKind::Container});
         require(container_contract.size() == 2 &&

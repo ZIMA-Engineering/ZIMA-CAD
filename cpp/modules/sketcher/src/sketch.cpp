@@ -153,6 +153,41 @@ std::array<double, 2> reflected_position(
             2.0 * projection_y - position[1]};
 }
 
+constexpr double pi = 3.14159265358979323846;
+constexpr double full_turn = 2.0 * pi;
+
+std::array<double, 2> ellipse_position(
+    double center_x, double center_y, double major_radius,
+    double minor_radius, double rotation, bool reversed,
+    double parameter) {
+    const double orientation = reversed ? -1.0 : 1.0;
+    const double local_x = major_radius * std::cos(parameter);
+    const double local_y = orientation * minor_radius * std::sin(parameter);
+    return {
+        center_x + local_x * std::cos(rotation) - local_y * std::sin(rotation),
+        center_y + local_x * std::sin(rotation) + local_y * std::cos(rotation)};
+}
+
+double ellipse_parameter(
+    double center_x, double center_y, double major_radius,
+    double minor_radius, double rotation, bool reversed,
+    double x, double y) {
+    const double dx = x - center_x;
+    const double dy = y - center_y;
+    const double local_x =
+        (dx * std::cos(rotation) + dy * std::sin(rotation)) / major_radius;
+    const double local_y =
+        (-dx * std::sin(rotation) + dy * std::cos(rotation)) / minor_radius;
+    const double orientation = reversed ? -1.0 : 1.0;
+    return std::atan2(orientation * local_y, local_x);
+}
+
+double unwrap_near(double value, double reference) {
+    while (value - reference > pi) value -= full_turn;
+    while (value - reference < -pi) value += full_turn;
+    return value;
+}
+
 }  // namespace
 
 Sketch Sketch::create_default() {
@@ -267,6 +302,55 @@ void Sketch::validate() const {
                     std::cos(ellipse.rotation))) >
                 1.0e-7) {
             throw std::runtime_error("Sketch ellipse axis references are inconsistent");
+        }
+    }
+    ids.clear();
+    for (const auto& arc : elliptical_arcs) {
+        const auto* center = find_point(arc.center_point_id);
+        const auto* major = find_point(arc.major_point_id);
+        const auto* minor = find_point(arc.minor_point_id);
+        const auto* start = find_point(arc.start_point_id);
+        const auto* end = find_point(arc.end_point_id);
+        const double orientation = arc.reversed ? -1.0 : 1.0;
+        if (arc.id.empty() || !ids.insert(arc.id).second ||
+            center == nullptr || major == nullptr || minor == nullptr ||
+            start == nullptr || end == nullptr ||
+            arc.center_point_id == arc.major_point_id ||
+            arc.center_point_id == arc.minor_point_id ||
+            arc.center_point_id == arc.start_point_id ||
+            arc.center_point_id == arc.end_point_id ||
+            arc.major_point_id == arc.minor_point_id ||
+            arc.start_point_id == arc.end_point_id ||
+            !std::isfinite(arc.major_radius) || arc.major_radius <= 0.0 ||
+            !std::isfinite(arc.minor_radius) || arc.minor_radius <= 0.0 ||
+            !std::isfinite(arc.rotation) ||
+            !std::isfinite(arc.start_parameter) ||
+            !std::isfinite(arc.end_parameter) ||
+            arc.end_parameter <= arc.start_parameter ||
+            arc.end_parameter - arc.start_parameter >= full_turn) {
+            throw std::runtime_error("Sketch elliptical arc is invalid");
+        }
+        const auto start_position = ellipse_position(
+            center->x, center->y, arc.major_radius, arc.minor_radius,
+            arc.rotation, arc.reversed, arc.start_parameter);
+        const auto end_position = ellipse_position(
+            center->x, center->y, arc.major_radius, arc.minor_radius,
+            arc.rotation, arc.reversed, arc.end_parameter);
+        if (std::hypot(
+                major->x - (center->x + arc.major_radius * std::cos(arc.rotation)),
+                major->y - (center->y + arc.major_radius * std::sin(arc.rotation))) >
+                1.0e-7 ||
+            std::hypot(
+                minor->x - (center->x - orientation * arc.minor_radius *
+                    std::sin(arc.rotation)),
+                minor->y - (center->y + orientation * arc.minor_radius *
+                    std::cos(arc.rotation))) > 1.0e-7 ||
+            std::hypot(start->x - start_position[0], start->y - start_position[1]) >
+                1.0e-7 ||
+            std::hypot(end->x - end_position[0], end->y - end_position[1]) >
+                1.0e-7) {
+            throw std::runtime_error(
+                "Sketch elliptical arc references are inconsistent");
         }
     }
     ids.clear();
@@ -406,6 +490,7 @@ void Sketch::validate() const {
             std::ranges::any_of(circles, [&](const auto& value) { return value.id == geometry_id; }) ||
             std::ranges::any_of(arcs, [&](const auto& value) { return value.id == geometry_id; }) ||
             std::ranges::any_of(ellipses, [&](const auto& value) { return value.id == geometry_id; }) ||
+            std::ranges::any_of(elliptical_arcs, [&](const auto& value) { return value.id == geometry_id; }) ||
             std::ranges::any_of(bsplines, [&](const auto& value) { return value.id == geometry_id; });
     };
     for (const auto& block : import_blocks) {
@@ -610,6 +695,110 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 std::sin(ellipse.rotation);
             minor->y = center->y + orientation * ellipse.minor_radius *
                 std::cos(ellipse.rotation);
+        }
+    }
+    for (auto& arc : next.elliptical_arcs) {
+        auto* center = next.find_point(arc.center_point_id);
+        auto* major = next.find_point(arc.major_point_id);
+        auto* minor = next.find_point(arc.minor_point_id);
+        auto* start = next.find_point(arc.start_point_id);
+        auto* end = next.find_point(arc.end_point_id);
+        const double orientation = arc.reversed ? -1.0 : 1.0;
+        const auto assign_position = [&](SketchPoint* target,
+                                         const std::array<double, 2>& position) {
+            if (target->fixed &&
+                std::hypot(target->x - position[0], target->y - position[1]) >
+                    1.0e-12) {
+                return false;
+            }
+            target->x = position[0];
+            target->y = position[1];
+            return true;
+        };
+        if (arc.center_point_id == point_id) {
+            std::set<std::string> translated;
+            for (const auto& dependent_id : {
+                    arc.major_point_id, arc.minor_point_id,
+                    arc.start_point_id, arc.end_point_id}) {
+                if (!translated.insert(dependent_id).second) continue;
+                auto* dependent = next.find_point(dependent_id);
+                if (dependent->fixed &&
+                    (std::abs(translation_x) > 1.0e-12 ||
+                     std::abs(translation_y) > 1.0e-12)) {
+                    return false;
+                }
+                dependent->x += translation_x;
+                dependent->y += translation_y;
+            }
+            continue;
+        }
+        if (arc.major_point_id == point_id) {
+            const double radius = std::hypot(x - center->x, y - center->y);
+            if (radius <= 1.0e-12) return false;
+            const double rotation = std::atan2(y - center->y, x - center->x);
+            const std::array<double, 2> minor_position{
+                center->x - orientation * arc.minor_radius * std::sin(rotation),
+                center->y + orientation * arc.minor_radius * std::cos(rotation)};
+            const auto start_position = ellipse_position(
+                center->x, center->y, radius, arc.minor_radius,
+                rotation, arc.reversed, arc.start_parameter);
+            const auto end_position = ellipse_position(
+                center->x, center->y, radius, arc.minor_radius,
+                rotation, arc.reversed, arc.end_parameter);
+            if (!assign_position(minor, minor_position) ||
+                !assign_position(start, start_position) ||
+                !assign_position(end, end_position)) return false;
+            arc.major_radius = radius;
+            arc.rotation = rotation;
+            continue;
+        }
+        if (arc.minor_point_id == point_id) {
+            const double projected = orientation * (
+                -(x - center->x) * std::sin(arc.rotation) +
+                 (y - center->y) * std::cos(arc.rotation));
+            const double radius = std::abs(projected);
+            if (radius <= 1.0e-12) return false;
+            const std::array<double, 2> minor_position{
+                center->x - orientation * radius * std::sin(arc.rotation),
+                center->y + orientation * radius * std::cos(arc.rotation)};
+            const auto start_position = ellipse_position(
+                center->x, center->y, arc.major_radius, radius,
+                arc.rotation, arc.reversed, arc.start_parameter);
+            const auto end_position = ellipse_position(
+                center->x, center->y, arc.major_radius, radius,
+                arc.rotation, arc.reversed, arc.end_parameter);
+            if (!assign_position(minor, minor_position) ||
+                !assign_position(start, start_position) ||
+                !assign_position(end, end_position)) return false;
+            arc.minor_radius = radius;
+            continue;
+        }
+        const bool moving_start = arc.start_point_id == point_id;
+        const bool moving_end = arc.end_point_id == point_id;
+        if (!moving_start && !moving_end) continue;
+        double parameter = ellipse_parameter(
+            center->x, center->y, arc.major_radius, arc.minor_radius,
+            arc.rotation, arc.reversed, x, y);
+        if (moving_start) {
+            parameter = unwrap_near(parameter, arc.start_parameter);
+            while (parameter >= arc.end_parameter) parameter -= full_turn;
+            if (arc.end_parameter - parameter >= full_turn - 1.0e-12) return false;
+            arc.start_parameter = parameter;
+            const auto position = ellipse_position(
+                center->x, center->y, arc.major_radius, arc.minor_radius,
+                arc.rotation, arc.reversed, parameter);
+            start->x = position[0];
+            start->y = position[1];
+        } else {
+            parameter = unwrap_near(parameter, arc.end_parameter);
+            while (parameter <= arc.start_parameter) parameter += full_turn;
+            if (parameter - arc.start_parameter >= full_turn - 1.0e-12) return false;
+            arc.end_parameter = parameter;
+            const auto position = ellipse_position(
+                center->x, center->y, arc.major_radius, arc.minor_radius,
+                arc.rotation, arc.reversed, parameter);
+            end->x = position[0];
+            end->y = position[1];
         }
     }
     const auto solved = next.solve();
@@ -930,6 +1119,16 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         collect(found->major_point_id);
         collect(found->minor_point_id);
     }
+    if (const auto found = std::find_if(
+            next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        found != next.elliptical_arcs.end()) {
+        collect(found->center_point_id);
+        collect(found->major_point_id);
+        collect(found->minor_point_id);
+        collect(found->start_point_id);
+        collect(found->end_point_id);
+    }
     if (const auto found = std::find_if(next.bsplines.begin(), next.bsplines.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         found != next.bsplines.end()) {
@@ -943,9 +1142,12 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto ellipse_count = std::erase_if(next.ellipses,
         [&](const auto& value) { return value.id == geometry_id; });
+    const auto elliptical_arc_count = std::erase_if(next.elliptical_arcs,
+        [&](const auto& value) { return value.id == geometry_id; });
     const auto spline_count = std::erase_if(next.bsplines,
         [&](const auto& value) { return value.id == geometry_id; });
-    if (segment_count + circle_count + arc_count + ellipse_count + spline_count != 1) {
+    if (segment_count + circle_count + arc_count + ellipse_count +
+            elliptical_arc_count + spline_count != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
@@ -960,6 +1162,13 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                 [&](const auto& value) {
                     return value.center_point_id == point_id ||
                         value.major_point_id == point_id || value.minor_point_id == point_id;
+            }) || std::any_of(next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == point_id ||
+                        value.major_point_id == point_id ||
+                        value.minor_point_id == point_id ||
+                        value.start_point_id == point_id ||
+                        value.end_point_id == point_id;
             }) || std::any_of(next.bsplines.begin(), next.bsplines.end(),
                 [&](const auto& value) {
                     return std::find(value.control_point_ids.begin(),
@@ -995,6 +1204,13 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                     return value.center_point_id == point_id ||
                         value.major_point_id == point_id ||
                         value.minor_point_id == point_id;
+            }) || std::any_of(next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == point_id ||
+                        value.major_point_id == point_id ||
+                        value.minor_point_id == point_id ||
+                        value.start_point_id == point_id ||
+                        value.end_point_id == point_id;
             }) || std::any_of(next.bsplines.begin(), next.bsplines.end(),
                 [&](const auto& value) {
                     return std::find(value.control_point_ids.begin(),
@@ -1060,6 +1276,16 @@ void Sketch::remove_point(const std::string& point_id) {
                            ellipse.minor_point_id});
         }
     }
+    for (const auto& arc : next.elliptical_arcs) {
+        if (arc.center_point_id == point_id || arc.major_point_id == point_id ||
+            arc.minor_point_id == point_id || arc.start_point_id == point_id ||
+            arc.end_point_id == point_id) {
+            collect_geometry(arc.id,
+                std::array{arc.center_point_id, arc.major_point_id,
+                           arc.minor_point_id, arc.start_point_id,
+                           arc.end_point_id});
+        }
+    }
     for (const auto& spline : next.bsplines) {
         if (std::find(spline.control_point_ids.begin(), spline.control_point_ids.end(),
                       point_id) != spline.control_point_ids.end()) {
@@ -1089,6 +1315,8 @@ void Sketch::remove_point(const std::string& point_id) {
         [&](const auto& value) { return geometry_removed(value.id); });
     std::erase_if(next.ellipses,
         [&](const auto& value) { return geometry_removed(value.id); });
+    std::erase_if(next.elliptical_arcs,
+        [&](const auto& value) { return geometry_removed(value.id); });
     std::erase_if(next.bsplines,
         [&](const auto& value) { return geometry_removed(value.id); });
     std::erase_if(next.constraints, [&](const auto& value) {
@@ -1114,6 +1342,14 @@ void Sketch::remove_point(const std::string& point_id) {
                     return value.center_point_id == candidate_id ||
                         value.major_point_id == candidate_id ||
                         value.minor_point_id == candidate_id;
+                }) || std::any_of(
+                next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+                [&](const auto& value) {
+                    return value.center_point_id == candidate_id ||
+                        value.major_point_id == candidate_id ||
+                        value.minor_point_id == candidate_id ||
+                        value.start_point_id == candidate_id ||
+                        value.end_point_id == candidate_id;
                 }) || std::any_of(next.bsplines.begin(), next.bsplines.end(),
                 [&](const auto& value) {
                     return std::find(value.control_point_ids.begin(),
@@ -1271,6 +1507,9 @@ MirroredGeometryResult Sketch::mirror_geometry(
                     return value.id == entity_id;
                 })) +
             static_cast<std::size_t>(std::count_if(
+                elliptical_arcs.begin(), elliptical_arcs.end(),
+                [&](const auto& value) { return value.id == entity_id; })) +
+            static_cast<std::size_t>(std::count_if(
                 bsplines.begin(), bsplines.end(), [&](const auto& value) {
                     return value.id == entity_id;
                 }));
@@ -1360,6 +1599,33 @@ MirroredGeometryResult Sketch::mirror_geometry(
                 source->construction, !source->reversed};
             mirrored_id = mirrored.id;
             next.ellipses.push_back(std::move(mirrored));
+        } else if (const auto source = std::find_if(
+                elliptical_arcs.begin(), elliptical_arcs.end(),
+                [&](const auto& value) { return value.id == entity_id; });
+            source != elliptical_arcs.end()) {
+            const auto center_id = map_point(source->center_point_id);
+            const auto major_id = map_point(source->major_point_id);
+            const auto minor_id = map_point(source->minor_point_id);
+            const auto start_id = map_point(source->start_point_id);
+            const auto end_id = map_point(source->end_point_id);
+            const auto* center = next.find_point(center_id);
+            const auto* major = next.find_point(major_id);
+            const auto* start = next.find_point(start_id);
+            const double rotation = std::atan2(
+                major->y - center->y, major->x - center->x);
+            const bool reversed = !source->reversed;
+            const double start_parameter = ellipse_parameter(
+                center->x, center->y, source->major_radius,
+                source->minor_radius, rotation, reversed,
+                start->x, start->y);
+            SketchEllipticalArc mirrored{
+                make_id(), center_id, major_id, minor_id, start_id, end_id,
+                source->major_radius, source->minor_radius, rotation,
+                start_parameter,
+                start_parameter + (source->end_parameter - source->start_parameter),
+                source->construction, reversed};
+            mirrored_id = mirrored.id;
+            next.elliptical_arcs.push_back(std::move(mirrored));
         } else {
             const auto spline_source = std::find_if(bsplines.begin(), bsplines.end(),
                 [&](const auto& value) { return value.id == entity_id; });
@@ -1514,6 +1780,85 @@ std::string Sketch::add_ellipse(
     return id;
 }
 
+std::string Sketch::add_elliptical_arc(
+    double center_x, double center_y, double major_x, double major_y,
+    double minor_x, double minor_y, double start_x, double start_y,
+    double end_x, double end_y, bool reversed, bool construction,
+    double snap_tolerance) {
+    for (const double value : {center_x, center_y, major_x, major_y,
+                               minor_x, minor_y, start_x, start_y,
+                               end_x, end_y, snap_tolerance}) {
+        require_finite(value, "elliptical arc parameter");
+    }
+    const double major_radius = std::hypot(major_x - center_x, major_y - center_y);
+    const double rotation = std::atan2(major_y - center_y, major_x - center_x);
+    const double orientation = reversed ? -1.0 : 1.0;
+    const double minor_projection = orientation * (
+        -(minor_x - center_x) * std::sin(rotation) +
+         (minor_y - center_y) * std::cos(rotation));
+    if (major_radius <= 1.0e-12 || minor_projection <= 1.0e-12 ||
+        snap_tolerance < 0.0) {
+        throw std::invalid_argument(
+            "Sketch elliptical arc axes or snap tolerance are invalid");
+    }
+    const double minor_radius = minor_projection;
+    double start_parameter = ellipse_parameter(
+        center_x, center_y, major_radius, minor_radius, rotation, reversed,
+        start_x, start_y);
+    double end_parameter = ellipse_parameter(
+        center_x, center_y, major_radius, minor_radius, rotation, reversed,
+        end_x, end_y);
+    while (end_parameter <= start_parameter) end_parameter += full_turn;
+    const auto exact_start = ellipse_position(
+        center_x, center_y, major_radius, minor_radius, rotation, reversed,
+        start_parameter);
+    const auto exact_end = ellipse_position(
+        center_x, center_y, major_radius, minor_radius, rotation, reversed,
+        end_parameter);
+    const double point_tolerance = std::max(1.0e-7, snap_tolerance);
+    if (end_parameter - start_parameter >= full_turn - 1.0e-12 ||
+        std::hypot(start_x - exact_start[0], start_y - exact_start[1]) >
+            point_tolerance ||
+        std::hypot(end_x - exact_end[0], end_y - exact_end[1]) >
+            point_tolerance) {
+        throw std::invalid_argument(
+            "Sketch elliptical arc endpoints must lie on the ellipse");
+    }
+    auto next = *this;
+    const auto point_id = [&](double x, double y) {
+        const auto found = std::find_if(next.points.begin(), next.points.end(),
+            [&](const auto& point) {
+                return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
+            });
+        if (found != next.points.end() &&
+            std::hypot(found->x - x, found->y - y) <= 1.0e-7) {
+            return found->id;
+        }
+        auto point = create_point(x, y);
+        const auto id = point.id;
+        next.points.push_back(std::move(point));
+        return id;
+    };
+    const auto center_id = point_id(center_x, center_y);
+    const auto major_id = point_id(
+        center_x + major_radius * std::cos(rotation),
+        center_y + major_radius * std::sin(rotation));
+    const auto minor_id = point_id(
+        center_x - orientation * minor_radius * std::sin(rotation),
+        center_y + orientation * minor_radius * std::cos(rotation));
+    const auto start_id = point_id(exact_start[0], exact_start[1]);
+    const auto end_id = point_id(exact_end[0], exact_end[1]);
+    SketchEllipticalArc arc{
+        make_id(), center_id, major_id, minor_id, start_id, end_id,
+        major_radius, minor_radius, rotation, start_parameter, end_parameter,
+        construction, reversed};
+    const auto id = arc.id;
+    next.elliptical_arcs.push_back(std::move(arc));
+    next.validate();
+    *this = std::move(next);
+    return id;
+}
+
 std::string Sketch::add_bspline(
     const std::vector<std::array<double, 2>>& control_points,
     unsigned degree, bool closed, bool construction, double snap_tolerance) {
@@ -1599,6 +1944,11 @@ void Sketch::transform_import_block(
     for (auto& ellipse : next.ellipses) {
         if (std::ranges::find(block->geometry_ids, ellipse.id) != block->geometry_ids.end()) {
             ellipse.rotation += angle;
+        }
+    }
+    for (auto& arc : next.elliptical_arcs) {
+        if (std::ranges::find(block->geometry_ids, arc.id) != block->geometry_ids.end()) {
+            arc.rotation += angle;
         }
     }
     block->translation_x = translation_x;
@@ -1804,6 +2154,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
     const auto original_circles = circles;
     const auto original_arcs = arcs;
     const auto original_ellipses = ellipses;
+    const auto original_elliptical_arcs = elliptical_arcs;
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto move_pair = [](SketchPoint& first, SketchPoint& second,
@@ -1857,6 +2208,63 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             ellipse.major_radius = major_radius;
             ellipse.minor_radius = minor_radius;
             ellipse.rotation = std::atan2(major_y, major_x);
+        }
+        for (auto& arc : elliptical_arcs) {
+            const auto* center = find_point(arc.center_point_id);
+            const auto* major = find_point(arc.major_point_id);
+            const auto* minor = find_point(arc.minor_point_id);
+            const auto* start = find_point(arc.start_point_id);
+            const auto* end = find_point(arc.end_point_id);
+            const double major_x = major->x - center->x;
+            const double major_y = major->y - center->y;
+            const double minor_x = minor->x - center->x;
+            const double minor_y = minor->y - center->y;
+            const double major_radius = std::hypot(major_x, major_y);
+            const double minor_radius = std::hypot(minor_x, minor_y);
+            if (major_radius <= tolerance || minor_radius <= tolerance ||
+                std::abs(major_x * minor_x + major_y * minor_y) >
+                    1.0e-7 * major_radius * minor_radius) return false;
+            const double orientation = arc.reversed ? -1.0 : 1.0;
+            if (orientation * (major_x * minor_y - major_y * minor_x) <= 0.0) {
+                return false;
+            }
+            const double rotation = std::atan2(major_y, major_x);
+            const auto normalized_radius = [&](const SketchPoint* point) {
+                const double dx = point->x - center->x;
+                const double dy = point->y - center->y;
+                const double local_x =
+                    (dx * std::cos(rotation) + dy * std::sin(rotation)) /
+                    major_radius;
+                const double local_y =
+                    (-dx * std::sin(rotation) + dy * std::cos(rotation)) /
+                    minor_radius;
+                return local_x * local_x + local_y * local_y;
+            };
+            if (std::abs(normalized_radius(start) - 1.0) > 1.0e-7 ||
+                std::abs(normalized_radius(end) - 1.0) > 1.0e-7) return false;
+            double start_parameter = unwrap_near(
+                ellipse_parameter(
+                    center->x, center->y, major_radius, minor_radius,
+                    rotation, arc.reversed, start->x, start->y),
+                arc.start_parameter);
+            double end_parameter = unwrap_near(
+                ellipse_parameter(
+                    center->x, center->y, major_radius, minor_radius,
+                    rotation, arc.reversed, end->x, end->y),
+                arc.end_parameter);
+            while (end_parameter <= start_parameter) end_parameter += full_turn;
+            while (end_parameter - start_parameter >= full_turn) {
+                end_parameter -= full_turn;
+            }
+            if (end_parameter <= start_parameter ||
+                end_parameter - start_parameter >= full_turn - 1.0e-10) {
+                return false;
+            }
+            arc.major_radius = major_radius;
+            arc.minor_radius = minor_radius;
+            arc.rotation = rotation;
+            arc.start_parameter = start_parameter;
+            arc.end_parameter = end_parameter;
         }
         return true;
     };
@@ -2091,6 +2499,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             circles = original_circles;
             arcs = original_arcs;
             ellipses = original_ellipses;
+            elliptical_arcs = original_elliptical_arcs;
             return {SolveStatus::Conflicting, 0, maximum_residual};
         }
         if (maximum_residual <= tolerance) break;
@@ -2100,6 +2509,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         circles = original_circles;
         arcs = original_arcs;
         ellipses = original_ellipses;
+        elliptical_arcs = original_elliptical_arcs;
         return {SolveStatus::Conflicting, 0, maximum_residual};
     }
     for (const auto& segment : segments) {
@@ -2110,6 +2520,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             circles = original_circles;
             arcs = original_arcs;
             ellipses = original_ellipses;
+            elliptical_arcs = original_elliptical_arcs;
             return {SolveStatus::Conflicting, 0, 0.0};
         }
     }
@@ -2440,6 +2851,26 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         result.edges.push_back(std::move(edge));
     }
+    for (const auto& arc : elliptical_arcs) {
+        const auto* center = find_point(arc.center_point_id);
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {id, "elliptical_arc:" + arc.id, {}};
+        edge.construction = arc.construction;
+        edge.overlay = true;
+        const double sweep = arc.end_parameter - arc.start_parameter;
+        const auto samples = std::max<std::size_t>(8,
+            static_cast<std::size_t>(std::ceil(192.0 * sweep / full_turn)));
+        edge.points.reserve(samples + 1);
+        for (std::size_t sample = 0; sample <= samples; ++sample) {
+            const double parameter = arc.start_parameter + sweep *
+                static_cast<double>(sample) / static_cast<double>(samples);
+            const auto position = ellipse_position(
+                center->x, center->y, arc.major_radius, arc.minor_radius,
+                arc.rotation, arc.reversed, parameter);
+            edge.points.push_back(world_point(position[0], position[1]));
+        }
+        result.edges.push_back(std::move(edge));
+    }
     for (const auto& arc : arcs) {
         const auto* center = find_point(arc.center_point_id);
         zima::kernel::ViewerEdge edge;
@@ -2629,6 +3060,17 @@ std::string Sketch::serialized() const {
         {"major_radius", ellipse.major_radius},
         {"minor_radius", ellipse.minor_radius}, {"rotation", ellipse.rotation},
         {"construction", ellipse.construction}, {"reversed", ellipse.reversed}});
+    nlohmann::json elliptical_arc_values = nlohmann::json::array();
+    for (const auto& arc : elliptical_arcs) elliptical_arc_values.push_back({
+        {"id", arc.id}, {"center", arc.center_point_id},
+        {"major_point", arc.major_point_id},
+        {"minor_point", arc.minor_point_id},
+        {"start", arc.start_point_id}, {"end", arc.end_point_id},
+        {"major_radius", arc.major_radius},
+        {"minor_radius", arc.minor_radius}, {"rotation", arc.rotation},
+        {"start_parameter", arc.start_parameter},
+        {"end_parameter", arc.end_parameter},
+        {"construction", arc.construction}, {"reversed", arc.reversed}});
     nlohmann::json spline_values = nlohmann::json::array();
     for (const auto& spline : bsplines) spline_values.push_back({
         {"id", spline.id}, {"control_points", spline.control_point_ids},
@@ -2656,13 +3098,14 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 8},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 9},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
         {"circles", std::move(circle_values)},
         {"arcs", std::move(arc_values)},
         {"ellipses", std::move(ellipse_values)},
+        {"elliptical_arcs", std::move(elliptical_arc_values)},
         {"bsplines", std::move(spline_values)},
         {"import_blocks", std::move(import_block_values)},
         {"constraints", std::move(constraint_values)},
@@ -2672,7 +3115,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 8) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 9) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -2702,6 +3145,22 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("major_radius").get<double>(),
         value.at("minor_radius").get<double>(), value.at("rotation").get<double>(),
         value.at("construction").get<bool>(), value.at("reversed").get<bool>()});
+    for (const auto& value : root.at("elliptical_arcs")) {
+        sketch.elliptical_arcs.push_back({
+            value.at("id").get<std::string>(),
+            value.at("center").get<std::string>(),
+            value.at("major_point").get<std::string>(),
+            value.at("minor_point").get<std::string>(),
+            value.at("start").get<std::string>(),
+            value.at("end").get<std::string>(),
+            value.at("major_radius").get<double>(),
+            value.at("minor_radius").get<double>(),
+            value.at("rotation").get<double>(),
+            value.at("start_parameter").get<double>(),
+            value.at("end_parameter").get<double>(),
+            value.at("construction").get<bool>(),
+            value.at("reversed").get<bool>()});
+    }
     for (const auto& value : root.at("bsplines")) sketch.bsplines.push_back({
         value.at("id").get<std::string>(),
         value.at("control_points").get<std::vector<std::string>>(),

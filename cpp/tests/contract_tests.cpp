@@ -1,6 +1,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/sketcher/sketch_trim.hpp>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <STEPControl_Writer.hxx>
 
@@ -1067,6 +1068,82 @@ int main() {
         require(std::abs(ellipse_profile_results.front().volume -
                     400.0 * std::numbers::pi) < 1.0e-6,
                 "Exact Ellipse extrusion has an incorrect volume");
+        auto trimmed_ellipse_document =
+            zima::document::PartDocument::create_default();
+        auto trimmed_ellipse_sketch = zima::sketcher::Sketch::create_default();
+        const auto trimmed_ellipse_id = trimmed_ellipse_sketch.add_ellipse(
+            0.0, 0.0, 10.0, 0.0, 0.0, 4.0);
+        static_cast<void>(trimmed_ellipse_sketch.add_segment(
+            -10.0, 0.0, 10.0, 0.0));
+        const auto trimmed_ellipse_topology =
+            zima::sketcher::sketch_trim_topology(trimmed_ellipse_sketch, false);
+        const auto lower_half = zima::sketcher::nearest_sketch_trim_piece(
+            trimmed_ellipse_topology, {0.0, -4.0}, 0.25);
+        require(lower_half && lower_half->geometry_id == trimmed_ellipse_id,
+                "Ellipse half was not available to the exact Trim operation");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            trimmed_ellipse_sketch, {*lower_half}));
+        require(trimmed_ellipse_sketch.ellipses.empty() &&
+                    trimmed_ellipse_sketch.elliptical_arcs.size() == 1,
+                "Trim did not convert the Ellipse survivor to an exact elliptical Arc");
+        const auto trimmed_ellipse_sketch_id = trimmed_ellipse_sketch.id;
+        trimmed_ellipse_document.sketches.push_back(
+            std::move(trimmed_ellipse_sketch));
+        auto trimmed_ellipse_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                trimmed_ellipse_sketch_id);
+        trimmed_ellipse_extrusion.extrusion.direction =
+            zima::document::ExtrusionDirection::Reverse;
+        trimmed_ellipse_document.history.push_back(
+            std::move(trimmed_ellipse_extrusion));
+        const auto trimmed_ellipse_results = kernel.evaluate_history(
+            trimmed_ellipse_document.kernel_operations());
+        require(std::abs(trimmed_ellipse_results.front().volume -
+                    200.0 * std::numbers::pi) < 1.0e-6,
+                "Exact trimmed Ellipse profile has an incorrect solid volume");
+        auto changed_elliptical_arc_operations =
+            trimmed_ellipse_document.kernel_operations();
+        auto& changed_elliptical_extrusion =
+            std::get<zima::kernel::ExtrusionRequest>(
+                changed_elliptical_arc_operations.front().primitive);
+        auto& changed_curved_profile =
+            std::get<zima::kernel::ExtrusionRequest::CurvedProfile>(
+                changed_elliptical_extrusion.outer_profile);
+        bool changed_elliptical_parameter = false;
+        for (auto& curve : changed_curved_profile.curves) {
+            if (auto* elliptical_arc = std::get_if<
+                    zima::kernel::ExtrusionRequest::EllipticalArcCurve>(&curve)) {
+                elliptical_arc->end_parameter -= 0.01;
+                changed_elliptical_parameter = true;
+            }
+        }
+        require(changed_elliptical_parameter &&
+                    zima::kernel::history_fingerprint(
+                        changed_elliptical_arc_operations, 1) !=
+                        trimmed_ellipse_results.front().source_fingerprint,
+                "Elliptical Arc parameters are missing from the history fingerprint");
+        auto swapped_ellipse_document =
+            zima::document::PartDocument::create_default();
+        auto swapped_ellipse_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(swapped_ellipse_sketch.add_elliptical_arc(
+            0.0, 0.0, 4.0, 0.0, 0.0, 10.0,
+            4.0, 0.0, -4.0, 0.0));
+        static_cast<void>(swapped_ellipse_sketch.add_segment(
+            -4.0, 0.0, 4.0, 0.0));
+        const auto swapped_ellipse_sketch_id = swapped_ellipse_sketch.id;
+        swapped_ellipse_document.sketches.push_back(
+            std::move(swapped_ellipse_sketch));
+        auto swapped_ellipse_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                swapped_ellipse_sketch_id);
+        swapped_ellipse_extrusion.extrusion.height = 5.0;
+        swapped_ellipse_document.history.push_back(
+            std::move(swapped_ellipse_extrusion));
+        const auto swapped_ellipse_results = kernel.evaluate_history(
+            swapped_ellipse_document.kernel_operations());
+        require(std::abs(swapped_ellipse_results.front().volume -
+                    100.0 * std::numbers::pi) < 1.0e-6,
+                "Elliptical Arc with swapped semiaxis order changed its exact volume");
         auto ellipse_revolution_document =
             zima::document::PartDocument::create_default();
         auto ellipse_revolution_sketch = zima::sketcher::Sketch::create_default();

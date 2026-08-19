@@ -261,6 +261,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 : edge.reference.semantic_key.starts_with("circle:") ||
                   edge.reference.semantic_key.starts_with("arc:") ||
                   edge.reference.semantic_key.starts_with("ellipse:") ||
+                  edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                   edge.reference.semantic_key.starts_with("bspline:")
                     ? CandidateKind::SketchCurve : CandidateKind::Edge;
             result.push_back({kind, edge.distance, edge.edge,

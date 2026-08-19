@@ -817,6 +817,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(true);
@@ -833,6 +834,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_ = candidate.semantic_key.substr(7);
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
             selected_sketch_segment_id_.clear();
             selected_sketch_point_id_.clear();
@@ -853,6 +855,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_ = candidate.semantic_key.substr(4);
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
@@ -872,6 +875,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_ = candidate.semantic_key.substr(8);
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
@@ -889,11 +893,35 @@ void AssemblyWorkspaceWindow::create_layout() {
             state_->setText(tr("Vybrána elipsa skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
+                   candidate.semantic_key.starts_with("elliptical_arc:")) {
+            selected_sketch_segment_id_.clear();
+            selected_sketch_circle_id_.clear();
+            selected_sketch_arc_id_.clear();
+            selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_ = candidate.semantic_key.substr(15);
+            selected_sketch_bspline_id_.clear();
+            selected_sketch_point_id_.clear();
+            sketch_horizontal_action_->setEnabled(false);
+            sketch_vertical_action_->setEnabled(false);
+            sketch_dimension_action_->setEnabled(false);
+            sketch_dimension_x_action_->setEnabled(false);
+            sketch_dimension_y_action_->setEnabled(false);
+            sketch_angle_dimension_action_->setEnabled(false);
+            sketch_radius_dimension_action_->setEnabled(false);
+            sketch_diameter_dimension_action_->setEnabled(false);
+            sketch_ellipse_major_dimension_action_->setEnabled(false);
+            sketch_ellipse_minor_dimension_action_->setEnabled(false);
+            sketch_ellipse_rotation_dimension_action_->setEnabled(false);
+            sketch_fix_point_action_->setEnabled(false);
+            state_->setText(tr("Vybrán eliptický oblouk skici."));
+        } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+                   candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("bspline:")) {
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_ = candidate.semantic_key.substr(8);
             selected_sketch_point_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
@@ -914,6 +942,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
             selected_sketch_ellipse_id_.clear();
+            selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
             sketch_horizontal_action_->setEnabled(false);
             sketch_vertical_action_->setEnabled(false);
@@ -1064,6 +1093,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
         selected_sketch_ellipse_id_.clear();
+        selected_sketch_elliptical_arc_id_.clear();
         selected_sketch_point_id_.clear();
         cancel_sketch_segment();
         refresh_scene();
@@ -1081,6 +1111,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 selected_sketch_circle_id_.clear();
                 selected_sketch_arc_id_.clear();
                 selected_sketch_ellipse_id_.clear();
+                selected_sketch_elliptical_arc_id_.clear();
                 selected_sketch_bspline_id_.clear();
                 cancel_sketch_segment();
                 sketch_normal_view_action_->setEnabled(true);
@@ -1283,6 +1314,7 @@ QString AssemblyWorkspaceWindow::create_document(
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     cancel_sketch_segment();
     refresh_tabs();
@@ -1341,6 +1373,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     cancel_sketch_segment();
     refresh_tabs();
@@ -1654,6 +1687,7 @@ void AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     cancel_sketch_segment();
     refresh_tabs();
@@ -2765,6 +2799,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     selected_sketch_point_id_.clear();
     viewer_->clear_selection();
@@ -2790,6 +2825,7 @@ void AssemblyWorkspaceWindow::start_sketch_point() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Bod skici: určete polohu. Escape příkaz zruší."));
 }
@@ -2812,6 +2848,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment(bool construction) {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     pending_segment_start_.reset();
     viewer_->set_transient_edges({});
@@ -2886,6 +2923,7 @@ void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Obdélník skici: určete první roh. Escape příkaz zruší."));
 }
@@ -2915,6 +2953,7 @@ void AssemblyWorkspaceWindow::start_sketch_polygon(unsigned sides) {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Pravidelný %1úhelník: určete střed. Escape příkaz zruší.")
         .arg(sides));
@@ -2946,6 +2985,7 @@ void AssemblyWorkspaceWindow::start_sketch_trim() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     selected_sketch_point_id_.clear();
     selection_action_->setChecked(true);
@@ -3139,6 +3179,8 @@ void AssemblyWorkspaceWindow::start_sketch_mirror() {
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
         : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
         : !selected_sketch_ellipse_id_.empty() ? selected_sketch_ellipse_id_
+        : !selected_sketch_elliptical_arc_id_.empty()
+            ? selected_sketch_elliptical_arc_id_
         : !selected_sketch_bspline_id_.empty() ? selected_sketch_bspline_id_
         : selected_sketch_point_id_;
     cancel_sketch_segment();
@@ -3149,6 +3191,7 @@ void AssemblyWorkspaceWindow::start_sketch_mirror() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     selected_sketch_point_id_.clear();
     viewer_->clear_selection();
@@ -3185,7 +3228,8 @@ void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
     } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
         for (const std::string_view prefix : {
                 std::string_view{"circle:"}, std::string_view{"arc:"},
-                std::string_view{"ellipse:"}, std::string_view{"bspline:"}}) {
+                std::string_view{"ellipse:"}, std::string_view{"elliptical_arc:"},
+                std::string_view{"bspline:"}}) {
             if (candidate.semantic_key.starts_with(prefix)) {
                 source_id = candidate.semantic_key.substr(prefix.size());
                 break;
@@ -3292,6 +3336,7 @@ void AssemblyWorkspaceWindow::start_sketch_circle() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Kružnice skici: určete střed. Escape příkaz zruší."));
 }
@@ -3319,6 +3364,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Oblouk skici: určete střed. Escape příkaz zruší."));
 }
@@ -3347,6 +3393,7 @@ void AssemblyWorkspaceWindow::start_sketch_ellipse() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("Elipsa skici: určete střed. Escape příkaz zruší."));
 }
@@ -3375,6 +3422,7 @@ void AssemblyWorkspaceWindow::start_sketch_bspline() {
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_ellipse_id_.clear();
+    selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
     state_->setText(tr("B-spline: přidávejte řídicí body; Enter dokončí, Escape zruší."));
 }
@@ -3900,6 +3948,8 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
         : !selected_sketch_arc_id_.empty() ? selected_sketch_arc_id_
         : !selected_sketch_ellipse_id_.empty() ? selected_sketch_ellipse_id_
+        : !selected_sketch_elliptical_arc_id_.empty()
+            ? selected_sketch_elliptical_arc_id_
         : selected_sketch_bspline_id_;
     if (geometry_id.empty() && selected_sketch_point_id_.empty()) return false;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -3917,6 +3967,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         selected_sketch_circle_id_.clear();
         selected_sketch_arc_id_.clear();
         selected_sketch_ellipse_id_.clear();
+        selected_sketch_elliptical_arc_id_.clear();
         selected_sketch_bspline_id_.clear();
         selected_sketch_point_id_.clear();
         preserve_view_on_refresh_ = true;

@@ -188,6 +188,17 @@ struct ExtrusionRequest {
         Vec3 middle;
         Vec3 end;
     };
+    struct EllipticalArcCurve {
+        Vec3 start;
+        Vec3 end;
+        Vec3 center;
+        Vec3 major_axis_direction{1.0, 0.0, 0.0};
+        double major_radius{};
+        double minor_radius{};
+        double start_parameter{};
+        double end_parameter{};
+        bool reversed{};
+    };
     struct BSplineCurve {
         Vec3 start;
         Vec3 end;
@@ -196,7 +207,8 @@ struct ExtrusionRequest {
         bool periodic{};
     };
     struct CurvedProfile {
-        std::vector<std::variant<LineCurve, ArcCurve, BSplineCurve>> curves;
+        std::vector<std::variant<
+            LineCurve, ArcCurve, EllipticalArcCurve, BSplineCurve>> curves;
     };
     using ProfileLoop = std::variant<
         PolygonProfile, CircleProfile, EllipseProfile, CurvedProfile>;
@@ -426,6 +438,20 @@ struct BodyResult {
                                     }
                                     if constexpr (std::is_same_v<
                                                       std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::EllipticalArcCurve>) {
+                                        append_point(exact_curve.center);
+                                        append_point(exact_curve.major_axis_direction);
+                                        for (const double value : {
+                                                exact_curve.major_radius,
+                                                exact_curve.minor_radius,
+                                                exact_curve.start_parameter,
+                                                exact_curve.end_parameter}) {
+                                            u64(std::bit_cast<std::uint64_t>(value));
+                                        }
+                                        byte(exact_curve.reversed);
+                                    }
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
                                                       ExtrusionRequest::BSplineCurve>) {
                                         u64(exact_curve.degree);
                                         byte(exact_curve.periodic);
@@ -514,6 +540,20 @@ struct BodyResult {
                                                       std::decay_t<decltype(exact_curve)>,
                                                       ExtrusionRequest::ArcCurve>) {
                                         point(exact_curve.middle);
+                                    }
+                                    if constexpr (std::is_same_v<
+                                                      std::decay_t<decltype(exact_curve)>,
+                                                      ExtrusionRequest::EllipticalArcCurve>) {
+                                        point(exact_curve.center);
+                                        point(exact_curve.major_axis_direction);
+                                        for (const double value : {
+                                                exact_curve.major_radius,
+                                                exact_curve.minor_radius,
+                                                exact_curve.start_parameter,
+                                                exact_curve.end_parameter}) {
+                                            u64(std::bit_cast<std::uint64_t>(value));
+                                        }
+                                        byte(exact_curve.reversed);
                                     }
                                     if constexpr (std::is_same_v<
                                                       std::decay_t<decltype(exact_curve)>,

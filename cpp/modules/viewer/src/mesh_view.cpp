@@ -571,6 +571,7 @@ void MeshView::paintGL() {
                 edge.reference.semantic_key.starts_with("circle:") ||
                 edge.reference.semantic_key.starts_with("arc:") ||
                 edge.reference.semantic_key.starts_with("ellipse:") ||
+                edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                 edge.reference.semantic_key.starts_with("bspline:");
         });
     const bool points_visible = impl_->show_points && !impl_->mesh.points.empty();
@@ -609,6 +610,7 @@ void MeshView::paintGL() {
                     !edge.reference.semantic_key.starts_with("circle:") &&
                     !edge.reference.semantic_key.starts_with("arc:") &&
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
+                    !edge.reference.semantic_key.starts_with("elliptical_arc:") &&
                     !edge.reference.semantic_key.starts_with("bspline:")) continue;
                 painter.setPen(edge.construction
                     ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
