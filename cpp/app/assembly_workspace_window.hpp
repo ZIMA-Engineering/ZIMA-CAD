@@ -8,6 +8,7 @@
 #include <QMainWindow>
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <array>
 #include <utility>
@@ -249,6 +250,7 @@ private:
         zima::sketcher::DimensionKind::Distance};
     bool preserve_view_on_refresh_{};
     std::optional<zima::document::PartDocument> sketch_drag_document_;
+    std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
     bool sketch_drag_changed_{};
     std::optional<zima::assembly::AssemblyDocument> assembly_drag_document_;
@@ -279,6 +281,9 @@ private:
     void set_active_application(ApplicationMode mode);
     void update_document_area_visibility();
     void regenerate_active_document();
+    [[nodiscard]] const zima::sketcher::Sketch* active_sketch() const;
+    bool mutate_active_sketch(
+        const std::function<void(zima::sketcher::Sketch&)>& mutation);
     void edit_document_parameters();
     void regenerate_assembly();
     void start_plane_mate();

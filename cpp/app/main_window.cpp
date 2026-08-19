@@ -283,7 +283,8 @@ void MainWindow::show_primitive_properties(
         !(edit_mode && document.history.front().id == initial.id);
     auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, allow_subtract,
-        [this, edit_mode](zima::document::HistoryContainer committed) {
+        [this, edit_mode](zima::document::HistoryContainer committed,
+                          std::vector<std::string>) {
             auto next = session_.document();
             if (edit_mode) {
                 if (auto* target = next.find_container(committed.id)) {

@@ -241,6 +241,25 @@ bool refresh_sketch_external_references(
     return changed;
 }
 
+bool refresh_assembly_sketch_external_references(
+    zima::assembly::AssemblyDocument& document) {
+    const auto source = document.build_scene().original_references;
+    bool changed = false;
+    for (auto& sketch : document.sketches) {
+        std::set<std::string> source_documents;
+        for (const auto& reference : sketch.external_references) {
+            if (!reference.source_document_id.empty()) {
+                source_documents.insert(reference.source_document_id);
+            }
+        }
+        for (const auto& source_document_id : source_documents) {
+            changed = sketch.refresh_external_references(
+                source_document_id, source) || changed;
+        }
+    }
+    return changed;
+}
+
 void populate_external_reference_cache(
     const zima::sketcher::Sketch& sketch,
     zima::sketcher::SketchExternalReference& reference,
@@ -1700,7 +1719,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     "part-sketch-dimension" ||
                 item->data(0, Qt::UserRole + 3).toString() ==
                     "part-sketch-constraint") return;
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
+            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
+                item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 active_sketch_id_ = item->data(0, Qt::UserRole).toString().toStdString();
                 selected_sketch_id_ = active_sketch_id_;
                 selected_sketch_segment_id_.clear();
@@ -1796,7 +1816,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     item->data(0, Qt::UserRole).toString().toStdString());
                 return;
             }
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
+            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
+                item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 show_sketch_properties(
                     item->data(0, Qt::UserRole).toString().toStdString());
                 return;
@@ -1808,6 +1829,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                             item->data(0, Qt::UserRole).toString().toStdString())
                         ->feature_kind,
                     item->data(0, Qt::UserRole).toString().toStdString());
+                return;
+            }
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-cut") {
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                const auto* assembly =
+                    workspace_.open_assembly(workspace_.active_document_id());
+                const auto* cut = assembly == nullptr
+                    ? nullptr : assembly->session.document().find_cut(id);
+                if (cut != nullptr) {
+                    show_primitive_properties(cut->definition.feature_kind, id);
+                }
                 return;
             }
             const std::string source_id =
@@ -1840,7 +1872,34 @@ void AssemblyWorkspaceWindow::create_layout() {
                     tree_->viewport()->mapToGlobal(position));
                 return;
             }
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-cut") {
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                auto* assembly =
+                    workspace_.open_assembly(workspace_.active_document_id());
+                const auto* cut = assembly == nullptr
+                    ? nullptr : assembly->session.document().find_cut(id);
+                if (cut == nullptr) return;
+                QMenu menu(this);
+                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* suppress = menu.addAction(cut->definition.suppressed
+                    ? tr("Obnovit") : tr("Potlačit"));
+                auto* remove = menu.addAction(tr("Odstranit"));
+                const auto* selected = menu.exec(
+                    tree_->viewport()->mapToGlobal(position));
+                if (selected == properties) {
+                    show_primitive_properties(cut->definition.feature_kind, id);
+                } else if (selected == suppress) {
+                    auto next = assembly->session.document();
+                    if (auto* value = next.find_cut(id)) {
+                        value->definition.suppressed = !value->definition.suppressed;
+                        assembly->session.commit(std::move(next));
+                        refresh_tabs();
+                        refresh_scene();
+                    }
+                } else if (selected == remove) {
+                    delete_part_object(id, QStringLiteral("assembly-cut"));
+                }
+            } else if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
                 const auto* container = part == nullptr
@@ -1889,7 +1948,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == remove) {
                     delete_part_object(id, item->data(0, Qt::UserRole + 3).toString());
                 }
-            } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
+            } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
+                       item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 QMenu menu(this);
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
@@ -1898,7 +1958,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                     tree_->viewport()->mapToGlobal(position));
                 if (selected == properties) show_sketch_properties(id);
                 else if (selected == remove) {
-                    delete_part_object(id, QStringLiteral("sketch"));
+                    delete_part_object(id,
+                        item->data(0, Qt::UserRole + 3).toString() ==
+                                QStringLiteral("assembly-sketch")
+                            ? QStringLiteral("assembly-sketch")
+                            : QStringLiteral("sketch"));
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                        "part-sketch-dimension") {
@@ -2569,6 +2633,55 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
             }
         }
         workspace_.regenerate_assembly_from_open_dependencies(id);
+        if (auto* regenerated = workspace_.open_assembly(id)) {
+            auto next = regenerated->session.document();
+            const bool references_changed =
+                refresh_assembly_sketch_external_references(next);
+            bool cuts_calculated = false;
+            for (const auto& cut : next.cuts) {
+                if (cut.definition.suppressed) continue;
+                zima::document::PartDocument cutter_document;
+                cutter_document.user_parameters = next.user_parameters;
+                cutter_document.relations = next.relations;
+                cutter_document.sketches = next.sketches;
+                cutter_document.constructions = next.constructions;
+                cutter_document.history = {cut.definition};
+                auto cutter_operations = cutter_document.kernel_operations(true);
+                if (cutter_operations.size() != 1) {
+                    throw std::runtime_error(
+                        "Assembly cut did not produce one cutter operation");
+                }
+                // The feature definition stays subtractive, while the cutter
+                // solid must first be calculated as a standalone positive body.
+                cutter_operations.front().operation =
+                    zima::kernel::BooleanOperation::Add;
+                const auto cutter_boundaries =
+                    kernel_.evaluate_history(cutter_operations);
+                if (cutter_boundaries.empty()) {
+                    throw std::runtime_error("Assembly cut body is empty");
+                }
+                for (const auto& target_id : cut.target_occurrence_ids) {
+                    auto* target = next.find_occurrence(target_id);
+                    if (target == nullptr || target->source_kind !=
+                            zima::assembly::ComponentSourceKind::Part) {
+                        throw std::runtime_error(
+                            "Assembly cut target must be an immediate Part occurrence");
+                    }
+                    if (target->suppressed) continue;
+                    target->calculated_source = kernel_.subtract_bodies(
+                        target->calculated_source, cutter_boundaries.back(),
+                        {target->placement.x, target->placement.y,
+                         target->placement.z},
+                        {target->placement.rotation_x,
+                         target->placement.rotation_y,
+                         target->placement.rotation_z});
+                    cuts_calculated = true;
+                }
+            }
+            if (references_changed || cuts_calculated) {
+                regenerated->session.commit(std::move(next));
+            }
+        }
         refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
@@ -2758,7 +2871,8 @@ bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
     const std::string part_id = part->session.document().document_id;
     auto* dialog = new PrimitivePropertiesDialog(
         initial, false, false,
-        [this, part_id](zima::document::HistoryContainer committed) {
+        [this, part_id](zima::document::HistoryContainer committed,
+                        std::vector<std::string>) {
             auto* target = workspace_.open_part(part_id);
             if (target == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target->session.document();
@@ -2788,39 +2902,62 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto active_occurrence = resolve_active_occurrence(
-        part->session.document().document_id);
-    if (!active_occurrence || candidate.instance_path != *active_occurrence) {
-        state_->setText(tr(
-            "Vyberte plochu přesného aktivního výskytu Partu."));
-        return;
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (part == nullptr && assembly == nullptr) return;
+    if (part != nullptr) {
+        const auto active_occurrence = resolve_active_occurrence(
+            part->session.document().document_id);
+        if (!active_occurrence || candidate.instance_path != *active_occurrence) {
+            state_->setText(tr(
+                "Vyberte plochu přesného aktivního výskytu Partu."));
+            return;
+        }
+    } else {
+        const auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+        if (path.occurrence_ids.empty() ||
+            assembly->session.document().find_occurrence(path.occurrence_ids.front()) ==
+                nullptr) {
+            state_->setText(tr("Vyberte plochu komponenty aktivní sestavy."));
+            return;
+        }
     }
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 normal;
     bool resolved = false;
     std::vector<zima::kernel::Vec3> surface_triangles;
-    if (const auto* construction =
-            part->session.document().find_construction(candidate.owner_id);
-        construction != nullptr &&
+    const auto* construction = part == nullptr ? nullptr
+        : part->session.document().find_construction(candidate.owner_id);
+    if (construction != nullptr &&
         construction->kind == zima::document::ConstructionKind::Plane) {
         origin = construction->origin;
         normal = construction->direction;
         resolved = true;
-    } else if (!part->session.calculated_boundaries().empty()) {
-        const auto& references = part->session.calculated_boundaries().back()
-            .mesh.original_references;
+    } else {
+        const auto scene = assembly == nullptr
+            ? zima::kernel::ViewerMesh{}
+            : assembly->session.document().build_scene();
+        const auto* references = assembly != nullptr
+            ? &scene.original_references
+            : part->session.calculated_boundaries().empty()
+                ? nullptr
+                : &part->session.calculated_boundaries().back()
+                    .mesh.original_references;
+        if (references == nullptr) {
+            state_->setText(tr("Vybraná plocha nemá uloženou geometrii."));
+            return;
+        }
         for (std::size_t triangle = 0;
-             triangle < references.triangle_references.size(); ++triangle) {
-            const auto& reference = references.triangle_references[triangle];
+             triangle < references->triangle_references.size(); ++triangle) {
+            const auto& reference = references->triangle_references[triangle];
             if (reference.owner_id != candidate.owner_id ||
-                reference.semantic_key != candidate.semantic_key) continue;
-            const auto first = references.vertices[
-                references.triangles[triangle * 3]];
-            const auto second = references.vertices[
-                references.triangles[triangle * 3 + 1]];
-            const auto third = references.vertices[
-                references.triangles[triangle * 3 + 2]];
+                reference.semantic_key != candidate.semantic_key ||
+                reference.instance_path != candidate.instance_path) continue;
+            const auto first = references->vertices[
+                references->triangles[triangle * 3]];
+            const auto second = references->vertices[
+                references->triangles[triangle * 3 + 1]];
+            const auto third = references->vertices[
+                references->triangles[triangle * 3 + 2]];
             const zima::kernel::Vec3 a{second.x - first.x, second.y - first.y,
                                        second.z - first.z};
             const zima::kernel::Vec3 b{third.x - first.x, third.y - first.y,
@@ -2836,11 +2973,11 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             origin = first;
             resolved = true;
             for (std::size_t other = 0;
-                 other < references.triangle_references.size(); ++other) {
-                if (references.triangle_references[other] != reference) continue;
+                 other < references->triangle_references.size(); ++other) {
+                if (references->triangle_references[other] != reference) continue;
                 for (int corner = 0; corner < 3; ++corner) {
-                    const auto& point = references.vertices[
-                        references.triangles[other * 3 + corner]];
+                    const auto& point = references->vertices[
+                        references->triangles[other * 3 + corner]];
                     surface_triangles.push_back(point);
                     const double distance = (point.x - origin.x) * normal.x +
                         (point.y - origin.y) * normal.y +
@@ -2853,7 +2990,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     }
     if (!resolved && !surface_triangles.empty()) {
         extrusion_target_dialog_->set_extrusion_surface_target(
-            {candidate.owner_id, candidate.semantic_key, {}},
+            {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
             std::move(surface_triangles));
         extrusion_target_dialog_ = nullptr;
         state_->setText(tr("Zakřivená cílová plocha vytažení byla nastavena."));
@@ -2864,7 +3001,8 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
         return;
     }
     extrusion_target_dialog_->set_extrusion_target(
-        {candidate.owner_id, candidate.semantic_key, {}}, origin, normal);
+        {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
+        origin, normal);
     extrusion_target_dialog_ = nullptr;
     state_->setText(tr("Cílová plocha vytažení byla nastavena."));
 }
@@ -3401,7 +3539,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const std::string& container_id) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (part == nullptr && assembly == nullptr) return;
+    const bool assembly_cut = assembly != nullptr;
+    if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
+        feature_kind != zima::document::FeatureKind::Revolution) return;
     const std::string source_sketch_id = !active_sketch_id_.empty()
         ? active_sketch_id_ : selected_sketch_id_;
     if (container_id.empty() &&
@@ -3412,24 +3554,28 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             tr("Nejprve vyberte zdrojovou skicu ve stromu Partu."));
         return;
     }
-    const auto& document = part->session.document();
-    const auto* edited = container_id.empty()
-        ? nullptr : document.find_container(container_id);
+    const auto* edited_cut = assembly_cut && !container_id.empty()
+        ? assembly->session.document().find_cut(container_id) : nullptr;
+    const auto* edited = assembly_cut
+        ? (edited_cut == nullptr ? nullptr : &edited_cut->definition)
+        : container_id.empty() ? nullptr
+                               : part->session.document().find_container(container_id);
     if (!container_id.empty() &&
         (edited == nullptr || edited->feature_kind != feature_kind)) return;
     const bool edit_mode = edited != nullptr;
     std::optional<std::string> rollback_occurrence;
-    const auto rollback_boundary = edit_mode
+    const auto rollback_boundary = edit_mode && !assembly_cut
         ? part->session.rollback_boundary(container_id)
         : std::optional<zima::document::HistoryRollbackBoundary>{};
-    if (edit_mode) {
+    if (edit_mode && !assembly_cut) {
         if (!rollback_boundary) {
             QMessageBox::warning(this, tr("Chybí vypočtený vstup"),
                 tr("Prvek nelze editovat bez uložené geometrie jeho vstupu. "
                    "Nejprve explicitně regenerujte Part."));
             return;
         }
-        rollback_occurrence = resolve_active_occurrence(document.document_id);
+        rollback_occurrence = resolve_active_occurrence(
+            part->session.document().document_id);
         if (!rollback_occurrence) {
             QMessageBox::warning(
                 this, tr("Nejednoznačný výskyt"),
@@ -3456,13 +3602,47 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Revolution
             ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
             : zima::document::PartDocument::create_box_container();
-    const bool allow_subtract = !document.history.empty() &&
-        !(edit_mode && document.history.front().id == initial.id);
-    const std::string part_id = document.document_id;
+    const bool allow_subtract = assembly_cut || (!part->session.document().history.empty() &&
+        !(edit_mode && part->session.document().history.front().id == initial.id));
+    const std::string owner_id = assembly_cut
+        ? assembly->session.document().document_id
+        : part->session.document().document_id;
+    std::vector<PrimitivePropertiesDialog::AssemblyTarget> assembly_targets;
+    std::vector<std::string> selected_targets;
+    if (assembly_cut) {
+        for (const auto& component : assembly->session.document().components) {
+            if (component.suppressed || component.source_kind !=
+                    zima::assembly::ComponentSourceKind::Part) continue;
+            assembly_targets.emplace_back(component.occurrence_id, component.name);
+            if (!edit_mode) selected_targets.push_back(component.occurrence_id);
+        }
+        if (edited_cut != nullptr) selected_targets = edited_cut->target_occurrence_ids;
+    }
     auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, allow_subtract,
-        [this, part_id, edit_mode](zima::document::HistoryContainer committed) {
-            auto* target_part = workspace_.open_part(part_id);
+        [this, owner_id, edit_mode, assembly_cut](
+            zima::document::HistoryContainer committed,
+            std::vector<std::string> target_occurrences) {
+            if (assembly_cut) {
+                auto* target = workspace_.open_assembly(owner_id);
+                if (target == nullptr) throw std::runtime_error(
+                    "Assembly is no longer open");
+                auto next = target->session.document();
+                zima::assembly::AssemblyCut cut{
+                    std::move(committed), std::move(target_occurrences)};
+                if (edit_mode) {
+                    auto* existing = next.find_cut(cut.definition.id);
+                    if (existing == nullptr) throw std::runtime_error(
+                        "Assembly cut no longer exists");
+                    if (*existing == cut) return;
+                    *existing = std::move(cut);
+                } else {
+                    next.cuts.push_back(std::move(cut));
+                }
+                target->session.commit(std::move(next));
+                return;
+            }
+            auto* target_part = workspace_.open_part(owner_id);
             if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target_part->session.document();
             if (edit_mode) {
@@ -3476,9 +3656,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             auto calculated = calculate_part(next);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
             target_part->session.commit(std::move(next), std::move(calculated));
-        }, this);
+        }, this, std::move(assembly_targets), std::move(selected_targets),
+        assembly_cut);
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
-        dialog->set_extrusion_target_request([this, dialog] {
+        dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
             extrusion_target_dialog_ = dialog;
             viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
             const auto* part =
@@ -3487,20 +3668,36 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 ? std::optional<std::string>{}
                 : resolve_active_occurrence(part->session.document().document_id);
             viewer_->set_candidate_filter(
-                [path = expected_path.value_or(std::string{})](const auto& candidate) {
+                [path = expected_path.value_or(std::string{}), assembly_cut](
+                    const auto& candidate) {
+                    bool owned_path = candidate.instance_path == path;
+                    if (assembly_cut && !candidate.instance_path.empty()) {
+                        const auto decoded = zima::assembly::InstancePath::decode(
+                            candidate.instance_path);
+                        owned_path = !decoded.occurrence_ids.empty();
+                    }
                     return candidate.kind == zima::viewer::CandidateKind::Face &&
                         candidate.geometry ==
                             zima::viewer::CandidateGeometry::OriginalReference &&
-                        candidate.instance_path == path;
+                        owned_path;
                 });
             state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
         });
-        dialog->set_preview_callback([this, part_id](const auto& preview) {
-            const auto* preview_part = workspace_.open_part(part_id);
-            if (preview_part == nullptr) return;
+        dialog->set_preview_callback([this, owner_id, assembly_cut](const auto& preview) {
             try {
-                viewer_->set_transient_edges(
-                    preview_part->session.document().extrusion_preview_edges(preview));
+                if (assembly_cut) {
+                    const auto* owner = workspace_.open_assembly(owner_id);
+                    if (owner == nullptr) return;
+                    zima::document::PartDocument preview_document;
+                    preview_document.sketches = owner->session.document().sketches;
+                    viewer_->set_transient_edges(
+                        preview_document.extrusion_preview_edges(preview));
+                } else {
+                    const auto* owner = workspace_.open_part(owner_id);
+                    if (owner == nullptr) return;
+                    viewer_->set_transient_edges(
+                        owner->session.document().extrusion_preview_edges(preview));
+                }
                 state_->setText(tr("Azurový drát zobrazuje náhled vytažení."));
             } catch (const std::exception& error) {
                 viewer_->set_transient_edges({});
@@ -3511,7 +3708,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     properties_dialog_ = dialog;
     if (rollback_boundary) {
         part_rollback_ = PartRollbackContext{
-            document.document_id, *rollback_occurrence,
+            part->session.document().document_id, *rollback_occurrence,
             rollback_boundary->history_index, rollback_boundary->input_body};
         refresh_scene();
     }
@@ -3740,35 +3937,48 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
 void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto& document = part->session.document();
-    const auto found = std::find_if(document.sketches.begin(), document.sketches.end(),
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (part == nullptr && assembly == nullptr) return;
+    const auto& sketches = part != nullptr
+        ? part->session.document().sketches : assembly->session.document().sketches;
+    const auto found = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& sketch) { return sketch.id == sketch_id; });
-    const bool edit_mode = found != document.sketches.end();
+    const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
     auto initial = edit_mode ? *found : zima::sketcher::Sketch::create_default();
-    const std::string part_id = document.document_id;
+    const std::string owner_id = workspace_.active_document_id();
     auto* dialog = new SketchPropertiesDialog(
         std::move(initial), edit_mode,
-        [this, part_id, edit_mode](zima::sketcher::Sketch committed) {
-            auto* target_part = workspace_.open_part(part_id);
-            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
-            auto next = target_part->session.document();
+        [this, owner_id, edit_mode](zima::sketcher::Sketch committed) {
             active_sketch_id_ = committed.id;
             selected_sketch_id_ = committed.id;
-            if (edit_mode) {
-                const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-                    [&](const auto& sketch) { return sketch.id == committed.id; });
-                if (target == next.sketches.end()) {
-                    throw std::runtime_error("Sketch no longer exists");
+            const auto update = [&](auto& next) {
+                if (edit_mode) {
+                    const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
+                        [&](const auto& sketch) { return sketch.id == committed.id; });
+                    if (target == next.sketches.end()) {
+                        throw std::runtime_error("Sketch no longer exists");
+                    }
+                    *target = committed;
+                } else {
+                    next.sketches.push_back(committed);
                 }
-                *target = std::move(committed);
-            } else {
-                next.sketches.push_back(std::move(committed));
+            };
+            if (auto* target_part = workspace_.open_part(owner_id)) {
+                auto next = target_part->session.document();
+                update(next);
+                auto calculated = target_part->session.calculated_boundaries();
+                static_cast<void>(refresh_sketch_external_references(next, calculated));
+                target_part->session.commit(std::move(next), std::move(calculated));
+                return;
             }
-            auto calculated = target_part->session.calculated_boundaries();
-            static_cast<void>(refresh_sketch_external_references(next, calculated));
-            target_part->session.commit(std::move(next), std::move(calculated));
+            auto* target_assembly = workspace_.open_assembly(owner_id);
+            if (target_assembly == nullptr) {
+                throw std::runtime_error("Sketch owner is no longer open");
+            }
+            auto next = target_assembly->session.document();
+            update(next);
+            target_assembly->session.commit(std::move(next));
         }, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -3783,13 +3993,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
 void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
     const std::string& sketch_id, const std::string& bspline_id) {
     if (properties_dialog_ != nullptr || sketch_bspline_active_) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == sketch_id; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto spline = std::find_if(sketch->bsplines.begin(), sketch->bsplines.end(),
         [&](const auto& value) { return value.id == bspline_id; });
     if (spline == sketch->bsplines.end()) return;
@@ -3800,40 +4005,31 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
         if (point == nullptr) return;
         points.push_back({point->x, point->y});
     }
-    const auto part_id = part->session.document().document_id;
     auto* dialog = new SketchBSplinePropertiesDialog(
         spline->degree, spline->closed, std::move(points),
-        [this, part_id, sketch_id, bspline_id](
+        [this, sketch_id, bspline_id](
             unsigned degree, bool closed,
             const std::vector<std::array<double, 2>>& values) {
-            auto* target_part = workspace_.open_part(part_id);
-            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
-            auto next = target_part->session.document();
-            const auto target_sketch = std::find_if(
-                next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == sketch_id; });
-            if (target_sketch == next.sketches.end()) {
-                throw std::runtime_error("Sketch no longer exists");
-            }
-            const auto target_spline = std::find_if(
-                target_sketch->bsplines.begin(), target_sketch->bsplines.end(),
-                [&](const auto& value) { return value.id == bspline_id; });
-            if (target_spline == target_sketch->bsplines.end() ||
-                values.size() != target_spline->control_point_ids.size()) {
-                throw std::runtime_error("B-spline no longer exists");
-            }
-            target_spline->degree = degree;
-            target_spline->closed = closed;
-            for (std::size_t index = 0; index < values.size(); ++index) {
-                auto* point = target_sketch->find_point(
-                    target_spline->control_point_ids[index]);
-                if (point == nullptr) throw std::runtime_error("Missing B-spline control point");
-                point->x = values[index][0];
-                point->y = values[index][1];
-            }
-            target_sketch->validate();
-            target_part->session.commit(
-                std::move(next), target_part->session.calculated_boundaries());
+            if (active_sketch_id_ != sketch_id ||
+                !mutate_active_sketch([&](auto& target_sketch) {
+                    const auto target_spline = std::find_if(
+                        target_sketch.bsplines.begin(), target_sketch.bsplines.end(),
+                        [&](const auto& value) { return value.id == bspline_id; });
+                    if (target_spline == target_sketch.bsplines.end() ||
+                        values.size() != target_spline->control_point_ids.size()) {
+                        throw std::runtime_error("B-spline no longer exists");
+                    }
+                    target_spline->degree = degree;
+                    target_spline->closed = closed;
+                    for (std::size_t index = 0; index < values.size(); ++index) {
+                        auto* point = target_sketch.find_point(
+                            target_spline->control_point_ids[index]);
+                        if (point == nullptr) throw std::runtime_error(
+                            "Missing B-spline control point");
+                        point->x = values[index][0];
+                        point->y = values[index][1];
+                    }
+                })) throw std::runtime_error("Sketch no longer exists");
         }, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -3883,47 +4079,31 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     selected_sketch_point_id_.clear();
     selected_sketch_text_id_ = text_id;
 
-    const std::string part_id = part->session.document().document_id;
     auto* dialog = new SketchTextPropertiesDialog(
         std::move(initial), anchor,
-        [this, part_id, sketch_id](
+        [this, sketch_id](
             const std::optional<zima::sketcher::SketchText>& preview) {
             if (!preview) {
                 viewer_->set_transient_edges({});
                 return;
             }
-            const auto* target_part = workspace_.open_part(part_id);
-            if (target_part == nullptr) return;
-            const auto target_sketch = std::find_if(
-                target_part->session.document().sketches.begin(),
-                target_part->session.document().sketches.end(),
-                [&](const auto& value) { return value.id == sketch_id; });
-            if (target_sketch == target_part->session.document().sketches.end()) return;
+            const auto* target_sketch = active_sketch();
+            if (target_sketch == nullptr || target_sketch->id != sketch_id) return;
             viewer_->set_transient_edges(
                 sketch_text_preview_edges(*target_sketch, *preview));
         },
-        [this, part_id, sketch_id, edit_mode](
+        [this, sketch_id, edit_mode](
             zima::sketcher::SketchText committed) {
-            auto* target_part = workspace_.open_part(part_id);
-            if (target_part == nullptr) {
-                throw std::runtime_error("Part is no longer open");
-            }
-            auto next = target_part->session.document();
-            const auto target_sketch = std::find_if(
-                next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == sketch_id; });
-            if (target_sketch == next.sketches.end()) {
-                throw std::runtime_error("Sketch no longer exists");
-            }
             const std::string committed_id = committed.id;
-            if (edit_mode) target_sketch->update_text(std::move(committed));
-            else target_sketch->add_text(std::move(committed));
-            target_part->session.commit(
-                std::move(next), target_part->session.calculated_boundaries());
+            if (active_sketch_id_ != sketch_id ||
+                !mutate_active_sketch([&](auto& target_sketch) {
+                    if (edit_mode) target_sketch.update_text(std::move(committed));
+                    else target_sketch.add_text(std::move(committed));
+                })) throw std::runtime_error("Sketch no longer exists");
             selected_sketch_text_id_ = committed_id;
             state_->setText(edit_mode
-                ? tr("Text skici byl upraven jako jedna Part revize.")
-                : tr("Text skici byl vytvořen jako jedna Part revize."));
+                ? tr("Text skici byl upraven jako jedna revize.")
+                : tr("Text skici byl vytvořen jako jedna revize."));
         }, this);
     properties_dialog_ = dialog;
     sketch_text_dialog_ = dialog;
@@ -3950,16 +4130,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
     if (enabled) {
         if (properties_dialog_ != nullptr || active_sketch_id_.empty()) {
             enabled = false;
-        } else {
-            const auto* part = workspace_.open_part(workspace_.active_document_id());
-            if (part == nullptr ||
-                std::none_of(part->session.document().sketches.begin(),
-                    part->session.document().sketches.end(), [&](const auto& sketch) {
-                        return sketch.id == active_sketch_id_;
-                    })) {
-                enabled = false;
-            }
-        }
+        } else if (active_sketch() == nullptr) enabled = false;
     }
     if (enabled) {
         cancel_sketch_segment();
@@ -4001,6 +4172,42 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
          candidate.kind != zima::viewer::CandidateKind::Vertex &&
          candidate.kind != zima::viewer::CandidateKind::Axis &&
          candidate.kind != zima::viewer::CandidateKind::Face)) return;
+    if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
+        try {
+            auto next = assembly->session.document();
+            const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+                [&](const auto& value) { return value.id == active_sketch_id_; });
+            if (sketch == next.sketches.end() || candidate.instance_path.empty()) return;
+            const auto address = workspace_.resolve_occurrence(next.document_id,
+                zima::assembly::InstancePath::decode(candidate.instance_path));
+            if (!address) throw std::invalid_argument(
+                "External reference requires an exact component occurrence");
+            auto reference = zima::sketcher::Sketch::create_external_reference(
+                candidate.kind == zima::viewer::CandidateKind::Edge
+                    ? zima::sketcher::ExternalReferenceKind::Edge
+                    : candidate.kind == zima::viewer::CandidateKind::Axis
+                        ? zima::sketcher::ExternalReferenceKind::Axis
+                        : candidate.kind == zima::viewer::CandidateKind::Face
+                            ? zima::sketcher::ExternalReferenceKind::Face
+                            : zima::sketcher::ExternalReferenceKind::Point);
+            reference.source_document_id = address->source_document_id;
+            reference.source_owner_id = candidate.owner_id;
+            reference.source_semantic_key = candidate.semantic_key;
+            reference.source_instance_path = candidate.instance_path;
+            populate_external_reference_cache(
+                *sketch, reference, next.build_scene().original_references);
+            sketch->add_external_reference(std::move(reference));
+            assembly->session.commit(std::move(next));
+            preserve_view_on_refresh_ = true;
+            refresh_tabs();
+            refresh_scene();
+            state_->setText(tr(
+                "Externí reference Assembly skici byla uložena bez volání OCCT."));
+        } catch (const std::exception& error) {
+            state_->setText(QString::fromUtf8(error.what()));
+        }
+        return;
+    }
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     try {
@@ -4110,19 +4317,23 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
 
 void AssemblyWorkspaceWindow::align_active_sketch_view() {
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (viewer_ == nullptr || part == nullptr || active_sketch_id_.empty()) return;
+    const auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (viewer_ == nullptr || (part == nullptr && assembly == nullptr) ||
+        active_sketch_id_.empty()) return;
+    const auto& sketches = part != nullptr
+        ? part->session.document().sketches : assembly->session.document().sketches;
     const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
+        sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (sketch == sketches.end()) return;
     zima::kernel::Vec3 direction =
         sketch->plane == zima::sketcher::SketchPlane::XY
             ? zima::kernel::Vec3{0.0, 0.0, 1.0}
             : sketch->plane == zima::sketcher::SketchPlane::XZ
                 ? zima::kernel::Vec3{0.0, -1.0, 0.0}
                 : zima::kernel::Vec3{1.0, 0.0, 0.0};
-    if (workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr) {
+    if (part != nullptr &&
+        workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr) {
         const auto occurrence = resolve_active_occurrence(
             part->session.document().document_id);
         if (!occurrence || occurrence->empty()) return;
@@ -4135,18 +4346,55 @@ void AssemblyWorkspaceWindow::align_active_sketch_view() {
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
 
+const zima::sketcher::Sketch* AssemblyWorkspaceWindow::active_sketch() const {
+    if (active_sketch_id_.empty()) return nullptr;
+    const std::vector<zima::sketcher::Sketch>* sketches{};
+    if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
+        sketches = &part->session.document().sketches;
+    } else if (const auto* assembly =
+                   workspace_.open_assembly(workspace_.active_document_id())) {
+        sketches = &assembly->session.document().sketches;
+    }
+    if (sketches == nullptr) return nullptr;
+    const auto found = std::find_if(sketches->begin(), sketches->end(),
+        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+    return found == sketches->end() ? nullptr : &*found;
+}
+
+bool AssemblyWorkspaceWindow::mutate_active_sketch(
+    const std::function<void(zima::sketcher::Sketch&)>& mutation) {
+    if (active_sketch_id_.empty()) return false;
+    const auto mutate = [&](auto& document) {
+        const auto found = std::find_if(document.sketches.begin(),
+            document.sketches.end(),
+            [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
+        if (found == document.sketches.end()) return false;
+        mutation(*found);
+        found->validate();
+        return true;
+    };
+    if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
+        auto next = part->session.document();
+        if (!mutate(next)) return false;
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        return true;
+    }
+    if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
+        auto next = assembly->session.document();
+        if (!mutate(next)) return false;
+        assembly->session.commit(std::move(next));
+        return true;
+    }
+    return false;
+}
+
 bool AssemblyWorkspaceWindow::accept_sketch_text_ray(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) {
     if (!sketch_text_active_ || sketch_text_dialog_ == nullptr ||
         !editing_sketch_text_id_.empty()) return false;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     sketch_text_dialog_->set_anchor((*position)[0], (*position)[1]);
@@ -4175,13 +4423,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
 
 void AssemblyWorkspaceWindow::start_sketch_point() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_point_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4196,13 +4438,7 @@ void AssemblyWorkspaceWindow::start_sketch_point() {
 
 void AssemblyWorkspaceWindow::start_sketch_segment(bool construction) {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_segment_active_ = true;
     sketch_segment_construction_ = construction;
@@ -4296,13 +4532,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_polyline() {
 
 void AssemblyWorkspaceWindow::start_sketch_rectangle() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_rectangle_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4324,13 +4554,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_rectangle() {
 void AssemblyWorkspaceWindow::start_sketch_polygon(unsigned sides) {
     if (properties_dialog_ != nullptr ||
         (sides != 4 && sides != 6 && sides != 8)) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_polygon_active_ = true;
     sketch_polygon_sides_ = sides;
@@ -4353,13 +4577,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
 
 void AssemblyWorkspaceWindow::start_sketch_trim() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     cancel_sketch_segment();
     sketch_trim_preview_ = *sketch;
     sketch_trim_topology_ = zima::sketcher::sketch_trim_topology(
@@ -4525,8 +4744,7 @@ void AssemblyWorkspaceWindow::end_sketch_trim_gesture() {
 
 bool AssemblyWorkspaceWindow::finish_sketch_trim() {
     if (!sketch_trim_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || !sketch_trim_preview_) return true;
+    if (active_sketch() == nullptr || !sketch_trim_preview_) return true;
     if (!sketch_trim_changed_) {
         cancel_sketch_trim();
         preserve_view_on_refresh_ = true;
@@ -4535,13 +4753,8 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
         return true;
     }
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(
-            next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return true;
-        *sketch = *sketch_trim_preview_;
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch(
+                [&](auto& sketch) { sketch = *sketch_trim_preview_; })) return true;
         cancel_sketch_trim();
         viewer_->clear_selection();
         preserve_view_on_refresh_ = true;
@@ -4556,8 +4769,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
 
 void AssemblyWorkspaceWindow::start_sketch_mirror() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    if (active_sketch() == nullptr) return;
     const std::string source_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
@@ -4680,22 +4892,17 @@ bool AssemblyWorkspaceWindow::finish_sketch_mirror() {
         state_->setText(tr("Zrcadlení: nejprve vyberte osu."));
         return true;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return false;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return false;
-        static_cast<void>(sketch->mirror_geometry(
-            pending_mirror_geometry_ids_, pending_mirror_axis_id_));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.mirror_geometry(
+                    pending_mirror_geometry_ids_, pending_mirror_axis_id_));
+            })) return false;
         cancel_sketch_mirror();
         viewer_->clear_selection();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
-        state_->setText(tr("Geometrie skici byla zrcadlena jako jedna Part revize."));
+        state_->setText(tr("Geometrie skici byla zrcadlena jako jedna revize."));
         return true;
     } catch (const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
@@ -4705,13 +4912,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_mirror() {
 
 void AssemblyWorkspaceWindow::start_sketch_circle() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_circle_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4732,13 +4933,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_circle() {
 
 void AssemblyWorkspaceWindow::start_sketch_arc() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_arc_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4760,13 +4955,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_arc() {
 
 void AssemblyWorkspaceWindow::start_sketch_ellipse() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_ellipse_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4788,13 +4977,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
 
 void AssemblyWorkspaceWindow::start_sketch_elliptical_arc() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_elliptical_arc_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4820,13 +5003,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
 
 void AssemblyWorkspaceWindow::start_sketch_bspline() {
     if (properties_dialog_ != nullptr) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto found = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-    if (found == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_bspline_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -4847,15 +5024,10 @@ void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
 
 bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_bspline_active_ || part == nullptr || active_sketch_id_.empty()) {
+    const auto* sketch = active_sketch();
+    if (!sketch_bspline_active_ || sketch == nullptr) {
         return false;
     }
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_bspline_points_.empty()) {
@@ -4881,15 +5053,10 @@ bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
         state_->setText(tr("Kubická B-spline vyžaduje alespoň 4 řídicí body."));
         return true;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return true;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return true;
-        static_cast<void>(sketch->add_bspline(pending_bspline_points_));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_bspline(pending_bspline_points_));
+            })) return true;
         pending_bspline_points_.clear();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
@@ -4905,13 +5072,8 @@ bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
 void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_bspline_active_ || pending_bspline_points_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) {
         viewer_->set_transient_edges({});
@@ -4941,29 +5103,23 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
 
 bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_point_active_ || part == nullptr || active_sketch_id_.empty()) {
+    const auto* sketch = active_sketch();
+    if (!sketch_point_active_ || sketch == nullptr) {
         return false;
     }
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     try {
-        auto next = part->session.document();
-        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (target == next.sketches.end()) return true;
-        const auto previous_size = target->points.size();
-        static_cast<void>(target->add_point((*position)[0], (*position)[1]));
-        if (target->points.size() == previous_size) {
+        bool created = false;
+        if (!mutate_active_sketch([&](auto& target) {
+                const auto previous_size = target.points.size();
+                static_cast<void>(target.add_point((*position)[0], (*position)[1]));
+                created = target.points.size() != previous_size;
+            })) return true;
+        if (!created) {
             state_->setText(tr("V této poloze již bod skici existuje."));
             return true;
         }
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -4980,13 +5136,8 @@ AssemblyWorkspaceWindow::sketch_external_snap_ray(
     if (candidate.kind != zima::viewer::CandidateKind::SketchExternalReference ||
         candidate.owner_id != active_sketch_id_ ||
         !candidate.semantic_key.starts_with("external_point:")) return std::nullopt;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return std::nullopt;
-    const auto sketch = std::find_if(part->session.document().sketches.begin(),
-        part->session.document().sketches.end(), [&](const auto& value) {
-            return value.id == active_sketch_id_;
-        });
-    if (sketch == part->session.document().sketches.end()) return std::nullopt;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return std::nullopt;
     const auto reference_id = sketch_external_reference_id_from_key(
         candidate.semantic_key);
     if (!reference_id) return std::nullopt;
@@ -5038,15 +5189,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_external_snap(
 
 bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!sketch_segment_active_ || part == nullptr || active_sketch_id_.empty()) {
+    const auto* sketch = active_sketch();
+    if (!sketch_segment_active_ || sketch == nullptr) {
         return false;
     }
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_segment_start_) {
@@ -5064,16 +5210,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         state_->setText(tr("Úsečka musí mít nenulovou délku."));
         return true;
     }
-    auto next = part->session.document();
-    const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (target == next.sketches.end()) return true;
-    static_cast<void>(target->add_segment(
-        (*pending_segment_start_)[0], (*pending_segment_start_)[1],
-        (*position)[0], (*position)[1], 1.0e-6,
-        sketch_segment_construction_));
-    const auto calculated = part->session.calculated_boundaries();
-    part->session.commit(std::move(next), calculated);
+    if (!mutate_active_sketch([&](auto& target) {
+            static_cast<void>(target.add_segment(
+                (*pending_segment_start_)[0], (*pending_segment_start_)[1],
+                (*position)[0], (*position)[1], 1.0e-6,
+                sketch_segment_construction_));
+        })) return true;
     preserve_view_on_refresh_ = true;
     if (sketch_polyline_active_) pending_segment_start_ = *position;
     else pending_segment_start_.reset();
@@ -5099,16 +5241,11 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
         sketch_segment_pair_active_ ||
         selected_sketch_segment_id_.empty() ||
         active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    auto next = part->session.document();
-    const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == next.sketches.end()) return;
     try {
-        static_cast<void>(sketch->add_segment_constraint(selected_sketch_segment_id_, kind));
-        const auto calculated = part->session.calculated_boundaries();
-        part->session.commit(std::move(next), calculated);
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_segment_constraint(
+                    selected_sketch_segment_id_, kind));
+            })) return;
         selected_sketch_segment_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5122,13 +5259,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
 
 void AssemblyWorkspaceWindow::start_sketch_coincident() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_coincident_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -5146,13 +5277,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_coincident() {
 
 void AssemblyWorkspaceWindow::start_sketch_midpoint() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_midpoint_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -5185,16 +5310,11 @@ void AssemblyWorkspaceWindow::accept_sketch_midpoint_selection(
     if (candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
         !candidate.semantic_key.starts_with("segment:")) return;
     const auto segment_id = candidate.semantic_key.substr(8);
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        static_cast<void>(sketch->add_midpoint_constraint(
-            pending_midpoint_point_id_, segment_id));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_midpoint_constraint(
+                    pending_midpoint_point_id_, segment_id));
+            })) return;
         pending_midpoint_point_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5209,13 +5329,7 @@ void AssemblyWorkspaceWindow::accept_sketch_midpoint_selection(
 
 void AssemblyWorkspaceWindow::start_sketch_symmetric() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_symmetric_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -5231,16 +5345,8 @@ void AssemblyWorkspaceWindow::start_sketch_symmetric() {
 
 void AssemblyWorkspaceWindow::set_sketch_symmetric_axis_contract() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) {
-        viewer_->set_candidate_filter([](const auto&) { return false; });
-        return;
-    }
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) {
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) {
         viewer_->set_candidate_filter([](const auto&) { return false; });
         return;
     }
@@ -5283,24 +5389,21 @@ void AssemblyWorkspaceWindow::accept_sketch_symmetric_selection(
     if (candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
         !candidate.semantic_key.starts_with("segment:")) return;
     const auto axis_id = candidate.semantic_key.substr(8);
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        const auto axis = std::find_if(sketch->segments.begin(), sketch->segments.end(),
+        const auto* current = active_sketch();
+        if (current == nullptr) return;
+        const auto axis = std::find_if(current->segments.begin(), current->segments.end(),
             [&](const auto& value) { return value.id == axis_id; });
-        if (axis == sketch->segments.end() || !axis->construction) {
+        if (axis == current->segments.end() || !axis->construction) {
             state_->setText(tr(
                 "Symetrická vazba: osou musí být konstrukční čára."));
             return;
         }
-        static_cast<void>(sketch->add_symmetric_constraint(
-            pending_symmetric_point_ids_[0], pending_symmetric_point_ids_[1],
-            axis_id));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_symmetric_constraint(
+                    pending_symmetric_point_ids_[0],
+                    pending_symmetric_point_ids_[1], axis_id));
+            })) return;
         pending_symmetric_point_ids_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5328,13 +5431,7 @@ void AssemblyWorkspaceWindow::set_sketch_concentric_contract() {
 
 void AssemblyWorkspaceWindow::start_sketch_concentric() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_concentric_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -5374,16 +5471,11 @@ void AssemblyWorkspaceWindow::accept_sketch_concentric_selection(
         state_->setText(tr("Soustředná vazba: vyberte jinou druhou křivku."));
         return;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        static_cast<void>(sketch->add_concentric_constraint(
-            pending_concentric_geometry_id_, geometry_id));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_concentric_constraint(
+                    pending_concentric_geometry_id_, geometry_id));
+            })) return;
         pending_concentric_geometry_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5455,13 +5547,7 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
 
 void AssemblyWorkspaceWindow::start_sketch_tangent() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_tangent_active_ = true;
     selected_sketch_segment_id_.clear();
@@ -5527,16 +5613,11 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
             "Tuto dvojici geometrií tečná vazba zatím nepodporuje."));
         return;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        static_cast<void>(sketch->add_tangent_constraint(
-            pending_tangent_geometry_id_, geometry_id));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_tangent_constraint(
+                    pending_tangent_geometry_id_, geometry_id));
+            })) return;
         pending_tangent_geometry_id_.clear();
         pending_tangent_reference_is_segment_ = false;
         pending_tangent_reference_supports_curve_pair_ = false;
@@ -5580,18 +5661,13 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         return;
     }
     if (!external_line_id.empty()) {
-        auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part == nullptr) return;
         try {
-            auto next = part->session.document();
-            const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == active_sketch_id_; });
-            if (sketch == next.sketches.end() ||
-                sketch->find_point(pending_coincident_point_id_) == nullptr) return;
-            static_cast<void>(sketch->add_point_on_line_constraint(
-                pending_coincident_point_id_, external_line_id));
-            part->session.commit(
-                std::move(next), part->session.calculated_boundaries());
+            if (!mutate_active_sketch([&](auto& sketch) {
+                    if (sketch.find_point(pending_coincident_point_id_) == nullptr)
+                        throw std::invalid_argument("Coincident point is missing");
+                    static_cast<void>(sketch.add_point_on_line_constraint(
+                        pending_coincident_point_id_, external_line_id));
+                })) return;
             pending_coincident_point_id_.clear();
             preserve_view_on_refresh_ = true;
             refresh_tabs();
@@ -5607,16 +5683,11 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         state_->setText(tr("Vyberte jiný druhý bod."));
         return;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        static_cast<void>(sketch->add_coincident_constraint(
-            pending_coincident_point_id_, point_id));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                static_cast<void>(sketch.add_coincident_constraint(
+                    pending_coincident_point_id_, point_id));
+            })) return;
         pending_coincident_point_id_.clear();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -5633,8 +5704,7 @@ void AssemblyWorkspaceWindow::start_sketch_segment_pair(
         (kind != zima::sketcher::ConstraintKind::Parallel &&
          kind != zima::sketcher::ConstraintKind::Perpendicular &&
          kind != zima::sketcher::ConstraintKind::EqualLength)) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_segment_pair_active_ = true;
     pending_pair_kind_ = kind;
@@ -5756,21 +5826,16 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
             "Stejné vyžaduje dvě úsečky nebo dvě kružnice či kruhové oblouky."));
         return;
     }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
-        if (pending_pair_reference_is_circular_) {
-            static_cast<void>(sketch->add_equal_radius_constraint(
-                pending_pair_geometry_id_, geometry_id));
-        } else {
-            static_cast<void>(sketch->add_segment_pair_constraint(
-                pending_pair_geometry_id_, geometry_id, pending_pair_kind_));
-        }
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                if (pending_pair_reference_is_circular_) {
+                    static_cast<void>(sketch.add_equal_radius_constraint(
+                        pending_pair_geometry_id_, geometry_id));
+                } else {
+                    static_cast<void>(sketch.add_segment_pair_constraint(
+                        pending_pair_geometry_id_, geometry_id, pending_pair_kind_));
+                }
+            })) return;
         const bool equal_radius = pending_pair_reference_is_circular_;
         pending_pair_geometry_id_.clear();
         pending_pair_reference_is_circular_ = false;
@@ -5795,18 +5860,15 @@ void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
         sketch_concentric_active_ || sketch_tangent_active_ ||
         sketch_segment_pair_active_ || sketch_mirror_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
+        const auto* sketch = active_sketch();
+        if (sketch == nullptr) return;
         const auto* point = sketch->find_point(selected_sketch_point_id_);
         if (point == nullptr) return;
         const bool fixed = !point->fixed;
-        sketch->set_point_fixed(selected_sketch_point_id_, fixed);
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& target) {
+                target.set_point_fixed(selected_sketch_point_id_, fixed);
+            })) return;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -5830,20 +5892,22 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             zima::viewer::CandidateKind::SketchPoint ||
         candidate.owner_id != active_sketch_id_ ||
         !candidate.semantic_key.starts_with("point:")) return false;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return false;
     const auto point_id = candidate.semantic_key.substr(6);
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto* point = sketch->find_point(point_id);
     if (point == nullptr || point->fixed) {
         state_->setText(tr("Fixovaný bod nelze táhnout."));
         return false;
     }
-    sketch_drag_document_ = part->session.document();
+    if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
+        sketch_drag_document_ = part->session.document();
+    } else if (const auto* assembly =
+                   workspace_.open_assembly(workspace_.active_document_id())) {
+        assembly_sketch_drag_document_ = assembly->session.document();
+    } else {
+        return false;
+    }
     sketch_drag_point_id_ = point_id;
     sketch_drag_changed_ = false;
     return true;
@@ -5851,29 +5915,32 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
 
 void AssemblyWorkspaceWindow::update_sketch_point_drag(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
-    if (!sketch_drag_document_) return;
+    if (!sketch_drag_document_ && !assembly_sketch_drag_document_) return;
+    auto& sketches = sketch_drag_document_
+        ? sketch_drag_document_->sketches
+        : assembly_sketch_drag_document_->sketches;
     const auto current_sketch = std::find_if(
-        sketch_drag_document_->sketches.begin(), sketch_drag_document_->sketches.end(),
+        sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (current_sketch == sketch_drag_document_->sketches.end()) return;
+    if (current_sketch == sketches.end()) return;
     const auto position = current_sketch->intersect_ray(origin, direction);
     if (!position) return;
-    auto next = *sketch_drag_document_;
-    const auto next_sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
+    auto next_sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (next_sketch == next.sketches.end() || !next_sketch->move_point(
+    if (next_sketch == sketches.end() || !next_sketch->move_point(
             sketch_drag_point_id_, (*position)[0], (*position)[1])) {
         state_->setText(tr("Bod nelze přesunout mimo vazby nebo absolutní meze."));
         return;
     }
-    sketch_drag_document_ = std::move(next);
     sketch_drag_changed_ = true;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto& calculated = part->session.calculated_boundaries();
-    zima::kernel::ViewerMesh display = calculated.empty()
-        ? zima::kernel::ViewerMesh{} : calculated.back().mesh;
-    for (const auto& sketch : sketch_drag_document_->sketches) {
+    zima::kernel::ViewerMesh display;
+    if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
+        const auto& calculated = part->session.calculated_boundaries();
+        if (!calculated.empty()) display = calculated.back().mesh;
+    } else if (assembly_sketch_drag_document_) {
+        display = assembly_sketch_drag_document_->build_scene();
+    }
+    for (const auto& sketch : sketches) {
         append_mesh(display, sketch.viewer_mesh());
     }
     viewer_->set_mesh(std::move(display), false);
@@ -5881,21 +5948,27 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
 }
 
 void AssemblyWorkspaceWindow::end_sketch_point_drag() {
-    if (!sketch_drag_document_) return;
-    auto document = std::move(*sketch_drag_document_);
-    sketch_drag_document_.reset();
+    if (!sketch_drag_document_ && !assembly_sketch_drag_document_) return;
     sketch_drag_point_id_.clear();
     const bool changed = sketch_drag_changed_;
     sketch_drag_changed_ = false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     if (changed) {
-        part->session.commit(std::move(document), part->session.calculated_boundaries());
+        if (auto* part = workspace_.open_part(workspace_.active_document_id());
+            part != nullptr && sketch_drag_document_) {
+            part->session.commit(std::move(*sketch_drag_document_),
+                part->session.calculated_boundaries());
+        } else if (auto* assembly =
+                       workspace_.open_assembly(workspace_.active_document_id());
+                   assembly != nullptr && assembly_sketch_drag_document_) {
+            assembly->session.commit(std::move(*assembly_sketch_drag_document_));
+        }
         preserve_view_on_refresh_ = true;
         refresh_tabs();
     }
+    sketch_drag_document_.reset();
+    assembly_sketch_drag_document_.reset();
     refresh_scene();
-    state_->setText(changed ? tr("Poloha bodu byla uložena jako jedna Part revize.")
+    state_->setText(changed ? tr("Poloha bodu byla uložena jako jedna revize.")
                               : tr("Poloha bodu se nezměnila."));
 }
 
@@ -6023,16 +6096,11 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         : !selected_sketch_text_id_.empty() ? selected_sketch_text_id_
         : selected_sketch_external_reference_id_;
     if (geometry_id.empty() && selected_sketch_point_id_.empty()) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return false;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return false;
-        if (!geometry_id.empty()) sketch->remove_geometry(geometry_id);
-        else sketch->remove_point(selected_sketch_point_id_);
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                if (!geometry_id.empty()) sketch.remove_geometry(geometry_id);
+                else sketch.remove_point(selected_sketch_point_id_);
+            })) return false;
         workspace_.synchronize_external_sketch_dependencies();
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
@@ -6058,16 +6126,12 @@ void AssemblyWorkspaceWindow::remove_sketch_relation(
     const std::string& sketch_id, const std::string& relation_id,
     bool dimension) {
     if (properties_dialog_ != nullptr || sketch_id.empty() || relation_id.empty()) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    if (sketch_id != active_sketch_id_ || active_sketch() == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == sketch_id; });
-        if (sketch == next.sketches.end()) return;
-        if (dimension) sketch->remove_dimension(relation_id);
-        else sketch->remove_constraint(relation_id);
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& sketch) {
+                if (dimension) sketch.remove_dimension(relation_id);
+                else sketch.remove_constraint(relation_id);
+            })) return;
         workspace_.synchronize_external_sketch_dependencies();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -6139,7 +6203,33 @@ void AssemblyWorkspaceWindow::delete_part_object(
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
         QMessageBox::Yes) return;
     try {
-        if (kind == QStringLiteral("assembly-construction")) {
+        if (kind == QStringLiteral("assembly-cut")) {
+            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+            if (assembly == nullptr) return;
+            auto next = assembly->session.document();
+            std::erase_if(next.cuts, [&](const auto& cut) {
+                return cut.definition.id == object_id;
+            });
+            assembly->session.commit(std::move(next));
+        } else if (kind == QStringLiteral("assembly-sketch")) {
+            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+            if (assembly == nullptr) return;
+            auto next = assembly->session.document();
+            if (std::any_of(next.cuts.begin(), next.cuts.end(), [&](const auto& cut) {
+                    const auto& definition = cut.definition;
+                    return (definition.feature_kind ==
+                                zima::document::FeatureKind::Extrusion &&
+                            definition.extrusion.sketch_id == object_id) ||
+                        (definition.feature_kind ==
+                                zima::document::FeatureKind::Revolution &&
+                            definition.revolution.sketch_id == object_id);
+                })) {
+                throw std::runtime_error("Assembly sketch is still used by a cut");
+            }
+            std::erase_if(next.sketches,
+                [&](const auto& sketch) { return sketch.id == object_id; });
+            assembly->session.commit(std::move(next));
+        } else if (kind == QStringLiteral("assembly-construction")) {
             auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
             if (assembly == nullptr) return;
             auto next = assembly->session.document();
@@ -6311,13 +6401,9 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         sketch_symmetric_active_ || sketch_concentric_active_ ||
         sketch_tangent_active_ ||
         sketch_segment_pair_active_ || sketch_point_dimension_active_) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == sketch_id; });
-    if (sketch == part->session.document().sketches.end()) return;
+    if (sketch_id != active_sketch_id_) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto existing = std::find_if(sketch->dimensions.begin(), sketch->dimensions.end(),
         [&](const auto& value) { return value.id == dimension_id; });
     const bool edit_mode = existing != sketch->dimensions.end();
@@ -6348,22 +6434,15 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
                             zima::sketcher::DimensionKind::EllipseMajorRadius)
                 : sketch->create_segment_dimension(
                     selected_sketch_segment_id_, creation_kind);
-    const std::string part_id = part->session.document().document_id;
     auto* dialog = new SketchDimensionPropertiesDialog(
         std::move(initial), edit_mode,
-        [this, part_id, sketch_id](zima::sketcher::SketchDimension committed) {
-            auto* target_part = workspace_.open_part(part_id);
-            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
-            auto next = target_part->session.document();
-            const auto target_sketch = std::find_if(
-                next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == sketch_id; });
-            if (target_sketch == next.sketches.end()) {
-                throw std::runtime_error("Sketch no longer exists");
+        [this, sketch_id](zima::sketcher::SketchDimension committed) {
+            if (active_sketch_id_ != sketch_id ||
+                !mutate_active_sketch([&](auto& sketch) {
+                    sketch.apply_dimension(std::move(committed));
+                })) {
+                throw std::runtime_error("Sketch is no longer active");
             }
-            target_sketch->apply_dimension(std::move(committed));
-            const auto calculated = target_part->session.calculated_boundaries();
-            target_part->session.commit(std::move(next), calculated);
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
             selected_sketch_arc_id_.clear();
@@ -6381,13 +6460,8 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
 void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_segment_active_ || !pending_segment_start_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) {
         viewer_->set_transient_edges({});
@@ -6401,13 +6475,8 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_rectangle_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_rectangle_corner_) {
@@ -6420,15 +6489,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
         state_->setText(tr("Obdélník musí mít nenulovou šířku i výšku."));
         return true;
     }
-    auto next = part->session.document();
-    const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (target == next.sketches.end()) return true;
-    static_cast<void>(target->add_rectangle(
-        (*pending_rectangle_corner_)[0], (*pending_rectangle_corner_)[1],
-        (*position)[0], (*position)[1]));
-    const auto calculated = part->session.calculated_boundaries();
-    part->session.commit(std::move(next), calculated);
+    if (!mutate_active_sketch([&](auto& target) {
+            static_cast<void>(target.add_rectangle(
+                (*pending_rectangle_corner_)[0], (*pending_rectangle_corner_)[1],
+                (*position)[0], (*position)[1]));
+        })) return true;
     pending_rectangle_corner_.reset();
     viewer_->set_transient_edges({});
     preserve_view_on_refresh_ = true;
@@ -6441,13 +6506,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
 void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_rectangle_active_ || !pending_rectangle_corner_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return;
     const double x0 = (*pending_rectangle_corner_)[0];
@@ -6465,15 +6525,8 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_polygon_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) {
-        return false;
-    }
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_polygon_center_) {
@@ -6490,14 +6543,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
         return true;
     }
     try {
-        auto next = part->session.document();
-        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (target == next.sketches.end()) return true;
-        static_cast<void>(target->add_regular_polygon(
-            (*pending_polygon_center_)[0], (*pending_polygon_center_)[1],
-            (*position)[0], (*position)[1], sketch_polygon_sides_));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& target) {
+                static_cast<void>(target.add_regular_polygon(
+                    (*pending_polygon_center_)[0], (*pending_polygon_center_)[1],
+                    (*position)[0], (*position)[1], sketch_polygon_sides_));
+            })) return true;
         pending_polygon_center_.reset();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
@@ -6515,13 +6565,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
 void AssemblyWorkspaceWindow::preview_sketch_polygon_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_polygon_active_ || !pending_polygon_center_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) {
         viewer_->set_transient_edges({});
@@ -6569,13 +6614,8 @@ void AssemblyWorkspaceWindow::preview_sketch_polygon_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_circle_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_circle_center_) {
@@ -6590,14 +6630,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
         state_->setText(tr("Kružnice musí mít nenulový poloměr."));
         return true;
     }
-    auto next = part->session.document();
-    const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (target == next.sketches.end()) return true;
-    static_cast<void>(target->add_circle(
-        (*pending_circle_center_)[0], (*pending_circle_center_)[1], radius));
-    const auto calculated = part->session.calculated_boundaries();
-    part->session.commit(std::move(next), calculated);
+    if (!mutate_active_sketch([&](auto& target) {
+            static_cast<void>(target.add_circle(
+                (*pending_circle_center_)[0], (*pending_circle_center_)[1], radius));
+        })) return true;
     pending_circle_center_.reset();
     viewer_->set_transient_edges({});
     preserve_view_on_refresh_ = true;
@@ -6610,13 +6646,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
 void AssemblyWorkspaceWindow::preview_sketch_circle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_circle_active_ || !pending_circle_center_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return;
     const double radius = std::hypot(
@@ -6637,13 +6668,8 @@ void AssemblyWorkspaceWindow::preview_sketch_circle_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_arc_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_arc_center_) {
@@ -6667,15 +6693,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
         return true;
     }
     try {
-        auto next = part->session.document();
-        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (target == next.sketches.end()) return true;
-        static_cast<void>(target->add_arc(
-            (*pending_arc_center_)[0], (*pending_arc_center_)[1],
-            (*pending_arc_start_)[0], (*pending_arc_start_)[1],
-            (*position)[0], (*position)[1]));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& target) {
+                static_cast<void>(target.add_arc(
+                    (*pending_arc_center_)[0], (*pending_arc_center_)[1],
+                    (*pending_arc_start_)[0], (*pending_arc_start_)[1],
+                    (*position)[0], (*position)[1]));
+            })) return true;
         pending_arc_center_.reset();
         pending_arc_start_.reset();
         viewer_->set_transient_edges({});
@@ -6692,13 +6715,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
 void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_arc_active_ || !pending_arc_center_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return;
     if (!pending_arc_start_) {
@@ -6735,13 +6753,8 @@ void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_ellipse_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_ellipse_center_) {
@@ -6760,15 +6773,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
         return true;
     }
     try {
-        auto next = part->session.document();
-        const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (target == next.sketches.end()) return true;
-        static_cast<void>(target->add_ellipse(
-            (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1],
-            (*pending_ellipse_major_)[0], (*pending_ellipse_major_)[1],
-            (*position)[0], (*position)[1]));
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!mutate_active_sketch([&](auto& target) {
+                static_cast<void>(target.add_ellipse(
+                    (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1],
+                    (*pending_ellipse_major_)[0], (*pending_ellipse_major_)[1],
+                    (*position)[0], (*position)[1]));
+            })) return true;
         pending_ellipse_center_.reset();
         pending_ellipse_major_.reset();
         viewer_->set_transient_edges({});
@@ -6785,13 +6795,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
 void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_ellipse_active_ || !pending_ellipse_center_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return;
     if (!pending_ellipse_major_) {
@@ -6828,13 +6833,8 @@ void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
 bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_elliptical_arc_active_) return false;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr || active_sketch_id_.empty()) return false;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return false;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
     if (!pending_elliptical_arc_center_) {
@@ -6909,12 +6909,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
         return true;
     }
     try {
-        auto next = part->session.document();
-        const auto target = std::find_if(
-            next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (target == next.sketches.end()) return true;
-        static_cast<void>(target->add_elliptical_arc(
+        if (!mutate_active_sketch([&](auto& target) {
+            static_cast<void>(target.add_elliptical_arc(
             (*pending_elliptical_arc_center_)[0],
             (*pending_elliptical_arc_center_)[1],
             (*pending_elliptical_arc_major_)[0],
@@ -6925,8 +6921,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             (*pending_elliptical_arc_start_)[1],
             projected->position[0], projected->position[1],
             pending_elliptical_arc_reversed_));
-        part->session.commit(
-            std::move(next), part->session.calculated_boundaries());
+        })) return true;
         pending_elliptical_arc_center_.reset();
         pending_elliptical_arc_major_.reset();
         pending_elliptical_arc_minor_.reset();
@@ -6948,13 +6943,8 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_elliptical_arc_active_ ||
         !pending_elliptical_arc_center_) return;
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     const auto cursor = sketch->intersect_ray(origin, direction);
     if (!cursor) return;
     if (!pending_elliptical_arc_major_) {
@@ -7762,6 +7752,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const auto& document = assembly->session.document();
     const auto* active_part =
         workspace_.open_part(workspace_.active_document_id());
+    const bool active_top_assembly_sketch =
+        workspace_.active_document_id() == document.document_id &&
+        !active_sketch_id_.empty();
     const auto active_part_occurrence = active_part == nullptr
         ? std::optional<std::string>{}
         : resolve_active_occurrence(active_part->session.document().document_id);
@@ -7799,14 +7792,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         pending_mate_kind_ == zima::assembly::MateKind::AxisAngle
                     ? std::vector{zima::viewer::CandidateKind::Axis}
                     : std::vector{zima::viewer::CandidateKind::Face}
-        : active_part != nullptr && sketch_trim_active_
+        : (active_part != nullptr || active_top_assembly_sketch) && sketch_trim_active_
             ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
-        : active_part != nullptr && sketch_external_reference_active_
+        : (active_part != nullptr || active_top_assembly_sketch) &&
+                sketch_external_reference_active_
             ? std::vector{zima::viewer::CandidateKind::Edge,
                           zima::viewer::CandidateKind::Vertex,
                           zima::viewer::CandidateKind::Axis,
                           zima::viewer::CandidateKind::Face}
-        : active_part != nullptr && !active_sketch_id_.empty()
+        : (active_part != nullptr && !active_sketch_id_.empty()) ||
+                active_top_assembly_sketch
             ? std::vector{zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::Dimension,
@@ -7827,7 +7822,21 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                        zima::viewer::CandidateKind::Occurrence};
             }
         }());
-    if (active_part != nullptr && sketch_external_reference_active_ &&
+    if (active_top_assembly_sketch && sketch_external_reference_active_) {
+        const auto top_assembly_id = document.document_id;
+        viewer_->set_candidate_filter([this, top_assembly_id](const auto& candidate) {
+            if (candidate.geometry !=
+                    zima::viewer::CandidateGeometry::OriginalReference ||
+                candidate.instance_path.empty()) return false;
+            try {
+                return workspace_.resolve_occurrence(top_assembly_id,
+                    zima::assembly::InstancePath::decode(candidate.instance_path))
+                    .has_value();
+            } catch (const std::invalid_argument&) {
+                return false;
+            }
+        });
+    } else if (active_part != nullptr && sketch_external_reference_active_ &&
         active_part_occurrence && !active_part_occurrence->empty()) {
         const auto allowed_local_owners = sketch_external_reference_source_owners(
             active_part->session.document(), active_sketch_id_);
@@ -7868,7 +7877,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 zima::assembly::InstancePath::decode(part_rollback_->instance_path),
                 std::move(boundary)));
         } else {
-            viewer_->set_mesh(document.build_scene());
+            auto display = document.build_scene();
+            if (workspace_.active_document_id() == document.document_id) {
+                for (const auto& sketch : document.sketches) {
+                    if (!active_sketch_id_.empty() &&
+                        sketch.id != active_sketch_id_) continue;
+                    auto mesh = sketch.viewer_mesh();
+                    if (sketch.id != active_sketch_id_) mesh.axes.clear();
+                    append_mesh(display, std::move(mesh));
+                }
+            }
+            viewer_->set_mesh(std::move(display));
         }
     } else {
         const auto* active_assembly =
@@ -7927,7 +7946,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 zima::assembly::InstancePath::decode(*active_part_occurrence),
                 std::move(live_source)));
         } else {
-            viewer_->set_mesh(document.build_scene());
+            auto display = document.build_scene();
+            if (active_top_assembly_sketch) {
+                for (const auto& sketch : document.sketches) {
+                    if (sketch.id != active_sketch_id_) continue;
+                    const auto* shown = sketch_trim_active_ && sketch_trim_preview_
+                        ? &*sketch_trim_preview_ : &sketch;
+                    append_mesh(display, shown->viewer_mesh());
+                }
+            }
+            viewer_->set_mesh(std::move(display));
         }
     }
     state_->setText(document.components.empty()
@@ -7969,13 +7997,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     construction_point_action_->setEnabled(supports_constructions);
     construction_axis_action_->setEnabled(supports_constructions);
     construction_plane_action_->setEnabled(supports_constructions);
-    const bool active_part_has_selected_sketch = active_part != nullptr &&
+    const bool active_assembly_owner =
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
+    const bool active_part_has_selected_sketch =
+        (active_part != nullptr || active_assembly_owner) &&
         (!active_sketch_id_.empty() || !selected_sketch_id_.empty());
     extrusion_action_->setEnabled(active_part_has_selected_sketch);
     revolution_action_->setEnabled(active_part_has_selected_sketch);
-    sketch_action_->setEnabled(active_part != nullptr);
+    sketch_action_->setEnabled(active_part != nullptr || active_assembly_owner);
     const bool has_active_part_sketch =
-        active_part != nullptr && !active_sketch_id_.empty();
+        (active_part != nullptr || active_assembly_owner) &&
+        !active_sketch_id_.empty();
     sketch_normal_view_action_->setEnabled(has_active_part_sketch);
     sketch_external_reference_action_->setEnabled(has_active_part_sketch);
     sketch_point_action_->setEnabled(has_active_part_sketch);
@@ -8125,6 +8157,20 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     const auto* assembly = workspace_.open_assembly(assembly_document_id);
     if (assembly == nullptr) return;
     if (assembly_document_id == workspace_.active_document_id()) {
+        for (const auto& sketch : assembly->session.document().sketches) {
+            auto* item = new QTreeWidgetItem(
+                parent, {QString::fromStdString(sketch.name)});
+            item->setData(0, Qt::UserRole, QString::fromStdString(sketch.id));
+            item->setData(0, Qt::UserRole + 3, "assembly-sketch");
+            item->setSelected(sketch.id == selected_sketch_id_);
+        }
+        for (const auto& cut : assembly->session.document().cuts) {
+            auto* item = new QTreeWidgetItem(
+                parent, {QString::fromStdString(cut.definition.name)});
+            item->setData(0, Qt::UserRole,
+                QString::fromStdString(cut.definition.id));
+            item->setData(0, Qt::UserRole + 3, "assembly-cut");
+        }
         for (const auto& object : assembly->session.document().constructions) {
             auto* item = new QTreeWidgetItem(
                 parent, {QString::fromStdString(object.name)});

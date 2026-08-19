@@ -2,6 +2,7 @@
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/document/relations.hpp>
 
 #include <filesystem>
 #include <map>
@@ -151,6 +152,7 @@ public:
     std::string document_id;
     std::string name{"Nový díl"};
     std::map<std::string, std::string> user_parameters;
+    std::vector<ModelRelation> relations;
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
@@ -187,7 +189,8 @@ public:
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
     [[nodiscard]] std::optional<std::size_t> history_index(
         const std::string& id) const;
-    [[nodiscard]] std::vector<zima::kernel::HistoryOperation> kernel_operations() const;
+    [[nodiscard]] std::vector<zima::kernel::HistoryOperation> kernel_operations(
+        bool allow_persisted_external_target = false) const;
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
         std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);

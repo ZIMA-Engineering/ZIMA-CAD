@@ -25,6 +25,7 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <TDocStd_Document.hxx>
@@ -68,6 +69,7 @@
 #include <array>
 #include <numbers>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 #include <unordered_map>
@@ -1496,6 +1498,9 @@ BodyResult make_result(
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
+    std::ostringstream serialized_shape;
+    BRepTools::Write(shape, serialized_shape);
+    result.kernel_shape = serialized_shape.str();
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -1634,6 +1639,52 @@ std::vector<BodyResult> OcctKernel::import_step_components(
         results.push_back(std::move(result));
     }
     return results;
+}
+
+BodyResult OcctKernel::subtract_bodies(
+    const BodyResult& target,
+    const BodyResult& cutter,
+    Vec3 target_translation,
+    Vec3 target_rotation_degrees) const {
+    if (target.kernel_shape.empty() || cutter.kernel_shape.empty()) {
+        throw std::invalid_argument(
+            "Assembly cut requires calculated solid snapshots");
+    }
+    BRep_Builder builder;
+    TopoDS_Shape target_shape;
+    TopoDS_Shape cutter_shape;
+    std::istringstream target_stream(target.kernel_shape);
+    std::istringstream cutter_stream(cutter.kernel_shape);
+    BRepTools::Read(target_shape, target_stream, builder);
+    BRepTools::Read(cutter_shape, cutter_stream, builder);
+    if (target_shape.IsNull() || cutter_shape.IsNull()) {
+        throw std::runtime_error("Calculated solid snapshot is invalid");
+    }
+    const gp_Trsf placement = primitive_transform(
+        target_translation, target_rotation_degrees);
+    BRepBuilderAPI_Transform placed_target(target_shape, placement, true);
+    placed_target.Build();
+    if (!placed_target.IsDone()) {
+        throw std::runtime_error("Assembly cut target placement failed");
+    }
+    BRepAlgoAPI_Cut cut(placed_target.Shape(), cutter_shape);
+    cut.Build();
+    if (!cut.IsDone() || cut.Shape().IsNull() ||
+        !BRepCheck_Analyzer(cut.Shape()).IsValid()) {
+        throw std::runtime_error("Assembly cut failed or produced an invalid solid");
+    }
+    BRepBuilderAPI_Transform local_result(cut.Shape(), placement.Inverted(), true);
+    local_result.Build();
+    if (!local_result.IsDone() || local_result.Shape().IsNull()) {
+        throw std::runtime_error("Assembly cut result placement failed");
+    }
+    auto result = make_result(local_result.Shape(), {}, {}, {});
+    // Stable references remain owned by the original component objects. The
+    // boolean result topology itself is deliberately not a reference owner.
+    result.mesh.original_references = target.mesh.original_references;
+    result.source_fingerprint = target.source_fingerprint + ":cut:" +
+        cutter.source_fingerprint;
+    return result;
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_history(

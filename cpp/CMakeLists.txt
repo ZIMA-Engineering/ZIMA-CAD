@@ -33,6 +33,7 @@ target_link_libraries(zima_sketcher
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
+    modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/viewer_packet_json.cpp)
 target_include_directories(zima_document_core PUBLIC

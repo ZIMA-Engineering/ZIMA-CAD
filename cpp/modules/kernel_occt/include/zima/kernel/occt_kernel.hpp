@@ -16,6 +16,11 @@ public:
         const std::vector<HistoryOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> import_step_components(
         const std::vector<StepRequest>& requests) const;
+    [[nodiscard]] BodyResult subtract_bodies(
+        const BodyResult& target,
+        const BodyResult& cutter,
+        Vec3 target_translation,
+        Vec3 target_rotation_degrees) const;
 };
 
 }  // namespace zima::kernel

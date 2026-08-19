@@ -60,6 +60,20 @@ int main() {
         require(std::abs(body.surface_area - 34000.0) < 1e-6,
                 "Incorrect box surface area");
         require(!body.mesh.vertices.empty(), "Viewer mesh is empty");
+        require(!body.kernel_shape.empty(),
+                "Calculated body did not persist its kernel snapshot");
+        zima::kernel::BoxRequest cutter_request{20.0, 20.0, 20.0};
+        cutter_request.translation = {50.0, 0.0, 0.0};
+        const auto cutter = kernel.make_box(cutter_request);
+        const auto assembly_cut = kernel.subtract_bodies(
+            body, cutter, {50.0, 0.0, 0.0}, {});
+        require(std::abs(assembly_cut.volume - 392000.0) < 1.0e-6 &&
+                    !assembly_cut.kernel_shape.empty() &&
+                    assembly_cut.mesh.original_references.triangle_references ==
+                        body.mesh.original_references.triangle_references &&
+                    assembly_cut.mesh.original_references.edges.size() ==
+                        body.mesh.original_references.edges.size(),
+                "Assembly boolean did not cut the placed body or preserve original references");
         require(body.mesh.triangles.size() % 3 == 0, "Invalid triangle indices");
         require(body.mesh.original_references.triangle_references.size() ==
                     body.mesh.original_references.triangles.size() / 3,
@@ -466,6 +480,14 @@ int main() {
         suppression_document.history.back().suppressed = true;
         suppression_document.user_parameters = {
             {"wall_thickness", "2.5 mm"}, {"rib_count", "4"}};
+        suppression_document.relations = {
+            {"diameter", "radius * 2"}, {"scaled", "max(diameter, 12) + model.volume"}};
+        const auto evaluated_parameters = zima::document::evaluate_relations(
+            {{"radius", "5"}}, suppression_document.relations,
+            {{"model.volume", 3.0}}, 2);
+        require(evaluated_parameters.at("diameter") == "10.00" &&
+                    evaluated_parameters.at("scaled") == "15.00",
+                "Ordered document relations were not evaluated deterministically");
         const auto suppressed_results = kernel.evaluate_history(
             suppression_document.kernel_operations());
         require(suppressed_results.size() == 2 &&
@@ -485,6 +507,8 @@ int main() {
         require(loaded_suppression.user_parameters ==
                     suppression_document.user_parameters,
                 "Part user parameters did not survive save/load");
+        require(loaded_suppression.relations == suppression_document.relations,
+                "Part relations did not survive save/load");
         auto constructions = zima::document::PartDocument::create_default();
         auto point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);

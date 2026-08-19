@@ -176,6 +176,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     return {
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
+        {"kernel_shape", result.kernel_shape},
         {"vertices", std::move(vertices)}, {"triangles", result.mesh.triangles},
         {"triangle_references", std::move(faces)},
         {"edges", std::move(edges)}, {"points", std::move(points)},
@@ -190,6 +191,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
+    result.kernel_shape = source.at("kernel_shape").get<std::string>();
     result.mesh.original_references = load_reference_geometry(
         source.at("original_references"));
     require_finite(result.volume, "calculated volume");

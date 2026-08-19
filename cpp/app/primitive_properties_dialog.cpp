@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QStringList>
 
@@ -39,8 +40,25 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     const zima::document::HistoryContainer& initial,
     bool edit_mode,
     bool allow_subtract,
-    CommitCallback commit,
+    LegacyCommitCallback commit,
     QWidget* parent)
+    : PrimitivePropertiesDialog(
+          initial, edit_mode, allow_subtract,
+          [commit = std::move(commit)](
+              zima::document::HistoryContainer value,
+              std::vector<std::string>) mutable {
+              commit(std::move(value));
+          }, parent) {}
+
+PrimitivePropertiesDialog::PrimitivePropertiesDialog(
+    const zima::document::HistoryContainer& initial,
+    bool edit_mode,
+    bool allow_subtract,
+    CommitCallback commit,
+    QWidget* parent,
+    std::vector<AssemblyTarget> assembly_targets,
+    std::vector<std::string> selected_targets,
+    bool assembly_cut_mode)
     : PropertiesSubWindow(
           edit_mode
               ? tr("Vlastnosti %1").arg(primitive_label(initial.feature_kind))
@@ -75,12 +93,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         initial.feature_kind == zima::document::FeatureKind::Chamfer;
     if (!treatment) {
         operation_ = new QComboBox(this);
-        operation_->addItem(tr("Přičíst"), "add");
-        if (allow_subtract) operation_->addItem(tr("Odečíst"), "subtract");
+        if (!assembly_cut_mode) operation_->addItem(tr("Přičíst"), "add");
+        if (allow_subtract || assembly_cut_mode) {
+            operation_->addItem(tr("Odečíst"), "subtract");
+        }
         if (initial.combine_mode == zima::document::CombineMode::Subtract) {
             operation_->setCurrentIndex(operation_->findData("subtract"));
         }
         form->addRow(tr("Operace"), operation_);
+        if (assembly_cut_mode) operation_->setEnabled(false);
     }
 
     const auto dimension = [this](double value, const char* object_name) {
@@ -290,6 +311,24 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     }
     content_layout()->addLayout(form);
 
+    if (assembly_cut_mode) {
+        assembly_targets_ = new QListWidget(this);
+        assembly_targets_->setObjectName("assemblyCutTargets");
+        assembly_targets_->setMinimumHeight(100);
+        for (const auto& [id, label] : assembly_targets) {
+            auto* item = new QListWidgetItem(QString::fromStdString(label),
+                assembly_targets_);
+            item->setData(Qt::UserRole, QString::fromStdString(id));
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(std::find(selected_targets.begin(),
+                selected_targets.end(), id) != selected_targets.end()
+                    ? Qt::Checked : Qt::Unchecked);
+        }
+        content_layout()->addWidget(new QLabel(
+            tr("Cílové komponenty sestavy"), this));
+        content_layout()->addWidget(assembly_targets_);
+    }
+
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
@@ -399,6 +438,21 @@ bool PrimitivePropertiesDialog::submit() {
         return false;
     }
     auto result = values();
+    std::vector<std::string> selected_targets;
+    if (assembly_targets_ != nullptr) {
+        for (int row = 0; row < assembly_targets_->count(); ++row) {
+            const auto* item = assembly_targets_->item(row);
+            if (item->checkState() == Qt::Checked) {
+                selected_targets.push_back(
+                    item->data(Qt::UserRole).toString().toStdString());
+            }
+        }
+        if (selected_targets.empty()) {
+            error_->setText(tr("Vyberte alespoň jednu cílovou komponentu sestavy."));
+            return false;
+        }
+        result.combine_mode = zima::document::CombineMode::Subtract;
+    }
     if (result.feature_kind == zima::document::FeatureKind::Extrusion &&
         (result.extrusion.extent == zima::document::ExtrusionExtent::UpToPlane ||
          result.extrusion.extent == zima::document::ExtrusionExtent::UpToSurface) &&
@@ -419,7 +473,7 @@ bool PrimitivePropertiesDialog::submit() {
         };
     }
     try {
-        commit_(std::move(result));
+        commit_(std::move(result), std::move(selected_targets));
     } catch (const std::exception& failure) {
         error_->setText(QString::fromUtf8(failure.what()));
         return false;

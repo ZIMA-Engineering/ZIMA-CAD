@@ -1856,7 +1856,8 @@ std::optional<std::size_t> PartDocument::history_index(
     return static_cast<std::size_t>(std::distance(history.begin(), found));
 }
 
-std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() const {
+std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
+    bool allow_persisted_external_target) const {
     std::vector<zima::kernel::HistoryOperation> operations;
     operations.reserve(history.size());
     for (const auto& container : history) {
@@ -1930,6 +1931,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
                     ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
                     : zima::kernel::ExtrusionRequest::Extent::Blind;
             extrusion.target_face = container.extrusion.target_face;
+            if (allow_persisted_external_target) {
+                extrusion.target_face.instance_path.clear();
+            }
             extrusion.target_is_datum = std::any_of(
                 constructions.begin(), constructions.end(), [&](const auto& object) {
                     return object.id == container.extrusion.target_face.owner_id &&
@@ -1938,6 +1942,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations() co
             if ((container.extrusion.extent == ExtrusionExtent::UpToPlane ||
                  container.extrusion.extent == ExtrusionExtent::UpToSurface) &&
                 !extrusion.target_is_datum &&
+                !allow_persisted_external_target &&
                 std::none_of(operations.begin(), operations.end(), [&](const auto& prior) {
                     return prior.owner_id == container.extrusion.target_face.owner_id;
                 })) {
@@ -2001,7 +2006,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 25) {
+        root.at("format_version").get<int>() != 26) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2009,6 +2014,10 @@ PartDocument PartDocument::load(
     document.name = root.at("name").get<std::string>();
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
+    for (const auto& relation : root.at("relations")) {
+        document.relations.push_back({relation.at("target").get<std::string>(),
+            relation.at("expression").get<std::string>()});
+    }
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -2126,7 +2135,8 @@ PartDocument PartDocument::load(
                 }
                 container.extrusion.target_face = {
                     source.at("target_owner").get<std::string>(),
-                    source.at("target_key").get<std::string>(), {}};
+                    source.at("target_key").get<std::string>(),
+                    source.at("target_path").get<std::string>()};
                 container.extrusion.target_plane_origin = {
                     source.at("target_origin_x").get<double>(),
                     source.at("target_origin_y").get<double>(),
@@ -2145,7 +2155,8 @@ PartDocument PartDocument::load(
             if (container.extrusion.extent == ExtrusionExtent::UpToSurface) {
                 container.extrusion.target_face = {
                     source.at("target_owner").get<std::string>(),
-                    source.at("target_key").get<std::string>(), {}};
+                    source.at("target_key").get<std::string>(),
+                    source.at("target_path").get<std::string>()};
                 for (const auto& point : source.at("target_triangles")) {
                     container.extrusion.target_surface_triangles.push_back({
                         point.at(0).get<double>(), point.at(1).get<double>(),
@@ -2570,6 +2581,7 @@ void PartDocument::save(
                     ? "through_all" : "blind";
             serialized["target_owner"] = container.extrusion.target_face.owner_id;
             serialized["target_key"] = container.extrusion.target_face.semantic_key;
+            serialized["target_path"] = container.extrusion.target_face.instance_path;
             serialized["target_origin_x"] = container.extrusion.target_plane_origin.x;
             serialized["target_origin_y"] = container.extrusion.target_plane_origin.y;
             serialized["target_origin_z"] = container.extrusion.target_plane_origin.z;
@@ -2678,13 +2690,17 @@ void PartDocument::save(
             {"references", std::move(references)}, {"offset", object.offset},
             {"reference_valid", object.reference_valid}});
     }
+    nlohmann::json serialized_relations = nlohmann::json::array();
+    for (const auto& relation : relations) serialized_relations.push_back(
+        {{"target", relation.target}, {"expression", relation.expression}});
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 25},
+        {"format_version", 26},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
         {"user_parameters", user_parameters},
+        {"relations", std::move(serialized_relations)},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

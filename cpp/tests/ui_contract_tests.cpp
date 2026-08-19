@@ -16,6 +16,7 @@
 #include <QFileDialog>
 #include <QFileSystemModel>
 #include <QMouseEvent>
+#include <QListWidget>
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QTimer>
@@ -599,6 +600,34 @@ int main(int argc, char* argv[]) {
         require(dimension_commits == 1 && committed_dimension.lower_limit == 0.0 &&
                     committed_dimension.upper_limit == 20.0,
                 "Sketch dimension Properties did not commit its absolute limits");
+
+        auto assembly_extrusion =
+            zima::document::PartDocument::create_extrusion_container("assembly-sketch");
+        bool assembly_cut_committed = false;
+        zima::document::HistoryContainer committed_assembly_cut;
+        std::vector<std::string> committed_targets;
+        auto* assembly_cut_dialog = new zima::app::PrimitivePropertiesDialog(
+            assembly_extrusion, false, true,
+            [&](zima::document::HistoryContainer value,
+                std::vector<std::string> targets) {
+                assembly_cut_committed = true;
+                committed_assembly_cut = std::move(value);
+                committed_targets = std::move(targets);
+            }, &parent,
+            {{"occurrence-a", "Díl A"}, {"occurrence-b", "Díl B"}},
+            {"occurrence-b"}, true);
+        auto* assembly_targets =
+            assembly_cut_dialog->findChild<QListWidget*>("assemblyCutTargets");
+        require(assembly_targets != nullptr && assembly_targets->count() == 2 &&
+                    assembly_targets->item(0)->checkState() == Qt::Unchecked &&
+                    assembly_targets->item(1)->checkState() == Qt::Checked,
+                "Assembly cut did not expose the shared dialog target selection");
+        assembly_cut_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(assembly_cut_committed &&
+                    committed_assembly_cut.combine_mode ==
+                        zima::document::CombineMode::Subtract &&
+                    committed_targets == std::vector<std::string>{"occurrence-b"},
+                "Assembly cut did not commit subtract with exact targets");
 
         const auto file_dialog_directory = std::filesystem::temp_directory_path() /
             ("zima-cad-file-dialog-contract-" + std::to_string(

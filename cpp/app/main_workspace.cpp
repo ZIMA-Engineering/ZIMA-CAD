@@ -562,6 +562,33 @@ int verify_startup_contract(
                 "Assembly toolbar is missing its Point/Axis/Plane commands")) {
         return 1;
     }
+    if (!verify(sketch->isEnabled(),
+                "Assembly must expose the shared Sketch command")) return 1;
+    sketch->trigger();
+    application.processEvents();
+    auto* assembly_sketch_name = window.findChild<QLineEdit*>("sketchName");
+    QDialog* assembly_sketch_dialog{};
+    for (auto* candidate : window.findChildren<QDialog*>()) {
+        if (candidate->findChild<QLineEdit*>("sketchName") != nullptr) {
+            assembly_sketch_dialog = candidate;
+            break;
+        }
+    }
+    if (!verify(assembly_sketch_dialog != nullptr &&
+                    assembly_sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Assembly Sketch must use the shared internal Sketch dialog")) {
+        return 1;
+    }
+    assembly_sketch_dialog->findChild<QDialogButtonBox*>()
+        ->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    finish_sketch->trigger();
+    application.processEvents();
+    if (!verify(tree->topLevelItem(0)->childCount() == 1,
+                "confirming Assembly Sketch must create an Assembly-owned sketch")) {
+        return 1;
+    }
     QAction* source_action{};
     for (auto* action : insert_menu->actions()) {
         if (action->objectName() == QStringLiteral("insertSourceAction") &&
@@ -576,7 +603,7 @@ int verify_startup_contract(
     source_action->trigger();
     application.processEvents();
     if (!verify(tree->topLevelItemCount() == 1 &&
-                    tree->topLevelItem(0)->childCount() == 1,
+                    tree->topLevelItem(0)->childCount() == 2,
                 "inserting the open Part must create an Assembly occurrence")) {
         return 1;
     }

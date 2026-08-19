@@ -113,6 +113,14 @@ int main() {
         const auto assembly_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-contract.asmz";
         assembly.user_parameters = {{"clearance", "0.15 mm"}};
+        assembly.relations = {{"double_clearance", "clearance * 2"}};
+        auto assembly_sketch = zima::sketcher::Sketch::create_default();
+        assembly.sketches.push_back(assembly_sketch);
+        auto cut_definition = zima::document::PartDocument::create_extrusion_container(
+            assembly_sketch.id);
+        cut_definition.combine_mode = zima::document::CombineMode::Subtract;
+        cut_definition.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
+        assembly.cuts.push_back({cut_definition, {first_id, second_id}});
         assembly.save(assembly_path);
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         std::filesystem::remove(assembly_path);
@@ -124,7 +132,13 @@ int main() {
                     loaded.components.back().source_kind ==
                         zima::assembly::ComponentSourceKind::Part &&
                     loaded.components.back().placement.z == 30.0 &&
-                    loaded.user_parameters == assembly.user_parameters,
+                    loaded.user_parameters == assembly.user_parameters &&
+                    loaded.relations == assembly.relations &&
+                    loaded.sketches.size() == 1 &&
+                    loaded.sketches.front().serialized() ==
+                        assembly.sketches.front().serialized() &&
+                    loaded.cuts == assembly.cuts &&
+                    loaded.find_cut(cut_definition.id) != nullptr,
                 "Assembly identity and placement did not survive save/load");
         const auto loaded_scene = loaded.build_scene();
         std::set<std::string> loaded_paths;

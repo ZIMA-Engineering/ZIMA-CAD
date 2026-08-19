@@ -306,6 +306,9 @@ struct BodyResult {
     double volume{};
     double surface_area{};
     std::string source_fingerprint;
+    // Opaque calculation snapshot. Only the solid kernel may consume it
+    // during an explicit body calculation; viewer/reference code uses mesh.
+    std::string kernel_shape;
 };
 
 [[nodiscard]] inline std::string box_history_fingerprint(

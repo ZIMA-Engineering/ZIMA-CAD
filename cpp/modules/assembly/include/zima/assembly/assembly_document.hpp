@@ -65,6 +65,14 @@ struct PartOccurrence {
     std::vector<OccurrenceSnapshot> nested_snapshot;
 };
 
+// Assembly-owned subtractive feature. `definition` is deliberately the same
+// object edited by the Part feature dialog; only ownership and targets differ.
+struct AssemblyCut {
+    zima::document::HistoryContainer definition;
+    std::vector<std::string> target_occurrence_ids;
+    bool operator==(const AssemblyCut&) const = default;
+};
+
 enum class ComponentDependencyKind {
     PlacementReference,
     ExternalSketchReference,
@@ -138,7 +146,10 @@ public:
     std::string document_id;
     std::string name{"Nová sestava"};
     std::map<std::string, std::string> user_parameters;
+    std::vector<zima::document::ModelRelation> relations;
     std::vector<PartOccurrence> components;
+    std::vector<zima::sketcher::Sketch> sketches;
+    std::vector<AssemblyCut> cuts;
     std::vector<zima::document::ConstructionObject> constructions;
     std::vector<ComponentDependency> dependencies;
     std::vector<AssemblyMate> mates;
@@ -157,6 +168,8 @@ public:
     [[nodiscard]] const PartOccurrence* find_occurrence(
         const std::string& occurrence_id) const;
     [[nodiscard]] PartOccurrence* find_occurrence(const std::string& occurrence_id);
+    [[nodiscard]] AssemblyCut* find_cut(const std::string& container_id);
+    [[nodiscard]] const AssemblyCut* find_cut(const std::string& container_id) const;
     [[nodiscard]] static zima::document::ConstructionObject create_construction(
         zima::document::ConstructionKind kind);
     [[nodiscard]] zima::document::ConstructionObject* find_construction(

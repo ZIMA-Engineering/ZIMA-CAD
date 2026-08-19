@@ -489,6 +489,21 @@ PartOccurrence* AssemblyDocument::find_occurrence(const std::string& occurrence_
     return const_cast<PartOccurrence*>(std::as_const(*this).find_occurrence(occurrence_id));
 }
 
+AssemblyCut* AssemblyDocument::find_cut(const std::string& container_id) {
+    const auto found = std::find_if(cuts.begin(), cuts.end(), [&](const auto& cut) {
+        return cut.definition.id == container_id;
+    });
+    return found == cuts.end() ? nullptr : &*found;
+}
+
+const AssemblyCut* AssemblyDocument::find_cut(
+    const std::string& container_id) const {
+    const auto found = std::find_if(cuts.begin(), cuts.end(), [&](const auto& cut) {
+        return cut.definition.id == container_id;
+    });
+    return found == cuts.end() ? nullptr : &*found;
+}
+
 zima::document::ConstructionObject AssemblyDocument::create_construction(
     zima::document::ConstructionKind kind) {
     return zima::document::PartDocument::create_construction(kind);
@@ -1397,6 +1412,33 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
     zima::kernel::ViewerMesh scene = construction_viewer_mesh();
     std::unordered_set<std::string> occurrence_ids;
     std::unordered_set<std::string> dependency_ids;
+    std::unordered_set<std::string> cut_ids;
+    for (const auto& cut : cuts) {
+        const auto& feature = cut.definition;
+        const bool extrusion = feature.feature_kind ==
+            zima::document::FeatureKind::Extrusion;
+        const bool revolution = feature.feature_kind ==
+            zima::document::FeatureKind::Revolution;
+        const std::string& sketch_id = extrusion
+            ? feature.extrusion.sketch_id : feature.revolution.sketch_id;
+        if (feature.id.empty() || !cut_ids.insert(feature.id).second ||
+            (!extrusion && !revolution) ||
+            feature.combine_mode != zima::document::CombineMode::Subtract ||
+            std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
+                return sketch.id == sketch_id;
+            }) || cut.target_occurrence_ids.empty()) {
+            throw std::runtime_error("Assembly cut definition is invalid");
+        }
+        std::unordered_set<std::string> target_ids;
+        for (const auto& target_id : cut.target_occurrence_ids) {
+            const auto* target = find_occurrence(target_id);
+            if (!target_ids.insert(target_id).second || target == nullptr ||
+                target->source_kind != ComponentSourceKind::Part) {
+                throw std::runtime_error(
+                    "Assembly cut target must be a unique immediate Part occurrence");
+            }
+        }
+    }
     DependencyGraph dependency_graph;
     for (const auto& dependency : dependencies) {
         if (dependency.dependency_id.empty() ||
@@ -1630,7 +1672,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 9 ||
+        root.at("format_version").get<int>() != 11 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1639,6 +1681,62 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.name = root.at("name").get<std::string>();
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
+    for (const auto& relation : root.at("relations")) {
+        document.relations.push_back({relation.at("target").get<std::string>(),
+            relation.at("expression").get<std::string>()});
+    }
+    for (const auto& value : root.at("sketches")) {
+        document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
+            value.get<std::string>()));
+    }
+    for (const auto& value : root.at("cuts")) {
+        AssemblyCut cut;
+        auto& feature = cut.definition;
+        feature.id = value.at("id").get<std::string>();
+        feature.name = value.at("name").get<std::string>();
+        const auto kind = value.at("kind").get<std::string>();
+        feature.feature_kind = kind == "extrusion"
+            ? zima::document::FeatureKind::Extrusion
+            : zima::document::FeatureKind::Revolution;
+        feature.combine_mode = zima::document::CombineMode::Subtract;
+        feature.suppressed = value.at("suppressed").get<bool>();
+        feature.placement = {value.at("x").get<double>(), value.at("y").get<double>(),
+            value.at("z").get<double>(), value.at("rx").get<double>(),
+            value.at("ry").get<double>(), value.at("rz").get<double>()};
+        const auto sketch_id = value.at("sketch_id").get<std::string>();
+        if (feature.feature_kind == zima::document::FeatureKind::Extrusion) {
+            feature.extrusion.sketch_id = sketch_id;
+        } else {
+            feature.revolution.sketch_id = sketch_id;
+        }
+        feature.extrusion.height = value.at("height").get<double>();
+        feature.extrusion.direction = static_cast<zima::document::ExtrusionDirection>(
+            value.at("direction").get<int>());
+        feature.extrusion.extent = static_cast<zima::document::ExtrusionExtent>(
+            value.at("extent").get<int>());
+        feature.extrusion.target_face = {value.at("target_owner").get<std::string>(),
+            value.at("target_key").get<std::string>(),
+            value.at("target_path").get<std::string>()};
+        const auto& origin = value.at("target_origin");
+        const auto& normal = value.at("target_normal");
+        feature.extrusion.target_plane_origin = {origin.at(0).get<double>(),
+            origin.at(1).get<double>(), origin.at(2).get<double>()};
+        feature.extrusion.target_plane_normal = {normal.at(0).get<double>(),
+            normal.at(1).get<double>(), normal.at(2).get<double>()};
+        for (const auto& point : value.at("target_triangles")) {
+            feature.extrusion.target_surface_triangles.push_back({
+                point.at(0).get<double>(), point.at(1).get<double>(),
+                point.at(2).get<double>()});
+        }
+        feature.revolution.axis = static_cast<zima::document::RevolutionAxis>(
+            value.at("axis").get<int>());
+        feature.revolution.angle_degrees = value.at("angle").get<double>();
+        cut.target_occurrence_ids = value.at("targets").get<std::vector<std::string>>();
+        if (feature.id.empty() || cut.target_occurrence_ids.empty()) {
+            throw std::runtime_error("Invalid Assembly cut definition");
+        }
+        document.cuts.push_back(std::move(cut));
+    }
     std::unordered_set<std::string> construction_ids;
     for (const auto& source : root.at("constructions")) {
         zima::document::ConstructionObject object;
@@ -1901,10 +1999,54 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         if (mate.upper_limit) serialized["upper_limit"] = *mate.upper_limit;
         mates_json.push_back(std::move(serialized));
     }
+    nlohmann::json relations_json = nlohmann::json::array();
+    for (const auto& relation : relations) relations_json.push_back(
+        {{"target", relation.target}, {"expression", relation.expression}});
+    nlohmann::json sketches_json = nlohmann::json::array();
+    for (const auto& sketch : sketches) sketches_json.push_back(sketch.serialized());
+    nlohmann::json cuts_json = nlohmann::json::array();
+    for (const auto& cut : cuts) {
+        const auto& feature = cut.definition;
+        if (feature.feature_kind != zima::document::FeatureKind::Extrusion &&
+            feature.feature_kind != zima::document::FeatureKind::Revolution) {
+            throw std::runtime_error("Assembly cut must be an Extrusion or Revolution");
+        }
+        nlohmann::json triangles = nlohmann::json::array();
+        for (const auto& point : feature.extrusion.target_surface_triangles) {
+            triangles.push_back({point.x, point.y, point.z});
+        }
+        cuts_json.push_back({{"id", feature.id}, {"name", feature.name},
+            {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion
+                ? "extrusion" : "revolution"}, {"suppressed", feature.suppressed},
+            {"x", feature.placement.x}, {"y", feature.placement.y},
+            {"z", feature.placement.z}, {"rx", feature.placement.rotation_x},
+            {"ry", feature.placement.rotation_y}, {"rz", feature.placement.rotation_z},
+            {"sketch_id", feature.feature_kind == zima::document::FeatureKind::Extrusion
+                ? feature.extrusion.sketch_id : feature.revolution.sketch_id},
+            {"height", feature.extrusion.height},
+            {"direction", static_cast<int>(feature.extrusion.direction)},
+            {"extent", static_cast<int>(feature.extrusion.extent)},
+            {"target_owner", feature.extrusion.target_face.owner_id},
+            {"target_key", feature.extrusion.target_face.semantic_key},
+            {"target_path", feature.extrusion.target_face.instance_path},
+            {"target_origin", {feature.extrusion.target_plane_origin.x,
+                feature.extrusion.target_plane_origin.y,
+                feature.extrusion.target_plane_origin.z}},
+            {"target_normal", {feature.extrusion.target_plane_normal.x,
+                feature.extrusion.target_plane_normal.y,
+                feature.extrusion.target_plane_normal.z}},
+            {"target_triangles", std::move(triangles)},
+            {"axis", static_cast<int>(feature.revolution.axis)},
+            {"angle", feature.revolution.angle_degrees},
+            {"targets", cut.target_occurrence_ids}});
+    }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 9},
+        {"format", "zima-cad-cpp"}, {"format_version", 11},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
+        {"relations", std::move(relations_json)},
+        {"sketches", std::move(sketches_json)},
+        {"cuts", std::move(cuts_json)},
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},
