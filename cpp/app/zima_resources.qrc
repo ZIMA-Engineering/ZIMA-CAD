@@ -33,6 +33,7 @@
     <file alias="icons/sketch-ellipse.svg">../../resources/icons/sketch-ellipse.svg</file>
     <file alias="icons/sketch-elliptical-arc.svg">../../resources/icons/sketch-elliptical-arc.svg</file>
     <file alias="icons/sketch-spline.svg">../../resources/icons/sketch-spline.svg</file>
+    <file alias="icons/sketch-text.svg">../../resources/icons/sketch-text.svg</file>
     <file alias="icons/sketch-constraints.svg">../../resources/icons/sketch-constraints.svg</file>
     <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
@@ -45,5 +46,6 @@
     <file alias="icons/cone.svg">../../resources/icons/cone.svg</file>
     <file alias="icons/pyramid.svg">../../resources/icons/pyramid.svg</file>
     <file alias="icons/wedge.svg">../../resources/icons/wedge.svg</file>
+    <file alias="fonts/osifont-lgpl3fe.ttf">../../config/fonts/osifont-lgpl3fe.ttf</file>
   </qresource>
 </RCC>

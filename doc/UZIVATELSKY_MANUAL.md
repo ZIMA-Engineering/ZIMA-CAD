@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 17, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 18, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -436,6 +436,18 @@ rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
 V nativní pravé liště jsou existující příkazy skici seskupené pod tlačítky
 **Vazby** a **Kóty**. Položky uvnitř nabídek se povolují podle právě vybrané
 geometrie; seskupení nemění jejich výběr, výpočet ani způsob potvrzení.
+
+Samostatný příkaz **Text** otevře stejné interní okno Vlastností jako ostatní
+parametry skici. U nového textu nejprve klikněte na kotevní bod ve výkresovém
+prostoru, nastavte obsah, výšku, vodorovné a svislé zarovnání, barvu, natočení
+a případné vodorovné převrácení a potvrďte **OK**. Změny se před potvrzením
+zobrazují jen jako dočasný náhled; **Cancel** model nezmění. Dvojklik nebo
+**Vlastnosti** v kontextové nabídce otevře pro existující text stejné okno a
+**Odstranit** či `Delete` smaže celý text jako jednu entitu. Obrys ISO písma se
+vypočítá při explicitním OK a uloží se společně se sémantickými parametry;
+otevření, výběr a vykreslení textu proto nevolá OCCT ani znovu nenačítá písmo.
+V aktuálním C++ řezu je text samostatná skicová grafika a zatím nevstupuje do
+profilu Vytažení nebo Rotace.
 
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
 řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.

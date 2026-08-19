@@ -33,6 +33,7 @@ namespace zima::app {
 
 class PrimitivePropertiesDialog;
 class DrawingWindow;
+class SketchTextPropertiesDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
@@ -121,6 +122,7 @@ private:
     QAction* sketch_ellipse_action_{};
     QAction* sketch_elliptical_arc_action_{};
     QAction* sketch_bspline_action_{};
+    QAction* sketch_text_action_{};
     QAction* sketch_constraints_action_{};
     QMenu* sketch_constraints_menu_{};
     QAction* sketch_horizontal_action_{};
@@ -173,6 +175,7 @@ private:
     std::string selected_sketch_ellipse_id_;
     std::string selected_sketch_elliptical_arc_id_;
     std::string selected_sketch_bspline_id_;
+    std::string selected_sketch_text_id_;
     std::string selected_sketch_point_id_;
     bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
@@ -210,6 +213,9 @@ private:
     bool pending_elliptical_arc_reversed_{};
     bool sketch_bspline_active_{};
     std::vector<std::array<double, 2>> pending_bspline_points_;
+    bool sketch_text_active_{};
+    std::string editing_sketch_text_id_;
+    SketchTextPropertiesDialog* sketch_text_dialog_{};
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
     bool sketch_midpoint_active_{};
@@ -288,6 +294,8 @@ private:
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);
+    void show_sketch_text_properties(
+        const std::string& sketch_id, const std::string& text_id = {});
     void align_active_sketch_view();
     void finish_active_sketch();
     void start_sketch_point();
@@ -361,6 +369,8 @@ private:
     bool accept_sketch_bspline_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_bspline_ray(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_text_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void constrain_selected_segment(zima::sketcher::ConstraintKind kind);
     void start_sketch_coincident();

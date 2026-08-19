@@ -43,7 +43,7 @@ struct DimensionPickCandidate {
 
 enum class CandidateKind {
     Occurrence, Container, Face, Edge, Vertex, Axis, SketchAxis, SketchSegment,
-    SketchPoint, Dimension, SketchCurve, SketchTrimPiece
+    SketchPoint, Dimension, SketchCurve, SketchText, SketchTrimPiece
 };
 
 enum class CandidateGeometry { Display, OriginalReference };

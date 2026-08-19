@@ -106,6 +106,7 @@ add_executable(zima-cad-cpp
     app/construction_properties_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
+    app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE

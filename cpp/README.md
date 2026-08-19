@@ -526,6 +526,13 @@ that older documents can be loaded.
 - `ui`: shared in-application Properties window behaviour;
 - `app`: Qt application and commands.
 
+Sketch Text is persisted as one semantic entity together with its transformed
+ISO-font contours. Creation and editing share one internal Properties
+SubWindow; preview is transient and only OK commits one Part revision. Viewer
+display and picking consume the stored contours without loading a font or
+calling OCCT. Text contours are not yet profile input for Extrusion or
+Revolution.
+
 ## Linux build
 
 Qt and OCCT are consumed from the existing bundled runtime and are not rebuilt:

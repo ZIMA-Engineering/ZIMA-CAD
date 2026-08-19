@@ -583,7 +583,8 @@ void MeshView::paintGL() {
                 edge.reference.semantic_key.starts_with("arc:") ||
                 edge.reference.semantic_key.starts_with("ellipse:") ||
                 edge.reference.semantic_key.starts_with("elliptical_arc:") ||
-                edge.reference.semantic_key.starts_with("bspline:");
+                edge.reference.semantic_key.starts_with("bspline:") ||
+                edge.reference.semantic_key.starts_with("text:");
         });
     const bool points_visible = impl_->show_points && !impl_->mesh.points.empty();
     const bool planes_visible = impl_->show_planes && std::any_of(
@@ -598,6 +599,7 @@ void MeshView::paintGL() {
             highlighted->kind == CandidateKind::Edge ||
             highlighted->kind == CandidateKind::SketchSegment ||
             highlighted->kind == CandidateKind::SketchCurve ||
+            highlighted->kind == CandidateKind::SketchText ||
             highlighted->kind == CandidateKind::SketchTrimPiece ||
             highlighted->kind == CandidateKind::Vertex ||
             highlighted->kind == CandidateKind::SketchPoint ||
@@ -622,10 +624,17 @@ void MeshView::paintGL() {
                     !edge.reference.semantic_key.starts_with("arc:") &&
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
                     !edge.reference.semantic_key.starts_with("elliptical_arc:") &&
-                    !edge.reference.semantic_key.starts_with("bspline:")) continue;
-                painter.setPen(edge.construction
-                    ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
-                    : QPen(QColor(220, 220, 220), 1.8));
+                    !edge.reference.semantic_key.starts_with("bspline:") &&
+                    !edge.reference.semantic_key.starts_with("text:")) continue;
+                const bool text = edge.reference.semantic_key.starts_with("text:");
+                const QColor text_color = edge.reference.semantic_key.ends_with(":yellow")
+                    ? QColor(245, 205, 80)
+                    : edge.reference.semantic_key.ends_with(":white")
+                        ? QColor(235, 235, 235) : QColor(77, 216, 17);
+                painter.setPen(text ? QPen(text_color, 1.8)
+                    : edge.construction
+                        ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
+                        : QPen(QColor(220, 220, 220), 1.8));
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }
@@ -736,13 +745,25 @@ void MeshView::paintGL() {
             if ((highlighted->kind == CandidateKind::Edge ||
                  highlighted->kind == CandidateKind::SketchSegment ||
                  highlighted->kind == CandidateKind::SketchCurve ||
+                 highlighted->kind == CandidateKind::SketchText ||
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size()) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-                const auto& edge = selectable_edges[highlighted->geometry_index];
-                for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(
-                        project(edge.points[index - 1]), project(edge.points[index]));
+                if (highlighted->kind == CandidateKind::SketchText) {
+                    for (const auto& edge : selectable_edges) {
+                        if (edge.reference.owner_id != highlighted->owner_id ||
+                            edge.reference.semantic_key != highlighted->semantic_key) continue;
+                        for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                            painter.drawLine(project(edge.points[index - 1]),
+                                             project(edge.points[index]));
+                        }
+                    }
+                } else {
+                    const auto& edge = selectable_edges[highlighted->geometry_index];
+                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                        painter.drawLine(project(edge.points[index - 1]),
+                                         project(edge.points[index]));
+                    }
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint) &&

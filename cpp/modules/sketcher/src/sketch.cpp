@@ -105,6 +105,54 @@ DimensionKind dimension_from_name(const std::string& name) {
     throw std::runtime_error("Unknown sketch dimension");
 }
 
+const char* text_horizontal_name(TextHorizontalAlignment alignment) {
+    switch (alignment) {
+    case TextHorizontalAlignment::Left: return "left";
+    case TextHorizontalAlignment::Center: return "center";
+    case TextHorizontalAlignment::Right: return "right";
+    }
+    throw std::invalid_argument("Unknown horizontal text alignment");
+}
+
+TextHorizontalAlignment text_horizontal_from_name(const std::string& name) {
+    if (name == "left") return TextHorizontalAlignment::Left;
+    if (name == "center") return TextHorizontalAlignment::Center;
+    if (name == "right") return TextHorizontalAlignment::Right;
+    throw std::runtime_error("Unknown horizontal text alignment");
+}
+
+const char* text_vertical_name(TextVerticalAlignment alignment) {
+    switch (alignment) {
+    case TextVerticalAlignment::Bottom: return "bottom";
+    case TextVerticalAlignment::Middle: return "middle";
+    case TextVerticalAlignment::Top: return "top";
+    }
+    throw std::invalid_argument("Unknown vertical text alignment");
+}
+
+TextVerticalAlignment text_vertical_from_name(const std::string& name) {
+    if (name == "bottom") return TextVerticalAlignment::Bottom;
+    if (name == "middle") return TextVerticalAlignment::Middle;
+    if (name == "top") return TextVerticalAlignment::Top;
+    throw std::runtime_error("Unknown vertical text alignment");
+}
+
+const char* text_color_name(SketchTextColor color) {
+    switch (color) {
+    case SketchTextColor::Green: return "green";
+    case SketchTextColor::White: return "white";
+    case SketchTextColor::Yellow: return "yellow";
+    }
+    throw std::invalid_argument("Unknown sketch text color");
+}
+
+SketchTextColor text_color_from_name(const std::string& name) {
+    if (name == "green") return SketchTextColor::Green;
+    if (name == "white") return SketchTextColor::White;
+    if (name == "yellow") return SketchTextColor::Yellow;
+    throw std::runtime_error("Unknown sketch text color");
+}
+
 void require_finite(double value, const char* field) {
     if (!std::isfinite(value)) throw std::runtime_error(std::string(field) + " must be finite");
 }
@@ -692,6 +740,37 @@ void Sketch::validate() const {
                 (index > 0 && spline.control_point_ids[index] ==
                     spline.control_point_ids[index - 1])) {
                 throw std::runtime_error("Sketch B-spline control points are invalid");
+            }
+        }
+    }
+    ids.clear();
+    for (const auto& text : texts) {
+        if (text.id.empty() || !ids.insert(text.id).second || text.value.empty() ||
+            text.font.empty() || !std::isfinite(text.anchor_x) ||
+            !std::isfinite(text.anchor_y) || !std::isfinite(text.height) ||
+            text.height <= 0.0 || !std::isfinite(text.angle_degrees) ||
+            text.contours.empty()) {
+            throw std::runtime_error("Sketch text is invalid");
+        }
+        static_cast<void>(text_horizontal_name(text.horizontal));
+        static_cast<void>(text_vertical_name(text.vertical));
+        static_cast<void>(text_color_name(text.color));
+        for (const auto& contour : text.contours) {
+            if (contour.size() < 3) {
+                throw std::runtime_error("Sketch text contour is invalid");
+            }
+            double signed_area{};
+            for (std::size_t index = 0; index < contour.size(); ++index) {
+                const auto& point = contour[index];
+                const auto& next = contour[(index + 1) % contour.size()];
+                if (!std::isfinite(point[0]) || !std::isfinite(point[1]) ||
+                    std::hypot(next[0] - point[0], next[1] - point[1]) <= 1.0e-12) {
+                    throw std::runtime_error("Sketch text contour is invalid");
+                }
+                signed_area += point[0] * next[1] - next[0] * point[1];
+            }
+            if (std::abs(signed_area) <= 1.0e-12) {
+                throw std::runtime_error("Sketch text contour has zero area");
             }
         }
     }
@@ -1706,8 +1785,10 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto spline_count = std::erase_if(next.bsplines,
         [&](const auto& value) { return value.id == geometry_id; });
+    const auto text_count = std::erase_if(next.texts,
+        [&](const auto& value) { return value.id == geometry_id; });
     if (segment_count + circle_count + arc_count + ellipse_count +
-            elliptical_arc_count + spline_count != 1) {
+            elliptical_arc_count + spline_count + text_count != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
@@ -2470,6 +2551,37 @@ std::string Sketch::add_import_block(
     next.validate();
     *this = std::move(next);
     return id;
+}
+
+SketchText Sketch::create_text() {
+    SketchText text;
+    text.id = make_id();
+    return text;
+}
+
+void Sketch::add_text(SketchText text) {
+    if (text.id.empty()) text.id = make_id();
+    if (std::ranges::any_of(texts, [&](const auto& value) {
+            return value.id == text.id;
+        })) {
+        throw std::invalid_argument("Sketch text already exists");
+    }
+    auto next = *this;
+    next.texts.push_back(std::move(text));
+    next.validate();
+    *this = std::move(next);
+}
+
+void Sketch::update_text(SketchText text) {
+    auto next = *this;
+    const auto found = std::find_if(next.texts.begin(), next.texts.end(),
+        [&](const auto& value) { return value.id == text.id; });
+    if (found == next.texts.end()) {
+        throw std::invalid_argument("Sketch text does not exist");
+    }
+    *found = std::move(text);
+    next.validate();
+    *this = std::move(next);
 }
 
 void Sketch::transform_import_block(
@@ -3584,6 +3696,16 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         axis_half_extent = std::max(
             axis_half_extent, 1.25 * std::max(std::abs(point.x), std::abs(point.y)));
     }
+    for (const auto& text : texts) {
+        axis_half_extent = std::max(axis_half_extent,
+            1.25 * std::max(std::abs(text.anchor_x), std::abs(text.anchor_y)));
+        for (const auto& contour : text.contours) {
+            for (const auto& point : contour) {
+                axis_half_extent = std::max(axis_half_extent,
+                    1.25 * std::max(std::abs(point[0]), std::abs(point[1])));
+            }
+        }
+    }
     const auto origin = world_point(0.0, 0.0);
     const auto x_end = world_point(1.0, 0.0);
     const auto y_end = world_point(0.0, 1.0);
@@ -3780,6 +3902,20 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         result.edges.push_back(std::move(edge));
     }
+    for (const auto& text : texts) {
+        for (const auto& contour : text.contours) {
+            zima::kernel::ViewerEdge edge;
+            edge.reference = {id, "text:" + text.id + ":" +
+                text_color_name(text.color), {}};
+            edge.overlay = true;
+            edge.points.reserve(contour.size() + 1);
+            for (const auto& point : contour) {
+                edge.points.push_back(world_point(point[0], point[1]));
+            }
+            edge.points.push_back(edge.points.front());
+            result.edges.push_back(std::move(edge));
+        }
+    }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed) continue;
@@ -3971,6 +4107,24 @@ std::string Sketch::serialized() const {
         {"geometry_ids", block.geometry_ids}, {"point_ids", block.point_ids},
         {"translation_x", block.translation_x},
         {"translation_y", block.translation_y}, {"rotation", block.rotation}});
+    nlohmann::json text_values = nlohmann::json::array();
+    for (const auto& text : texts) {
+        nlohmann::json contours = nlohmann::json::array();
+        for (const auto& contour : text.contours) {
+            nlohmann::json points = nlohmann::json::array();
+            for (const auto& point : contour) points.push_back({point[0], point[1]});
+            contours.push_back(std::move(points));
+        }
+        text_values.push_back({
+            {"id", text.id}, {"value", text.value},
+            {"anchor_x", text.anchor_x}, {"anchor_y", text.anchor_y},
+            {"height", text.height},
+            {"horizontal", text_horizontal_name(text.horizontal)},
+            {"vertical", text_vertical_name(text.vertical)},
+            {"angle_degrees", text.angle_degrees}, {"flipped", text.flipped},
+            {"color", text_color_name(text.color)}, {"font", text.font},
+            {"contours", std::move(contours)}});
+    }
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
         {"id", constraint.id}, {"kind", constraint_name(constraint.kind)},
@@ -3988,7 +4142,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 14},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 15},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -3998,6 +4152,7 @@ std::string Sketch::serialized() const {
         {"elliptical_arcs", std::move(elliptical_arc_values)},
         {"bsplines", std::move(spline_values)},
         {"import_blocks", std::move(import_block_values)},
+        {"texts", std::move(text_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
     return root.dump(2);
@@ -4005,7 +4160,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 14) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 15) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -4063,6 +4218,31 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("point_ids").get<std::vector<std::string>>(),
         value.at("translation_x").get<double>(),
         value.at("translation_y").get<double>(), value.at("rotation").get<double>()});
+    for (const auto& value : root.at("texts")) {
+        SketchText text;
+        text.id = value.at("id").get<std::string>();
+        text.value = value.at("value").get<std::string>();
+        text.anchor_x = value.at("anchor_x").get<double>();
+        text.anchor_y = value.at("anchor_y").get<double>();
+        text.height = value.at("height").get<double>();
+        text.horizontal = text_horizontal_from_name(
+            value.at("horizontal").get<std::string>());
+        text.vertical = text_vertical_from_name(
+            value.at("vertical").get<std::string>());
+        text.angle_degrees = value.at("angle_degrees").get<double>();
+        text.flipped = value.at("flipped").get<bool>();
+        text.color = text_color_from_name(value.at("color").get<std::string>());
+        text.font = value.at("font").get<std::string>();
+        for (const auto& contour_value : value.at("contours")) {
+            std::vector<std::array<double, 2>> contour;
+            for (const auto& point : contour_value) {
+                contour.push_back({point.at(0).get<double>(),
+                                   point.at(1).get<double>()});
+            }
+            text.contours.push_back(std::move(contour));
+        }
+        sketch.texts.push_back(std::move(text));
+    }
     for (const auto& value : root.at("constraints")) sketch.constraints.push_back({
         value.at("id").get<std::string>(), constraint_from_name(value.at("kind")),
         value.at("first").get<std::string>(), value.at("second").get<std::string>(),

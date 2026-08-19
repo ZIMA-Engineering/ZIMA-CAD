@@ -256,6 +256,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
             const auto kind = edge.reference.semantic_key.starts_with("trim_piece:")
                 ? CandidateKind::SketchTrimPiece
+                : edge.reference.semantic_key.starts_with("text:")
+                ? CandidateKind::SketchText
                 : edge.reference.semantic_key.starts_with("segment:")
                 ? CandidateKind::SketchSegment
                 : edge.reference.semantic_key.starts_with("circle:") ||
@@ -264,9 +266,17 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                   edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                   edge.reference.semantic_key.starts_with("bspline:")
                     ? CandidateKind::SketchCurve : CandidateKind::Edge;
-            result.push_back({kind, edge.distance, edge.edge,
-                              edge.reference.owner_id, edge.reference.semantic_key,
-                              edge.reference.instance_path, geometry});
+            if (kind != CandidateKind::SketchText ||
+                std::none_of(result.begin(), result.end(), [&](const auto& candidate) {
+                    return candidate.kind == CandidateKind::SketchText &&
+                        candidate.owner_id == edge.reference.owner_id &&
+                        candidate.semantic_key == edge.reference.semantic_key &&
+                        candidate.geometry == geometry;
+                })) {
+                result.push_back({kind, edge.distance, edge.edge,
+                                  edge.reference.owner_id, edge.reference.semantic_key,
+                                  edge.reference.instance_path, geometry});
+            }
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
@@ -305,6 +315,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         switch (kind) {
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
+        case CandidateKind::SketchText: return 2;
         case CandidateKind::SketchCurve: return 2;
         case CandidateKind::SketchPoint: return 0;
         case CandidateKind::Vertex: return 0;

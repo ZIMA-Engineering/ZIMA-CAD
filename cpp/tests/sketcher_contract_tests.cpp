@@ -85,6 +85,61 @@ int main() {
         require(dimension_candidates.size() == 1 &&
                     dimension_candidates.front().semantic_key == "dimension:length",
                 "Sketch dimension did not join the common viewer candidate list");
+
+        auto text_sketch = zima::sketcher::Sketch::create_default();
+        auto text = zima::sketcher::Sketch::create_text();
+        text.value = "ZIMA";
+        text.anchor_x = 2.0;
+        text.anchor_y = 3.0;
+        text.height = 5.0;
+        text.horizontal = zima::sketcher::TextHorizontalAlignment::Center;
+        text.vertical = zima::sketcher::TextVerticalAlignment::Middle;
+        text.angle_degrees = 15.0;
+        text.flipped = true;
+        text.color = zima::sketcher::SketchTextColor::Yellow;
+        text.contours = {{{2.0, 3.0}, {7.0, 3.0}, {7.0, 8.0}, {2.0, 8.0}}};
+        const auto text_id = text.id;
+        text_sketch.add_text(text);
+        const auto loaded_text = zima::sketcher::Sketch::from_serialized(
+            text_sketch.serialized());
+        require(loaded_text.texts == text_sketch.texts,
+                "Semantic Sketch text and its persisted outline did not round-trip");
+        const auto text_mesh = text_sketch.viewer_mesh();
+        require(text_mesh.edges.size() == 1 &&
+                    text_mesh.edges.front().points.size() == 5 &&
+                    text_mesh.edges.front().points.front().x ==
+                        text_mesh.edges.front().points.back().x &&
+                    text_mesh.edges.front().reference.semantic_key ==
+                        "text:" + text_id + ":yellow",
+                "Sketch text did not expose its closed persisted viewer outline");
+        const auto text_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                text_mesh, {4.0, 3.0, 10.0}, {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchText});
+        require(text_candidates.size() == 1 &&
+                    text_candidates.front().owner_id == text_sketch.id &&
+                    text_candidates.front().semantic_key ==
+                        "text:" + text_id + ":yellow",
+                "Sketch text did not use the common ordered viewer candidate list");
+        auto edited_text = text_sketch.texts.front();
+        edited_text.value = "CAD";
+        edited_text.contours = {{{2.0, 3.0}, {8.0, 3.0}, {8.0, 8.0}, {2.0, 8.0}}};
+        text_sketch.update_text(edited_text);
+        const auto before_invalid_text = text_sketch.serialized();
+        bool invalid_text_rejected = false;
+        try {
+            edited_text.contours.clear();
+            text_sketch.update_text(std::move(edited_text));
+        } catch (const std::runtime_error&) {
+            invalid_text_rejected = true;
+        }
+        require(invalid_text_rejected &&
+                    text_sketch.serialized() == before_invalid_text,
+                "Invalid Sketch text edit partially changed the persisted model");
+        text_sketch.remove_geometry(text_id);
+        require(text_sketch.texts.empty(),
+                "Sketch text was not removed through the common geometry operation");
+
         const auto xy_hit = sketch.intersect_ray({4.0, 7.0, 10.0}, {0.0, 0.0, -1.0});
         require(xy_hit && std::abs((*xy_hit)[0] - 4.0) < 1.0e-9 &&
                     std::abs((*xy_hit)[1] - 7.0) < 1.0e-9,

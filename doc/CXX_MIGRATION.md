@@ -969,3 +969,20 @@ skupin **Vazby** a **Kóty**. Menu nepřidává druhou příkazovou cestu: použ
 stejné `QAction`, jejich stav podle společného viewerového výběru i stejné
 transakční operace. Jde pouze o kompozici GUI bez změny Sketch/Part formátu a
 bez volání OCCT.
+
+Nativní Sketcher nyní obsahuje také sémantickou entitu **Text**. Sketch formát
+verze 15 a Part formát verze 18 ukládají text, kotevní bod, výšku, zarovnání,
+barvu, natočení, převrácení, identitu ISO písma a již vypočtené transformované
+kontury. Font se použije jen při explicitním OK vytvoření nebo úpravy; běžné
+otevření dokumentu, viewer, hover a výběr konzumují pouze persistovaný ZIMA
+model a nevolají OCCT. Všechny kontury jednoho textu tvoří jednu kandidátní
+entitu společného viewerového seznamu a zvýrazní se pouze jejich přesná
+geometrie.
+
+Vytvoření i editace používají jediný `SketchTextPropertiesDialog` odvozený ze
+sdíleného interního Properties SubWindow. Dialog nabízí jen OK/Cancel, podporuje
+společné potvrzení dvojklikem prostředního tlačítka i nad 3D view a udržuje
+náhled transientní až do potvrzení. OK zapíše jednu Part revizi, Cancel obnoví
+nezměněný dokument. Tento řez záměrně ještě nepřevádí textové kontury na profil
+Vytažení nebo Rotace; jde o samostatnou persistovanou skicovou grafiku bez
+větvení do starého formátu.

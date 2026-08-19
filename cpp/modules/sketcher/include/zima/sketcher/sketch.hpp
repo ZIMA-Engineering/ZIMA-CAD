@@ -19,6 +19,9 @@ enum class DimensionKind {
     Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
     EllipseMajorRadius, EllipseMinorRadius, EllipseRotation
 };
+enum class TextHorizontalAlignment { Left, Center, Right };
+enum class TextVerticalAlignment { Bottom, Middle, Top };
+enum class SketchTextColor { Green, White, Yellow };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {
@@ -109,6 +112,22 @@ struct SketchImportBlock {
     bool operator==(const SketchImportBlock&) const = default;
 };
 
+struct SketchText {
+    std::string id;
+    std::string value{"TEXT"};
+    double anchor_x{};
+    double anchor_y{};
+    double height{10.0};
+    TextHorizontalAlignment horizontal{TextHorizontalAlignment::Left};
+    TextVerticalAlignment vertical{TextVerticalAlignment::Bottom};
+    double angle_degrees{};
+    bool flipped{};
+    SketchTextColor color{SketchTextColor::Green};
+    std::string font{"osifont"};
+    std::vector<std::vector<std::array<double, 2>>> contours;
+    bool operator==(const SketchText&) const = default;
+};
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};
@@ -166,6 +185,7 @@ public:
     std::vector<SketchEllipticalArc> elliptical_arcs;
     std::vector<SketchBSpline> bsplines;
     std::vector<SketchImportBlock> import_blocks;
+    std::vector<SketchText> texts;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
 
@@ -249,6 +269,9 @@ public:
         std::string name, std::string source_path,
         std::vector<std::string> geometry_ids,
         std::vector<std::string> point_ids);
+    [[nodiscard]] static SketchText create_text();
+    void add_text(SketchText text);
+    void update_text(SketchText text);
     void transform_import_block(
         const std::string& block_id, double translation_x,
         double translation_y, double rotation);
